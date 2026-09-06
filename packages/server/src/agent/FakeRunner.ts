@@ -23,7 +23,15 @@ import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
  */
 export class FakeRunner implements AgentRunner {
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
-    yield { type: 'session', sessionId: `fake-${randomUUID()}` };
+    // Mirrors the real runner: a fork yields a NEW session id (the parent's is
+    // left untouched), a resume keeps the one it was given.
+    yield {
+      type: 'session',
+      sessionId:
+        spec.resumeSessionId !== null && !spec.forkSession
+          ? spec.resumeSessionId
+          : `fake-${randomUUID()}`,
+    };
 
     const question = spec.prompt.trimStart().startsWith('?');
     yield {
@@ -36,6 +44,12 @@ export class FakeRunner implements AgentRunner {
     // A cancelled run must leave the worktree alone rather than half-written.
     if (spec.signal.aborted) {
       yield { type: 'error', error: 'cancelled before any write' };
+      return;
+    }
+
+    if (spec.readOnly) {
+      yield { type: 'text', text: 'This node is frozen, so I can only read.' };
+      yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };
       return;
     }
 

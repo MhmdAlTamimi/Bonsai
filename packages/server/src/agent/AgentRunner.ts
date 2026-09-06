@@ -15,9 +15,18 @@ export interface RunSpec {
   /** The node's worktree. The isolation boundary (D17). */
   cwd: string;
   prompt: string;
-  /** D16: fork the parent's session rather than resuming it. Unused until M3. */
+  /**
+   * D16: the session to continue from, or null for a node with no ancestry to
+   * inherit (master's first run).
+   *
+   * Paired with `forkSession`, which says WHICH conversation this is:
+   *   fork  -- this is the parent's session, and we want a copy of it
+   *   resume -- this is the node's own session, and we are adding to it
+   */
   resumeSessionId: string | null;
-  /** D18: read-only for frozen nodes. Enforced from M3. */
+  /** True when resumeSessionId belongs to the PARENT and must not be advanced. */
+  forkSession: boolean;
+  /** D18: read-only tools. True for frozen nodes, which stay conversational. */
   readOnly: boolean;
   model: string | null;
   permissionMode: string;
