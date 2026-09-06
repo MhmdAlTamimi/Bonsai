@@ -69,7 +69,17 @@ export interface RunView {
   endedAt: string | null;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * An ESTIMATE at API list price, from the SDK's own figure (D20). It is not a
+   * billing statement, and on a subscription login nothing is charged per token
+   * at all -- there it says what these tokens would have cost through the API.
+   */
   costUsd: number;
+  /** Replayed context served from cache, which costs a fraction of fresh input. */
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** Which model actually ran. Null for stand-in runs and for older rows. */
+  model: string | null;
   error: string | null;
 }
 

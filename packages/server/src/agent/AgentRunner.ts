@@ -37,7 +37,18 @@ export type RunEvent =
   | { type: 'text'; text: string }
   | { type: 'tool'; name: string; detail: string }
   | { type: 'session'; sessionId: string }
-  | { type: 'done'; inputTokens: number; outputTokens: number; costUsd: number }
+  /** Which model the run is actually using. Bonsai sets none by default (D32). */
+  | { type: 'model'; model: string }
+  | {
+      type: 'done';
+      inputTokens: number;
+      outputTokens: number;
+      /** An ESTIMATE at list price (D20). Not a bill, and not what a subscription charges. */
+      costUsd: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
+      model?: string | null;
+    }
   | { type: 'error'; error: string };
 
 export interface AgentRunner {

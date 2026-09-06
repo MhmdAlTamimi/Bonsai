@@ -80,7 +80,7 @@ export function Panel({
           <dd>{node.writable ? 'yes, nothing has branched off it' : 'frozen — a child committed'}</dd>
         </div>
         <div>
-          <dt>cost</dt>
+          <dt>est. cost</dt>
           <dd>{node.costUsd > 0 ? `$${node.costUsd.toFixed(4)}` : '—'}</dd>
         </div>
       </dl>
@@ -250,14 +250,38 @@ function StateBody({
 function Transcript({ detail }: { detail: NodeDetail | null }): JSX.Element {
   const runs = detail?.runs ?? [];
   const cost = runs.reduce((sum, r) => sum + r.costUsd, 0);
+  const cacheRead = runs.reduce((sum, r) => sum + r.cacheReadTokens, 0);
+  const input = runs.reduce((sum, r) => sum + r.inputTokens, 0);
+  const output = runs.reduce((sum, r) => sum + r.outputTokens, 0);
+  const model = runs.map((r) => r.model).filter((m): m is string => m !== null).at(-1);
+
   return (
     <>
       <h3>Runs</h3>
       <p className="muted">
         {detail === null
           ? 'loading…'
-          : `${runs.length} run(s)${cost > 0 ? `, $${cost.toFixed(4)}` : ''}`}
+          : `${runs.length} run(s)${cost > 0 ? `, $${cost.toFixed(4)} estimated` : ''}`}
       </p>
+      {model !== undefined && (
+        <p className="muted">
+          model <code>{model}</code>
+        </p>
+      )}
+      {(input > 0 || output > 0) && (
+        <p className="muted">
+          {input.toLocaleString()} in / {output.toLocaleString()} out
+          {cacheRead > 0 && ` · ${cacheRead.toLocaleString()} from cache`}
+        </p>
+      )}
+      {cost > 0 && (
+        <p className="hint">
+          An estimate at API list price, not a bill. On a Claude subscription
+          nothing is charged per token — this is what these tokens would have cost
+          through the API. Cost grows with depth: a node replays its whole
+          ancestor conversation on every run.
+        </p>
+      )}
       {detail?.contextMd != null && (
         <details>
           <summary className="muted">CONTEXT.md</summary>

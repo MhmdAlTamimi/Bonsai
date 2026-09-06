@@ -1,5 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk';
+import type { ModelUsage, Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk';
 
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { READ_ONLY_TOOLS, WRITABLE_TOOLS, gitGuardHook } from './guards.js';
@@ -71,7 +71,11 @@ export class ClaudeSdkRunner implements AgentRunner {
           yield { type: 'session', sessionId: message.session_id };
         }
 
-        if (message.type === 'assistant') {
+        if (message.type === 'system' && message.subtype === 'init') {
+          // Bonsai sets no model unless a project or node overrides one (D32),
+          // so this is the SDK's default and the only place it is observable.
+          yield { type: 'model', model: message.model };
+        } else if (message.type === 'assistant') {
           for (const block of message.message.content) {
             if (block.type === 'text' && block.text.trim() !== '') {
               yield { type: 'text', text: block.text };
@@ -121,15 +125,49 @@ later node continuing from here should know. If you only answered a question and
 changed no files, do not create CONTEXT.md.
 `.trim();
 
+/**
+ * Totals for a finished run.
+ *
+ * Reads `modelUsage`, not `usage`. The SDK is explicit that `usage` is the main
+ * agent loop only -- it excludes subagents and sidechains -- and that modelUsage
+ * is "the correct field for token/cost accounting". Using `usage` made the token
+ * counts quietly disagree with the cost sitting next to them.
+ *
+ * Cache tokens are reported separately because they are most of the answer to
+ * "why did that cost what it did": a forked child replays its whole ancestor
+ * chain (PRD §11), and replayed context read from cache costs a fraction of
+ * fresh input.
+ */
 function usageEvent(message: {
   total_cost_usd: number;
   usage: { input_tokens?: number; output_tokens?: number };
+  modelUsage?: Record<string, ModelUsage>;
 }): RunEvent {
+  const entries = Object.entries(message.modelUsage ?? {});
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  for (const [, usage] of entries) {
+    inputTokens += usage.inputTokens ?? 0;
+    outputTokens += usage.outputTokens ?? 0;
+    cacheReadTokens += usage.cacheReadInputTokens ?? 0;
+    cacheCreationTokens += usage.cacheCreationInputTokens ?? 0;
+  }
+
+  // The model that did the most output is the one worth naming; subagents and
+  // internal calls (compaction, and so on) also appear here.
+  const primary = entries.sort((a, b) => (b[1].outputTokens ?? 0) - (a[1].outputTokens ?? 0))[0];
+
   return {
     type: 'done',
     costUsd: message.total_cost_usd ?? 0,
-    inputTokens: message.usage?.input_tokens ?? 0,
-    outputTokens: message.usage?.output_tokens ?? 0,
+    inputTokens: entries.length > 0 ? inputTokens : (message.usage?.input_tokens ?? 0),
+    outputTokens: entries.length > 0 ? outputTokens : (message.usage?.output_tokens ?? 0),
+    cacheReadTokens,
+    cacheCreationTokens,
+    model: primary === undefined ? null : (primary[1].canonicalModel ?? primary[0]),
   };
 }
 

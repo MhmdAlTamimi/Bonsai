@@ -84,7 +84,20 @@ CREATE TABLE IF NOT EXISTS run (
   input_tokens  INTEGER NOT NULL DEFAULT 0,
   output_tokens INTEGER NOT NULL DEFAULT 0,
   -- D20: captured from the SDK result message from day one.
+  --
+  -- An ESTIMATE at list price, which the SDK is explicit about: it is not a
+  -- billing statement. On a subscription login nothing is billed per token at
+  -- all, so this says what the tokens would have cost through the API.
   cost          REAL NOT NULL DEFAULT 0,
+  -- Which model actually ran. Not knowing this made "why did that cost so
+  -- much?" unanswerable, since Bonsai sets no model and inherits the SDK's
+  -- default unless a project or node overrides it (D32).
+  model         TEXT,
+  -- Broken out because fork depth is the thing that grows cost here: a child
+  -- replays its whole ancestor chain (PRD §11), and whether those tokens were
+  -- cache reads or fresh input is most of the difference in what it costs.
+  cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+  cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
   -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
   -- sixth node state.
   error         TEXT,

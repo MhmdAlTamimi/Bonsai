@@ -45,6 +45,16 @@ export interface ProjectRow {
 
 const now = (): string => new Date().toISOString();
 
+/** What a finished run reports. Cost is an estimate at list price, not a bill. */
+export interface RunTotals {
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  model?: string | null;
+}
+
 export class Store {
   constructor(
     private readonly db: DatabaseSync,
@@ -291,17 +301,27 @@ export class Store {
     runId: string,
     status: 'done' | 'cancelled' | 'failed',
     error: string | null,
-    cost: number,
-    inputTokens: number,
-    outputTokens: number,
+    totals: RunTotals,
   ): void {
     this.db
       .prepare(
         `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
-                        input_tokens = ?, output_tokens = ?
+                        input_tokens = ?, output_tokens = ?,
+                        cache_read_tokens = ?, cache_creation_tokens = ?, model = ?
          WHERE id = ?`,
       )
-      .run(status, now(), error, cost, inputTokens, outputTokens, runId);
+      .run(
+        status,
+        now(),
+        error,
+        totals.cost,
+        totals.inputTokens,
+        totals.outputTokens,
+        totals.cacheReadTokens ?? 0,
+        totals.cacheCreationTokens ?? 0,
+        totals.model ?? null,
+        runId,
+      );
   }
 
   getRun(runId: string): { id: string; node_id: string; status: string } | undefined {
@@ -338,6 +358,9 @@ export class Store {
       inputTokens: Number(r['input_tokens'] ?? 0),
       outputTokens: Number(r['output_tokens'] ?? 0),
       costUsd: Number(r['cost'] ?? 0),
+      cacheReadTokens: Number(r['cache_read_tokens'] ?? 0),
+      cacheCreationTokens: Number(r['cache_creation_tokens'] ?? 0),
+      model: (r['model'] as string | null) ?? null,
       error: (r['error'] as string | null) ?? null,
     }));
   }

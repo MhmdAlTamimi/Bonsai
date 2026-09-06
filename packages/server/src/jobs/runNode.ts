@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { NodeStatus } from '@bonsai/shared';
 
-import type { NodeRow, Store } from '../db/store.js';
+import type { NodeRow, RunTotals, Store } from '../db/store.js';
 import type { EventBus } from '../api/events.js';
 import type { AgentRunner } from '../agent/AgentRunner.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
@@ -114,7 +114,11 @@ export class RunJobs {
     const node = this.store.getNode(nodeId);
     const project = node === undefined ? undefined : this.store.getProject(node.project_id);
     if (node === undefined || project === undefined) {
-      this.store.finishRun(runId, 'failed', 'the node was removed before its run started', 0, 0, 0);
+      this.store.finishRun(runId, 'failed', 'the node was removed before its run started', {
+        cost: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      });
       return;
     }
 
@@ -122,6 +126,9 @@ export class RunJobs {
     let cost = 0;
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
+    let model: string | null = null;
 
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
@@ -178,10 +185,19 @@ export class RunJobs {
               text: `${event.name}: ${event.detail}`,
             });
             break;
+          case 'model':
+            model = event.model;
+            break;
           case 'done':
+            // Assigned, never accumulated: total_cost_usd is documented as the
+            // running total for the whole query() call, so summing results
+            // across turns would count the same tokens repeatedly.
             cost = event.costUsd;
             inputTokens = event.inputTokens;
             outputTokens = event.outputTokens;
+            cacheReadTokens = event.cacheReadTokens ?? 0;
+            cacheCreationTokens = event.cacheCreationTokens ?? 0;
+            model = event.model ?? model;
             break;
           case 'error':
             throw new Error(event.error);
@@ -189,7 +205,9 @@ export class RunJobs {
       }
 
       if (controller.signal.aborted) {
-        this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', cost, inputTokens, outputTokens);
+          this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
+          cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model,
+        });
         return;
       }
 
@@ -207,7 +225,14 @@ export class RunJobs {
         this.store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
       }
 
-      this.store.finishRun(runId, 'done', null, cost, inputTokens, outputTokens);
+      this.store.finishRun(runId, 'done', null, {
+        cost,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+        model,
+      });
       this.setStatus(nodeId, 'ready');
       this.bus.publish(node.project_id, {
         type: 'run.finished',
@@ -222,7 +247,9 @@ export class RunJobs {
       const message = err instanceof Error ? err.message : String(err);
       // D31: a failed run is an `interrupted` node plus an error, not a sixth
       // state. The worktree is left dirty on purpose so M4 can resume it.
-      this.finishRun(runId, nodeId, 'failed', message, cost, inputTokens, outputTokens);
+      this.finishRun(runId, nodeId, 'failed', message, {
+        cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model,
+      });
       this.bus.publish(node.project_id, { type: 'run.error', nodeId, runId, error: message });
     }
   }
@@ -232,11 +259,9 @@ export class RunJobs {
     nodeId: string,
     status: 'cancelled' | 'failed',
     error: string | null,
-    cost: number,
-    inputTokens: number,
-    outputTokens: number,
+    totals: RunTotals,
   ): void {
-    this.store.finishRun(runId, status, error, cost, inputTokens, outputTokens);
+    this.store.finishRun(runId, status, error, totals);
     this.setStatus(nodeId, 'interrupted');
     const node = this.store.getNode(nodeId);
     if (node !== undefined) {
