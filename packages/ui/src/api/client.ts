@@ -1,4 +1,5 @@
 import type {
+  CreateProjectRequest,
   MessageView,
   NodeDetail,
   NodeView,
@@ -38,8 +39,25 @@ export class ApiCallError extends Error {
   }
 }
 
+export interface NodeDiffView {
+  files: string[];
+  patch: string;
+  dirty: string[];
+}
+
 export const api = {
   listProjects: () => json<Array<{ id: string; name: string }>>('/api/projects'),
+
+  createProject: (body: CreateProjectRequest) =>
+    json<{ projectId: string; masterNodeId: string }>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  diff: (nodeId: string) => json<NodeDiffView>(`/api/nodes/${nodeId}/diff`),
+
+  cancelRun: (runId: string) =>
+    json<{ cancelled: boolean }>(`/api/runs/${runId}/cancel`, { method: 'POST' }),
 
   tree: (projectId: string) => json<TreeResponse>(`/api/projects/${projectId}/tree`),
 
@@ -68,6 +86,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ prompt }),
     }),
+
+  deleteNodeTree: (nodeId: string) =>
+    json<{ ok: true; removed: number }>(`/api/nodes/${nodeId}`, { method: 'DELETE' }),
 };
 
 /** Subscribes to the project's event stream. Returns an unsubscribe function. */

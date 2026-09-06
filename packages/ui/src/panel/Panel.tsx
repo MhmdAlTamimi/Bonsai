@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useState } from 'react';
 import type { NodeDetail, NodeView } from '@bonsai/shared';
-import { ApiCallError, api } from '../api/client.ts';
+import { ApiCallError, type NodeDiffView, api } from '../api/client.ts';
 import { CODE_LABEL, codeState } from '../nodeCode.ts';
 
 /**
@@ -11,9 +11,11 @@ import { CODE_LABEL, codeState } from '../nodeCode.ts';
  */
 export function Panel({
   node,
+  stream,
   onChanged,
 }: {
   node: NodeView | null;
+  stream: string[];
   onChanged: () => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<NodeDetail | null>(null);
@@ -33,7 +35,7 @@ export function Panel({
     return () => {
       live = false;
     };
-  }, [node?.id, node?.status, node?.displayName]);
+  }, [node?.id, node?.status]);
 
   if (node === null) {
     return (
@@ -46,11 +48,13 @@ export function Panel({
   const createChild = async (): Promise<void> => {
     setError(null);
     try {
-      await api.createNode(node.projectId, {
+      const { node: child } = await api.createNode(node.projectId, {
         parentId: node.id,
         displayName: childName.trim() || 'untitled',
         description: childDesc.trim(),
       });
+      // §6.2: the user stays on the canvas and the node starts working.
+      await api.startRun(child.id, childDesc.trim() || childName.trim());
       setChildName('');
       setChildDesc('');
       onChanged();
@@ -88,7 +92,7 @@ export function Panel({
         </p>
       )}
 
-      <StateBody node={node} detail={detail} />
+      <StateBody node={node} detail={detail} stream={stream} onChanged={onChanged} setError={setError} />
 
       {/* D5: to make a change you explicitly create a child. */}
       <section className="create-child">
@@ -102,14 +106,15 @@ export function Panel({
         <textarea
           value={childDesc}
           onChange={(e) => setChildDesc(e.target.value)}
-          placeholder="what should change?"
+          placeholder="what should change? start with ? to just ask"
           aria-label="child description"
           rows={3}
         />
-        <button onClick={() => void createChild()}>Create</button>
+        <button onClick={() => void createChild()}>Create and run</button>
         <p className="hint">
-          The node keeps a branch only if its run changes files. Ask a question and it stays
-          conversation-only; its own children will branch from here regardless.
+          The node keeps a branch only if its run changes files. Start with <code>?</code> and the
+          stand-in agent answers without writing anything, so the node stays conversation-only —
+          its own children still branch from here.
         </p>
       </section>
 
@@ -118,34 +123,72 @@ export function Panel({
   );
 }
 
-function StateBody({ node, detail }: { node: NodeView; detail: NodeDetail | null }): JSX.Element {
+function StateBody({
+  node,
+  detail,
+  stream,
+  onChanged,
+  setError,
+}: {
+  node: NodeView;
+  detail: NodeDetail | null;
+  stream: string[];
+  onChanged: () => void;
+  setError: (e: string | null) => void;
+}): JSX.Element {
+  const [prompt, setPrompt] = useState('');
+
+  const start = async (): Promise<void> => {
+    setError(null);
+    try {
+      await api.startRun(node.id, prompt.trim() || node.summaryLine);
+      setPrompt('');
+      onChanged();
+    } catch (e) {
+      setError(describe(e));
+    }
+  };
+
+  const cancel = async (): Promise<void> => {
+    const run = detail?.runs.find((r) => r.status === 'running');
+    if (run === undefined) return;
+    try {
+      await api.cancelRun(run.id);
+      onChanged();
+    } catch (e) {
+      setError(describe(e));
+    }
+  };
+
   switch (node.status) {
     case 'new':
       return (
         <section>
           <p className="summary">{node.summaryLine}</p>
-          <button disabled>Start</button>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder={node.summaryLine || 'what should the agent do?'}
+            rows={3}
+            aria-label="prompt"
+          />
+          <button onClick={() => void start()}>Start</button>
           <p className="hint">
             <strong>not started</strong> means no agent has run on this node yet — it exists in
             the tree and holds your description, but nothing has read or written any code for it.
           </p>
-          <p className="hint">
-            You will rarely see this state in the finished product: creating a node starts its run
-            straight away and it goes to <em>running</em> without stopping here (§6.2). The agent
-            layer lands in M3, so until then a new node just waits.
-          </p>
         </section>
       );
+
     case 'running':
       return (
         <section>
           <p className="muted">Agent working…</p>
-          <pre className="stream">{/* run.delta frames land here in M3 */}</pre>
-          <button disabled title="cancellation lands in M3">
-            Cancel
-          </button>
+          <pre className="stream">{stream.join('\n') || '…'}</pre>
+          <button onClick={() => void cancel()}>Cancel</button>
         </section>
       );
+
     case 'needs_you':
       return (
         <section>
@@ -154,36 +197,106 @@ function StateBody({ node, detail }: { node: NodeView; detail: NodeDetail | null
           <p className="hint">The ask-user mechanism is postponed; this state is unreachable.</p>
         </section>
       );
+
     case 'ready':
       return (
         <section>
           <p className="summary">{node.summaryLine}</p>
-          <h3>Transcript</h3>
-          <p className="muted">
-            {detail === null ? 'loading…' : `${detail.runs.length} run(s) recorded.`}
-          </p>
-          {node.hasCommits ? (
-            <p className="muted">Diff lands in M2.</p>
+          <Transcript detail={detail} />
+          <Diff node={node} />
+          {node.writable ? (
+            <>
+              <h3>Chat with this node</h3>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="another change, or ? to just ask"
+                rows={3}
+                aria-label="prompt"
+              />
+              <button onClick={() => void start()}>Run</button>
+              <p className="hint">
+                §6.3: each run that changes files adds another commit to this same node. The tree
+                does not change.
+              </p>
+            </>
           ) : (
-            <p className="muted">No diff — this node ran and committed nothing.</p>
+            <p className="hint">
+              Frozen: a child has committed, so this node cannot change any more. Create a child
+              to carry on from here.
+            </p>
           )}
         </section>
       );
+
     case 'interrupted':
       return (
         <section>
           <p className="error">
             {detail?.runs.at(-1)?.error ?? 'The run was killed or failed midway.'}
           </p>
+          <Transcript detail={detail} />
           <div className="row">
             <button disabled>Resume</button>
             <button disabled>Discard</button>
             <button disabled>Keep</button>
           </div>
-          <p className="hint">Recovery lands in M4.</p>
+          <p className="hint">Recovery lands in M4. The worktree is left as the run found it.</p>
         </section>
       );
   }
+}
+
+function Transcript({ detail }: { detail: NodeDetail | null }): JSX.Element {
+  const runs = detail?.runs ?? [];
+  const cost = runs.reduce((sum, r) => sum + r.costUsd, 0);
+  return (
+    <>
+      <h3>Runs</h3>
+      <p className="muted">
+        {detail === null
+          ? 'loading…'
+          : `${runs.length} run(s)${cost > 0 ? `, $${cost.toFixed(4)}` : ''}`}
+      </p>
+      {detail?.contextMd != null && (
+        <details>
+          <summary className="muted">CONTEXT.md</summary>
+          <pre className="stream">{detail.contextMd}</pre>
+        </details>
+      )}
+    </>
+  );
+}
+
+function Diff({ node }: { node: NodeView }): JSX.Element {
+  const [diff, setDiff] = useState<NodeDiffView | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open || !node.hasCommits) return;
+    let live = true;
+    void api.diff(node.id).then((d) => live && setDiff(d)).catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [open, node.id, node.hasCommits]);
+
+  if (!node.hasCommits) {
+    return <p className="muted">No diff — this node ran and committed nothing.</p>;
+  }
+
+  return (
+    <>
+      <h3>Diff</h3>
+      <button onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'} diff</button>
+      {open && diff !== null && (
+        <>
+          <p className="muted">{diff.files.join(', ') || 'no files'}</p>
+          <pre className="stream">{diff.patch}</pre>
+        </>
+      )}
+    </>
+  );
 }
 
 function describe(e: unknown): string {
