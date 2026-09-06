@@ -1,0 +1,13 @@
+{
+  "name": "@bonsai/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "dependencies": { "@bonsai/shared": "*" },
+  "scripts": {
+    "build": "tsc -b",
+    "start": "node --no-warnings dist/index.js",
+    "test": "node --test \"dist/**/*.test.js\""
+  }
+}
