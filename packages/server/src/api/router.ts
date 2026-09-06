@@ -3,17 +3,23 @@ import type {
   CreateNodeRequest,
   CreateProjectRequest,
   NodeDetail,
+  StartRunRequest,
   TreeResponse,
   UpdateNodeRequest,
 } from '@bonsai/shared';
 
 import type { Store } from '../db/store.js';
 import type { EventBus } from './events.js';
+import type { RunJobs } from '../jobs/runNode.js';
+import { createChildNode, createProject, deleteNodeTree } from '../projects.js';
+import { nodeDiff } from '../git/diff.js';
+import { readContextFile } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
 
 interface Ctx {
   store: Store;
   bus: EventBus;
+  jobs: RunJobs;
 }
 
 type Handler = (
@@ -61,11 +67,18 @@ route('GET', '/api/projects', (_req, res, _p, { store }) => {
   sendJson(res, 200, store.listProjects().map((p) => store.projectView(p)));
 });
 
-route('POST', '/api/projects', async (req, res) => {
-  await readJson<CreateProjectRequest>(req);
-  // Creating a project means creating a bare repo, a root commit, master's
-  // worktree, and then a scaffolding run (D21). All of that is the git layer.
-  notYet('M2', 'creating a project');
+route('POST', '/api/projects', async (req, res, _p, { store, bus }) => {
+  const body = await readJson<CreateProjectRequest>(req);
+  const created = await createProject(store, {
+    name: requireString(body.name, 'name'),
+    description: typeof body.description === 'string' ? body.description : '',
+    model: body.model ?? null,
+    permissionMode: body.permissionMode ?? 'acceptEdits',
+  });
+  bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
+  // D21 has the agent scaffold master from the description; that run starts in
+  // M3. The repo, master branch, worktree and root commit all exist now.
+  sendJson(res, 201, created);
 });
 
 route('GET', '/api/projects/:id/tree', (_req, res, params, { store }) => {
@@ -102,7 +115,7 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus }
   // is legal and normal -- freezing constrains what the *parent* may do next,
   // and it is checked at run start rather than continuously.
 
-  const node = store.createNode({
+  const { nodeId } = await createChildNode(store, {
     projectId,
     parentId,
     displayName: requireString(body.displayName, 'displayName'),
@@ -112,20 +125,20 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus }
   });
 
   bus.publish(projectId, { type: 'tree.updated', projectId });
-  // §6.2 starts the run here and the user stays on the canvas. No agent in M1,
-  // so the node stays in `new` -- which is exactly the brief window the state
-  // was kept for.
-  sendJson(res, 201, { node: store.treeView(projectId).find((n) => n.id === node.id) });
+  // §6.2: the user stays on the canvas and the node appears immediately. The
+  // run is started separately until M3 so the git layer can be driven on its
+  // own; `new` is the brief window the state was kept for.
+  sendJson(res, 201, { node: store.treeView(projectId).find((n) => n.id === nodeId) });
 });
 
-route('GET', '/api/nodes/:id', (_req, res, params, { store }) => {
+route('GET', '/api/nodes/:id', async (_req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const view = store.treeView(row.project_id).find((n) => n.id === row.id)!;
   const body: NodeDetail = {
     node: view,
     runs: store.listRuns(row.id),
-    contextMd: null,
+    contextMd: await readContextFile(row.worktree_path),
     baseIsPinnedBehindLiveWalk: store.baseDiverges(row),
   };
   sendJson(res, 200, body);
@@ -146,14 +159,16 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus }) => {
   sendJson(res, 200, store.treeView(row.project_id).find((n) => n.id === row.id));
 });
 
-route('DELETE', '/api/nodes/:id', (_req, res, params, { store, bus }) => {
+route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   if (row.parent_id === null) throw new HttpError(400, 'deleting master means deleting the project');
-  if (row.status === 'running') notYet('M3', 'cancelling a running node before deleting it');
-  store.deleteNode(row.id);
+  // Open Question 3, answered: cancel, then delete. Blocking the delete would
+  // strand a node behind a run that may never finish.
+  jobs.cancel(row.id);
+  const removed = await deleteNodeTree(store, row.id);
   bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true, removed });
 });
 
 route('GET', '/api/nodes/:id/messages', (req, res, params, { store }) => {
@@ -164,12 +179,37 @@ route('GET', '/api/nodes/:id/messages', (req, res, params, { store }) => {
   sendJson(res, 200, store.listMessages(row.id, Number.isFinite(afterSeq) ? afterSeq : 0));
 });
 
-route('GET', '/api/nodes/:id/diff', (_req, res) => notYet('M2', 'reading a node diff'));
+route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  if (row.base_commit === null && row.head_commit === null) {
+    throw new HttpError(400, 'master has no base to diff against');
+  }
+  sendJson(
+    res,
+    200,
+    await nodeDiff(row.worktree_path, row.base_commit ?? row.head_commit!, row.head_commit !== null),
+  );
+});
 
 // -- runs --------------------------------------------------------------------
 
-route('POST', '/api/nodes/:id/runs', (_req, res) => notYet('M3', 'starting an agent run'));
-route('POST', '/api/runs/:id/cancel', (_req, res) => notYet('M3', 'cancelling a run'));
+route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  const body = await readJson<StartRunRequest>(req);
+  try {
+    sendJson(res, 202, jobs.start(row.id, requireString(body.prompt, 'prompt')));
+  } catch (err) {
+    throw new HttpError(409, err instanceof Error ? err.message : String(err));
+  }
+});
+
+route('POST', '/api/runs/:id/cancel', (_req, res, params, { store, jobs }) => {
+  const run = store.getRun(params['id']!);
+  if (run === undefined) throw new HttpError(404, 'no such run');
+  sendJson(res, 200, { cancelled: jobs.cancel(run.node_id) });
+});
 route('POST', '/api/runs/:id/reply', (_req, res) =>
   notYet('later', 'answering an agent question (the ask-user mechanism is postponed)'),
 );

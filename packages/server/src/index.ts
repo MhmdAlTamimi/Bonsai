@@ -9,17 +9,32 @@ import { seedDemoProject } from './db/seed.js';
 import { Store } from './db/store.js';
 import { EventBus } from './api/events.js';
 import { handleApi } from './api/router.js';
+import { RunJobs } from './jobs/runNode.js';
+import { FakeRunner } from './agent/FakeRunner.js';
 
 const config = loadConfig();
 const db = openDatabase(config.dataDir);
 const store = new Store(db, config.reposRoot);
 const bus = new EventBus();
 
-// M1 has no project-creation flow (that is the git layer), so the canvas needs
-// something to render. Seeded once; delete the db file to reset.
-if (store.listProjects().length === 0) {
+// D14e: agent invocation sits behind one interface. M2 runs the whole pipeline
+// -- worktrees, branching, commits, lineage -- against a stand-in, so the git
+// layer is exercised without agent latency or cost. M3 swaps this one line.
+const jobs = new RunJobs(store, bus, new FakeRunner());
+
+// D31: any run still marked `running` in the database died with the process,
+// because nothing survives the exit. Recovery itself lands in M4; noticing is
+// cheap and belongs here from the start.
+const orphaned = store.markOrphanedRunsInterrupted();
+if (orphaned > 0) {
+  process.stdout.write(`[bonsai] marked ${orphaned} interrupted run(s) from a previous session\n`);
+}
+
+// Projects can be created for real now, so the seed is opt-in rather than
+// automatic -- a seeded tree has fake commit shas and no worktrees behind it.
+if (process.env['BONSAI_SEED'] === '1' && store.listProjects().length === 0) {
   const id = seedDemoProject(db, config.reposRoot);
-  process.stdout.write(`[bonsai] seeded demo project ${id}\n`);
+  process.stdout.write(`[bonsai] seeded fake demo project ${id} (no git behind it)\n`);
 }
 
 const UI_DIST = resolve(fileURLToPath(new URL('../../ui/dist', import.meta.url)));
@@ -34,7 +49,7 @@ const MIME: Record<string, string> = {
 
 const server = createServer((req, res) => {
   void (async () => {
-    if (await handleApi(req, res, { store, bus })) return;
+    if (await handleApi(req, res, { store, bus, jobs })) return;
 
     // Serve the built UI when it exists. In development the vite dev server
     // proxies /api here instead, so this path is unused.
@@ -59,6 +74,7 @@ server.listen(config.port, () => {
 });
 
 const shutdown = (): void => {
+  jobs.cancelAll();
   bus.closeAll();
   server.close(() => {
     db.close();
