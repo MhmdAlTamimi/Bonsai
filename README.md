@@ -14,37 +14,38 @@ Full spec in [`docs/v0-prd.md`](docs/v0-prd.md); decisions and deferred backlog 
 
 ---
 
-## Status: M2 (git layer)
+## Status: M3 (agent layer)
 
 Built in milestones, each with a review checkpoint.
 
 | | | |
 |---|---|---|
 | M1 | Skeleton — schema, API, canvas | done |
-| **M2** | Git layer — repos, worktrees, the ancestor-commit walk | **done** |
-| M3 | Agent layer — Claude Agent SDK, streaming, cancellation | next |
-| M4 | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | |
+| M2 | Git layer — repos, worktrees, the ancestor-commit walk | done |
+| **M3** | Agent layer — Claude Agent SDK, session forking, cancellation | **done** |
+| M4 | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | next |
 | M5 | Detached worktrees and the full demo script | |
 
-**M2 has real git and no agent.** Projects, branches, worktrees, commits and the
-walk up to the nearest ancestor commit all work; a stand-in writes the files an
-agent would write, so the subtlest logic in the product can be exercised without
-agent latency or cost. Routes whose milestone has not arrived return `501`
-naming the milestone rather than silently doing nothing.
+**M3 runs real agents when you have credentials, and a stand-in when you do
+not.** Nodes inherit their parent's conversation by session forking, runs stream
+to the canvas, and cancellation works. Routes whose milestone has not arrived
+return `501` naming the milestone rather than silently doing nothing.
 
 ### Trying it
 
-Create a project, then create children from the side panel. One convention
-stands in for the agent until M3:
+Create a project, then create children from the side panel. Nothing asks you
+which kind of node you are making — a node that changes files gets a branch and
+a commit, and a node that only answers a question does not.
 
-- a prompt starting with `?` writes nothing, so the node stays conversation-only
-- anything else writes a file, so the node commits and gets a branch
+Ask a question under a node, then create a child of that question. The child
+inherits the question's whole conversation, but its code branches from the
+question's *parent* commit, because the question never made one. That divergence
+between code lineage and conversation lineage is what the product is built
+around, and it is the thing to look at first.
 
-Nothing asks you which kind of node you are making. Ask a question under a node,
-then create a child of that question, and the child's code will branch from the
-question's *parent* commit while still sitting below it in the tree — the
-divergence between code lineage and conversation lineage that the whole product
-is built around.
+With the stand-in agent (no credentials), one convention decides which a node
+becomes: a prompt starting with `?` writes nothing, anything else writes a file.
+With a real agent, what the agent actually did decides it.
 
 ---
 
@@ -56,18 +57,34 @@ is built around.
   so there is no native module to compile and no test runner to install.
 - Check with `node --version`.
 
-### No API key is needed yet
+### Credentials
 
-M1 does not talk to Anthropic at all — there is no agent layer to talk to it. You need **no
-credentials, no `.env`, and no account** to run and review M1.
+Bonsai now uses the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk).
+Either credential works (D23):
 
-That changes at **M3**, when the Claude Agent SDK lands. From then on you will need one of:
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...     # an API key, or
+claude login                             # a Claude subscription
+```
 
-- `ANTHROPIC_API_KEY` in the environment, or
-- a Claude subscription login through the Claude Code CLI (D23 supports both).
+**It still runs without either.** With no credentials Bonsai falls back to a
+stand-in agent that writes placeholder files, so you can review the whole app —
+tree, git, worktrees, commits, streaming, cancellation — without an account and
+without spending anything. The server prints which one it picked on startup:
 
-M3 will document the exact setup when it adds the dependency. Until then, running Bonsai costs
-nothing and calls nothing.
+```
+[bonsai] agent: Claude Agent SDK
+[bonsai] agent: stand-in (no credentials found; runs cost nothing and call nothing)
+```
+
+**Real runs cost real money.** Each node forks its parent's conversation, so a
+node at depth 6 replays everything above it (PRD §11 accepts this for V0; B7 is
+the optimization). Cost per run is captured and shown in the side panel.
+
+| Variable | Effect |
+|---|---|
+| `BONSAI_FAKE_AGENT=1` | Force the stand-in even when credentials exist. |
+| `BONSAI_REAL_AGENT=1` | Force the real agent. Needed on macOS, where a subscription login lives in the Keychain and cannot be detected from disk. |
 
 ### Install and run
 
@@ -104,12 +121,15 @@ npm run dev          # now also serves the UI at http://localhost:8787
 npm test
 ```
 
-43 tests, no network and no agent. Roughly half are pure unit tests over
+55 tests, no network and no agent — they run the same with or without
+credentials, and never spend anything. Roughly half are pure unit tests over
 `domain/lineage.ts` — the nearest-ancestor-commit walk. The rest are integration
 tests that run **real git** in temporary directories, including the M2
 checkpoint: a node whose parent has no commits of its own branches from the
 correct grandparent commit, verified in the commit graph rather than only in the
-database.
+database. Session forking is covered by a recording runner: which session a
+run inherits, and whether it forks, is decided by the pipeline rather than by
+the SDK, so it is provable without credentials.
 
 ### Configuration
 
