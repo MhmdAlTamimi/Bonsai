@@ -80,8 +80,18 @@ export class RunJobs {
     prompt: string,
     controller: AbortController,
   ): Promise<void> {
-    const node = this.store.getNode(nodeId)!;
-    const project = this.store.getProject(node.project_id)!;
+    // Fetched defensively rather than with `!`: these two lines sit outside the
+    // try below, so a throw here would escape into an unhandled rejection and
+    // take the process down instead of failing the run. A node deleted between
+    // start and execute is unlikely but not impossible -- delete cancels a
+    // running node rather than blocking on it.
+    const node = this.store.getNode(nodeId);
+    const project = node === undefined ? undefined : this.store.getProject(node.project_id);
+    if (node === undefined || project === undefined) {
+      this.store.finishRun(runId, 'failed', 'the node was removed before its run started', 0, 0, 0);
+      return;
+    }
+
     let seq = 0;
     let cost = 0;
     let inputTokens = 0;

@@ -21,12 +21,20 @@ const STATUS_LABEL: Record<NodeView['status'], string> = {
   interrupted: 'interrupted',
 };
 
-/** D35: detail thins as you zoom out -- full card, then name + dot, then dot. */
+/**
+ * D35: detail thins as you zoom out -- full card, then name + dot, then dot.
+ *
+ * The thresholds are deliberately low. React Flow zooms on the scroll wheel, so
+ * a couple of stray trackpad flicks used to be enough to collapse every card to
+ * a dot with no text on it, which reads as the nodes having disappeared rather
+ * than as a zoom level. Dropping all the way to a dot should mean you asked to
+ * see the whole shape of a large tree, not that you brushed the trackpad.
+ */
 type Lod = 'full' | 'compact' | 'dot';
 
 function lodFor(zoom: number): Lod {
-  if (zoom < 0.4) return 'dot';
-  if (zoom < 0.75) return 'compact';
+  if (zoom < 0.28) return 'dot';
+  if (zoom < 0.55) return 'compact';
   return 'full';
 }
 
@@ -50,8 +58,15 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
     .filter(Boolean)
     .join(' ');
 
+  // At dot level the card is sized in inverse proportion to the zoom, so it
+  // stays a constant ~30px on screen. Without this the level-of-detail shrink
+  // and the zoom shrink compound, and the "dot alone" overview D35 asks for
+  // turns into single-digit pixels -- nodes that read as having vanished.
+  const dotStyle =
+    lod === 'dot' ? { width: `${30 / zoom}px`, height: `${30 / zoom}px` } : undefined;
+
   return (
-    <div className={classes} title={data.displayName}>
+    <div className={classes} style={dotStyle} title={data.displayName}>
       <Handle type="target" position={RANK_DIR === 'TB' ? Position.Top : Position.Left} />
 
       {lod === 'dot' ? (

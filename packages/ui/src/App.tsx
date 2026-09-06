@@ -164,8 +164,11 @@ export function App(): JSX.Element {
           nodeTypes={nodeTypes}
           onNodeClick={onNodeClick}
           onNodeDragStop={onNodeDragStop}
-          onPaneClick={selection.clear}
-          minZoom={0.2}
+          // Deliberately NOT clearing the selection on a pane click. The panel
+          // is the primary workspace (§7), and emptying it because a click
+          // landed between two cards loses your place for no gain -- selecting
+          // another node replaces it anyway.
+          minZoom={0.25}
           maxZoom={1.8}
           fitView
           proOptions={{ hideAttribution: true }}

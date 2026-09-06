@@ -73,10 +73,11 @@ body {
 /* D35: detail thins as you zoom out. */
 .card.lod-compact { min-height: 0; padding: 6px 10px; }
 .card.lod-dot {
-  width: 22px; height: 22px; min-height: 0; padding: 0;
-  border-radius: 50%; align-items: center; justify-content: center;
+  /* Size is set inline, scaled against the zoom, so it stays legible. */
+  min-height: 0; padding: 0; border-radius: 50%;
+  align-items: center; justify-content: center;
 }
-.dot-only { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.dot-only { width: 55%; height: 55%; border-radius: 50%; background: var(--muted); }
 .lod-dot.status-ready .dot-only { background: var(--ok); }
 .lod-dot.status-running .dot-only { background: var(--accent); }
 .lod-dot.status-needs_you .dot-only { background: var(--warn); }
