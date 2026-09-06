@@ -14,21 +14,37 @@ Full spec in [`docs/v0-prd.md`](docs/v0-prd.md); decisions and deferred backlog 
 
 ---
 
-## Status: M1 (skeleton)
+## Status: M2 (git layer)
 
 Built in milestones, each with a review checkpoint.
 
 | | | |
 |---|---|---|
-| **M1** | Skeleton — schema, API, canvas | **done** |
-| M2 | Git layer — repos, worktrees, the ancestor-commit walk | next |
-| M3 | Agent layer — Claude Agent SDK, streaming, cancellation | |
+| M1 | Skeleton — schema, API, canvas | done |
+| **M2** | Git layer — repos, worktrees, the ancestor-commit walk | **done** |
+| M3 | Agent layer — Claude Agent SDK, streaming, cancellation | next |
 | M4 | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | |
 | M5 | Detached worktrees and the full demo script | |
 
-**M1 has no git and no agent.** The canvas renders a seeded five-node tree from SQLite so the data
-model and the API surface can be reviewed before either lands. Routes whose milestone has not
-arrived return `501` naming the milestone rather than silently doing nothing.
+**M2 has real git and no agent.** Projects, branches, worktrees, commits and the
+walk up to the nearest ancestor commit all work; a stand-in writes the files an
+agent would write, so the subtlest logic in the product can be exercised without
+agent latency or cost. Routes whose milestone has not arrived return `501`
+naming the milestone rather than silently doing nothing.
+
+### Trying it
+
+Create a project, then create children from the side panel. One convention
+stands in for the agent until M3:
+
+- a prompt starting with `?` writes nothing, so the node stays conversation-only
+- anything else writes a file, so the node commits and gets a branch
+
+Nothing asks you which kind of node you are making. Ask a question under a node,
+then create a child of that question, and the child's code will branch from the
+question's *parent* commit while still sitting below it in the tree — the
+divergence between code lineage and conversation lineage that the whole product
+is built around.
 
 ---
 
@@ -88,9 +104,12 @@ npm run dev          # now also serves the UI at http://localhost:8787
 npm test
 ```
 
-31 tests, no network, no git, no agent. The bulk of them cover `domain/lineage.ts` — the
-nearest-ancestor-commit walk, which is the subtlest logic in the product and is deliberately pure so
-it can be tested without agent latency or cost.
+43 tests, no network and no agent. Roughly half are pure unit tests over
+`domain/lineage.ts` — the nearest-ancestor-commit walk. The rest are integration
+tests that run **real git** in temporary directories, including the M2
+checkpoint: a node whose parent has no commits of its own branches from the
+correct grandparent commit, verified in the commit graph rather than only in the
+database.
 
 ### Configuration
 
@@ -102,6 +121,7 @@ All optional; every one has a working default.
 | `BONSAI_DATA_DIR` | OS app-data dir | Where `bonsai.db` lives. |
 | `BONSAI_REPOS_ROOT` | `<data dir>/repos` | Where per-project bare repos and worktrees will live (M2). |
 | `BONSAI_MODEL` | unset | Default model for new projects (M3). |
+| `BONSAI_SEED` | unset | `1` seeds a fake demo tree with no git behind it. Not needed. |
 
 The database is created and seeded on first run. To start over, delete it:
 
@@ -117,9 +137,12 @@ The server prints its data directory on startup, so you always know what to dele
 
 ```
 packages/shared    the API contract, imported by both sides and by nothing else
-packages/server    HTTP, SQLite, and the pure domain logic
+packages/server    HTTP, SQLite, git, and the pure domain logic
   src/domain       lineage, flags, lifecycle — no git, no db, no agent, no io
   src/db           schema and the typed store
+  src/git          the only code that shells out to git
+  src/agent        the runner interface, and the M2 stand-in behind it
+  src/jobs         async run jobs: start, stream, cancel
   src/api          routes and the SSE bus
 packages/ui        React + React Flow canvas and side panel
 ```
