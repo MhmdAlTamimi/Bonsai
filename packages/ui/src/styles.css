@@ -44,7 +44,7 @@ body {
   display: flex; flex-direction: column; gap: 4px;
 }
 /* No commits -> no diff to show. Dashed border says so before you click. */
-.card.no-code { border-style: dashed; background: transparent; }
+.card.code-none { border-style: dashed; background: transparent; }
 .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(122 162 247 / 0.25); }
 .card.frozen { opacity: 0.88; }
 

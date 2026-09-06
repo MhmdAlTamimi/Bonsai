@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useState } from 'react';
 import type { NodeDetail, NodeView } from '@bonsai/shared';
 import { ApiCallError, api } from '../api/client.ts';
+import { CODE_LABEL, codeState } from '../nodeCode.ts';
 
 /**
  * The side panel. Contents per node state (PRD §5 / D34).
@@ -68,7 +69,7 @@ export function Panel({
       <dl className="facts">
         <div>
           <dt>code</dt>
-          <dd>{node.createsBranch ? 'has commits' : 'no commits — conversation only'}</dd>
+          <dd>{CODE_LABEL[codeState(node)]}</dd>
         </div>
         <div>
           <dt>writable</dt>
@@ -122,11 +123,17 @@ function StateBody({ node, detail }: { node: NodeView; detail: NodeDetail | null
     case 'new':
       return (
         <section>
-          <p className="muted">Created, not yet run.</p>
           <p className="summary">{node.summaryLine}</p>
-          <button disabled title="the agent layer lands in M3">
-            Start
-          </button>
+          <button disabled>Start</button>
+          <p className="hint">
+            <strong>not started</strong> means no agent has run on this node yet — it exists in
+            the tree and holds your description, but nothing has read or written any code for it.
+          </p>
+          <p className="hint">
+            You will rarely see this state in the finished product: creating a node starts its run
+            straight away and it goes to <em>running</em> without stopping here (§6.2). The agent
+            layer lands in M3, so until then a new node just waits.
+          </p>
         </section>
       );
     case 'running':
@@ -155,10 +162,10 @@ function StateBody({ node, detail }: { node: NodeView; detail: NodeDetail | null
           <p className="muted">
             {detail === null ? 'loading…' : `${detail.runs.length} run(s) recorded.`}
           </p>
-          {node.createsBranch ? (
+          {node.hasCommits ? (
             <p className="muted">Diff lands in M2.</p>
           ) : (
-            <p className="muted">No diff — this node committed nothing.</p>
+            <p className="muted">No diff — this node ran and committed nothing.</p>
           )}
         </section>
       );
