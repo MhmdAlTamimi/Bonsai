@@ -1,5 +1,7 @@
 import type { JSX } from 'react';
 import { Handle, Position, useStore } from 'reactflow';
+import { RANK_DIR } from './layout.ts';
+import { CODE_LABEL, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
 
 /**
@@ -32,10 +34,15 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
   const zoom = useStore((s) => s.transform[2]);
   const lod = lodFor(zoom);
 
+  // Dashed border and the envelope glyph mean "ran and wrote nothing", which is
+  // only knowable once the run finished. A node that has not run yet gets
+  // neither -- see nodeCode.ts.
+  const code = codeState(data);
+
   const classes = [
     'card',
     `status-${data.status}`,
-    data.createsBranch ? 'has-code' : 'no-code',
+    `code-${code}`,
     data.writable ? 'writable' : 'frozen',
     selected ? 'selected' : '',
     `lod-${lod}`,
@@ -45,7 +52,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
 
   return (
     <div className={classes} title={data.displayName}>
-      <Handle type="target" position={Position.Left} />
+      <Handle type="target" position={RANK_DIR === 'TB' ? Position.Top : Position.Left} />
 
       {lod === 'dot' ? (
         <span className="dot-only" aria-label={`${data.displayName}: ${STATUS_LABEL[data.status]}`} />
@@ -55,8 +62,8 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
             <span className="status-dot" />
             <span className="card-name">{data.displayName}</span>
             {/* No diff to show, so say so rather than hiding it. */}
-            {!data.createsBranch && (
-              <span className="glyph" title="no commits — conversation only">
+            {code === 'none' && (
+              <span className="glyph" title={CODE_LABEL[code]}>
                 &#9993;
               </span>
             )}
@@ -78,7 +85,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
         </>
       )}
 
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={RANK_DIR === 'TB' ? Position.Bottom : Position.Right} />
     </div>
   );
 }
