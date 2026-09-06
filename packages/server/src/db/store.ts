@@ -249,6 +249,20 @@ export class Store {
     return out;
   }
 
+  /** A3: where a child's fork was taken from its parent's conversation. */
+  recordFork(id: string, parentMessageSeq: number): void {
+    this.db
+      .prepare(`UPDATE node SET forked_from_message_seq = ? WHERE id = ?`)
+      .run(parentMessageSeq, id);
+  }
+
+  messageCount(nodeId: string): number {
+    const row = this.db
+      .prepare(`SELECT COALESCE(MAX(seq), 0) AS seq FROM message WHERE node_id = ?`)
+      .get(nodeId) as unknown as { seq: number };
+    return Number(row.seq);
+  }
+
   setSessionId(id: string, sessionId: string): void {
     this.db.prepare(`UPDATE node SET session_id = ? WHERE id = ?`).run(sessionId, id);
   }

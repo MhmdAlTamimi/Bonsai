@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { NodeStatus } from '@bonsai/shared';
 
-import type { Store } from '../db/store.js';
+import type { NodeRow, Store } from '../db/store.js';
 import type { EventBus } from '../api/events.js';
 import type { AgentRunner } from '../agent/AgentRunner.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
@@ -40,24 +40,49 @@ export class RunJobs {
     for (const c of this.running.values()) c.abort();
   }
 
+  /** How many runs are in flight. Shutdown and tests wait on this. */
+  activeCount(): number {
+    return this.running.size;
+  }
+
+  /**
+   * Cancels everything and waits for it to unwind.
+   *
+   * A run outlives its cancel signal: the runner stops, but the pipeline still
+   * has to finish writing the run row and deciding whether to commit. Closing
+   * the database before that lands throws inside a job nobody is awaiting, and
+   * an unawaited throw in a `void`-ed promise is an unhandled rejection.
+   */
+  async drain(timeoutMs = 5000): Promise<void> {
+    this.cancelAll();
+    const deadline = Date.now() + timeoutMs;
+    while (this.running.size > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
   start(nodeId: string, prompt: string): { runId: string } {
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
     if (this.running.has(nodeId)) throw new Error('this node is already running');
 
     /**
-     * THE FREEZE IS CHECKED HERE AND NOWHERE ELSE.
+     * THE FREEZE IS RESOLVED HERE AND NOWHERE ELSE.
      *
      * Not continuously, and never re-checked mid-run. A run already in flight
      * is not invalidated by a sibling committing halfway through it: cancelling
      * paid, unreproducible work to honour a freeze that arrived late costs more
      * than it protects, and the child's base is pinned anyway, so nothing
      * downstream can go stale either way.
+     *
+     * A frozen node is NOT blocked from running. D4 freezes a node's code, not
+     * its conversation -- "frozen nodes remain conversational, read-only" -- so
+     * the freeze becomes a read-only tool set (D18) rather than a refusal.
+     * Asking a finished node a question is a thing you are meant to be able to
+     * do; it simply cannot write.
      */
     const view = this.store.treeView(node.project_id).find((n) => n.id === nodeId);
-    if (view !== undefined && !view.writable) {
-      throw new Error('this node is frozen: a child has committed, so create a child instead');
-    }
+    const readOnly = view !== undefined && !view.writable;
 
     const runId = randomUUID();
     const controller = new AbortController();
@@ -67,7 +92,7 @@ export class RunJobs {
     this.setStatus(nodeId, 'running');
     this.bus.publish(node.project_id, { type: 'run.started', nodeId, runId });
 
-    void this.execute(runId, nodeId, prompt, controller).finally(() => {
+    void this.execute(runId, nodeId, prompt, readOnly, controller).finally(() => {
       this.running.delete(nodeId);
     });
 
@@ -78,6 +103,7 @@ export class RunJobs {
     runId: string,
     nodeId: string,
     prompt: string,
+    readOnly: boolean,
     controller: AbortController,
   ): Promise<void> {
     // Fetched defensively rather than with `!`: these two lines sit outside the
@@ -100,13 +126,16 @@ export class RunJobs {
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     try {
+      const inheritance = this.resolveInheritance(node);
+
       for await (const event of this.runner.run({
         runId,
         nodeId,
         cwd: node.worktree_path,
         prompt,
-        resumeSessionId: node.session_id,
-        readOnly: false,
+        resumeSessionId: inheritance.sessionId,
+        forkSession: inheritance.fork,
+        readOnly,
         model: node.model ?? project.default_model,
         permissionMode: node.permission_mode ?? project.default_permission_mode,
         signal: controller.signal,
@@ -213,6 +242,37 @@ export class RunJobs {
     if (node !== undefined) {
       this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
     }
+  }
+
+  /**
+   * D16: memory across nodes is session forking.
+   *
+   * Three cases, and getting the first two the wrong way round is the bug this
+   * milestone exists to avoid:
+   *
+   *   the node has its own session   -> RESUME it. §6.3: chatting with a leaf
+   *                                     three times is one conversation.
+   *   the node has none, its parent  -> FORK the parent's. The child inherits
+   *   does                              the entire ancestor chain, the parent
+   *                                     is left untouched, and siblings cannot
+   *                                     see each other (D1, D2).
+   *   neither                        -> a fresh session. Master's first run.
+   *
+   * Note the parent is the CONVERSATIONAL parent, always. It is the git base
+   * that skips commitless ancestors, not the session -- that divergence is the
+   * whole point (PRD §4), and it is why this walks no tree at all.
+   */
+  private resolveInheritance(node: NodeRow): { sessionId: string | null; fork: boolean } {
+    if (node.session_id !== null) return { sessionId: node.session_id, fork: false };
+    if (node.parent_id === null) return { sessionId: null, fork: false };
+
+    const parent = this.store.getNode(node.parent_id);
+    if (parent?.session_id == null) return { sessionId: null, fork: false };
+
+    // A3: record where the fork was taken. A frozen node stays conversational,
+    // so two children of one parent can inherit different amounts of it.
+    this.store.recordFork(node.id, this.store.messageCount(parent.id));
+    return { sessionId: parent.session_id, fork: true };
   }
 
   private setStatus(nodeId: string, status: NodeStatus): void {
