@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 
 /** Opens (creating if needed) the app database and applies the schema. */
 export function openDatabase(dataDir: string): DatabaseSync {
@@ -39,6 +39,11 @@ function migrate(db: DatabaseSync): void {
         (c) => c.name,
       ),
     );
+
+  const projectColumns = columns('project');
+  if (!projectColumns.has('default_effort')) {
+    db.exec(`ALTER TABLE project ADD COLUMN default_effort TEXT`);
+  }
 
   const runColumns = columns('run');
   const additions: Array<[string, string]> = [

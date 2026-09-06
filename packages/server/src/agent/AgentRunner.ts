@@ -29,6 +29,8 @@ export interface RunSpec {
   /** D18: read-only tools. True for frozen nodes, which stay conversational. */
   readOnly: boolean;
   model: string | null;
+  /** D32: 'low' | 'medium' | 'high' | 'xhigh' | 'max', or null for the SDK default. */
+  effort: string | null;
   permissionMode: string;
   signal: AbortSignal;
 }

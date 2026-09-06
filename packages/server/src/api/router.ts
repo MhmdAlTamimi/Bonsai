@@ -6,6 +6,7 @@ import type {
   StartRunRequest,
   TreeResponse,
   UpdateNodeRequest,
+  UpdateProjectRequest,
 } from '@bonsai/shared';
 
 import type { Store } from '../db/store.js';
@@ -72,8 +73,9 @@ route('POST', '/api/projects', async (req, res, _p, { store, bus }) => {
   const created = await createProject(store, {
     name: requireString(body.name, 'name'),
     description: typeof body.description === 'string' ? body.description : '',
-    model: body.model ?? null,
+    model: body.model ?? process.env['BONSAI_MODEL'] ?? null,
     permissionMode: body.permissionMode ?? 'acceptEdits',
+    effort: process.env['BONSAI_EFFORT'] ?? null,
   });
   bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
   // D21 has the agent scaffold master from the description; that run starts in
@@ -89,6 +91,19 @@ route('GET', '/api/projects/:id/tree', (_req, res, params, { store }) => {
     nodes: store.treeView(project.id),
   };
   sendJson(res, 200, body);
+});
+
+route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => {
+  const project = store.getProject(params['id']!);
+  if (project === undefined) throw new HttpError(404, 'no such project');
+  const body = await readJson<UpdateProjectRequest>(req);
+  // D32: settings, not node state. D3's immutability is about nodes.
+  store.updateProjectSettings(project.id, {
+    ...(body.model !== undefined ? { model: body.model } : {}),
+    ...(body.effort !== undefined ? { effort: body.effort } : {}),
+  });
+  bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
+  sendJson(res, 200, store.projectView(store.getProject(project.id)!));
 });
 
 route('DELETE', '/api/projects/:id', (_req, res, params, { store, bus }) => {

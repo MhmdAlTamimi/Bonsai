@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS project (
   -- there is nobody to answer a permission prompt, and a run would stall with
   -- no timeout and no visible cause.
   default_permission_mode TEXT NOT NULL DEFAULT 'acceptEdits',
+  -- D32: reasoning effort, alongside model, as a project-level setting. The
+  -- single biggest lever on what a run costs after the model itself.
+  default_effort          TEXT,
   created_at              TEXT NOT NULL
 );
 

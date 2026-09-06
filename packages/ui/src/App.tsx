@@ -15,6 +15,7 @@ import { layoutTree } from './canvas/layout.ts';
 import { NodeCard } from './canvas/NodeCard.tsx';
 import { Panel } from './panel/Panel.tsx';
 import { NewProject } from './panel/NewProject.tsx';
+import { ProjectSettings } from './panel/ProjectSettings.tsx';
 
 const nodeTypes = { bonsai: NodeCard };
 
@@ -157,6 +158,14 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <div className="canvas">
+        {tree !== null && (
+          <ProjectSettings
+            project={tree.project}
+            onChanged={() => {
+              if (projectId !== null) void refresh(projectId);
+            }}
+          />
+        )}
         {error !== null && <div className="banner">{error}</div>}
         <ReactFlow
           nodes={flowNodes}

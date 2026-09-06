@@ -1,6 +1,8 @@
 import type {
   CreateProjectRequest,
   MessageView,
+  ProjectView,
+  UpdateProjectRequest,
   NodeDetail,
   NodeView,
   ServerEvent,
@@ -55,6 +57,12 @@ export const api = {
     }),
 
   diff: (nodeId: string) => json<NodeDiffView>(`/api/nodes/${nodeId}/diff`),
+
+  updateProject: (projectId: string, body: UpdateProjectRequest) =>
+    json<ProjectView>(`/api/projects/${projectId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
 
   cancelRun: (runId: string) =>
     json<{ cancelled: boolean }>(`/api/runs/${runId}/cancel`, { method: 'POST' }),

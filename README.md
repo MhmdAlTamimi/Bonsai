@@ -85,6 +85,32 @@ the optimization). Cost per run is captured and shown in the side panel.
 |---|---|
 | `BONSAI_FAKE_AGENT=1` | Force the stand-in even when credentials exist. |
 | `BONSAI_REAL_AGENT=1` | Force the real agent. Needed on macOS, where a subscription login lives in the Keychain and cannot be detected from disk. |
+| `BONSAI_MODEL` | Default model for new projects. |
+| `BONSAI_EFFORT` | Default reasoning effort for new projects (`low`–`max`). |
+
+### What a run costs, and how to spend less
+
+The bar at the top of the canvas sets the **model** and the **effort** for the
+project, and shows the estimated total across every run in the tree. Both are
+changeable at any time and apply to the next run.
+
+Expect roughly **$0.05–0.15 per run on Opus at default effort**, most of which
+is fixed overhead rather than your prompt: the Claude Code system prompt and
+tool definitions are resent on every turn, and a small change is several turns.
+
+Three levers, largest first:
+
+1. **Model.** Haiku 4.5 is $1/$5 per Mtok against Opus 5's $5/$25 — roughly five
+   times cheaper for the same shape of work.
+2. **Effort.** `low` or `medium` cuts thinking tokens and produces fewer,
+   more-consolidated tool calls. Often the better first move on small changes.
+3. **Depth.** Every node replays its whole ancestor conversation, so cost grows
+   as the tree deepens (PRD §11 accepts this for V0; B7 is the fix). Branching
+   wide from a shallow node is cheaper than chaining deep.
+
+The panel breaks out **cache-read tokens** per node. A high number there next to
+a high cost means the replay is being served from cache and is already cheap; a
+low one means it is not.
 
 ### Install and run
 

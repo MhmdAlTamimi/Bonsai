@@ -24,13 +24,27 @@ export type RunStatus = 'running' | 'done' | 'cancelled' | 'failed';
 /** D32: project default, per-node override. */
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 
+/** D32: 'low' through 'max'. Null means the SDK's own default. */
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
 export interface ProjectView {
   id: string;
   name: string;
   description: string;
+  /** Null means whatever the Agent SDK defaults to. */
   defaultModel: string | null;
   defaultPermissionMode: PermissionMode;
+  defaultEffort: string | null;
+  /** Estimated total across every run in the tree, at API list price. */
+  costUsd: number;
   createdAt: string;
+}
+
+export interface UpdateProjectRequest {
+  model?: string | null;
+  effort?: string | null;
 }
 
 /**

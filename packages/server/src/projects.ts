@@ -13,7 +13,13 @@ import { toLineage } from './db/store.js';
 
 export async function createProject(
   store: Store,
-  input: { name: string; description: string; model: string | null; permissionMode: PermissionMode },
+  input: {
+    name: string;
+    description: string;
+    model: string | null;
+    permissionMode: PermissionMode;
+    effort?: string | null;
+  },
 ): Promise<{ projectId: string; masterNodeId: string }> {
   const project = store.createProject(input);
   const { rootCommit } = await createRepo(project.repo_path);

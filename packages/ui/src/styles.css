@@ -155,3 +155,21 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   background: var(--surface-2); border-radius: 3px; padding: 0 4px;
   font: 11px ui-monospace, SFMono-Regular, monospace;
 }
+
+/* D32: the two levers on what a run costs, where you can see them. */
+.project-settings {
+  position: absolute; z-index: 6; top: 10px; left: 12px;
+  display: flex; align-items: center; gap: 14px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: 6px 12px; font-size: 12px;
+}
+.project-name { font-weight: 600; }
+.project-settings label { display: flex; align-items: center; gap: 5px; color: var(--muted); }
+.project-settings select {
+  font: inherit; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: 5px; padding: 2px 4px;
+}
+.project-cost {
+  color: var(--muted); font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--line); padding-left: 12px; cursor: help;
+}

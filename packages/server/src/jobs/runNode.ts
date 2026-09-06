@@ -144,6 +144,7 @@ export class RunJobs {
         forkSession: inheritance.fork,
         readOnly,
         model: node.model ?? project.default_model,
+        effort: project.default_effort,
         permissionMode: node.permission_mode ?? project.default_permission_mode,
         signal: controller.signal,
       })) {

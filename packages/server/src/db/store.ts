@@ -40,6 +40,7 @@ export interface ProjectRow {
   repo_path: string;
   default_model: string | null;
   default_permission_mode: PermissionMode;
+  default_effort: string | null;
   created_at: string;
 }
 
@@ -68,6 +69,7 @@ export class Store {
     description: string;
     model: string | null;
     permissionMode: PermissionMode;
+    effort?: string | null;
   }): ProjectRow {
     const id = randomUUID();
     const row: ProjectRow = {
@@ -77,13 +79,14 @@ export class Store {
       repo_path: join(this.reposRoot, id, 'repo.git'),
       default_model: input.model,
       default_permission_mode: input.permissionMode,
+      default_effort: input.effort ?? null,
       created_at: now(),
     };
     this.db
       .prepare(
         `INSERT INTO project (id, name, description, repo_path, default_model,
-                              default_permission_mode, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                              default_permission_mode, default_effort, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -92,6 +95,7 @@ export class Store {
         row.repo_path,
         row.default_model,
         row.default_permission_mode,
+        row.default_effort,
         row.created_at,
       );
     return row;
@@ -107,6 +111,28 @@ export class Store {
     return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as
       | unknown as ProjectRow
       | undefined;
+  }
+
+  /** D32: the model and effort a project's runs use. Changing them is not a
+   *  node edit -- D3 constrains nodes, not settings. */
+  updateProjectSettings(id: string, patch: { model?: string | null; effort?: string | null }): void {
+    if (patch.model !== undefined) {
+      this.db.prepare(`UPDATE project SET default_model = ? WHERE id = ?`).run(patch.model, id);
+    }
+    if (patch.effort !== undefined) {
+      this.db.prepare(`UPDATE project SET default_effort = ? WHERE id = ?`).run(patch.effort, id);
+    }
+  }
+
+  /** Every run in the project, so the cost of the whole tree is visible. */
+  projectCost(projectId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(r.cost), 0) AS total FROM run r
+         JOIN node n ON n.id = r.node_id WHERE n.project_id = ?`,
+      )
+      .get(projectId) as unknown as { total: number } | undefined;
+    return Number(row?.total ?? 0);
   }
 
   deleteProject(id: string): void {
@@ -483,6 +509,8 @@ export class Store {
       description: row.description,
       defaultModel: row.default_model,
       defaultPermissionMode: row.default_permission_mode,
+      defaultEffort: row.default_effort,
+      costUsd: this.projectCost(row.id),
       createdAt: row.created_at,
     };
   }

@@ -1,5 +1,10 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { ModelUsage, Options, PermissionMode } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  EffortLevel,
+  ModelUsage,
+  Options,
+  PermissionMode,
+} from '@anthropic-ai/claude-agent-sdk';
 
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { READ_ONLY_TOOLS, WRITABLE_TOOLS, gitGuardHook } from './guards.js';
@@ -38,7 +43,31 @@ export class ClaudeSdkRunner implements AgentRunner {
       // the user's ~/.claude and the checked-out repo's settings, which would
       // let a project Bonsai generated change how Bonsai runs its own agents.
       settingSources: [],
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_APPEND },
+
+      /**
+       * excludeDynamicSections matters more here than in most SDK uses, and it
+       * is free.
+       *
+       * The preset normally embeds per-session detail -- working directory,
+       * git status, memory paths -- directly in the system prompt, which makes
+       * that prompt different for every node and therefore uncacheable. Bonsai
+       * runs a SEPARATE SESSION PER NODE against the same instructions, so that
+       * is the worst possible shape: every run pays full price for a system
+       * prompt it shares with every other run. Excluding those sections leaves
+       * a static, cross-session-cacheable prefix; the stripped context is
+       * re-injected as the first user message, so the agent still has it.
+       */
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: SYSTEM_APPEND,
+        excludeDynamicSections: true,
+      },
+
+      // D32: reasoning effort as a setting. Lower effort means fewer thinking
+      // tokens and fewer, more consolidated tool calls -- the main lever on
+      // cost after the model itself.
+      ...(spec.effort === null ? {} : { effort: spec.effort as EffortLevel }),
     };
 
     /**
