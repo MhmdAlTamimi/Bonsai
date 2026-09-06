@@ -229,7 +229,87 @@ export class Store {
     this.db.prepare(`DELETE FROM node WHERE id = ?`).run(id);
   }
 
+  /** Every node in the subtree rooted at `id`, deepest first. */
+  descendantsOf(id: string): NodeRow[] {
+    const all = this.db.prepare(`SELECT * FROM node`).all() as unknown as NodeRow[];
+    const childrenOf = new Map<string, NodeRow[]>();
+    for (const row of all) {
+      if (row.parent_id === null) continue;
+      const bucket = childrenOf.get(row.parent_id);
+      if (bucket === undefined) childrenOf.set(row.parent_id, [row]);
+      else bucket.push(row);
+    }
+    const out: NodeRow[] = [];
+    const visit = (nodeId: string): void => {
+      for (const child of childrenOf.get(nodeId) ?? []) visit(child.id);
+      const row = all.find((r) => r.id === nodeId);
+      if (row !== undefined) out.push(row);
+    };
+    visit(id);
+    return out;
+  }
+
+  setSessionId(id: string, sessionId: string): void {
+    this.db.prepare(`UPDATE node SET session_id = ? WHERE id = ?`).run(sessionId, id);
+  }
+
+  /**
+   * Records a node's commit, creating its branch reference in the row.
+   *
+   * base_commit is deliberately untouched: it is pinned at creation and
+   * immutable. Only head_commit moves, and only forward (D29: never amend).
+   */
+  recordCommit(id: string, branchName: string, headCommit: string): void {
+    this.db
+      .prepare(`UPDATE node SET branch_name = ?, head_commit = ? WHERE id = ?`)
+      .run(branchName, headCommit, id);
+  }
+
   // -- runs, messages, questions -------------------------------------------
+
+  createRun(runId: string, nodeId: string): void {
+    this.db
+      .prepare(`INSERT INTO run (id, node_id, status, started_at) VALUES (?, ?, 'running', ?)`)
+      .run(runId, nodeId, now());
+  }
+
+  finishRun(
+    runId: string,
+    status: 'done' | 'cancelled' | 'failed',
+    error: string | null,
+    cost: number,
+    inputTokens: number,
+    outputTokens: number,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
+                        input_tokens = ?, output_tokens = ?
+         WHERE id = ?`,
+      )
+      .run(status, now(), error, cost, inputTokens, outputTokens, runId);
+  }
+
+  getRun(runId: string): { id: string; node_id: string; status: string } | undefined {
+    return this.db.prepare(`SELECT id, node_id, status FROM run WHERE id = ?`).get(runId) as
+      | unknown as { id: string; node_id: string; status: string }
+      | undefined;
+  }
+
+  /** D31: any run still marked running at startup died with the process. */
+  markOrphanedRunsInterrupted(): number {
+    const runs = this.db
+      .prepare(`SELECT id, node_id FROM run WHERE status = 'running'`)
+      .all() as unknown as Array<{ id: string; node_id: string }>;
+    for (const run of runs) {
+      this.db
+        .prepare(`UPDATE run SET status = 'failed', ended_at = ?, error = ? WHERE id = ?`)
+        .run(now(), 'the app exited while this run was in flight', run.id);
+      this.db.prepare(`UPDATE node SET status = 'interrupted' WHERE id = ?`).run(run.node_id);
+    }
+    return runs.length;
+  }
+
 
   listRuns(nodeId: string): RunView[] {
     const rows = this.db
