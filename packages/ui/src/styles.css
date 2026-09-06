@@ -131,3 +131,13 @@ button:hover:not(:disabled) { border-color: var(--accent); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .create-child { border-top: 1px solid var(--line); padding-top: 14px; }
+
+/* React Flow ships light-themed controls; match the canvas. */
+.react-flow__controls { box-shadow: none; }
+.react-flow__controls-button {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  fill: var(--text);
+}
+.react-flow__controls-button:hover { background: var(--line); }
+.react-flow__handle { background: var(--edge); border: none; width: 6px; height: 6px; }
