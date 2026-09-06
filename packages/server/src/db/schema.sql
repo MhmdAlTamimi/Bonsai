@@ -1,0 +1,127 @@
+-- Bonsai schema. PRD §8 is a sketch, not final; the deltas from it are
+-- deliberate and are explained inline.
+
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS meta (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project (
+  id                      TEXT PRIMARY KEY,
+  name                    TEXT NOT NULL,
+  description             TEXT NOT NULL DEFAULT '',
+  -- D14e: repo path is config, never hardcoded.
+  repo_path               TEXT NOT NULL,
+  default_model           TEXT,
+  -- Non-interactive until the ask-user mechanism lands: with no needs_you
+  -- there is nobody to answer a permission prompt, and a run would stall with
+  -- no timeout and no visible cause.
+  default_permission_mode TEXT NOT NULL DEFAULT 'acceptEdits',
+  created_at              TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS node (
+  id            TEXT PRIMARY KEY,
+  project_id    TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+  -- D7: delete cascades to descendants.
+  parent_id     TEXT REFERENCES node(id) ON DELETE CASCADE,
+  -- D33: display name is renameable metadata and never touches git.
+  display_name  TEXT NOT NULL,
+  description   TEXT NOT NULL DEFAULT '',
+
+  session_id    TEXT,
+  -- A3: forks are snapshots. A frozen node stays conversational, so two
+  -- children of one parent can inherit different amounts of its conversation.
+  -- Recording where each fork was taken is what lets the panel say so.
+  forked_from_message_seq INTEGER,
+
+  -- Emergent model: the branch is just a ref, so it is deferred. A node's
+  -- worktree starts detached at base_commit and a branch is created only if
+  -- the run actually changed files. Both stay null for a node that changed
+  -- nothing -- which is exactly the case the lineage walk passes through.
+  branch_name   TEXT,
+  -- Pinned at creation by resolveBaseCommit(). Immutable. Null for master
+  -- alone, which is never a child. See the termination invariant in lineage.ts.
+  base_commit   TEXT,
+  head_commit   TEXT,
+
+  worktree_path TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  model           TEXT,
+  permission_mode TEXT,
+  -- Nullable, auto-layout by default (PRD §9).
+  position_x    REAL,
+  position_y    REAL,
+  created_at    TEXT NOT NULL,
+
+  CHECK (status IN ('new', 'running', 'needs_you', 'ready', 'interrupted')),
+  -- The termination invariant, enforced in SQL: every non-root node carries a
+  -- pinned base.
+  CHECK (parent_id IS NULL OR base_commit IS NOT NULL),
+  -- A node with a commit must have the branch that commit landed on.
+  CHECK (head_commit IS NULL OR branch_name IS NOT NULL)
+);
+
+-- creates_branch and writable are NOT columns. Both are derived on every read
+-- (domain/flags.ts) so they cannot drift out of step with the tree:
+--   creates_branch = head_commit IS NOT NULL
+--   writable       = no child of this node has a head_commit
+-- PRD §8 lists them as fields; storing a derived fact that changes when *another
+-- row* changes is a bug waiting to happen, so they live in NodeView instead.
+
+CREATE INDEX IF NOT EXISTS node_project_idx ON node(project_id);
+CREATE INDEX IF NOT EXISTS node_parent_idx  ON node(parent_id);
+
+CREATE TABLE IF NOT EXISTS run (
+  id            TEXT PRIMARY KEY,
+  node_id       TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
+  status        TEXT NOT NULL,
+  started_at    TEXT NOT NULL,
+  ended_at      TEXT,
+  input_tokens  INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  -- D20: captured from the SDK result message from day one.
+  cost          REAL NOT NULL DEFAULT 0,
+  -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
+  -- sixth node state.
+  error         TEXT,
+  CHECK (status IN ('running', 'done', 'cancelled', 'failed'))
+);
+
+CREATE INDEX IF NOT EXISTS run_node_idx ON run(node_id);
+
+-- Not in PRD §8. §5 requires a transcript for `ready` and `interrupted` nodes
+-- across app restarts and there was nowhere to put one. Re-reading the SDK's
+-- machine-local session JSONL would put an agent-internal file format in the
+-- read path of the UI.
+CREATE TABLE IF NOT EXISTS message (
+  id           TEXT PRIMARY KEY,
+  node_id      TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
+  run_id       TEXT REFERENCES run(id) ON DELETE CASCADE,
+  seq          INTEGER NOT NULL,
+  role         TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  content_json TEXT NOT NULL,
+  created_at   TEXT NOT NULL,
+  UNIQUE (node_id, seq),
+  CHECK (role IN ('user', 'assistant', 'system')),
+  CHECK (kind IN ('text', 'tool_use', 'tool_result', 'result'))
+);
+
+-- Also not in PRD §8. The mechanism behind needs_you is postponed, but §7
+-- requires the canvas card to show the agent's question as its summary line,
+-- which needs structured text. Schema now so it does not need rebuilding.
+CREATE TABLE IF NOT EXISTS question (
+  id          TEXT PRIMARY KEY,
+  run_id      TEXT NOT NULL REFERENCES run(id) ON DELETE CASCADE,
+  node_id     TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
+  text        TEXT NOT NULL,
+  answer      TEXT,
+  asked_at    TEXT NOT NULL,
+  answered_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS question_node_idx ON question(node_id);

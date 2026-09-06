@@ -1,0 +1,387 @@
+import type { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import type {
+  MessageView,
+  NodeStatus,
+  NodeView,
+  PermissionMode,
+  ProjectView,
+  RunView,
+} from '@bonsai/shared';
+import { deriveFlags } from '../domain/flags.js';
+import { type LineageNode, lookupFrom, resolveBaseCommit, divergesFromLiveWalk } from '../domain/lineage.js';
+
+/** The full node row. Only the server ever sees this shape. */
+export interface NodeRow {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  display_name: string;
+  description: string;
+  session_id: string | null;
+  forked_from_message_seq: number | null;
+  branch_name: string | null;
+  base_commit: string | null;
+  head_commit: string | null;
+  worktree_path: string;
+  status: NodeStatus;
+  model: string | null;
+  permission_mode: PermissionMode | null;
+  position_x: number | null;
+  position_y: number | null;
+  created_at: string;
+}
+
+export interface ProjectRow {
+  id: string;
+  name: string;
+  description: string;
+  repo_path: string;
+  default_model: string | null;
+  default_permission_mode: PermissionMode;
+  created_at: string;
+}
+
+const now = (): string => new Date().toISOString();
+
+export class Store {
+  constructor(
+    private readonly db: DatabaseSync,
+    private readonly reposRoot: string,
+  ) {}
+
+  // -- projects ------------------------------------------------------------
+
+  createProject(input: {
+    name: string;
+    description: string;
+    model: string | null;
+    permissionMode: PermissionMode;
+  }): ProjectRow {
+    const id = randomUUID();
+    const row: ProjectRow = {
+      id,
+      name: input.name,
+      description: input.description,
+      repo_path: join(this.reposRoot, id, 'repo.git'),
+      default_model: input.model,
+      default_permission_mode: input.permissionMode,
+      created_at: now(),
+    };
+    this.db
+      .prepare(
+        `INSERT INTO project (id, name, description, repo_path, default_model,
+                              default_permission_mode, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.id,
+        row.name,
+        row.description,
+        row.repo_path,
+        row.default_model,
+        row.default_permission_mode,
+        row.created_at,
+      );
+    return row;
+  }
+
+  listProjects(): ProjectRow[] {
+    return this.db
+      .prepare(`SELECT * FROM project ORDER BY created_at DESC`)
+      .all() as unknown as ProjectRow[];
+  }
+
+  getProject(id: string): ProjectRow | undefined {
+    return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as
+      | unknown as ProjectRow
+      | undefined;
+  }
+
+  deleteProject(id: string): void {
+    this.db.prepare(`DELETE FROM project WHERE id = ?`).run(id);
+  }
+
+  // -- nodes ---------------------------------------------------------------
+
+  /**
+   * Inserts a node, pinning its git base via the lineage rule.
+   *
+   * `baseCommit`/`headCommit` are passed in rather than computed here for
+   * master alone -- the root commit is written by the git layer before the
+   * project's first node exists. Every other node's base comes from
+   * resolveBaseCommit() and is never recomputed afterwards.
+   */
+  createNode(input: {
+    projectId: string;
+    parentId: string | null;
+    displayName: string;
+    description: string;
+    model?: string | null;
+    permissionMode?: PermissionMode | null;
+    /** Master only. Every other node derives its base from its parent. */
+    rootCommit?: string;
+    rootBranchName?: string;
+  }): NodeRow {
+    const id = randomUUID();
+
+    let baseCommit: string | null = null;
+    let headCommit: string | null = null;
+    let branchName: string | null = null;
+
+    if (input.parentId === null) {
+      // Master. The git layer has already written the root empty commit; the
+      // termination invariant depends on head_commit being set here.
+      baseCommit = null;
+      headCommit = input.rootCommit ?? null;
+      branchName = input.rootBranchName ?? (headCommit === null ? null : 'master');
+    } else {
+      const parent = this.getNode(input.parentId);
+      if (parent === undefined) throw new Error(`unknown parent ${input.parentId}`);
+      baseCommit = resolveBaseCommit(toLineage(parent));
+      // Emergent model: no branch and no commit until a run changes files.
+    }
+
+    const row: NodeRow = {
+      id,
+      project_id: input.projectId,
+      parent_id: input.parentId,
+      display_name: input.displayName,
+      description: input.description,
+      session_id: null,
+      forked_from_message_seq: null,
+      branch_name: branchName,
+      base_commit: baseCommit,
+      head_commit: headCommit,
+      worktree_path: join(this.reposRoot, input.projectId, 'worktrees', id),
+      status: 'new',
+      model: input.model ?? null,
+      permission_mode: input.permissionMode ?? null,
+      position_x: null,
+      position_y: null,
+      created_at: now(),
+    };
+
+    this.db
+      .prepare(
+        `INSERT INTO node (id, project_id, parent_id, display_name, description,
+                           session_id, forked_from_message_seq, branch_name,
+                           base_commit, head_commit, worktree_path, status, model,
+                           permission_mode, position_x, position_y, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        row.id,
+        row.project_id,
+        row.parent_id,
+        row.display_name,
+        row.description,
+        row.session_id,
+        row.forked_from_message_seq,
+        row.branch_name,
+        row.base_commit,
+        row.head_commit,
+        row.worktree_path,
+        row.status,
+        row.model,
+        row.permission_mode,
+        row.position_x,
+        row.position_y,
+        row.created_at,
+      );
+    return row;
+  }
+
+  getNode(id: string): NodeRow | undefined {
+    return this.db.prepare(`SELECT * FROM node WHERE id = ?`).get(id) as
+      | unknown as NodeRow
+      | undefined;
+  }
+
+  listNodes(projectId: string): NodeRow[] {
+    return this.db
+      .prepare(`SELECT * FROM node WHERE project_id = ? ORDER BY created_at ASC`)
+      .all(projectId) as unknown as NodeRow[];
+  }
+
+  /** D33: display name and position only. D3 forbids everything else. */
+  updateNode(
+    id: string,
+    patch: { displayName?: string; positionX?: number | null; positionY?: number | null },
+  ): void {
+    if (patch.displayName !== undefined) {
+      this.db.prepare(`UPDATE node SET display_name = ? WHERE id = ?`).run(patch.displayName, id);
+    }
+    if (patch.positionX !== undefined || patch.positionY !== undefined) {
+      this.db
+        .prepare(`UPDATE node SET position_x = ?, position_y = ? WHERE id = ?`)
+        .run(patch.positionX ?? null, patch.positionY ?? null, id);
+    }
+  }
+
+  setNodeStatus(id: string, status: NodeStatus): void {
+    this.db.prepare(`UPDATE node SET status = ? WHERE id = ?`).run(status, id);
+  }
+
+  /** D7: cascades to descendants via the foreign key. */
+  deleteNode(id: string): void {
+    this.db.prepare(`DELETE FROM node WHERE id = ?`).run(id);
+  }
+
+  // -- runs, messages, questions -------------------------------------------
+
+  listRuns(nodeId: string): RunView[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM run WHERE node_id = ? ORDER BY started_at ASC`)
+      .all(nodeId) as unknown as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: r['id'] as string,
+      nodeId: r['node_id'] as string,
+      status: r['status'] as RunView['status'],
+      startedAt: r['started_at'] as string,
+      endedAt: (r['ended_at'] as string | null) ?? null,
+      inputTokens: Number(r['input_tokens'] ?? 0),
+      outputTokens: Number(r['output_tokens'] ?? 0),
+      costUsd: Number(r['cost'] ?? 0),
+      error: (r['error'] as string | null) ?? null,
+    }));
+  }
+
+  nodeCost(nodeId: string): number {
+    const row = this.db
+      .prepare(`SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id = ?`)
+      .get(nodeId) as unknown as { total: number } | undefined;
+    return Number(row?.total ?? 0);
+  }
+
+  listMessages(nodeId: string, afterSeq: number): MessageView[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM message WHERE node_id = ? AND seq > ? ORDER BY seq ASC`)
+      .all(nodeId, afterSeq) as unknown as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: r['id'] as string,
+      nodeId: r['node_id'] as string,
+      runId: (r['run_id'] as string | null) ?? null,
+      seq: Number(r['seq']),
+      role: r['role'] as MessageView['role'],
+      kind: r['kind'] as MessageView['kind'],
+      content: JSON.parse(r['content_json'] as string) as unknown,
+      createdAt: r['created_at'] as string,
+    }));
+  }
+
+  appendMessage(input: {
+    nodeId: string;
+    runId: string | null;
+    role: MessageView['role'];
+    kind: MessageView['kind'];
+    content: unknown;
+  }): MessageView {
+    const next = this.db
+      .prepare(`SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM message WHERE node_id = ?`)
+      .get(input.nodeId) as unknown as { seq: number };
+    const view: MessageView = {
+      id: randomUUID(),
+      nodeId: input.nodeId,
+      runId: input.runId,
+      seq: Number(next.seq),
+      role: input.role,
+      kind: input.kind,
+      content: input.content,
+      createdAt: now(),
+    };
+    this.db
+      .prepare(
+        `INSERT INTO message (id, node_id, run_id, seq, role, kind, content_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        view.id,
+        view.nodeId,
+        view.runId,
+        view.seq,
+        view.role,
+        view.kind,
+        JSON.stringify(view.content),
+        view.createdAt,
+      );
+    return view;
+  }
+
+  pendingQuestion(nodeId: string): { id: string; text: string } | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, text FROM question
+         WHERE node_id = ? AND answered_at IS NULL
+         ORDER BY asked_at DESC LIMIT 1`,
+      )
+      .get(nodeId) as unknown as { id: string; text: string } | undefined;
+    return row ?? null;
+  }
+
+  // -- views ---------------------------------------------------------------
+
+  /** Assembles NodeViews for a project, deriving every flag from the tree. */
+  treeView(projectId: string): NodeView[] {
+    const rows = this.listNodes(projectId);
+    const childrenOf = new Map<string, NodeRow[]>();
+    for (const row of rows) {
+      if (row.parent_id === null) continue;
+      const bucket = childrenOf.get(row.parent_id);
+      if (bucket === undefined) childrenOf.set(row.parent_id, [row]);
+      else bucket.push(row);
+    }
+
+    return rows.map((row) => {
+      const children = childrenOf.get(row.id) ?? [];
+      const flags = deriveFlags(
+        { headCommit: row.head_commit },
+        children.map((c) => ({ headCommit: c.head_commit })),
+      );
+      const question = row.status === 'needs_you' ? this.pendingQuestion(row.id) : null;
+      return {
+        id: row.id,
+        projectId: row.project_id,
+        parentId: row.parent_id,
+        displayName: row.display_name,
+        // §7: for needs_you the card shows the agent's question instead, which
+        // is what makes the canvas triageable at a glance.
+        summaryLine: question?.text ?? row.description,
+        status: row.status,
+        ...flags,
+        pendingQuestion: question,
+        positionX: row.position_x,
+        positionY: row.position_y,
+        costUsd: this.nodeCost(row.id),
+        createdAt: row.created_at,
+      } satisfies NodeView;
+    });
+  }
+
+  projectView(row: ProjectRow): ProjectView {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      defaultModel: row.default_model,
+      defaultPermissionMode: row.default_permission_mode,
+      createdAt: row.created_at,
+    };
+  }
+
+  /** Whether a node's pinned base still agrees with a live walk. See lineage.ts. */
+  baseDiverges(row: NodeRow): boolean {
+    const lookup = lookupFrom(this.listNodes(row.project_id).map(toLineage));
+    return divergesFromLiveWalk(toLineage(row), lookup);
+  }
+}
+
+export function toLineage(row: NodeRow): LineageNode {
+  return {
+    id: row.id,
+    parentId: row.parent_id,
+    baseCommit: row.base_commit,
+    headCommit: row.head_commit,
+  };
+}
