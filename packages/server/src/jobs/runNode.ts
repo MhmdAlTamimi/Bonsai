@@ -129,6 +129,7 @@ export class RunJobs {
     let cacheReadTokens = 0;
     let cacheCreationTokens = 0;
     let model: string | null = null;
+    let apiKeySource: string | null = null;
 
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
@@ -188,6 +189,7 @@ export class RunJobs {
             break;
           case 'model':
             model = event.model;
+            apiKeySource = event.apiKeySource ?? null;
             break;
           case 'done':
             // Assigned, never accumulated: total_cost_usd is documented as the
@@ -207,7 +209,7 @@ export class RunJobs {
 
       if (controller.signal.aborted) {
           this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
-          cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model,
+          cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model, apiKeySource,
         });
         return;
       }
@@ -233,6 +235,7 @@ export class RunJobs {
         cacheReadTokens,
         cacheCreationTokens,
         model,
+        apiKeySource,
       });
       this.setStatus(nodeId, 'ready');
       this.bus.publish(node.project_id, {
@@ -249,7 +252,7 @@ export class RunJobs {
       // D31: a failed run is an `interrupted` node plus an error, not a sixth
       // state. The worktree is left dirty on purpose so M4 can resume it.
       this.finishRun(runId, nodeId, 'failed', message, {
-        cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model,
+        cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model, apiKeySource,
       });
       this.bus.publish(node.project_id, { type: 'run.error', nodeId, runId, error: message });
     }

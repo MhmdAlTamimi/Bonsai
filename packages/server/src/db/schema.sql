@@ -101,6 +101,10 @@ CREATE TABLE IF NOT EXISTS run (
   -- cache reads or fresh input is most of the difference in what it costs.
   cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
   cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+  -- Which credential paid for this run. 'none' means a claude.ai subscription
+  -- login, where nothing is charged per token and the cost above is an
+  -- API-equivalent figure rather than money that moved.
+  api_key_source        TEXT,
   -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
   -- sixth node state.
   error         TEXT,

@@ -173,3 +173,33 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   color: var(--muted); font-variant-numeric: tabular-nums;
   border-left: 1px solid var(--line); padding-left: 12px; cursor: help;
 }
+
+/* §7: the conversation is the panel's primary workspace. */
+.conversation {
+  display: flex; flex-direction: column; gap: 8px;
+  /* min-height, not min-height:0 — the panel is a flex column, so without a
+     floor the list collapses below its own content and clips the top of the
+     conversation instead of showing it. */
+  min-height: 120px; max-height: 46vh; overflow-y: auto;
+  flex: none;
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 10px;
+}
+.msg { font-size: 12px; line-height: 1.55; }
+.msg pre {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font: inherit;
+}
+.msg.user {
+  background: var(--surface-2); border-left: 2px solid var(--accent);
+  border-radius: 4px; padding: 6px 8px;
+}
+.msg.assistant { padding: 0 2px; }
+.msg.assistant.streaming { opacity: 0.85; }
+.msg.assistant.working { color: var(--muted); font-style: italic; }
+.msg.tool {
+  display: flex; gap: 8px; align-items: baseline;
+  color: var(--muted); font: 11px ui-monospace, SFMono-Regular, monospace;
+}
+.tool-name { color: var(--accent); }
+.tool-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

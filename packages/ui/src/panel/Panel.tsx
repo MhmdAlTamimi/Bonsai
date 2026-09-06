@@ -2,6 +2,7 @@ import { type JSX, useEffect, useState } from 'react';
 import type { NodeDetail, NodeView } from '@bonsai/shared';
 import { ApiCallError, type NodeDiffView, api } from '../api/client.ts';
 import { CODE_LABEL, codeState } from '../nodeCode.ts';
+import { Conversation } from './Conversation.tsx';
 
 /**
  * The side panel. Contents per node state (PRD §5 / D34).
@@ -81,7 +82,9 @@ export function Panel({
         </div>
         <div>
           <dt>est. cost</dt>
-          <dd>{node.costUsd > 0 ? `$${node.costUsd.toFixed(4)}` : '—'}</dd>
+          <dd title="Computed from token counts and list prices by the SDK. Not a bill.">
+            {node.costUsd > 0 ? `$${node.costUsd.toFixed(4)}` : '—'}
+          </dd>
         </div>
       </dl>
 
@@ -91,6 +94,13 @@ export function Panel({
           was, so its code and its inherited conversation still describe the same tree.
         </p>
       )}
+
+      {/* §7: the conversation is the primary workspace, so it is shown in every
+          state rather than only while a run is streaming. */}
+      <section className="conversation-section">
+        <h3>Conversation</h3>
+        <Conversation node={node} live={stream} />
+      </section>
 
       <StateBody node={node} detail={detail} stream={stream} onChanged={onChanged} setError={setError} />
 
@@ -181,10 +191,10 @@ function StateBody({
       );
 
     case 'running':
+      // No stream box here: the conversation above already shows live output,
+      // and it keeps showing it once the run finishes.
       return (
         <section>
-          <p className="muted">Agent working…</p>
-          <pre className="stream">{stream.join('\n') || '…'}</pre>
           <button onClick={() => void cancel()}>Cancel</button>
         </section>
       );
@@ -254,6 +264,8 @@ function Transcript({ detail }: { detail: NodeDetail | null }): JSX.Element {
   const input = runs.reduce((sum, r) => sum + r.inputTokens, 0);
   const output = runs.reduce((sum, r) => sum + r.outputTokens, 0);
   const model = runs.map((r) => r.model).filter((m): m is string => m !== null).at(-1);
+  // 'none' is a claude.ai subscription login: no per-token charge at all.
+  const subscription = runs.some((r) => r.apiKeySource === 'none');
 
   return (
     <>
@@ -261,7 +273,13 @@ function Transcript({ detail }: { detail: NodeDetail | null }): JSX.Element {
       <p className="muted">
         {detail === null
           ? 'loading…'
-          : `${runs.length} run(s)${cost > 0 ? `, $${cost.toFixed(4)} estimated` : ''}`}
+          : `${runs.length} run(s)${
+              cost > 0
+                ? `, ${subscription ? '≈' : ''}$${cost.toFixed(4)}${
+                    subscription ? ' API-equivalent' : ' estimated'
+                  }`
+                : ''
+            }`}
       </p>
       {model !== undefined && (
         <p className="muted">
@@ -276,10 +294,13 @@ function Transcript({ detail }: { detail: NodeDetail | null }): JSX.Element {
       )}
       {cost > 0 && (
         <p className="hint">
-          An estimate at API list price, not a bill. On a Claude subscription
-          nothing is charged per token — this is what these tokens would have cost
-          through the API. Cost grows with depth: a node replays its whole
-          ancestor conversation on every run.
+          {subscription
+            ? 'Your subscription is billed monthly, so nothing here was charged per token. ' +
+              'This is what these tokens would have cost through the API — the SDK computes it ' +
+              'from token counts and a price table, not from any billing system. Useful for ' +
+              'comparing nodes; it is not money you spent.'
+            : 'An estimate the SDK computes from token counts and list prices, not a bill. '}
+          Cost grows with depth: a node replays its whole ancestor conversation on every run.
         </p>
       )}
       {detail?.contextMd != null && (

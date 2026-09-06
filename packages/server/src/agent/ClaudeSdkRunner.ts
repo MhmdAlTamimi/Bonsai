@@ -103,7 +103,12 @@ export class ClaudeSdkRunner implements AgentRunner {
         if (message.type === 'system' && message.subtype === 'init') {
           // Bonsai sets no model unless a project or node overrides one (D32),
           // so this is the SDK's default and the only place it is observable.
-          yield { type: 'model', model: message.model };
+          //
+          // apiKeySource says which credential is paying. 'none' is a claude.ai
+          // subscription login, where nothing is charged per token -- so the
+          // cost figure below is an API-equivalent estimate, not money spent,
+          // and the UI has to say which.
+          yield { type: 'model', model: message.model, apiKeySource: message.apiKeySource };
         } else if (message.type === 'assistant') {
           for (const block of message.message.content) {
             if (block.type === 'text' && block.text.trim() !== '') {

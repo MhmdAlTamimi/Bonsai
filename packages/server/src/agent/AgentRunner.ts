@@ -39,8 +39,8 @@ export type RunEvent =
   | { type: 'text'; text: string }
   | { type: 'tool'; name: string; detail: string }
   | { type: 'session'; sessionId: string }
-  /** Which model the run is actually using. Bonsai sets none by default (D32). */
-  | { type: 'model'; model: string }
+  /** Which model the run is actually using, and which credential is paying. */
+  | { type: 'model'; model: string; apiKeySource?: string }
   | {
       type: 'done';
       inputTokens: number;

@@ -94,6 +94,12 @@ export interface RunView {
   cacheCreationTokens: number;
   /** Which model actually ran. Null for stand-in runs and for older rows. */
   model: string | null;
+  /**
+   * Which credential paid. 'none' is a claude.ai subscription login, where
+   * nothing is charged per token — there `costUsd` is an API-equivalent figure
+   * and not money that moved.
+   */
+  apiKeySource: string | null;
   error: string | null;
 }
 

@@ -54,6 +54,8 @@ export interface RunTotals {
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   model?: string | null;
+  /** 'none' means a subscription login: no per-token charge. */
+  apiKeySource?: string | null;
 }
 
 export class Store {
@@ -333,7 +335,8 @@ export class Store {
       .prepare(
         `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
                         input_tokens = ?, output_tokens = ?,
-                        cache_read_tokens = ?, cache_creation_tokens = ?, model = ?
+                        cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
+                        api_key_source = ?
          WHERE id = ?`,
       )
       .run(
@@ -346,6 +349,7 @@ export class Store {
         totals.cacheReadTokens ?? 0,
         totals.cacheCreationTokens ?? 0,
         totals.model ?? null,
+        totals.apiKeySource ?? null,
         runId,
       );
   }
@@ -387,6 +391,7 @@ export class Store {
       cacheReadTokens: Number(r['cache_read_tokens'] ?? 0),
       cacheCreationTokens: Number(r['cache_creation_tokens'] ?? 0),
       model: (r['model'] as string | null) ?? null,
+      apiKeySource: (r['api_key_source'] as string | null) ?? null,
       error: (r['error'] as string | null) ?? null,
     }));
   }
