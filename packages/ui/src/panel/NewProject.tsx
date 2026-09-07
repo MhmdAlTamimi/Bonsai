@@ -1,5 +1,6 @@
 import { type JSX, useState } from 'react';
 import { api } from '../api/client.ts';
+import { Logo } from '../Logo.tsx';
 
 /**
  * §6.1: name plus description. The app creates the repo, master branch and
@@ -27,7 +28,9 @@ export function NewProject({ onCreated }: { onCreated: (id: string) => void }): 
 
   return (
     <div className="new-project">
-      <h1>New project</h1>
+      <h1>
+        <Logo size={26} /> New project
+      </h1>
       <p className="muted">
         Bonsai creates a repository, a master branch and a worktree. Nothing is imported and
         nothing touches your own copy of any code.

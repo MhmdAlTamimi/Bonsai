@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import type { ConnectionStatus, ProjectView, SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { Logo } from '../Logo.tsx';
 
 /**
  * The application menu.
@@ -52,7 +53,9 @@ export function MenuBar({
 
   return (
     <div className="menubar" ref={barRef}>
-      <span className="brand">Bonsai</span>
+      <span className="brand">
+        <Logo size={20} />
+      </span>
 
       <div className="menu">
         <button className="menu-title" onClick={() => setOpen(open === 'project' ? null : 'project')}>

@@ -1,6 +1,7 @@
 import { type JSX, useState } from 'react';
 import type { ConnectionStatus, SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { Logo } from '../Logo.tsx';
 
 /**
  * Shown instead of the app whenever Bonsai cannot reach Claude.
@@ -35,7 +36,9 @@ export function ConnectionScreen({
 
   return (
     <div className="connect">
-      <h1>Connect Bonsai to Claude</h1>
+      <h1>
+        <Logo size={26} /> Connect Bonsai to Claude
+      </h1>
       <Explanation status={status} />
 
       <section>

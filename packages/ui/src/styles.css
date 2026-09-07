@@ -164,7 +164,18 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   background: var(--surface); border-bottom: 1px solid var(--line);
   padding: 6px 12px; font-size: 12px;
 }
-.brand { font-weight: 700; letter-spacing: 0.02em; margin-right: 10px; }
+.brand { display: inline-flex; align-items: center; margin-right: 10px; }
+
+/* The mark is a mask, so it takes the surrounding text colour and works on any
+   background — the artwork itself is dark line work, which would vanish here. */
+.logo {
+  display: inline-block; flex: none;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain;
+}
+.connect h1, .new-project h1 { display: flex; align-items: center; gap: 10px; }
 .menu { position: relative; }
 .menu-title {
   background: none; border: none; color: var(--text); font: inherit;
