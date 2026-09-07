@@ -69,36 +69,40 @@ With a real agent, what the agent actually did decides it.
   so there is no native module to compile and no test runner to install.
 - Check with `node --version`.
 
-### Credentials
+### Connecting to Claude
 
-Bonsai now uses the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk).
-Either credential works (D23):
+Bonsai uses the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk).
+Either credential works (D23), and both are set up **inside the app**:
 
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...     # an API key, or
-claude login                             # a Claude subscription
-```
+- **A Claude subscription.** Sign in from the connection screen, or run
+  `claude auth login` yourself. Bonsai never sees or stores this credential.
+- **An API key.** Paste it into Settings. Stored on your machine only, in a file
+  readable just by you, and never sent to the UI once saved.
 
-**It still runs without either.** With no credentials Bonsai falls back to a
-stand-in agent that writes placeholder files, so you can review the whole app —
-tree, git, worktrees, commits, streaming, cancellation — without an account and
-without spending anything. The server prints which one it picked on startup:
+Bonsai establishes the connection **by making a real request**, not by looking
+for credential files. That matters on macOS, where a subscription login lives in
+the Keychain and is invisible on disk — a filesystem check reports "no
+credentials" for someone who is perfectly well signed in.
 
-```
-[bonsai] agent: Claude Agent SDK
-[bonsai] agent: stand-in (no credentials found; runs cost nothing and call nothing)
-```
+**Without a working credential Bonsai stops.** No project creation, no runs, no
+chat. It used to fall back to a stand-in agent that wrote placeholder files,
+which was right for reviewing the code and wrong for using it: the app looked
+like it worked while quietly doing something else. The stand-in is now opt-in
+via `BONSAI_FAKE_AGENT=1`, and exists for tests.
 
 **Real runs cost real money.** Each node forks its parent's conversation, so a
 node at depth 6 replays everything above it (PRD §11 accepts this for V0; B7 is
-the optimization). Cost per run is captured and shown in the side panel.
+the optimization). Model, effort, tokens and estimated cost are all shown per
+node, and Settings has the two levers that matter.
+
+Model, effort, permission mode and folder locations all live in **Settings**;
+these variables are for tests and unusual setups.
 
 | Variable | Effect |
 |---|---|
-| `BONSAI_FAKE_AGENT=1` | Force the stand-in even when credentials exist. |
-| `BONSAI_REAL_AGENT=1` | Force the real agent. Needed on macOS, where a subscription login lives in the Keychain and cannot be detected from disk. |
-| `BONSAI_MODEL` | Default model for new projects. |
-| `BONSAI_EFFORT` | Default reasoning effort for new projects (`low`–`max`). |
+| `BONSAI_FAKE_AGENT=1` | Use the stand-in agent. Output is fake; for tests. |
+| `BONSAI_PORT` | Port to serve on. Default 8787, loopback only. |
+| `BONSAI_DATA_DIR` | Where the database and settings live. |
 
 ### What a run costs, and how to spend less
 
@@ -130,28 +134,17 @@ low one means it is not.
 git clone https://github.com/MhmdAlTamimi/Bonsai.git
 cd Bonsai
 npm install
+npm start
 ```
 
-Two processes during development. In one terminal:
+`npm start` builds both halves, serves them on one port, and opens your browser.
+Bonsai binds to `127.0.0.1` only — it runs an agent with file-editing permission
+and has no authentication, so it is never reachable from the network.
 
-```bash
-npm run dev          # builds the backend and serves it on http://localhost:8787
-```
+The first screen asks you to connect to Claude. Nothing else works until you do.
 
-In another:
-
-```bash
-npm run dev:ui       # vite dev server on http://localhost:5173, proxying /api to 8787
-```
-
-Then open **http://localhost:5173**. You should see five nodes with the panel opening on select.
-
-To run it as a single process instead, build the UI once and let the backend serve it:
-
-```bash
-npm -w @bonsai/ui run build
-npm run dev          # now also serves the UI at http://localhost:8787
-```
+For UI work there is a hot-reloading dev server: `npm run dev` in one terminal
+and `npm run dev:ui` in another, then open http://localhost:5173.
 
 ### Tests
 

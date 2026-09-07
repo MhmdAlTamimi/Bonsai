@@ -8,7 +8,7 @@ import ReactFlow, {
   useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import type { NodeView, TreeResponse } from '@bonsai/shared';
+import type { ConnectionStatus, NodeView, SettingsView, TreeResponse } from '@bonsai/shared';
 
 import { api, subscribe } from './api/client.ts';
 import { useSelection } from './state/selection.ts';
@@ -17,7 +17,9 @@ import { NodeCard } from './canvas/NodeCard.tsx';
 import { Panel } from './panel/Panel.tsx';
 import { NewProject } from './panel/NewProject.tsx';
 import { NewChildDialog } from './canvas/NewChildDialog.tsx';
-import { ProjectSettings } from './panel/ProjectSettings.tsx';
+import { MenuBar } from './canvas/MenuBar.tsx';
+import { SettingsDialog } from './panel/SettingsDialog.tsx';
+import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
 
 const nodeTypes = { bonsai: NodeCard };
 
@@ -26,6 +28,12 @@ export function App(): JSX.Element {
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [noProjects, setNoProjects] = useState(false);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [connection, setConnection] = useState<ConnectionStatus>({
+    state: 'unknown', apiKeySource: null, model: null, message: null,
+  });
+  const [settings, setSettings] = useState<SettingsView | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   // Live run output, keyed by node. Cleared when a run starts so a second run
   // does not read as a continuation of the first.
   const [streams, setStreams] = useState<Record<string, string[]>>({});
@@ -51,10 +59,32 @@ export function App(): JSX.Element {
     }
   }, []);
 
+  const loadConnection = useCallback(async (): Promise<ConnectionStatus> => {
+    const [status, s] = await Promise.all([api.connection(), api.settings()]);
+    setConnection(status);
+    setSettings(s);
+    return status;
+  }, []);
+
+  useEffect(() => {
+    void loadConnection().then((status) => {
+      // The startup probe may still be running; poll until it settles rather
+      // than showing "unknown" forever.
+      if (status.state !== 'unknown') return;
+      const timer = setInterval(() => {
+        void loadConnection().then((next) => {
+          if (next.state !== 'unknown') clearInterval(timer);
+        });
+      }, 1500);
+      setTimeout(() => clearInterval(timer), 90_000);
+    });
+  }, [loadConnection]);
+
   useEffect(() => {
     void api
       .listProjects()
       .then((ps) => {
+        setProjects(ps);
         const first = ps[0];
         if (first === undefined) {
           setNoProjects(true);
@@ -228,6 +258,39 @@ export function App(): JSX.Element {
     });
   };
 
+  /**
+   * D7 cascades and B9 (soft delete) is deferred, so this is irreversible and
+   * destroys paid, unreproducible work. Saying how much before asking is the
+   * cheap part of B9 worth having now.
+   */
+  const deleteCurrentProject = async (): Promise<void> => {
+    if (tree === null || projectId === null) return;
+    const count = tree.nodes.length;
+    const cost = tree.project.costUsd;
+    const spent = cost > 0 ? ` and about $${cost.toFixed(2)} of agent runs` : '';
+    if (
+      !window.confirm(
+        `Delete "${tree.project.name}"?\n\n` +
+          `This permanently removes ${count} node${count === 1 ? '' : 's'}${spent}, ` +
+          `along with every branch and worktree on disk. It cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    await api.deleteProject(projectId);
+    const remaining = await api.listProjects();
+    setProjects(remaining);
+    const next = remaining[0];
+    if (next === undefined) {
+      setTree(null);
+      setProjectId(null);
+      setNoProjects(true);
+    } else {
+      setProjectId(next.id);
+      void refresh(next.id);
+    }
+  };
+
   const createPendingChild = async (name: string, description: string): Promise<void> => {
     if (pendingChild === null || projectId === null) return;
     try {
@@ -257,6 +320,19 @@ export function App(): JSX.Element {
       .catch((e: unknown) => setError(String(e)));
   };
 
+  // Nothing works without a credential, so nothing is shown until there is one.
+  if (connection.state !== 'connected') {
+    return (
+      <div className="app single">
+        <ConnectionScreen
+          status={connection}
+          settings={settings}
+          onChanged={() => void loadConnection()}
+        />
+      </div>
+    );
+  }
+
   if (noProjects) {
     return (
       <div className="app single">
@@ -264,6 +340,7 @@ export function App(): JSX.Element {
           onCreated={(id) => {
             setNoProjects(false);
             setProjectId(id);
+            void api.listProjects().then(setProjects);
             void refresh(id);
           }}
         />
@@ -274,14 +351,24 @@ export function App(): JSX.Element {
   return (
     <div className="app">
       <div className="canvas">
-        {tree !== null && (
-          <ProjectSettings
-            project={tree.project}
-            onChanged={() => {
-              if (projectId !== null) void refresh(projectId);
-            }}
-          />
-        )}
+        <MenuBar
+          project={tree?.project ?? null}
+          projects={projects}
+          settings={settings}
+          connection={connection}
+          onOpenProject={(id) => {
+            setProjectId(id);
+            selection.clear();
+            void refresh(id);
+          }}
+          onNewProject={() => {
+            setProjectId(null);
+            setTree(null);
+            setNoProjects(true);
+          }}
+          onOpenSettings={() => setShowSettings(true)}
+          onDeleteProject={() => void deleteCurrentProject()}
+        />
         {error !== null && <div className="banner">{error}</div>}
         <ReactFlow
           nodes={flowNodes}
@@ -305,6 +392,15 @@ export function App(): JSX.Element {
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>
+      {showSettings && settings !== null && (
+        <SettingsDialog
+          settings={settings}
+          connection={connection}
+          onClose={() => setShowSettings(false)}
+          onChanged={() => void loadConnection()}
+        />
+      )}
+
       {pendingChild !== null && (
         <NewChildDialog
           parentName={pendingChild.parentName}

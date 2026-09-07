@@ -1,3 +1,6 @@
+import { writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { git, gitLine, status } from './exec.js';
 
 /** D22/D28: a single human-readable record, written by the agent, committed by the app. */
@@ -36,6 +39,8 @@ export async function commitRunOutput(opts: {
   worktreePath: string;
   branchName: string;
   message: string;
+  /** Written as CONTEXT.md if the run changed files and the agent wrote none. */
+  fallbackContext?: string;
 }): Promise<CommitOutcome> {
   const { worktreePath, branchName, message } = opts;
 
@@ -45,6 +50,23 @@ export async function commitRunOutput(opts: {
   if (changed.length === 0) {
     await revertContextFile(worktreePath, entries);
     return { committed: false, commit: null, branch: null, changedPaths: [] };
+  }
+
+  /**
+   * D28 has the agent write CONTEXT.md as its final action, and in practice it
+   * sometimes does not -- verified against a real run, where the agent made its
+   * change, committed cleanly, and simply skipped the file. An instruction in a
+   * system prompt is not a guarantee.
+   *
+   * D22 wants a human-readable record of what happened to exist, so when the
+   * agent leaves none the app writes a plain one from what it knows. The
+   * agent's own version is always preferred when there is one.
+   */
+  if (opts.fallbackContext !== undefined && !entries.some((e) => e.path === CONTEXT_FILE)) {
+    const tracked = await isTracked(worktreePath, CONTEXT_FILE);
+    if (!tracked) {
+      await writeFile(join(worktreePath, CONTEXT_FILE), opts.fallbackContext, 'utf8');
+    }
   }
 
   // Detached until now. Creating the branch here, at the moment of the first
@@ -86,6 +108,15 @@ async function revertContextFile(
     await git(['clean', '-f', '--', CONTEXT_FILE], worktreePath);
   } else {
     await git(['restore', '--', CONTEXT_FILE], worktreePath);
+  }
+}
+
+async function isTracked(worktreePath: string, path: string): Promise<boolean> {
+  try {
+    await git(['ls-files', '--error-unmatch', '--', path], worktreePath);
+    return true;
+  } catch {
+    return false;
   }
 }
 

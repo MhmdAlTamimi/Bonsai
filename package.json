@@ -12,9 +12,12 @@
     "node": ">=22.5"
   },
   "scripts": {
-    "build": "tsc -b packages/shared packages/server && cp packages/server/src/db/schema.sql packages/server/dist/db/schema.sql",
-    "test": "npm run build && node --test \"packages/server/dist/**/*.test.js\"",
-    "dev": "npm run build && node --no-warnings packages/server/dist/index.js",
+    "build": "npm run build:server && npm run build:ui",
+    "build:server": "tsc -b packages/shared packages/server && cp packages/server/src/db/schema.sql packages/server/dist/db/schema.sql",
+    "build:ui": "npm -w @bonsai/ui run build",
+    "start": "npm run build && node --no-warnings packages/server/dist/index.js --open",
+    "test": "npm run build:server && node --test \"packages/server/dist/**/*.test.js\"",
+    "dev": "npm run build:server && node --no-warnings packages/server/dist/index.js",
     "dev:ui": "npm -w @bonsai/ui run dev",
     "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"
   },

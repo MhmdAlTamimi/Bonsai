@@ -29,6 +29,51 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+/**
+ * Whether Bonsai can reach Claude. Established by a real query, never guessed
+ * from the filesystem — see server/agent/connection.ts for why that matters.
+ */
+export type ConnectionState =
+  | 'connected'
+  | 'no_credential'
+  | 'rate_limited'
+  | 'error'
+  /** Not checked yet, or a check is in flight. */
+  | 'unknown';
+
+export interface ConnectionStatus {
+  state: ConnectionState;
+  /** Which credential answered: 'none' is a claude.ai subscription login. */
+  apiKeySource: string | null;
+  model: string | null;
+  /** The underlying error, when there is one. Shown verbatim; never invented. */
+  message: string | null;
+}
+
+export interface SettingsView {
+  /** How Bonsai authenticates. 'cli' uses whatever `claude login` stored. */
+  authMode: 'cli' | 'api_key';
+  /** Whether a key is stored. The key itself is never sent to the UI. */
+  hasStoredApiKey: boolean;
+  model: string | null;
+  permissionMode: PermissionMode;
+  effort: string | null;
+  /** Where the database and repositories live. */
+  dataDir: string;
+  reposRoot: string;
+  platform: string;
+}
+
+export interface UpdateSettingsRequest {
+  authMode?: 'cli' | 'api_key';
+  /** Empty string clears the stored key. */
+  apiKey?: string;
+  model?: string | null;
+  permissionMode?: PermissionMode;
+  effort?: string | null;
+  reposRoot?: string;
+}
+
 export interface ProjectView {
   id: string;
   name: string;

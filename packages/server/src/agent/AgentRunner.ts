@@ -32,6 +32,8 @@ export interface RunSpec {
   /** D32: 'low' | 'medium' | 'high' | 'xhigh' | 'max', or null for the SDK default. */
   effort: string | null;
   permissionMode: string;
+  /** Extra environment for the agent subprocess, e.g. a stored API key. */
+  agentEnv: Record<string, string> | null;
   signal: AbortSignal;
 }
 

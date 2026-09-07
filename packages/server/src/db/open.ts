@@ -1,66 +1,64 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { LATEST_VERSION, currentVersion, runMigrations } from './migrations.js';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SCHEMA_VERSION = '5';
-
-/** Opens (creating if needed) the app database and applies the schema. */
-export function openDatabase(dataDir: string): DatabaseSync {
-  mkdirSync(dataDir, { recursive: true });
-  const db = new DatabaseSync(join(dataDir, 'bonsai.db'));
-
-  // schema.sql is copied next to the compiled output by the build.
-  const schema = readFileSync(join(HERE, 'schema.sql'), 'utf8');
-  db.exec(schema);
-
-  migrate(db);
-
-  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
-    SCHEMA_VERSION,
-  );
-  return db;
-}
 
 /**
- * Adds columns to databases created by an earlier version.
+ * Opens (creating if needed) the app database, migrating it if necessary.
  *
- * schema.sql is all CREATE TABLE IF NOT EXISTS, so a table that already exists
- * is left exactly as it was -- new columns in the file would never appear in an
- * existing database, and every read of them would come back undefined. Bonsai
- * is a local app whose users have real trees in their database already, so the
- * fix is to add the column, not to ask them to delete it.
+ * The database is backed up before any migration runs. Bonsai's database holds
+ * the only record of what every node was asked and what it answered -- runs
+ * cost money and are not reproducible (PRD §11) -- so a failed upgrade must
+ * leave something to go back to.
  */
-function migrate(db: DatabaseSync): void {
-  const columns = (table: string): Set<string> =>
-    new Set(
-      (db.prepare(`PRAGMA table_info(${table})`).all() as unknown as Array<{ name: string }>).map(
-        (c) => c.name,
-      ),
+export function openDatabase(dataDir: string): DatabaseSync {
+  mkdirSync(dataDir, { recursive: true });
+  const file = join(dataDir, 'bonsai.db');
+  const existed = existsSync(file);
+
+  const db = new DatabaseSync(file);
+
+  // schema.sql is CREATE TABLE IF NOT EXISTS throughout, so it is safe on an
+  // existing database and creates a complete one from nothing.
+  db.exec(readFileSync(join(HERE, 'schema.sql'), 'utf8'));
+
+  const from = currentVersion(db);
+
+  if (!existed || from === 0) {
+    // A database created from the current schema.sql already has every column,
+    // so it starts at the latest version rather than replaying migrations.
+    db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
+      String(LATEST_VERSION),
     );
-
-  const projectColumns = columns('project');
-  if (!projectColumns.has('default_effort')) {
-    db.exec(`ALTER TABLE project ADD COLUMN default_effort TEXT`);
+    return db;
   }
 
-  const runColumns = columns('run');
-  const additions: Array<[string, string]> = [
-    ['model', 'TEXT'],
-    ['cache_read_tokens', 'INTEGER NOT NULL DEFAULT 0'],
-    ['cache_creation_tokens', 'INTEGER NOT NULL DEFAULT 0'],
-    ['api_key_source', 'TEXT'],
-    ['commit_sha', 'TEXT'],
-  ];
-  for (const [name, type] of additions) {
-    if (!runColumns.has(name)) db.exec(`ALTER TABLE run ADD COLUMN ${name} ${type}`);
+  if (from < LATEST_VERSION) {
+    const backup = `${file}.v${from}.backup`;
+    try {
+      copyFileSync(file, backup);
+      process.stdout.write(`[bonsai] backed up the database to ${backup}\n`);
+    } catch (err) {
+      throw new Error(
+        `refusing to migrate without a backup: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
+
+  const result = runMigrations(db);
+  for (const step of result.applied) process.stdout.write(`[bonsai] migrated — ${step}\n`);
+  return db;
 }
 
 export function openInMemory(): DatabaseSync {
   const db = new DatabaseSync(':memory:');
   db.exec(readFileSync(join(HERE, 'schema.sql'), 'utf8'));
-  migrate(db);
+  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
+    String(LATEST_VERSION),
+  );
   return db;
 }

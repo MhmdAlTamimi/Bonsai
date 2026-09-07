@@ -8,6 +8,7 @@ import type {
   TreeResponse,
   UpdateNodeRequest,
   UpdateProjectRequest,
+  UpdateSettingsRequest,
 } from '@bonsai/shared';
 
 import type { Store } from '../db/store.js';
@@ -21,6 +22,8 @@ import {
 } from '../projects.js';
 import { nodeDiff, runDiff } from '../git/diff.js';
 import { discardWorktreeChanges } from '../git/recovery.js';
+import type { Settings } from '../settings.js';
+import { Connection, revealInFileManager } from './connectionGate.js';
 import { readContextFile } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
 
@@ -28,6 +31,23 @@ interface Ctx {
   store: Store;
   bus: EventBus;
   jobs: RunJobs;
+  settings: Settings;
+  connection: Connection;
+}
+
+/**
+ * Anything that would spend money or start an agent requires a working
+ * credential. 428 Precondition Required, so the UI can tell this apart from a
+ * bug and show the connection screen rather than an error.
+ */
+function requireConnection(connection: Connection): void {
+  if (connection.isConnected()) return;
+  const status = connection.current();
+  throw new HttpError(
+    428,
+    status.message ??
+      'Bonsai is not connected to Claude. Open Settings to sign in or add an API key.',
+  );
 }
 
 type Handler = (
@@ -69,20 +89,58 @@ function match(method: string, path: string): { handler: Handler; params: Record
   return null;
 }
 
+// -- connection and settings -------------------------------------------------
+
+route('GET', '/api/connection', (_req, res, _p, { connection }) => {
+  sendJson(res, 200, connection.current());
+});
+
+route('POST', '/api/connection/check', async (_req, res, _p, { connection }) => {
+  sendJson(res, 200, await connection.check());
+});
+
+route('POST', '/api/connection/login', async (_req, res, _p, { connection }) => {
+  const result = await connection.login();
+  // Whether it worked is decided by a fresh probe, not by the exit code.
+  const status = await connection.check();
+  sendJson(res, 200, { ...result, status });
+});
+
+route('GET', '/api/settings', (_req, res, _p, { settings }) => {
+  sendJson(res, 200, settings.view());
+});
+
+route('PATCH', '/api/settings', async (req, res, _p, { settings, connection }) => {
+  const body = await readJson<UpdateSettingsRequest>(req);
+  const view = settings.update(body);
+  // Auth-affecting changes invalidate what we know, so re-check immediately.
+  if (body.authMode !== undefined || body.apiKey !== undefined || body.model !== undefined) {
+    await connection.check();
+  }
+  sendJson(res, 200, view);
+});
+
+route('POST', '/api/reveal', async (req, res) => {
+  const body = await readJson<{ path?: string }>(req);
+  await revealInFileManager(requireString(body.path, 'path'));
+  sendJson(res, 200, { ok: true });
+});
+
 // -- projects ----------------------------------------------------------------
 
 route('GET', '/api/projects', (_req, res, _p, { store }) => {
   sendJson(res, 200, store.listProjects().map((p) => store.projectView(p)));
 });
 
-route('POST', '/api/projects', async (req, res, _p, { store, bus }) => {
+route('POST', '/api/projects', async (req, res, _p, { store, bus, settings, connection }) => {
+  requireConnection(connection);
   const body = await readJson<CreateProjectRequest>(req);
   const created = await createProject(store, {
     name: requireString(body.name, 'name'),
     description: typeof body.description === 'string' ? body.description : '',
-    model: body.model ?? process.env['BONSAI_MODEL'] ?? null,
-    permissionMode: body.permissionMode ?? 'acceptEdits',
-    effort: process.env['BONSAI_EFFORT'] ?? null,
+    model: body.model ?? settings.model(),
+    permissionMode: body.permissionMode ?? settings.permissionMode(),
+    effort: settings.effort(),
   });
   bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
   // D21 has the agent scaffold master from the description; that run starts in
@@ -182,6 +240,18 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus }) => {
   sendJson(res, 200, store.treeView(row.project_id).find((n) => n.id === row.id));
 });
 
+/** What deleting this node would destroy, so the UI can say so before it does. */
+route('GET', '/api/nodes/:id/deletion-impact', (_req, res, params, { store }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  const doomed = store.descendantsOf(row.id);
+  sendJson(res, 200, {
+    nodes: doomed.length,
+    costUsd: doomed.reduce((sum, n) => sum + store.nodeCost(n.id), 0),
+    commits: doomed.filter((n) => n.head_commit !== null).length,
+  });
+});
+
 route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
@@ -217,7 +287,8 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
 
 // -- runs --------------------------------------------------------------------
 
-route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs }) => {
+route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, connection }) => {
+  requireConnection(connection);
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const body = await readJson<StartRunRequest>(req);
@@ -237,7 +308,8 @@ route('POST', '/api/runs/:id/reply', (_req, res) =>
   notYet('later', 'answering an agent question (the ask-user mechanism is postponed)'),
 );
 /** §6.6: resume / discard / keep. */
-route('POST', '/api/nodes/:id/recover', async (req, res, params, { store, bus, jobs }) => {
+route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
+  const { store, bus, jobs } = ctx;
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   if (row.status === 'running') throw new HttpError(409, 'this node is still running');
@@ -245,6 +317,7 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, { store, bus, j
   const body = await readJson<RecoverRequest>(req);
   switch (body.action) {
     case 'resume':
+      requireConnection(ctx.connection);
       sendJson(res, 202, await jobs.startResume(row.id));
       return;
 

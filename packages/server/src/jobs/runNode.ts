@@ -2,6 +2,27 @@ import { randomUUID } from 'node:crypto';
 import type { NodeStatus } from '@bonsai/shared';
 
 import type { NodeRow, RunTotals, Store } from '../db/store.js';
+
+/** A plain record for when the agent skipped writing one (D22). */
+function contextFallback(displayName: string, prompt: string): string {
+  return [
+    `# ${displayName}`,
+    '',
+    '## What was asked',
+    '',
+    prompt.trim(),
+    '',
+    '_The agent did not leave its own notes for this run, so Bonsai recorded the request._',
+    '',
+  ].join('\n');
+}
+
+/** Just the parts of Settings a run needs, so tests need not build the whole thing. */
+export interface SettingsSource {
+  model(): string | null;
+  effort(): string | null;
+  agentEnv(): Record<string, string> | null;
+}
 import type { EventBus } from '../api/events.js';
 import type { AgentRunner } from '../agent/AgentRunner.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
@@ -23,6 +44,7 @@ export class RunJobs {
     private readonly store: Store,
     private readonly bus: EventBus,
     private readonly runner: AgentRunner,
+    private readonly settings?: SettingsSource,
   ) {}
 
   isRunning(nodeId: string): boolean {
@@ -161,9 +183,12 @@ export class RunJobs {
         resumeSessionId: inheritance.sessionId,
         forkSession: inheritance.fork,
         readOnly,
-        model: node.model ?? project.default_model,
-        effort: project.default_effort,
-        permissionMode: node.permission_mode ?? project.default_permission_mode,
+        // Node override, then the project's default, then the app setting.
+        model: node.model ?? project.default_model ?? this.settings?.model() ?? null,
+        effort: project.default_effort ?? this.settings?.effort() ?? null,
+        permissionMode:
+          node.permission_mode ?? project.default_permission_mode ?? 'acceptEdits',
+        agentEnv: this.settings?.agentEnv() ?? null,
         signal: controller.signal,
       })) {
         switch (event.type) {
@@ -237,6 +262,7 @@ export class RunJobs {
         worktreePath: node.worktree_path,
         branchName: node.branch_name ?? branchNameFor(nodeId),
         message: commitMessageFor(node.display_name, node.description),
+        fallbackContext: contextFallback(node.display_name, prompt),
       });
 
       const commitSha = outcome.commit;

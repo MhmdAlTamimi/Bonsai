@@ -91,6 +91,38 @@ export function Panel({
     }
   };
 
+  /**
+   * D7 cascades to every descendant and B9 (soft delete) is deferred, so this
+   * is irreversible and destroys paid, unreproducible work. The impact is
+   * fetched and stated before asking — the cheap part of B9, worth having now.
+   */
+  const remove = async (): Promise<void> => {
+    setError(null);
+    try {
+      const impact = await api.deletionImpact(node.id);
+      const others = impact.nodes - 1;
+      const spent = impact.costUsd > 0 ? `, about $${impact.costUsd.toFixed(2)} of agent runs` : '';
+      const descendants = others > 0 ? ` and ${others} descendant${others === 1 ? '' : 's'}` : '';
+      if (
+        !window.confirm(
+          `Delete "${node.displayName}"${descendants}?\n\n` +
+            `This permanently removes ${impact.nodes} node${impact.nodes === 1 ? '' : 's'}${spent}, ` +
+            `${impact.commits} commit-bearing branch${impact.commits === 1 ? '' : 'es'}, and their ` +
+            `worktrees on disk. It cannot be undone.`,
+        )
+      ) {
+        return;
+      }
+      setBusy(true);
+      await api.deleteNode(node.id);
+      onChanged();
+    } catch (e) {
+      setError(describe(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const cancel = async (): Promise<void> => {
     const run = detail?.runs.find((r) => r.status === 'running');
     if (run === undefined) return;
@@ -112,6 +144,11 @@ export function Panel({
           {node.status === 'running' && (
             <button className="linkish" onClick={() => void cancel()}>
               cancel
+            </button>
+          )}
+          {node.parentId !== null && (
+            <button className="linkish danger" onClick={() => void remove()} disabled={busy}>
+              delete
             </button>
           )}
           <span className={`pill status-${node.status}`}>{node.status.replace('_', ' ')}</span>
@@ -212,11 +249,21 @@ function Cost({
   runs,
 }: {
   node: NodeView;
-  runs: readonly { costUsd: number; model: string | null; apiKeySource: string | null }[];
+  runs: readonly {
+    costUsd: number;
+    model: string | null;
+    apiKeySource: string | null;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+  }[];
 }): JSX.Element {
   const model = runs.map((r) => r.model).filter((m): m is string => m !== null).at(-1);
   // 'none' is a claude.ai subscription login: nothing is charged per token.
   const subscription = runs.some((r) => r.apiKeySource === 'none');
+  const input = runs.reduce((n, r) => n + r.inputTokens, 0);
+  const output = runs.reduce((n, r) => n + r.outputTokens, 0);
+  const cacheRead = runs.reduce((n, r) => n + r.cacheReadTokens, 0);
 
   return (
     <>
@@ -234,6 +281,15 @@ function Cost({
           <dt>model</dt>
           <dd>
             <code>{model}</code>
+          </dd>
+        </div>
+      )}
+      {(input > 0 || output > 0) && (
+        <div>
+          <dt>tokens</dt>
+          <dd title="Cached input is replayed ancestor conversation, and costs a fraction of fresh input.">
+            {input.toLocaleString()} in · {output.toLocaleString()} out
+            {cacheRead > 0 && <> · {cacheRead.toLocaleString()} cached</>}
           </dd>
         </div>
       )}

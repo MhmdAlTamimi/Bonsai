@@ -1,8 +1,11 @@
 import type {
+  ConnectionStatus,
   CreateProjectRequest,
   DiffView,
   MessageView,
   RecoverAction,
+  SettingsView,
+  UpdateSettingsRequest,
   ProjectView,
   UpdateProjectRequest,
   NodeDetail,
@@ -50,6 +53,23 @@ export interface NodeDiffView {
 }
 
 export const api = {
+  connection: () => json<ConnectionStatus>('/api/connection'),
+  checkConnection: () => json<ConnectionStatus>('/api/connection/check', { method: 'POST' }),
+  login: () =>
+    json<{ ok: boolean; output: string; status: ConnectionStatus }>('/api/connection/login', {
+      method: 'POST',
+    }),
+
+  settings: () => json<SettingsView>('/api/settings'),
+  updateSettings: (body: UpdateSettingsRequest) =>
+    json<SettingsView>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
+
+  reveal: (path: string) =>
+    json<{ ok: true }>('/api/reveal', { method: 'POST', body: JSON.stringify({ path }) }),
+
+  deleteProject: (projectId: string) =>
+    json<{ ok: true; nodes: number }>(`/api/projects/${projectId}`, { method: 'DELETE' }),
+
   listProjects: () => json<Array<{ id: string; name: string }>>('/api/projects'),
 
   createProject: (body: CreateProjectRequest) =>
@@ -97,7 +117,7 @@ export const api = {
     json<NodeView>(`/api/nodes/${nodeId}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   deleteNode: (nodeId: string) =>
-    json<{ ok: true }>(`/api/nodes/${nodeId}`, { method: 'DELETE' }),
+    json<{ ok: true; removed: number }>(`/api/nodes/${nodeId}`, { method: 'DELETE' }),
 
   startRun: (nodeId: string, prompt: string) =>
     json<{ runId: string }>(`/api/nodes/${nodeId}/runs`, {
@@ -105,8 +125,10 @@ export const api = {
       body: JSON.stringify({ prompt }),
     }),
 
-  deleteNodeTree: (nodeId: string) =>
-    json<{ ok: true; removed: number }>(`/api/nodes/${nodeId}`, { method: 'DELETE' }),
+  deletionImpact: (nodeId: string) =>
+    json<{ nodes: number; costUsd: number; commits: number }>(
+      `/api/nodes/${nodeId}/deletion-impact`,
+    ),
 };
 
 /** Subscribes to the project's event stream. Returns an unsubscribe function. */

@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,28 +13,45 @@ import { handleApi } from './api/router.js';
 import { RunJobs } from './jobs/runNode.js';
 import { FakeRunner } from './agent/FakeRunner.js';
 import { ClaudeSdkRunner } from './agent/ClaudeSdkRunner.js';
-import { hasAgentCredentials } from './agent/credentials.js';
+import { Settings } from './settings.js';
+import { Connection } from './api/connectionGate.js';
 
 const config = loadConfig();
 const db = openDatabase(config.dataDir);
 const store = new Store(db, config.reposRoot);
 const bus = new EventBus();
 
+const settings = new Settings(config);
+const connection = new Connection(settings);
+
 /**
- * D14e: agent invocation sits behind one interface, so this is the whole of the
- * M2 -> M3 swap.
+ * D14e: agent invocation sits behind one interface.
  *
- * Falling back to the stand-in when there are no credentials is deliberate: it
- * keeps the app reviewable, and the whole git layer testable, without an API
- * key or a cent of spend. BONSAI_FAKE_AGENT=1 forces it even when a key exists.
+ * THE STAND-IN IS NOW OPT-IN, and only through an environment variable. It used
+ * to be the automatic fallback whenever no credential was detected, which was
+ * the right call while this was something to review and the wrong one the
+ * moment it was something to use: a new user with a working subscription that
+ * the old filesystem check could not see would get placeholder files and
+ * reasonably conclude that is what Bonsai does. Silently doing something
+ * different from what was asked is worse than refusing.
+ *
+ * Without BONSAI_FAKE_AGENT=1 there is exactly one runner, and the connection
+ * gate stops runs before they start when it cannot reach Claude.
  */
-const useRealAgent = process.env['BONSAI_FAKE_AGENT'] !== '1' && hasAgentCredentials();
-const jobs = new RunJobs(store, bus, useRealAgent ? new ClaudeSdkRunner() : new FakeRunner());
-process.stdout.write(
-  useRealAgent
-    ? '[bonsai] agent: Claude Agent SDK\n'
-    : '[bonsai] agent: stand-in (no credentials found; runs cost nothing and call nothing)\n',
-);
+const useStandIn = process.env['BONSAI_FAKE_AGENT'] === '1';
+const jobs = new RunJobs(store, bus, useStandIn ? new FakeRunner() : new ClaudeSdkRunner(), settings);
+if (useStandIn) {
+  process.stdout.write('[bonsai] agent: STAND-IN (BONSAI_FAKE_AGENT=1) — output is fake\n');
+}
+
+// Check on startup so the UI knows immediately, without blocking the listen.
+void connection.check().then((status) => {
+  process.stdout.write(
+    status.state === 'connected'
+      ? `[bonsai] connected to Claude (${status.model}, credential: ${status.apiKeySource})\n`
+      : `[bonsai] not connected: ${status.state}${status.message === null ? '' : ` — ${status.message}`}\n`,
+  );
+});
 
 // D31: any run still marked `running` in the database died with the process,
 // because nothing survives the exit. Recovery itself lands in M4; noticing is
@@ -62,13 +80,13 @@ const MIME: Record<string, string> = {
 
 const server = createServer((req, res) => {
   void (async () => {
-    if (await handleApi(req, res, { store, bus, jobs })) return;
+    if (await handleApi(req, res, { store, bus, jobs, settings, connection })) return;
 
     // Serve the built UI when it exists. In development the vite dev server
     // proxies /api here instead, so this path is unused.
     if (!existsSync(UI_DIST)) {
-      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('UI is not built. Run `npm run dev:ui` for the dev server.\n');
+      res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('The interface is not built yet. Run `npm start`, which builds it.\n');
       return;
     }
     const urlPath = new URL(req.url ?? '/', 'http://localhost').pathname;
@@ -92,8 +110,27 @@ const server = createServer((req, res) => {
  * D13 says local, and this is what local has to mean.
  */
 server.listen(config.port, '127.0.0.1', () => {
-  process.stdout.write(`[bonsai] http://localhost:${config.port}  (data: ${config.dataDir})\n`);
+  const url = `http://localhost:${config.port}`;
+  process.stdout.write(`[bonsai] ${url}  (data: ${config.dataDir})\n`);
+  if (process.argv.includes('--open')) openInBrowser(url);
 });
+
+/** `npm start` should end with Bonsai on screen, not with a URL to copy. */
+function openInBrowser(url: string): void {
+  const command =
+    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+  try {
+    const child = spawn(command, [url], {
+      shell: process.platform === 'win32',
+      stdio: 'ignore',
+      detached: true,
+    });
+    child.on('error', () => undefined);
+    child.unref();
+  } catch {
+    // A headless machine has no browser to open; the URL above is enough.
+  }
+}
 
 const shutdown = (): void => {
   bus.closeAll();

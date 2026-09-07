@@ -56,6 +56,9 @@ export class ClaudeSdkRunner implements AgentRunner {
       ...(spec.readOnly ? {} : { hooks: { PreToolUse: [gitGuardHook()] } }),
 
       permissionMode: spec.permissionMode as PermissionMode,
+      // A key stored in Settings reaches the subprocess here rather than being
+      // written into this process's environment.
+      ...(spec.agentEnv === null ? {} : { env: { ...process.env, ...spec.agentEnv } }),
       ...(spec.model === null ? {} : { model: spec.model }),
 
       // Bonsai's own instructions only. Without this the SDK would also load
