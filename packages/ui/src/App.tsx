@@ -4,6 +4,7 @@ import ReactFlow, {
   Controls,
   type NodeMouseHandler,
   ReactFlowProvider,
+  useNodesState,
   useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -82,10 +83,63 @@ export function App(): JSX.Element {
     });
   }, [projectId, refresh]);
 
-  const { nodes, edges } = useMemo(
-    () => (tree === null ? { nodes: [], edges: [] } : layoutTree(tree.nodes)),
-    [tree],
-  );
+  /**
+   * Rebuild the laid-out nodes, CARRYING OVER what React Flow measured.
+   *
+   * This is the fix for the canvas going blank after a refresh — reported for
+   * changing the model, for chatting, and earlier for creating a node, because
+   * all three end in a refetch.
+   *
+   * React Flow hides a node whose dimensions it has not measured yet
+   * (`visibility: hidden`). Handing it a brand-new object on every refresh
+   * threw those measurements away, so every node was hidden until it had been
+   * re-measured. Locally that is a few milliseconds and invisible; with more
+   * nodes or a slower machine the canvas simply looks empty, and zooming --
+   * which forces a re-measure -- brings it back. That "zoom in and out to fix
+   * it" is the tell.
+   *
+   * So width/height/positionAbsolute are carried forward per node id, and only
+   * the things that actually changed (data, position) are replaced.
+   */
+  /**
+   * React Flow owns the node array; we merge server state into it.
+   *
+   * This is the fix for the canvas going blank after a refresh — reported for
+   * changing the model, for chatting, and earlier for creating a node, because
+   * all three end in a refetch.
+   *
+   * React Flow hides a node it has not measured (`visibility: hidden`) and
+   * reports the measurement back through onNodesChange. That handler was never
+   * wired, so the measurements had nowhere to land: every refetch replaced the
+   * array with freshly-built nodes that looked unmeasured, and every node was
+   * hidden until re-measured. Locally that is milliseconds; with more nodes or
+   * a slower machine the canvas just looks empty until a zoom forces a
+   * re-measure. "Zoom in and out to get it back" was the tell.
+   *
+   * useNodesState keeps the applyNodeChanges plumbing, so dimensions persist,
+   * and merging by id below preserves them across refetches.
+   */
+  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([]);
+
+  const edges = useMemo(() => (tree === null ? [] : layoutTree(tree.nodes).edges), [tree]);
+
+  useEffect(() => {
+    if (tree === null) {
+      setFlowNodes([]);
+      return;
+    }
+    const laid = layoutTree(tree.nodes);
+    setFlowNodes((current) => {
+      const byId = new Map(current.map((n) => [n.id, n]));
+      return laid.nodes.map((fresh) => {
+        const previous = byId.get(fresh.id);
+        // Keep the measured node and overlay only what the server changed.
+        return previous === undefined
+          ? fresh
+          : { ...previous, data: fresh.data, position: fresh.position };
+      });
+    });
+  }, [tree, setFlowNodes]);
 
   // Refit when the tree gains or loses a node. The layout grows downward, so
   // without this a newly created node lands off-screen -- and having just
@@ -114,7 +168,7 @@ export function App(): JSX.Element {
   const { fitView } = useReactFlow();
   const fitViewRef = useRef(fitView);
   fitViewRef.current = fitView;
-  const nodeCount = nodes.length;
+  const nodeCount = flowNodes.length;
   useEffect(() => {
     if (nodeCount === 0) return;
     const timer = setTimeout(
@@ -138,8 +192,6 @@ export function App(): JSX.Element {
       .updateNode(node.id, { positionX: node.position.x, positionY: node.position.y })
       .catch((e: unknown) => setError(String(e)));
   };
-
-  const flowNodes = nodes.map((n) => ({ ...n, selected: selection.ids.includes(n.id) }));
 
   if (noProjects) {
     return (
@@ -170,6 +222,7 @@ export function App(): JSX.Element {
         <ReactFlow
           nodes={flowNodes}
           edges={edges}
+          onNodesChange={onNodesChange}
           nodeTypes={nodeTypes}
           onNodeClick={onNodeClick}
           onNodeDragStop={onNodeDragStop}
