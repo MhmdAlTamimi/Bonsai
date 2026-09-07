@@ -14,7 +14,7 @@ Full spec in [`docs/v0-prd.md`](docs/v0-prd.md); decisions and deferred backlog 
 
 ---
 
-## Status: M3 (agent layer)
+## Status: M4 (lifecycle)
 
 Built in milestones, each with a review checkpoint.
 
@@ -22,13 +22,15 @@ Built in milestones, each with a review checkpoint.
 |---|---|---|
 | M1 | Skeleton — schema, API, canvas | done |
 | M2 | Git layer — repos, worktrees, the ancestor-commit walk | done |
-| **M3** | Agent layer — Claude Agent SDK, session forking, cancellation | **done** |
-| M4 | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | next |
-| M5 | Detached worktrees and the full demo script | |
+| M3 | Agent layer — Claude Agent SDK, session forking, cancellation | done |
+| **M4** | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | **done** |
+| M5 | Detached worktrees and the full demo script | next |
 
-**M3 runs real agents when you have credentials, and a stand-in when you do
-not.** Nodes inherit their parent's conversation by session forking, runs stream
-to the canvas, and cancellation works. Routes whose milestone has not arrived
+**M4 adds the lifecycle.** The side panel is a chat: message the node, read the
+reply, expand the diff each exchange produced, and reply again — every send
+continues that node's own conversation. If the app dies mid-run, the node comes
+back `interrupted` with its partial work intact, and resume tells the agent what
+actually landed rather than letting it guess. Routes whose milestone has not arrived
 return `501` naming the milestone rather than silently doing nothing.
 
 ### Trying it
@@ -36,6 +38,10 @@ return `501` naming the milestone rather than silently doing nothing.
 Create a project, then create children from the side panel. Nothing asks you
 which kind of node you are making — a node that changes files gets a branch and
 a commit, and a node that only answers a question does not.
+
+Talk to a node in the panel — it is a conversation, not a single request, so
+the agent can ask for detail and you can answer. Each reply that changes files
+adds a commit to that node and shows its diff inline.
 
 Ask a question under a node, then create a child of that question. The child
 inherits the question's whole conversation, but its code branches from the
