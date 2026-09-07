@@ -14,7 +14,7 @@ Full spec in [`docs/v0-prd.md`](docs/v0-prd.md); decisions and deferred backlog 
 
 ---
 
-## Status: M4 (lifecycle)
+## Status: V0 complete
 
 Built in milestones, each with a review checkpoint.
 
@@ -23,12 +23,18 @@ Built in milestones, each with a review checkpoint.
 | M1 | Skeleton — schema, API, canvas | done |
 | M2 | Git layer — repos, worktrees, the ancestor-commit walk | done |
 | M3 | Agent layer — Claude Agent SDK, session forking, cancellation | done |
-| **M4** | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | **done** |
-| M5 | Detached worktrees and the full demo script | next |
+| M4 | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | done |
+| **M5** | Detached worktrees and the full demo script | **done** |
 
-**M4 adds the lifecycle.** The side panel is a chat: message the node, read the
-reply, expand the diff each exchange produced, and reply again — every send
-continues that node's own conversation. If the app dies mid-run, the node comes
+**The demo script in PRD §2 runs end to end**, which is V0's definition of done:
+a project scaffolded from its description, two approaches branched from master,
+a question asked about one of them, and a child of that question which carries
+its whole conversation while branching from the commit *above* it. Five nodes,
+correct ancestry, siblings isolated.
+
+The side panel is a chat: message a node, read the reply, expand the diff each
+exchange produced, reply again. Drag from a node's `+` handle into empty canvas
+to create a child where you dropped it. If the app dies mid-run, the node comes
 back `interrupted` with its partial work intact, and resume tells the agent what
 actually landed rather than letting it guess. Routes whose milestone has not arrived
 return `501` naming the milestone rather than silently doing nothing.
@@ -153,8 +159,9 @@ npm run dev          # now also serves the UI at http://localhost:8787
 npm test
 ```
 
-55 tests, no network and no agent — they run the same with or without
-credentials, and never spend anything. Roughly half are pure unit tests over
+65 tests, no network and no agent — they run the same with or without
+credentials, and never spend anything. The last of them is the §2 demo script
+itself, run against real git from project creation to the five-node tree. Roughly half are pure unit tests over
 `domain/lineage.ts` — the nearest-ancestor-commit walk. The rest are integration
 tests that run **real git** in temporary directories, including the M2
 checkpoint: a node whose parent has no commits of its own branches from the
