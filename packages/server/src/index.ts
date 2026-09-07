@@ -82,7 +82,16 @@ const server = createServer((req, res) => {
   })();
 });
 
-server.listen(config.port, () => {
+/**
+ * Loopback only.
+ *
+ * This API creates git repositories, runs an agent with file-editing
+ * permission, and has no authentication of any kind — it assumes the only
+ * caller is the person sitting at the machine. Binding every interface put
+ * that on the local network: on a cafe or office wifi, anyone could drive it.
+ * D13 says local, and this is what local has to mean.
+ */
+server.listen(config.port, '127.0.0.1', () => {
   process.stdout.write(`[bonsai] http://localhost:${config.port}  (data: ${config.dataDir})\n`);
 });
 

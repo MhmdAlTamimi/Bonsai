@@ -4,6 +4,12 @@ import { git, gitLine } from './exec.js';
 export const DEFAULT_BRANCH = 'master';
 
 /**
+ * The SHA-1 of git's empty tree. Fixed by the object format, identical in every
+ * repository, and the same value `git hash-object -t tree /dev/null` returns.
+ */
+export const EMPTY_TREE_SHA = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
+
+/**
  * Creates a project's repository.
  *
  * Bare, with every node -- master included -- getting its own worktree. A
@@ -24,7 +30,11 @@ export async function createRepo(repoPath: string): Promise<{ rootCommit: string
   await git(['init', '--bare', '--initial-branch=' + DEFAULT_BRANCH, '.'], repoPath);
 
   // The empty tree, via plumbing -- there is no working copy to commit from.
-  const emptyTree = await gitLine(['hash-object', '-t', 'tree', '/dev/null'], repoPath);
+  //
+  // Its hash is a constant of git's object format, not something to compute:
+  // the previous `hash-object -t tree /dev/null` needed a path that does not
+  // exist on Windows, so project creation failed there outright.
+  const emptyTree = EMPTY_TREE_SHA;
   const rootCommit = await gitLine(
     ['commit-tree', emptyTree, '-m', 'Initialise project'],
     repoPath,

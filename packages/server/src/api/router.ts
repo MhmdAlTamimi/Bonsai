@@ -13,7 +13,12 @@ import type {
 import type { Store } from '../db/store.js';
 import type { EventBus } from './events.js';
 import type { RunJobs } from '../jobs/runNode.js';
-import { createChildNode, createProject, deleteNodeTree } from '../projects.js';
+import {
+  createChildNode,
+  createProject,
+  deleteNodeTree,
+  deleteProjectTree,
+} from '../projects.js';
 import { nodeDiff, runDiff } from '../git/diff.js';
 import { discardWorktreeChanges } from '../git/recovery.js';
 import { readContextFile } from '../git/context.js';
@@ -108,12 +113,13 @@ route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => 
   sendJson(res, 200, store.projectView(store.getProject(project.id)!));
 });
 
-route('DELETE', '/api/projects/:id', (_req, res, params, { store, bus }) => {
+route('DELETE', '/api/projects/:id', async (_req, res, params, { store, bus, jobs }) => {
   const project = store.getProject(params['id']!);
   if (project === undefined) throw new HttpError(404, 'no such project');
-  store.deleteProject(project.id);
+  for (const node of store.listNodes(project.id)) jobs.cancel(node.id);
+  const removed = await deleteProjectTree(store, project.id);
   bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
-  sendJson(res, 200, { ok: true });
+  sendJson(res, 200, { ok: true, ...removed });
 });
 
 // -- nodes -------------------------------------------------------------------

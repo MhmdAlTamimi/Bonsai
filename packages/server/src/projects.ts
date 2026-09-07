@@ -1,3 +1,6 @@
+import { rm } from 'node:fs/promises';
+import { dirname } from 'node:path';
+
 import type { PermissionMode } from '@bonsai/shared';
 
 import type { Store } from './db/store.js';
@@ -96,4 +99,38 @@ export async function deleteNodeTree(store: Store, nodeId: string): Promise<numb
 
   store.deleteNode(nodeId);
   return doomed.length;
+}
+
+/**
+ * Deletes a project and everything it owns ON DISK as well as in the database.
+ *
+ * The row delete alone cascaded through the database and left the bare repo and
+ * every node's worktree behind forever — invisible, orphaned, and growing. A
+ * project holds one worktree per node, so that is the bulk of what Bonsai
+ * writes anywhere.
+ */
+export async function deleteProjectTree(
+  store: Store,
+  projectId: string,
+): Promise<{ nodes: number; removedDirectory: string | null }> {
+  const project = store.getProject(projectId);
+  if (project === undefined) return { nodes: 0, removedDirectory: null };
+
+  const nodes = store.listNodes(projectId);
+
+  // Ask git to release its worktree administration first; deleting the
+  // directories underneath a live repo leaves stale metadata behind.
+  for (const node of nodes) {
+    await removeWorktree(project.repo_path, node.worktree_path);
+  }
+
+  // Everything Bonsai created for this project lives under one directory: the
+  // bare repo and the worktrees are siblings inside it.
+  const projectDirectory = dirname(project.repo_path);
+  if (projectDirectory.startsWith(dirname(dirname(project.repo_path)))) {
+    await rm(projectDirectory, { recursive: true, force: true });
+  }
+
+  store.deleteProject(projectId);
+  return { nodes: nodes.length, removedDirectory: projectDirectory };
 }

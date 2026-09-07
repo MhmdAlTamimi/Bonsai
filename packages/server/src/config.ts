@@ -23,7 +23,11 @@ function appDataDir(): string {
     return join(homedir(), 'Library', 'Application Support', 'Bonsai');
   }
   if (process.platform === 'win32') {
-    return join(process.env['APPDATA'] ?? homedir(), 'Bonsai');
+    // LOCALAPPDATA, not APPDATA. APPDATA roams: in an AD environment it is
+    // synced to the domain controller at every logon, and Bonsai's data
+    // directory holds a git repo and a worktree per node. Roaming that is
+    // gigabytes over the network for data that is inherently machine-local.
+    return join(process.env['LOCALAPPDATA'] ?? process.env['APPDATA'] ?? homedir(), 'Bonsai');
   }
   return join(process.env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share'), 'bonsai');
 }
