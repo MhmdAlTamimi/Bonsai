@@ -1,4 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
+import { useEscape } from '../useEscape.ts';
 
 /**
  * Name and change description for a new child, raised where you dropped it.
@@ -25,17 +26,7 @@ export function NewChildDialog({
     nameRef.current?.focus();
   }, []);
 
-  // Escape closes, from anywhere in the dialog.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onCancel();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
+  useEscape(onCancel);
 
   const submit = async (): Promise<void> => {
     if (busy) return;

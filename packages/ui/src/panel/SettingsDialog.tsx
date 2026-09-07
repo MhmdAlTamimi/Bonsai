@@ -1,6 +1,7 @@
 import { type JSX, useState } from 'react';
 import { EFFORTS, type ConnectionStatus, type SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { useEscape } from '../useEscape.ts';
 
 const MODELS: Array<{ id: string | null; label: string }> = [
   { id: null, label: 'Claude Code default' },
@@ -31,6 +32,7 @@ export function SettingsDialog({
   const [apiKey, setApiKey] = useState('');
   const [reposRoot, setReposRoot] = useState(settings.reposRoot);
   const [note, setNote] = useState<string | null>(null);
+  useEscape(onClose);
 
   const save = async (patch: Parameters<typeof api.updateSettings>[0]): Promise<void> => {
     setBusy(true);
