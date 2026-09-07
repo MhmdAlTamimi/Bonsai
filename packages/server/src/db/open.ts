@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SCHEMA_VERSION = '4';
+const SCHEMA_VERSION = '5';
 
 /** Opens (creating if needed) the app database and applies the schema. */
 export function openDatabase(dataDir: string): DatabaseSync {
@@ -51,6 +51,7 @@ function migrate(db: DatabaseSync): void {
     ['cache_read_tokens', 'INTEGER NOT NULL DEFAULT 0'],
     ['cache_creation_tokens', 'INTEGER NOT NULL DEFAULT 0'],
     ['api_key_source', 'TEXT'],
+    ['commit_sha', 'TEXT'],
   ];
   for (const [name, type] of additions) {
     if (!runColumns.has(name)) db.exec(`ALTER TABLE run ADD COLUMN ${name} ${type}`);

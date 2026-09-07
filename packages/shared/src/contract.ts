@@ -100,7 +100,15 @@ export interface RunView {
    * and not money that moved.
    */
   apiKeySource: string | null;
+  /** The commit this run produced, or null when it changed nothing. */
+  commitSha: string | null;
   error: string | null;
+}
+
+export interface DiffView {
+  files: string[];
+  patch: string;
+  dirty: string[];
 }
 
 export interface MessageView {

@@ -56,6 +56,8 @@ export interface RunTotals {
   model?: string | null;
   /** 'none' means a subscription login: no per-token charge. */
   apiKeySource?: string | null;
+  /** The commit this run produced, if it produced one. */
+  commitSha?: string | null;
 }
 
 export class Store {
@@ -336,7 +338,7 @@ export class Store {
         `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
                         input_tokens = ?, output_tokens = ?,
                         cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
-                        api_key_source = ?
+                        api_key_source = ?, commit_sha = ?
          WHERE id = ?`,
       )
       .run(
@@ -350,14 +352,40 @@ export class Store {
         totals.cacheCreationTokens ?? 0,
         totals.model ?? null,
         totals.apiKeySource ?? null,
+        totals.commitSha ?? null,
         runId,
       );
   }
 
-  getRun(runId: string): { id: string; node_id: string; status: string } | undefined {
-    return this.db.prepare(`SELECT id, node_id, status FROM run WHERE id = ?`).get(runId) as
-      | unknown as { id: string; node_id: string; status: string }
+  getRun(
+    runId: string,
+  ): { id: string; node_id: string; status: string; commit_sha: string | null } | undefined {
+    return this.db
+      .prepare(`SELECT id, node_id, status, commit_sha FROM run WHERE id = ?`)
+      .get(runId) as unknown as
+      | { id: string; node_id: string; status: string; commit_sha: string | null }
       | undefined;
+  }
+
+  /**
+   * The commit a run should be diffed against: whatever the node was sitting on
+   * before it. That is the previous run's commit, or the node's pinned base if
+   * this was its first.
+   */
+  runDiffBase(runId: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT (
+           SELECT commit_sha FROM run prev
+           WHERE prev.node_id = r.node_id AND prev.commit_sha IS NOT NULL
+             AND prev.started_at < r.started_at
+           ORDER BY prev.started_at DESC LIMIT 1
+         ) AS previous,
+         (SELECT base_commit FROM node WHERE id = r.node_id) AS base
+         FROM run r WHERE r.id = ?`,
+      )
+      .get(runId) as unknown as { previous: string | null; base: string | null } | undefined;
+    return row?.previous ?? row?.base ?? null;
   }
 
   /** D31: any run still marked running at startup died with the process. */
@@ -392,6 +420,7 @@ export class Store {
       cacheCreationTokens: Number(r['cache_creation_tokens'] ?? 0),
       model: (r['model'] as string | null) ?? null,
       apiKeySource: (r['api_key_source'] as string | null) ?? null,
+      commitSha: (r['commit_sha'] as string | null) ?? null,
       error: (r['error'] as string | null) ?? null,
     }));
   }
@@ -455,6 +484,23 @@ export class Store {
         view.createdAt,
       );
     return view;
+  }
+
+  /** The last thing the user actually asked for on this node. */
+  lastUserPrompt(nodeId: string): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT content_json FROM message
+         WHERE node_id = ? AND role = 'user' ORDER BY seq DESC LIMIT 1`,
+      )
+      .get(nodeId) as unknown as { content_json: string } | undefined;
+    if (row === undefined) return null;
+    try {
+      const parsed: unknown = JSON.parse(row.content_json);
+      return typeof parsed === 'string' ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   pendingQuestion(nodeId: string): { id: string; text: string } | null {

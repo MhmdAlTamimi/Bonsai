@@ -105,6 +105,10 @@ CREATE TABLE IF NOT EXISTS run (
   -- login, where nothing is charged per token and the cost above is an
   -- API-equivalent figure rather than money that moved.
   api_key_source        TEXT,
+  -- The commit this run produced, or null when it changed nothing. Lets the
+  -- conversation show the diff for each exchange in place, rather than only a
+  -- single whole-node diff detached from the message that caused it.
+  commit_sha            TEXT,
   -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
   -- sixth node state.
   error         TEXT,

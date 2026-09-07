@@ -35,3 +35,24 @@ export async function nodeDiff(
     dirty,
   };
 }
+
+/**
+ * The diff a single run produced.
+ *
+ * Ranged between the commit the node was on before the run and the commit it
+ * produced, so each exchange in the conversation can show exactly what it
+ * changed rather than everything the node has ever done.
+ */
+export async function runDiff(
+  worktreePath: string,
+  baseCommit: string,
+  headCommit: string,
+): Promise<NodeDiff> {
+  const range = `${baseCommit}..${headCommit}`;
+  const names = await git(['diff', '--name-only', range], worktreePath);
+  return {
+    files: names.split('\n').filter((l) => l !== ''),
+    patch: await git(['diff', range], worktreePath),
+    dirty: [],
+  };
+}

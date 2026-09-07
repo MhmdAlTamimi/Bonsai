@@ -41,12 +41,6 @@ export class FakeRunner implements AgentRunner {
         : `Working on: ${spec.prompt.trim()}`,
     };
 
-    // A cancelled run must leave the worktree alone rather than half-written.
-    if (spec.signal.aborted) {
-      yield { type: 'error', error: 'cancelled before any write' };
-      return;
-    }
-
     if (spec.readOnly) {
       yield { type: 'text', text: 'This node is frozen, so I can only read.' };
       yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };
@@ -57,6 +51,26 @@ export class FakeRunner implements AgentRunner {
       const file = `notes/${slug(spec.prompt)}.md`;
       await writeInside(spec.cwd, file, `# ${spec.prompt.trim()}\n\nWritten by FakeRunner.\n`);
       yield { type: 'tool', name: 'Write', detail: file };
+    }
+
+    /**
+     * The pause sits BETWEEN the writes, and that placement is the point.
+     *
+     * Real agents take seconds and write as they go, so being killed leaves the
+     * worktree half-finished -- which is the only case recovery exists for
+     * (§6.6). A stand-in that returns instantly, or that waits before touching
+     * anything, can only ever produce the boring recovery where nothing landed
+     * and there is nothing to tell the resumed agent about.
+     *
+     * Honours the abort signal, so cancellation stays immediate.
+     */
+    await abortableDelay(Number(process.env['BONSAI_FAKE_DELAY_MS'] ?? 700), spec.signal);
+
+    // A cancelled run stops here rather than finishing. Whatever it already
+    // wrote stays on disk for recovery to decide about.
+    if (spec.signal.aborted) {
+      yield { type: 'error', error: 'cancelled mid-run' };
+      return;
     }
 
     // D28: the agent writes CONTEXT.md as its final action, and the app decides
@@ -71,6 +85,19 @@ export class FakeRunner implements AgentRunner {
     // D20: cost is captured per run from day one, even when it is fake.
     yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };
   }
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done(): void {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', done);
+      resolve();
+    }
+    signal.addEventListener('abort', done, { once: true });
+  });
 }
 
 function slug(prompt: string): string {

@@ -3,6 +3,7 @@ import type {
   CreateNodeRequest,
   CreateProjectRequest,
   NodeDetail,
+  RecoverRequest,
   StartRunRequest,
   TreeResponse,
   UpdateNodeRequest,
@@ -13,7 +14,8 @@ import type { Store } from '../db/store.js';
 import type { EventBus } from './events.js';
 import type { RunJobs } from '../jobs/runNode.js';
 import { createChildNode, createProject, deleteNodeTree } from '../projects.js';
-import { nodeDiff } from '../git/diff.js';
+import { nodeDiff, runDiff } from '../git/diff.js';
+import { discardWorktreeChanges } from '../git/recovery.js';
 import { readContextFile } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
 
@@ -228,7 +230,51 @@ route('POST', '/api/runs/:id/cancel', (_req, res, params, { store, jobs }) => {
 route('POST', '/api/runs/:id/reply', (_req, res) =>
   notYet('later', 'answering an agent question (the ask-user mechanism is postponed)'),
 );
-route('POST', '/api/nodes/:id/recover', (_req, res) => notYet('M4', 'interrupted-run recovery'));
+/** §6.6: resume / discard / keep. */
+route('POST', '/api/nodes/:id/recover', async (req, res, params, { store, bus, jobs }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  if (row.status === 'running') throw new HttpError(409, 'this node is still running');
+
+  const body = await readJson<RecoverRequest>(req);
+  switch (body.action) {
+    case 'resume':
+      sendJson(res, 202, await jobs.startResume(row.id));
+      return;
+
+    case 'discard':
+      await discardWorktreeChanges(row.worktree_path);
+      store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
+      bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
+      sendJson(res, 200, { ok: true });
+      return;
+
+    case 'keep':
+      // Leaves the worktree dirty and resumable (§6.6). The node stops being
+      // flagged so it is not mistaken for something needing attention, but
+      // nothing is thrown away and resume stays available.
+      store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
+      bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
+      sendJson(res, 200, { ok: true });
+      return;
+
+    default:
+      throw new HttpError(400, 'action must be resume, discard or keep');
+  }
+});
+
+/** The diff a single run produced, so the conversation can show it in place. */
+route('GET', '/api/runs/:id/diff', async (_req, res, params, { store }) => {
+  const run = store.getRun(params['id']!);
+  if (run === undefined) throw new HttpError(404, 'no such run');
+  if (run.commit_sha === null) throw new HttpError(400, 'this run changed nothing');
+  const node = store.getNode(run.node_id);
+  if (node === undefined) throw new HttpError(404, 'no such node');
+
+  const base = store.runDiffBase(run.id);
+  if (base === null) throw new HttpError(400, 'no base to diff against');
+  sendJson(res, 200, await runDiff(node.worktree_path, base, run.commit_sha));
+});
 
 // -- events ------------------------------------------------------------------
 

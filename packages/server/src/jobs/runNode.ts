@@ -6,6 +6,7 @@ import type { EventBus } from '../api/events.js';
 import type { AgentRunner } from '../agent/AgentRunner.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { branchNameFor } from '../git/repo.js';
+import { readWorktreeState, resumePrompt } from '../git/recovery.js';
 
 /**
  * D14d: runs are async jobs. Start returns a job id, progress streams, cancel
@@ -59,6 +60,22 @@ export class RunJobs {
     while (this.running.size > 0 && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+  }
+
+  /**
+   * §6.6: resume an interrupted run.
+   *
+   * The worktree is read FIRST and injected into the prompt, because the agent
+   * knows what it intended rather than what landed. Everything else -- session
+   * resume, commit-or-not, freeze -- is the ordinary run path.
+   */
+  async startResume(nodeId: string): Promise<{ runId: string }> {
+    const node = this.store.getNode(nodeId);
+    if (node === undefined) throw new Error('no such node');
+
+    const state = await readWorktreeState(node.worktree_path);
+    const original = this.store.lastUserPrompt(nodeId) ?? node.description;
+    return this.start(nodeId, resumePrompt(state, original));
   }
 
   start(nodeId: string, prompt: string): { runId: string } {
@@ -222,6 +239,8 @@ export class RunJobs {
         message: commitMessageFor(node.display_name, node.description),
       });
 
+      const commitSha = outcome.commit;
+
       if (outcome.committed) {
         // D29: always a new commit, never an amend. A node is a branch that may
         // accumulate several commits while it is still a leaf.
@@ -236,6 +255,7 @@ export class RunJobs {
         cacheCreationTokens,
         model,
         apiKeySource,
+        commitSha,
       });
       this.setStatus(nodeId, 'ready');
       this.bus.publish(node.project_id, {
