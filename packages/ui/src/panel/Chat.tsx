@@ -144,12 +144,26 @@ export function Chat({
 }
 
 function Message({ message }: { message: MessageView }): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+
   if (message.kind === 'tool_use') {
     const tool = message.content as { name?: string; detail?: string };
+    const detail = tool.detail ?? '';
+    // Commands and paths are long and the interesting part is often the end,
+    // so truncating on the right hid exactly what you wanted to read. Click to
+    // expand into a wrapped block; collapsed it scrolls horizontally instead.
     return (
-      <div className="msg tool">
+      <div className={`msg tool ${expanded ? 'expanded' : ''}`}>
         <span className="tool-name">{tool.name ?? 'tool'}</span>
-        {tool.detail ? <span className="tool-detail">{tool.detail}</span> : null}
+        {detail === '' ? null : (
+          <button
+            className="tool-detail"
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? 'collapse' : detail}
+          >
+            {detail}
+          </button>
+        )}
       </div>
     );
   }

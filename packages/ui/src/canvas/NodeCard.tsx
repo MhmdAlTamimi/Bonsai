@@ -100,7 +100,15 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
         </>
       )}
 
-      <Handle type="source" position={RANK_DIR === 'TB' ? Position.Bottom : Position.Right} />
+      {/* The source handle IS the create-a-child affordance: drag it into empty
+          canvas and name the child where you dropped it. Sized to be grabbable
+          and marked with a + so it reads as an action rather than a port. */}
+      <Handle
+        type="source"
+        position={RANK_DIR === 'TB' ? Position.Bottom : Position.Right}
+        className="add-child-handle"
+        title="drag out to create a child"
+      />
     </div>
   );
 }

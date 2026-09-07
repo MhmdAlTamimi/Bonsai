@@ -16,6 +16,7 @@ import { layoutTree } from './canvas/layout.ts';
 import { NodeCard } from './canvas/NodeCard.tsx';
 import { Panel } from './panel/Panel.tsx';
 import { NewProject } from './panel/NewProject.tsx';
+import { NewChildDialog } from './canvas/NewChildDialog.tsx';
 import { ProjectSettings } from './panel/ProjectSettings.tsx';
 
 const nodeTypes = { bonsai: NodeCard };
@@ -29,6 +30,13 @@ export function App(): JSX.Element {
   // does not read as a continuation of the first.
   const [streams, setStreams] = useState<Record<string, string[]>>({});
   const selection = useSelection();
+  /** Set while the new-child dialog is open, after a drag into empty canvas. */
+  const [pendingChild, setPendingChild] = useState<{
+    parentId: string;
+    parentName: string;
+    position: { x: number; y: number };
+  } | null>(null);
+  const dragSource = useRef<string | null>(null);
 
   /**
    * PRD §9 constraint 3: the backend is the source of truth for the tree. Every
@@ -165,9 +173,11 @@ export function App(): JSX.Element {
    *
    * maxZoom stops a single small node from being blown up to fill the screen.
    */
-  const { fitView } = useReactFlow();
+  const { fitView, screenToFlowPosition } = useReactFlow();
   const fitViewRef = useRef(fitView);
   fitViewRef.current = fitView;
+  const screenToFlowRef = useRef(screenToFlowPosition);
+  screenToFlowRef.current = screenToFlowPosition;
   const nodeCount = flowNodes.length;
   useEffect(() => {
     if (nodeCount === 0) return;
@@ -185,6 +195,60 @@ export function App(): JSX.Element {
     // Multi-select is wired now even though V0 reads only the first element.
     if (event.metaKey || event.ctrlKey) selection.toggle(node.id);
     else selection.select(node.id);
+  };
+
+  /**
+   * Dragging out of a node's handle and releasing on empty canvas creates a
+   * child there. React Flow has no "connect to nowhere" event, so the source is
+   * recorded on connect start and the drop is inspected on connect end: a
+   * release over the pane (rather than over another node's handle) is the
+   * gesture. Releasing onto a node does nothing -- D1 keeps this a tree, so
+   * there is no second parent to connect to.
+   */
+  const onConnectStart = (_event: unknown, params: { nodeId: string | null }): void => {
+    dragSource.current = params.nodeId;
+  };
+
+  const onConnectEnd = (event: MouseEvent | TouchEvent): void => {
+    const parentId = dragSource.current;
+    dragSource.current = null;
+    if (parentId === null || tree === null) return;
+
+    const target = event.target as HTMLElement | null;
+    if (target === null || !target.classList.contains('react-flow__pane')) return;
+
+    const point = 'clientX' in event ? event : event.changedTouches[0];
+    if (point === undefined) return;
+
+    const parent = tree.nodes.find((n) => n.id === parentId);
+    setPendingChild({
+      parentId,
+      parentName: parent?.displayName ?? 'this node',
+      position: screenToFlowRef.current({ x: point.clientX, y: point.clientY }),
+    });
+  };
+
+  const createPendingChild = async (name: string, description: string): Promise<void> => {
+    if (pendingChild === null || projectId === null) return;
+    try {
+      const { node } = await api.createNode(projectId, {
+        parentId: pendingChild.parentId,
+        displayName: name,
+        description,
+      });
+      // Pin it where it was dropped, so the gesture places the node.
+      await api.updateNode(node.id, {
+        positionX: pendingChild.position.x,
+        positionY: pendingChild.position.y,
+      });
+      await api.startRun(node.id, description || name);
+      setPendingChild(null);
+      selection.select(node.id);
+      await refresh(projectId);
+    } catch (e) {
+      setError(String(e));
+      setPendingChild(null);
+    }
   };
 
   const onNodeDragStop: NodeMouseHandler = (_event, node) => {
@@ -223,6 +287,8 @@ export function App(): JSX.Element {
           nodes={flowNodes}
           edges={edges}
           onNodesChange={onNodesChange}
+          onConnectStart={onConnectStart}
+          onConnectEnd={onConnectEnd}
           nodeTypes={nodeTypes}
           onNodeClick={onNodeClick}
           onNodeDragStop={onNodeDragStop}
@@ -239,6 +305,14 @@ export function App(): JSX.Element {
           <Controls showInteractive={false} />
         </ReactFlow>
       </div>
+      {pendingChild !== null && (
+        <NewChildDialog
+          parentName={pendingChild.parentName}
+          onCancel={() => setPendingChild(null)}
+          onCreate={createPendingChild}
+        />
+      )}
+
       <Panel
         node={selected}
         stream={selected === null ? [] : (streams[selected.id] ?? [])}

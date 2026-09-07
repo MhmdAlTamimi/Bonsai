@@ -202,11 +202,23 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .msg.assistant.streaming { opacity: 0.85; }
 .msg.working { color: var(--muted); font-style: italic; padding: 0 2px; }
 .msg.tool {
-  display: flex; gap: 8px; align-items: baseline;
+  display: flex; gap: 8px; align-items: baseline; min-width: 0;
   color: var(--muted); font: 11px ui-monospace, SFMono-Regular, monospace;
 }
 .tool-name { color: var(--accent); flex: none; }
-.tool-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Collapsed: scrolls horizontally rather than clipping the end of a command,
+   which is usually the part worth reading. Click to wrap it instead. */
+.tool-detail {
+  flex: 1; min-width: 0; text-align: left; cursor: pointer;
+  background: none; border: none; padding: 0; color: inherit; font: inherit;
+  overflow-x: auto; white-space: nowrap; scrollbar-width: thin;
+}
+.tool-detail:hover { color: var(--text); }
+.msg.tool.expanded { align-items: flex-start; }
+.msg.tool.expanded .tool-detail {
+  white-space: pre-wrap; word-break: break-all; overflow-x: visible;
+  background: var(--surface); border-radius: 4px; padding: 4px 6px;
+}
 
 /* What one exchange produced, expandable where it happened. */
 .run-footer {
@@ -250,3 +262,48 @@ button.linkish {
   font: inherit; cursor: pointer; text-align: left;
 }
 button.linkish:hover { text-decoration: underline; }
+
+/* The source handle is the create-a-child affordance, so it is sized to be
+   grabbed and marked with a + rather than looking like a wiring port. */
+.react-flow__handle.add-child-handle {
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--surface-2); border: 1px solid var(--line);
+  opacity: 0; transition: opacity 120ms, border-color 120ms, background 120ms;
+}
+.react-flow__handle.add-child-handle::after {
+  content: '+'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; line-height: 1; color: var(--muted);
+}
+.card:hover .add-child-handle,
+.card.selected .add-child-handle { opacity: 1; }
+.react-flow__handle.add-child-handle:hover {
+  background: var(--accent); border-color: var(--accent); opacity: 1;
+}
+.react-flow__handle.add-child-handle:hover::after { color: var(--bg); }
+/* Target handles are plumbing, not an affordance. */
+.react-flow__handle-top, .react-flow__handle-left { opacity: 0; }
+
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 40;
+  background: rgb(0 0 0 / 0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.dialog {
+  width: min(460px, 92vw); display: flex; flex-direction: column; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+}
+.dialog header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dialog h3 {
+  margin: 0; font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text);
+}
+.dialog-close {
+  background: none; border: none; color: var(--muted);
+  font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer;
+}
+.dialog-close:hover { color: var(--text); }
+.dialog-actions { display: flex; align-items: center; gap: 8px; }
+.dialog-actions .hint { flex: 1; }
+.dialog button.primary { border-color: var(--accent); color: var(--text); }
