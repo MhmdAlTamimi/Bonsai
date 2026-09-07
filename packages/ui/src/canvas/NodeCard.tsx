@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
-import { CODE_LABEL, codeState } from '../nodeCode.ts';
+import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
 
 /**
@@ -66,7 +66,11 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
     lod === 'dot' ? { width: `${30 / zoom}px`, height: `${30 / zoom}px` } : undefined;
 
   return (
-    <div className={classes} style={dotStyle} title={data.displayName}>
+    <div
+      className={classes}
+      style={dotStyle}
+      title={`${data.displayName}\n\n${CODE_TOOLTIP[code]}`}
+    >
       <Handle type="target" position={RANK_DIR === 'TB' ? Position.Top : Position.Left} />
 
       {lod === 'dot' ? (

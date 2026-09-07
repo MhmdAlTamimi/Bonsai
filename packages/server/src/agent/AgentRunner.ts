@@ -40,7 +40,7 @@ export type RunEvent =
   | { type: 'tool'; name: string; detail: string }
   | { type: 'session'; sessionId: string }
   /** Which model the run is actually using, and which credential is paying. */
-  | { type: 'model'; model: string; apiKeySource?: string }
+  | { type: 'model'; model: string; apiKeySource?: string; tools?: string[] }
   | {
       type: 'done';
       inputTokens: number;

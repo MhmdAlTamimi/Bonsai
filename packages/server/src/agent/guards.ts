@@ -12,18 +12,16 @@ import type { HookCallbackMatcher, HookJSONOutput, PreToolUseHookInput } from '@
 /** D18/D26: frozen and conversation-only runs get no way to change anything. */
 export const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'] as const;
 
-/** A writable leaf gets the full set. The app still owns git (D8). */
-export const WRITABLE_TOOLS = [
-  'Read',
-  'Write',
-  'Edit',
-  'Glob',
-  'Grep',
-  'Bash',
-  'WebFetch',
-  'WebSearch',
-  'TodoWrite',
-] as const;
+/**
+ * There is deliberately no WRITABLE_TOOLS list.
+ *
+ * One used to live here, and it was a latent bug: `allowedTools` doubles as the
+ * pre-approval list, so every tool the agent might reach for had to be named
+ * exactly right, and anything the harness offered under a name Bonsai did not
+ * know was silently unavailable -- the agent could not edit, and the run
+ * finished "successfully" having committed nothing. Writable runs approve tools
+ * through canUseTool instead, so no list has to track the SDK.
+ */
 
 /**
  * D30 refines D19: the agent is blocked from MUTATING git, not from reading it.

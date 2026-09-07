@@ -7,7 +7,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
-import { READ_ONLY_TOOLS, WRITABLE_TOOLS, gitGuardHook } from './guards.js';
+import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
 
 /**
  * D15: the Claude Agent SDK, not the raw API -- the same harness as Claude Code,
@@ -29,9 +29,28 @@ export class ClaudeSdkRunner implements AgentRunner {
       cwd: spec.cwd,
       abortController: controller,
 
-      // D18: enforcement, not instruction. A tool that is not listed cannot be
-      // called, which is what makes a frozen node genuinely read-only.
-      allowedTools: [...(spec.readOnly ? READ_ONLY_TOOLS : WRITABLE_TOOLS)],
+      /**
+       * Two different jobs, so two different mechanisms.
+       *
+       * READ-ONLY runs get an allow-list, because restriction is the whole
+       * point: a tool that is not named cannot be called, which is what makes
+       * a frozen node genuinely read-only rather than politely asked (D18).
+       *
+       * WRITABLE runs get an approval callback instead. An allow-list here was
+       * a latent bug: it doubles as the pre-approval list, so every tool the
+       * agent might reach for has to be named exactly, and any tool this
+       * harness offers under a name Bonsai does not know is silently
+       * unavailable. The failure mode is the worst kind -- the agent cannot
+       * edit, says so in prose, the run completes "successfully" and commits
+       * nothing. canUseTool approves whatever the harness offers, so Bonsai
+       * never has to keep a list of tool names in sync with the SDK.
+       *
+       * Nothing is loosened by this: the git hook below still blocks mutating
+       * git, and read-only nodes are still restricted by name.
+       */
+      ...(spec.readOnly
+        ? { allowedTools: [...READ_ONLY_TOOLS] }
+        : { canUseTool: async () => ({ behavior: 'allow' as const, updatedInput: {} }) }),
 
       // D19/D30: the app owns git. Read-only git stays available for recovery.
       ...(spec.readOnly ? {} : { hooks: { PreToolUse: [gitGuardHook()] } }),
@@ -108,7 +127,14 @@ export class ClaudeSdkRunner implements AgentRunner {
           // subscription login, where nothing is charged per token -- so the
           // cost figure below is an API-equivalent estimate, not money spent,
           // and the UI has to say which.
-          yield { type: 'model', model: message.model, apiKeySource: message.apiKeySource };
+          yield {
+            type: 'model',
+            model: message.model,
+            apiKeySource: message.apiKeySource,
+            // Recorded so a run that edited nothing can be diagnosed: either
+            // the agent chose not to, or the tool it needed was not offered.
+            tools: message.tools,
+          };
         } else if (message.type === 'assistant') {
           for (const block of message.message.content) {
             if (block.type === 'text' && block.text.trim() !== '') {

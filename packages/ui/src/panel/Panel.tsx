@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useState } from 'react';
 import type { NodeDetail, NodeView, RecoverAction } from '@bonsai/shared';
 import { ApiCallError, api } from '../api/client.ts';
-import { CODE_LABEL, codeState } from '../nodeCode.ts';
+import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import { Chat } from './Chat.tsx';
 
 /**
@@ -157,7 +157,7 @@ export function Panel({
         <dl className="facts">
           <div>
             <dt>code</dt>
-            <dd>{CODE_LABEL[codeState(node)]}</dd>
+            <dd title={CODE_TOOLTIP[codeState(node)]}>{CODE_LABEL[codeState(node)]}</dd>
           </div>
           <div>
             <dt>writable</dt>

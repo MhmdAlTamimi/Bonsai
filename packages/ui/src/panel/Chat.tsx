@@ -199,13 +199,19 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
     return <div className="run-footer failed">{run.error ?? run.status}</div>;
   }
   if (run.commitSha === null) {
-    return <div className="run-footer">no files changed</div>;
+    // Not a failure: a reply that answered without editing is exactly what
+    // keeps a node conversation-only, which is the whole emergent model.
+    return (
+      <div className="run-footer" title="This reply answered without editing files, so it added no commit.">
+        answered · no commit
+      </div>
+    );
   }
 
   return (
     <div className="run-footer">
       <button className="linkish" onClick={() => setOpen((v) => !v)}>
-        {open ? '▾' : '▸'} {diff === null ? 'diff' : `${diff.files.length} file(s) changed`}
+        {open ? '▾' : '▸'} {diff === null ? 'show changes' : `${diff.files.length} file(s) changed`}
       </button>
       {open && diff !== null && (
         <>
