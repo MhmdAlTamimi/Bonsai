@@ -1,14 +1,23 @@
 import { type JSX, useEffect, useState } from 'react';
-import type { NodeDetail, NodeView } from '@bonsai/shared';
-import { ApiCallError, type NodeDiffView, api } from '../api/client.ts';
+import type { NodeDetail, NodeView, RecoverAction } from '@bonsai/shared';
+import { ApiCallError, api } from '../api/client.ts';
 import { CODE_LABEL, codeState } from '../nodeCode.ts';
-import { Conversation } from './Conversation.tsx';
+import { Chat } from './Chat.tsx';
 
 /**
- * The side panel. Contents per node state (PRD §5 / D34).
+ * The side panel, built around the conversation.
  *
- * Five states, not six: a failed run lands the node in `interrupted` and is
- * distinguished by the run's error text.
+ * §7 calls the conversation the primary workspace, so it gets the space and the
+ * focus: messages, then the box you reply in, directly beneath them. Everything
+ * else -- facts, runs, cost, CONTEXT.md, creating a child -- is detail below or
+ * behind a disclosure, because it is read occasionally and the chat is read
+ * constantly.
+ *
+ * The five panel states of §5 / D34 are still all here; they just no longer
+ * each own a slab of the panel. `running` and `ready` differ inside the chat
+ * (a disabled composer, a working indicator) rather than by swapping the whole
+ * body out, which is what used to make a finished run look like it had lost
+ * everything you had just watched.
  */
 export function Panel({
   node,
@@ -23,18 +32,21 @@ export function Panel({
   const [error, setError] = useState<string | null>(null);
   const [childName, setChildName] = useState('');
   const [childDesc, setChildDesc] = useState('');
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setDetail(null);
     setError(null);
-    if (node === null) return;
-    let live = true;
+    if (node === null) {
+      setDetail(null);
+      return;
+    }
+    let alive = true;
     void api
       .node(node.id)
-      .then((d) => live && setDetail(d))
-      .catch((e: unknown) => live && setError(String(e)));
+      .then((d) => alive && setDetail(d))
+      .catch((e: unknown) => alive && setError(String(e)));
     return () => {
-      live = false;
+      alive = false;
     };
   }, [node?.id, node?.status]);
 
@@ -48,114 +60,34 @@ export function Panel({
 
   const createChild = async (): Promise<void> => {
     setError(null);
+    setBusy(true);
     try {
       const { node: child } = await api.createNode(node.projectId, {
         parentId: node.id,
         displayName: childName.trim() || 'untitled',
         description: childDesc.trim(),
       });
-      // §6.2: the user stays on the canvas and the node starts working.
       await api.startRun(child.id, childDesc.trim() || childName.trim());
       setChildName('');
       setChildDesc('');
       onChanged();
     } catch (e) {
       setError(describe(e));
+    } finally {
+      setBusy(false);
     }
   };
 
-  return (
-    <aside className="panel">
-      <header>
-        <h2>{node.displayName}</h2>
-        <span className={`pill status-${node.status}`}>{node.status.replace('_', ' ')}</span>
-      </header>
-
-      <dl className="facts">
-        <div>
-          <dt>code</dt>
-          <dd>{CODE_LABEL[codeState(node)]}</dd>
-        </div>
-        <div>
-          <dt>writable</dt>
-          <dd>{node.writable ? 'yes, nothing has branched off it' : 'frozen — a child committed'}</dd>
-        </div>
-        <div>
-          <dt>est. cost</dt>
-          <dd title="Computed from token counts and list prices by the SDK. Not a bill.">
-            {node.costUsd > 0 ? `$${node.costUsd.toFixed(4)}` : '—'}
-          </dd>
-        </div>
-      </dl>
-
-      {detail?.baseIsPinnedBehindLiveWalk === true && (
-        <p className="note">
-          An ancestor has committed since this node was created. Its base stays pinned where it
-          was, so its code and its inherited conversation still describe the same tree.
-        </p>
-      )}
-
-      {/* §7: the conversation is the primary workspace, so it is shown in every
-          state rather than only while a run is streaming. */}
-      <section className="conversation-section">
-        <h3>Conversation</h3>
-        <Conversation node={node} live={stream} />
-      </section>
-
-      <StateBody node={node} detail={detail} stream={stream} onChanged={onChanged} setError={setError} />
-
-      {/* D5: to make a change you explicitly create a child. */}
-      <section className="create-child">
-        <h3>Create a child</h3>
-        <input
-          value={childName}
-          onChange={(e) => setChildName(e.target.value)}
-          placeholder="name"
-          aria-label="child name"
-        />
-        <textarea
-          value={childDesc}
-          onChange={(e) => setChildDesc(e.target.value)}
-          placeholder="what should change? start with ? to just ask"
-          aria-label="child description"
-          rows={3}
-        />
-        <button onClick={() => void createChild()}>Create and run</button>
-        <p className="hint">
-          The node keeps a branch only if its run changes files. Start with <code>?</code> and the
-          stand-in agent answers without writing anything, so the node stays conversation-only —
-          its own children still branch from here.
-        </p>
-      </section>
-
-      {error !== null && <p className="error">{error}</p>}
-    </aside>
-  );
-}
-
-function StateBody({
-  node,
-  detail,
-  stream,
-  onChanged,
-  setError,
-}: {
-  node: NodeView;
-  detail: NodeDetail | null;
-  stream: string[];
-  onChanged: () => void;
-  setError: (e: string | null) => void;
-}): JSX.Element {
-  const [prompt, setPrompt] = useState('');
-
-  const start = async (): Promise<void> => {
+  const recover = async (action: RecoverAction): Promise<void> => {
     setError(null);
+    setBusy(true);
     try {
-      await api.startRun(node.id, prompt.trim() || node.summaryLine);
-      setPrompt('');
+      await api.recover(node.id, action);
       onChanged();
     } catch (e) {
       setError(describe(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -170,175 +102,140 @@ function StateBody({
     }
   };
 
-  switch (node.status) {
-    case 'new':
-      return (
-        <section>
-          <p className="summary">{node.summaryLine}</p>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={node.summaryLine || 'what should the agent do?'}
-            rows={3}
-            aria-label="prompt"
-          />
-          <button onClick={() => void start()}>Start</button>
-          <p className="hint">
-            <strong>not started</strong> means no agent has run on this node yet — it exists in
-            the tree and holds your description, but nothing has read or written any code for it.
-          </p>
-        </section>
-      );
+  const runs = detail?.runs ?? [];
 
-    case 'running':
-      // No stream box here: the conversation above already shows live output,
-      // and it keeps showing it once the run finishes.
-      return (
-        <section>
-          <button onClick={() => void cancel()}>Cancel</button>
-        </section>
-      );
-
-    case 'needs_you':
-      return (
-        <section>
-          <p className="question">{node.pendingQuestion?.text ?? 'The agent asked a question.'}</p>
-          <textarea placeholder="reply" rows={3} disabled />
-          <p className="hint">The ask-user mechanism is postponed; this state is unreachable.</p>
-        </section>
-      );
-
-    case 'ready':
-      return (
-        <section>
-          <p className="summary">{node.summaryLine}</p>
-          <Transcript detail={detail} />
-          <Diff node={node} />
-          {node.writable ? (
-            <>
-              <h3>Chat with this node</h3>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="another change, or ? to just ask"
-                rows={3}
-                aria-label="prompt"
-              />
-              <button onClick={() => void start()}>Run</button>
-              <p className="hint">
-                §6.3: each run that changes files adds another commit to this same node. The tree
-                does not change.
-              </p>
-            </>
-          ) : (
-            <p className="hint">
-              Frozen: a child has committed, so this node cannot change any more. Create a child
-              to carry on from here.
-            </p>
+  return (
+    <aside className="panel">
+      <header>
+        <h2 title={node.displayName}>{node.displayName}</h2>
+        <div className="header-right">
+          {node.status === 'running' && (
+            <button className="linkish" onClick={() => void cancel()}>
+              cancel
+            </button>
           )}
-        </section>
-      );
+          <span className={`pill status-${node.status}`}>{node.status.replace('_', ' ')}</span>
+        </div>
+      </header>
 
-    case 'interrupted':
-      return (
-        <section>
-          <p className="error">
-            {detail?.runs.at(-1)?.error ?? 'The run was killed or failed midway.'}
+      {/* §6.6: the one state that must interrupt you, because it needs a decision. */}
+      {node.status === 'interrupted' && (
+        <div className="recover">
+          <p className="error">{runs.at(-1)?.error ?? 'The run was killed or failed midway.'}</p>
+          <p className="hint">
+            Whatever the run had written is still in place. Resume tells the agent what actually
+            landed and asks it to finish; discard throws those changes away; keep leaves them
+            alone and unflags the node.
           </p>
-          <Transcript detail={detail} />
           <div className="row">
-            <button disabled>Resume</button>
-            <button disabled>Discard</button>
-            <button disabled>Keep</button>
+            <button disabled={busy} onClick={() => void recover('resume')}>
+              Resume
+            </button>
+            <button disabled={busy} onClick={() => void recover('discard')}>
+              Discard
+            </button>
+            <button disabled={busy} onClick={() => void recover('keep')}>
+              Keep
+            </button>
           </div>
-          <p className="hint">Recovery lands in M4. The worktree is left as the run found it.</p>
-        </section>
-      );
-  }
+        </div>
+      )}
+
+      {detail?.baseIsPinnedBehindLiveWalk === true && (
+        <p className="note">
+          An ancestor has committed since this node was created. Its base stays pinned where it
+          was, so its code and its inherited conversation still describe the same tree.
+        </p>
+      )}
+
+      <Chat node={node} runs={runs} live={stream} onChanged={onChanged} onError={setError} />
+
+      {error !== null && <p className="error">{error}</p>}
+
+      <details className="disclosure">
+        <summary>Details</summary>
+        <dl className="facts">
+          <div>
+            <dt>code</dt>
+            <dd>{CODE_LABEL[codeState(node)]}</dd>
+          </div>
+          <div>
+            <dt>writable</dt>
+            <dd>
+              {node.writable ? 'yes, nothing has branched off it' : 'frozen — a child committed'}
+            </dd>
+          </div>
+          <div>
+            <dt>runs</dt>
+            <dd>{runs.length}</dd>
+          </div>
+          <Cost node={node} runs={runs} />
+        </dl>
+        {detail?.contextMd != null && (
+          <>
+            <h3>CONTEXT.md</h3>
+            <pre className="stream">{detail.contextMd}</pre>
+          </>
+        )}
+      </details>
+
+      {/* D5: to make a change you explicitly create a child. */}
+      <details className="disclosure">
+        <summary>Create a child</summary>
+        <input
+          value={childName}
+          onChange={(e) => setChildName(e.target.value)}
+          placeholder="name"
+          aria-label="child name"
+        />
+        <textarea
+          value={childDesc}
+          onChange={(e) => setChildDesc(e.target.value)}
+          placeholder="what should change?"
+          aria-label="child description"
+          rows={3}
+        />
+        <button disabled={busy} onClick={() => void createChild()}>
+          Create and run
+        </button>
+        <p className="hint">
+          A child forks this node's whole conversation, and branches from the nearest ancestor
+          that has a commit — which is not this node if it changed no files.
+        </p>
+      </details>
+    </aside>
+  );
 }
 
-function Transcript({ detail }: { detail: NodeDetail | null }): JSX.Element {
-  const runs = detail?.runs ?? [];
-  const cost = runs.reduce((sum, r) => sum + r.costUsd, 0);
-  const cacheRead = runs.reduce((sum, r) => sum + r.cacheReadTokens, 0);
-  const input = runs.reduce((sum, r) => sum + r.inputTokens, 0);
-  const output = runs.reduce((sum, r) => sum + r.outputTokens, 0);
+function Cost({
+  node,
+  runs,
+}: {
+  node: NodeView;
+  runs: readonly { costUsd: number; model: string | null; apiKeySource: string | null }[];
+}): JSX.Element {
   const model = runs.map((r) => r.model).filter((m): m is string => m !== null).at(-1);
-  // 'none' is a claude.ai subscription login: no per-token charge at all.
+  // 'none' is a claude.ai subscription login: nothing is charged per token.
   const subscription = runs.some((r) => r.apiKeySource === 'none');
 
   return (
     <>
-      <h3>Runs</h3>
-      <p className="muted">
-        {detail === null
-          ? 'loading…'
-          : `${runs.length} run(s)${
-              cost > 0
-                ? `, ${subscription ? '≈' : ''}$${cost.toFixed(4)}${
-                    subscription ? ' API-equivalent' : ' estimated'
-                  }`
-                : ''
-            }`}
-      </p>
+      <div>
+        <dt>{subscription ? 'tokens ≈' : 'est. cost'}</dt>
+        <dd title="Computed by the SDK from token counts and list prices. Not a bill.">
+          {node.costUsd > 0 ? `$${node.costUsd.toFixed(4)}` : '—'}
+          {subscription && node.costUsd > 0 && (
+            <span className="hint"> API-equivalent; your subscription is billed monthly.</span>
+          )}
+        </dd>
+      </div>
       {model !== undefined && (
-        <p className="muted">
-          model <code>{model}</code>
-        </p>
-      )}
-      {(input > 0 || output > 0) && (
-        <p className="muted">
-          {input.toLocaleString()} in / {output.toLocaleString()} out
-          {cacheRead > 0 && ` · ${cacheRead.toLocaleString()} from cache`}
-        </p>
-      )}
-      {cost > 0 && (
-        <p className="hint">
-          {subscription
-            ? 'Your subscription is billed monthly, so nothing here was charged per token. ' +
-              'This is what these tokens would have cost through the API — the SDK computes it ' +
-              'from token counts and a price table, not from any billing system. Useful for ' +
-              'comparing nodes; it is not money you spent.'
-            : 'An estimate the SDK computes from token counts and list prices, not a bill. '}
-          Cost grows with depth: a node replays its whole ancestor conversation on every run.
-        </p>
-      )}
-      {detail?.contextMd != null && (
-        <details>
-          <summary className="muted">CONTEXT.md</summary>
-          <pre className="stream">{detail.contextMd}</pre>
-        </details>
-      )}
-    </>
-  );
-}
-
-function Diff({ node }: { node: NodeView }): JSX.Element {
-  const [diff, setDiff] = useState<NodeDiffView | null>(null);
-  const [open, setOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open || !node.hasCommits) return;
-    let live = true;
-    void api.diff(node.id).then((d) => live && setDiff(d)).catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, [open, node.id, node.hasCommits]);
-
-  if (!node.hasCommits) {
-    return <p className="muted">No diff — this node ran and committed nothing.</p>;
-  }
-
-  return (
-    <>
-      <h3>Diff</h3>
-      <button onClick={() => setOpen((v) => !v)}>{open ? 'Hide' : 'Show'} diff</button>
-      {open && diff !== null && (
-        <>
-          <p className="muted">{diff.files.join(', ') || 'no files'}</p>
-          <pre className="stream">{diff.patch}</pre>
-        </>
+        <div>
+          <dt>model</dt>
+          <dd>
+            <code>{model}</code>
+          </dd>
+        </div>
       )}
     </>
   );

@@ -174,32 +174,79 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-left: 1px solid var(--line); padding-left: 12px; cursor: help;
 }
 
-/* §7: the conversation is the panel's primary workspace. */
-.conversation {
-  display: flex; flex-direction: column; gap: 8px;
-  /* min-height, not min-height:0 — the panel is a flex column, so without a
-     floor the list collapses below its own content and clips the top of the
-     conversation instead of showing it. */
-  min-height: 120px; max-height: 46vh; overflow-y: auto;
-  flex: none;
-  background: var(--bg); border: 1px solid var(--line);
-  border-radius: 6px; padding: 10px;
+/* §7: the conversation is the primary workspace, so it gets the room. */
+.panel { gap: 12px; }
+.panel header h2 {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.header-right { display: flex; align-items: center; gap: 8px; flex: none; }
+
+.chat {
+  display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+  overflow: hidden;
+}
+.chat-log {
+  flex: 1 1 auto; min-height: 180px; overflow-y: auto;
+  padding: 10px; display: flex; flex-direction: column; gap: 10px;
+}
+.chat-empty { padding: 4px 2px; }
+
 .msg { font-size: 12px; line-height: 1.55; }
-.msg pre {
-  margin: 0; white-space: pre-wrap; word-break: break-word;
-  font: inherit;
-}
+.msg pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
 .msg.user {
   background: var(--surface-2); border-left: 2px solid var(--accent);
-  border-radius: 4px; padding: 6px 8px;
+  border-radius: 4px; padding: 7px 9px; align-self: stretch;
 }
 .msg.assistant { padding: 0 2px; }
 .msg.assistant.streaming { opacity: 0.85; }
-.msg.assistant.working { color: var(--muted); font-style: italic; }
+.msg.working { color: var(--muted); font-style: italic; padding: 0 2px; }
 .msg.tool {
   display: flex; gap: 8px; align-items: baseline;
   color: var(--muted); font: 11px ui-monospace, SFMono-Regular, monospace;
 }
-.tool-name { color: var(--accent); }
+.tool-name { color: var(--accent); flex: none; }
 .tool-detail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* What one exchange produced, expandable where it happened. */
+.run-footer {
+  border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 6px;
+  font-size: 11px; color: var(--muted);
+}
+.run-footer.failed { color: var(--err); border-top-color: var(--err); }
+.diff-files { margin: 4px 0; word-break: break-all; }
+.diff-patch {
+  margin: 4px 0 0; max-height: 260px; overflow: auto;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+  padding: 8px; font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
+  white-space: pre;
+}
+
+/* The composer sits directly under the messages. It used to be three sections
+   further down, which made replies look like they landed somewhere else. */
+.composer {
+  border-top: 1px solid var(--line); padding: 8px;
+  display: flex; flex-direction: column; gap: 6px; background: var(--surface);
+}
+.composer textarea { resize: vertical; min-height: 54px; }
+.composer-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.composer-row .hint { flex: 1; }
+
+.recover {
+  border: 1px solid var(--warn); border-radius: 8px; padding: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+.disclosure { border-top: 1px solid var(--line); padding-top: 10px; }
+.disclosure > summary {
+  cursor: pointer; color: var(--muted); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;
+}
+.disclosure > * + * { margin-top: 8px; }
+.disclosure input, .disclosure textarea, .disclosure button { width: 100%; }
+
+button.linkish {
+  background: none; border: none; padding: 0; color: var(--accent);
+  font: inherit; cursor: pointer; text-align: left;
+}
+button.linkish:hover { text-decoration: underline; }

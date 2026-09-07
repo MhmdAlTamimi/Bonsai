@@ -1,6 +1,8 @@
 import type {
   CreateProjectRequest,
+  DiffView,
   MessageView,
+  RecoverAction,
   ProjectView,
   UpdateProjectRequest,
   NodeDetail,
@@ -57,6 +59,14 @@ export const api = {
     }),
 
   diff: (nodeId: string) => json<NodeDiffView>(`/api/nodes/${nodeId}/diff`),
+
+  runDiff: (runId: string) => json<DiffView>(`/api/runs/${runId}/diff`),
+
+  recover: (nodeId: string, action: RecoverAction) =>
+    json<{ ok: true }>(`/api/nodes/${nodeId}/recover`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
 
   updateProject: (projectId: string, body: UpdateProjectRequest) =>
     json<ProjectView>(`/api/projects/${projectId}`, {
