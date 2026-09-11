@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from 'react';
-import type { NodeDetail, NodeView, RecoverAction } from '@bonsai/shared';
+import type { NodeDetail, NodeView, ProjectView, RecoverAction } from '@bonsai/shared';
 import { ApiCallError, api } from '../api/client.ts';
 import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import { Chat } from './Chat.tsx';
@@ -20,10 +20,13 @@ import { Chat } from './Chat.tsx';
  * everything you had just watched.
  */
 export function Panel({
+  project,
   node,
   stream,
   onChanged,
 }: {
+  /** Needed only to explain why an adopted project's master cannot be written. */
+  project: ProjectView | null;
   node: NodeView | null;
   stream: string[];
   onChanged: () => void;
@@ -136,6 +139,17 @@ export function Panel({
 
   const runs = detail?.runs ?? [];
 
+  /**
+   * Master of an adopted project: its worktree is the user's own folder, on the
+   * branch they work on. Bonsai will not write there, which is why the node is
+   * read-only from the start rather than after a child commits -- and why the
+   * panel says so instead of leaving a permanently frozen node unexplained.
+   *
+   * Read off the node, not worked out from the project here: the server decides
+   * what `writable` means and says why, so nothing can disagree with it.
+   */
+  const isYourFolder = node.frozenReason === 'your_folder';
+
   return (
     <aside className="panel">
       <header>
@@ -155,22 +169,36 @@ export function Panel({
         </div>
       </header>
 
+      {isYourFolder && (
+        <p className="note">
+          This node is your own folder{project?.sourcePath == null ? '' : ` (${project.sourcePath})`}
+          . Bonsai reads it and answers questions about it, but never writes or commits there — to
+          change anything, drag out a child node. Children get their own worktree on a{' '}
+          <code>node/…</code> branch inside this same repository, so you can check them out with
+          git whenever you like.
+        </p>
+      )}
+
       {/* §6.6: the one state that must interrupt you, because it needs a decision. */}
       {node.status === 'interrupted' && (
         <div className="recover">
           <p className="error">{runs.at(-1)?.error ?? 'The run was killed or failed midway.'}</p>
           <p className="hint">
-            Whatever the run had written is still in place. Resume tells the agent what actually
-            landed and asks it to finish; discard throws those changes away; keep leaves them
-            alone and unflags the node.
+            {isYourFolder
+              ? 'Nothing was written — this node only reads. Resume asks the agent to carry on; keep unflags the node.'
+              : 'Whatever the run had written is still in place. Resume tells the agent what actually landed and asks it to finish; discard throws those changes away; keep leaves them alone and unflags the node.'}
           </p>
           <div className="row">
             <button disabled={busy} onClick={() => void recover('resume')}>
               Resume
             </button>
-            <button disabled={busy} onClick={() => void recover('discard')}>
-              Discard
-            </button>
+            {/* Not offered for the user's own folder: discard is a hard reset
+                plus a clean, and there it would destroy work Bonsai never made. */}
+            {!isYourFolder && (
+              <button disabled={busy} onClick={() => void recover('discard')}>
+                Discard
+              </button>
+            )}
             <button disabled={busy} onClick={() => void recover('keep')}>
               Keep
             </button>
@@ -199,7 +227,11 @@ export function Panel({
           <div>
             <dt>writable</dt>
             <dd>
-              {node.writable ? 'yes, nothing has branched off it' : 'frozen — a child committed'}
+              {node.writable
+                ? 'yes, nothing has branched off it'
+                : isYourFolder
+                  ? 'no — this is your own folder, so Bonsai only reads it'
+                  : 'frozen — a child committed'}
             </dd>
           </div>
           <div>

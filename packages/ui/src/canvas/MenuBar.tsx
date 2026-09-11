@@ -16,7 +16,7 @@ export function MenuBar({
   settings,
   connection,
   onOpenProject,
-  onNewProject,
+  onStart,
   onOpenSettings,
   onDeleteProject,
 }: {
@@ -25,7 +25,8 @@ export function MenuBar({
   settings: SettingsView | null;
   connection: ConnectionStatus;
   onOpenProject: (id: string) => void;
-  onNewProject: () => void;
+  /** Opens the start screen on one of its two halves. */
+  onStart: (mode: 'new' | 'existing') => void;
   onOpenSettings: () => void;
   onDeleteProject: () => void;
 }): JSX.Element {
@@ -63,7 +64,25 @@ export function MenuBar({
         </button>
         {open === 'project' && (
           <div className="menu-panel" role="menu">
-            <button onClick={() => { setOpen(null); onNewProject(); }}>New project…</button>
+            <button onClick={() => { setOpen(null); onStart('new'); }}>New project…</button>
+            <button onClick={() => { setOpen(null); onStart('existing'); }}>
+              Use an existing folder…
+            </button>
+
+            <div className="menu-sep" />
+            {/* This used to open the projects root whatever was selected, which
+                was never the folder anyone meant. It opens THIS project's
+                folder now -- master's checkout, wherever it happens to live. */}
+            <button
+              disabled={project?.sourcePath == null}
+              title={project?.sourcePath ?? 'This project predates folder tracking.'}
+              onClick={() => {
+                setOpen(null);
+                if (project?.sourcePath != null) void api.reveal(project.sourcePath);
+              }}
+            >
+              Reveal this project in file manager
+            </button>
             <button
               disabled={settings === null}
               onClick={() => {
@@ -71,16 +90,7 @@ export function MenuBar({
                 if (settings !== null) void api.reveal(settings.reposRoot);
               }}
             >
-              Open projects folder
-            </button>
-            <button
-              disabled={project === null}
-              onClick={() => {
-                setOpen(null);
-                if (settings !== null) void api.reveal(settings.reposRoot);
-              }}
-            >
-              Reveal in file manager
+              Open Bonsai's data folder
             </button>
 
             <div className="menu-sep" />
@@ -111,7 +121,19 @@ export function MenuBar({
         Settings
       </button>
 
-      {project !== null && <span className="menubar-project">{project.name}</span>}
+      {project !== null && (
+        <span
+          className="menubar-project"
+          title={project.sourcePath ?? project.name}
+        >
+          {project.name}
+          {project.sourceKind === 'adopted' && (
+            <span className="pill tiny" title="Your own folder, used in place.">
+              your folder
+            </span>
+          )}
+        </span>
+      )}
 
       <span className="menubar-spacer" />
 

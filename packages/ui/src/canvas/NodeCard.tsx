@@ -38,6 +38,13 @@ function lodFor(zoom: number): Lod {
   return 'full';
 }
 
+/** Why the padlock is there. The two reasons lead to different next steps. */
+const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
+  child_committed: 'Frozen — a child has committed, so this node\'s code cannot change.',
+  your_folder:
+    'Your own folder. Bonsai reads it but never writes or commits there; drag out a child to make changes.',
+};
+
 export function NodeCard({ data, selected }: { data: NodeView; selected: boolean }): JSX.Element {
   const zoom = useStore((s) => s.transform[2]);
   const lod = lodFor(zoom);
@@ -87,7 +94,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               </span>
             )}
             {!data.writable && (
-              <span className="glyph" title="frozen — a child has committed">
+              <span className="glyph" title={FROZEN_TOOLTIP[data.frozenReason ?? 'child_committed']}>
                 &#128274;
               </span>
             )}

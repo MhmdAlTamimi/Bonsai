@@ -122,7 +122,9 @@ export function Chat({
               ? 'The agent is working…'
               : node.writable
                 ? 'Reply, ask a question, or describe a change…'
-                : 'This node is frozen — you can still ask questions.'
+                : node.frozenReason === 'your_folder'
+                  ? 'Your own folder — ask about it; drag out a child to change anything.'
+                  : 'This node is frozen — you can still ask questions.'
           }
           rows={3}
           disabled={running}
@@ -132,7 +134,9 @@ export function Chat({
           <span className="hint">
             {node.writable
               ? 'Enter to send · each reply that changes files adds a commit here'
-              : 'Frozen: a child committed, so replies are read-only'}
+              : node.frozenReason === 'your_folder'
+                ? 'Read-only: Bonsai never writes to your own folder'
+                : 'Frozen: a child committed, so replies are read-only'}
           </span>
           <button onClick={() => void send()} disabled={running || sending || prompt.trim() === ''}>
             Send

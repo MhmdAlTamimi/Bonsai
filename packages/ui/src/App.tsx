@@ -28,6 +28,8 @@ export function App(): JSX.Element {
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [noProjects, setNoProjects] = useState(false);
+  /** Set when the user asked for the start screen, and which half of it. */
+  const [startMode, setStartMode] = useState<'new' | 'existing' | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [connection, setConnection] = useState<ConnectionStatus>({
     state: 'unknown', apiKeySource: null, model: null, message: null,
@@ -265,18 +267,37 @@ export function App(): JSX.Element {
    */
   const deleteCurrentProject = async (): Promise<void> => {
     if (tree === null || projectId === null) return;
-    const count = tree.nodes.length;
-    const cost = tree.project.costUsd;
-    const spent = cost > 0 ? ` and about $${cost.toFixed(2)} of agent runs` : '';
-    if (
-      !window.confirm(
-        `Delete "${tree.project.name}"?\n\n` +
-          `This permanently removes ${count} node${count === 1 ? '' : 's'}${spent}, ` +
-          `along with every branch and worktree on disk. It cannot be undone.`,
-      )
-    ) {
+    // What is actually destroyed differs completely between a project Bonsai
+    // built and a folder of the user's it was pointed at, so the server is
+    // asked rather than guessed at. Promising "your folder stays" is only
+    // worth saying if the same code decides it.
+    const impact = await api.projectDeletionImpact(projectId).catch(() => null);
+    if (impact === null) {
+      setError('Could not work out what deleting this would remove, so nothing was deleted.');
       return;
     }
+
+    const spent = impact.costUsd > 0 ? ` and about $${impact.costUsd.toFixed(2)} of agent runs` : '';
+    const lines = [
+      `Delete "${tree.project.name}"?`,
+      '',
+      `This permanently removes ${impact.nodes} node${impact.nodes === 1 ? '' : 's'}${spent}. ` +
+        'It cannot be undone.',
+    ];
+    if (impact.keepsDirectory !== null) {
+      lines.push(
+        '',
+        `Your folder is left alone:\n${impact.keepsDirectory}`,
+        `Its files, its history and its branch are untouched. Only the ${impact.branches} ` +
+          `branch${impact.branches === 1 ? '' : 'es'} Bonsai created there, and the worktrees ` +
+          'for them, are removed.',
+      );
+    } else if (impact.removesDirectory !== null) {
+      lines.push('', `This folder is deleted from disk:\n${impact.removesDirectory}`);
+    }
+
+    if (!window.confirm(lines.join('\n'))) return;
+
     await api.deleteProject(projectId);
     const remaining = await api.listProjects();
     setProjects(remaining);
@@ -333,16 +354,31 @@ export function App(): JSX.Element {
     );
   }
 
-  if (noProjects) {
+  if (noProjects || startMode !== null) {
     return (
       <div className="app single">
         <NewProject
+          initialMode={startMode ?? 'new'}
           onCreated={(id) => {
             setNoProjects(false);
+            setStartMode(null);
             setProjectId(id);
             void api.listProjects().then(setProjects);
             void refresh(id);
           }}
+          {...(projects.length > 0
+            ? {
+                onCancel: () => {
+                  setStartMode(null);
+                  setNoProjects(false);
+                  const back = projectId ?? projects[0]?.id ?? null;
+                  if (back !== null) {
+                    setProjectId(back);
+                    void refresh(back);
+                  }
+                },
+              }
+            : {})}
         />
       </div>
     );
@@ -361,11 +397,7 @@ export function App(): JSX.Element {
             selection.clear();
             void refresh(id);
           }}
-          onNewProject={() => {
-            setProjectId(null);
-            setTree(null);
-            setNoProjects(true);
-          }}
+          onStart={(mode) => setStartMode(mode)}
           onOpenSettings={() => setShowSettings(true)}
           onDeleteProject={() => void deleteCurrentProject()}
         />
@@ -410,6 +442,7 @@ export function App(): JSX.Element {
       )}
 
       <Panel
+        project={tree?.project ?? null}
         node={selected}
         stream={selected === null ? [] : (streams[selected.id] ?? [])}
         onChanged={() => {
