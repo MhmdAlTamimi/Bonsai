@@ -41,6 +41,9 @@ export interface ProjectRow {
   default_model: string | null;
   default_permission_mode: PermissionMode;
   default_effort: string | null;
+  source_kind: 'created' | 'adopted';
+  source_path: string | null;
+  protected_branch: string | null;
   created_at: string;
 }
 
@@ -74,23 +77,29 @@ export class Store {
     model: string | null;
     permissionMode: PermissionMode;
     effort?: string | null;
+    /** Set when adopting a directory the user already had. */
+    adopt?: { repoPath: string; sourcePath: string; protectedBranch: string };
   }): ProjectRow {
     const id = randomUUID();
     const row: ProjectRow = {
       id,
       name: input.name,
       description: input.description,
-      repo_path: join(this.reposRoot, id, 'repo.git'),
+      repo_path: input.adopt?.repoPath ?? join(this.reposRoot, id, 'repo.git'),
       default_model: input.model,
       default_permission_mode: input.permissionMode,
       default_effort: input.effort ?? null,
+      source_kind: input.adopt === undefined ? 'created' : 'adopted',
+      source_path: input.adopt?.sourcePath ?? null,
+      protected_branch: input.adopt?.protectedBranch ?? null,
       created_at: now(),
     };
     this.db
       .prepare(
         `INSERT INTO project (id, name, description, repo_path, default_model,
-                              default_permission_mode, default_effort, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                              default_permission_mode, default_effort, source_kind,
+                              source_path, protected_branch, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -100,6 +109,9 @@ export class Store {
         row.default_model,
         row.default_permission_mode,
         row.default_effort,
+        row.source_kind,
+        row.source_path,
+        row.protected_branch,
         row.created_at,
       );
     return row;
@@ -115,6 +127,24 @@ export class Store {
     return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as
       | unknown as ProjectRow
       | undefined;
+  }
+
+  /**
+   * The directory Bonsai keeps a project's own files in: the bare repo for a
+   * created project, the node worktrees for either kind. Always Bonsai's, never
+   * the user's -- which is why deletion can remove it without asking.
+   */
+  projectScratchDir(projectId: string): string {
+    return join(this.reposRoot, projectId);
+  }
+
+  /**
+   * Records the folder that IS this project, as far as the user is concerned:
+   * master's checkout. Set once, just after master exists, because for a
+   * created project the default path contains master's own id.
+   */
+  setProjectSourcePath(id: string, path: string): void {
+    this.db.prepare(`UPDATE project SET source_path = ? WHERE id = ?`).run(path, id);
   }
 
   /** D32: the model and effort a project's runs use. Changing them is not a
@@ -163,6 +193,8 @@ export class Store {
     /** Master only. Every other node derives its base from its parent. */
     rootCommit?: string;
     rootBranchName?: string;
+    /** Master of an adopted project: its worktree IS the user's directory. */
+    worktreePath?: string;
   }): NodeRow {
     const id = randomUUID();
 
@@ -194,7 +226,8 @@ export class Store {
       branch_name: branchName,
       base_commit: baseCommit,
       head_commit: headCommit,
-      worktree_path: join(this.reposRoot, input.projectId, 'worktrees', id),
+      worktree_path:
+        input.worktreePath ?? join(this.reposRoot, input.projectId, 'worktrees', id),
       status: 'new',
       model: input.model ?? null,
       permission_mode: input.permissionMode ?? null,
@@ -518,6 +551,7 @@ export class Store {
 
   /** Assembles NodeViews for a project, deriving every flag from the tree. */
   treeView(projectId: string): NodeView[] {
+    const project = this.getProject(projectId);
     const rows = this.listNodes(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
@@ -544,6 +578,17 @@ export class Store {
         summaryLine: question?.text ?? row.description,
         status: row.status,
         ...flags,
+        // An adopted project's master worktree IS the user's own folder, on
+        // their own branch. Nothing Bonsai does may write there, so master is
+        // read-only from the moment the project exists rather than from its
+        // first child. Expressed as the `writable` flag rather than a separate
+        // rule so every renderer and the run gate agree without being told.
+        writable: flags.writable && !isUsersOwnCheckout(project, row),
+        frozenReason: isUsersOwnCheckout(project, row)
+          ? 'your_folder'
+          : flags.writable
+            ? null
+            : 'child_committed',
         pendingQuestion: question,
         positionX: row.position_x,
         positionY: row.position_y,
@@ -561,6 +606,8 @@ export class Store {
       defaultModel: row.default_model,
       defaultPermissionMode: row.default_permission_mode,
       defaultEffort: row.default_effort,
+      sourceKind: row.source_kind,
+      sourcePath: row.source_path,
       costUsd: this.projectCost(row.id),
       createdAt: row.created_at,
     };
@@ -571,6 +618,14 @@ export class Store {
     const lookup = lookupFrom(this.listNodes(row.project_id).map(toLineage));
     return divergesFromLiveWalk(toLineage(row), lookup);
   }
+}
+
+/** True for the one node whose worktree the user owns: an adopted master. */
+export function isUsersOwnCheckout(
+  project: ProjectRow | undefined,
+  row: NodeRow,
+): boolean {
+  return project?.source_kind === 'adopted' && row.parent_id === null;
 }
 
 export function toLineage(row: NodeRow): LineageNode {

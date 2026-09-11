@@ -82,6 +82,20 @@ export interface ProjectView {
   defaultModel: string | null;
   defaultPermissionMode: PermissionMode;
   defaultEffort: string | null;
+  /**
+   * 'created' — Bonsai made the repository and owns it outright.
+   * 'adopted' — the user pointed Bonsai at a directory they already had, so
+   * Bonsai's nodes are branches inside THEIR repository and deleting the
+   * project must not touch their files.
+   */
+  sourceKind: 'created' | 'adopted';
+  /**
+   * The project's working folder — master's checkout, and the path "reveal in
+   * file manager" opens. Whose it is depends on `sourceKind`: Bonsai's when
+   * created, the user's when adopted. Null only for projects made before this
+   * was recorded.
+   */
+  sourcePath: string | null;
   /** Estimated total across every run in the tree, at API list price. */
   costUsd: number;
   createdAt: string;
@@ -100,6 +114,16 @@ export interface UpdateProjectRequest {
  *   writable      = no child has committed   (NOT `isLeaf` — see docs/decisions)
  * They are not columns, so they cannot drift out of step with the tree.
  */
+/**
+ * Why a node is not writable. Null when it is.
+ *
+ * Not a node type — `writable` remains the flag everything gates on, and this
+ * only says which of the two reasons produced it. There are two because they
+ * lead to different advice: a frozen node is finished and you branch off it,
+ * whereas your own folder was never going to be written to at all.
+ */
+export type FrozenReason = 'child_committed' | 'your_folder';
+
 export interface NodeView {
   id: string;
   projectId: string;
@@ -110,6 +134,7 @@ export interface NodeView {
   status: NodeStatus;
   createsBranch: boolean;
   writable: boolean;
+  frozenReason: FrozenReason | null;
   /** Rendering hint only. Deliberately not part of the `writable` derivation. */
   isLeaf: boolean;
   hasCommits: boolean;
@@ -192,6 +217,53 @@ export interface CreateProjectRequest {
   description: string;
   model?: string | null;
   permissionMode?: PermissionMode;
+  /**
+   * Where to put the project's working folder. Bonsai creates a new folder
+   * named after the project inside it and owns everything in it. Omitted means
+   * Bonsai's own data directory.
+   */
+  location?: string;
+}
+
+export interface AdoptProjectRequest {
+  /** A folder the user already has. Used in place; never copied or moved. */
+  path: string;
+  name?: string;
+  description?: string;
+  /** Branch nodes from uncommitted work, without committing it to their branch. */
+  includeUncommitted?: boolean;
+}
+
+export interface DirectoryInspectionView {
+  path: string;
+  exists: boolean;
+  isDirectory: boolean;
+  isGitRepo: boolean;
+  branch: string | null;
+  headCommit: string | null;
+  dirtyFiles: number;
+  entryCount: number;
+  blockedReason: string | null;
+}
+
+/** What deleting something would destroy, so the UI can say so before it does. */
+export interface DeletionImpactView {
+  nodes: number;
+  costUsd: number;
+  commits: number;
+  /** A directory that will be removed from disk, or null when none is. */
+  removesDirectory: string | null;
+  /** The user's own directory, left exactly as it was. Adopted projects only. */
+  keepsDirectory: string | null;
+  /** Branches Bonsai created inside the user's repository and will remove. */
+  branches: number;
+}
+
+export interface DirectoryListingView {
+  path: string;
+  parent: string | null;
+  home: string;
+  entries: Array<{ name: string; path: string; isGitRepo: boolean }>;
 }
 
 export interface CreateNodeRequest {

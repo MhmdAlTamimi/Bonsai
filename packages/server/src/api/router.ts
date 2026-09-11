@@ -10,17 +10,22 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
+import type { AdoptProjectRequest } from '@bonsai/shared';
 
-import type { Store } from '../db/store.js';
+import { isUsersOwnCheckout, type Store } from '../db/store.js';
 import type { EventBus } from './events.js';
 import type { RunJobs } from '../jobs/runNode.js';
 import {
+  adoptProject,
   createChildNode,
   createProject,
   deleteNodeTree,
   deleteProjectTree,
+  projectDeletionImpact,
 } from '../projects.js';
 import { nodeDiff, runDiff } from '../git/diff.js';
+import { inspectDirectory } from '../git/adopt.js';
+import { listDirectory } from './browse.js';
 import { discardWorktreeChanges } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
@@ -106,6 +111,17 @@ route('POST', '/api/connection/login', async (_req, res, _p, { connection }) => 
   sendJson(res, 200, { ...result, status });
 });
 
+route('GET', '/api/browse', async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  sendJson(res, 200, await listDirectory(url.searchParams.get('path') ?? undefined));
+});
+
+/** Looks at a folder without changing it, so the UI can warn before adopting. */
+route('POST', '/api/inspect', async (req, res) => {
+  const body = await readJson<{ path?: string }>(req);
+  sendJson(res, 200, await inspectDirectory(requireString(body.path, 'path')));
+});
+
 route('GET', '/api/settings', (_req, res, _p, { settings }) => {
   sendJson(res, 200, settings.view());
 });
@@ -141,10 +157,28 @@ route('POST', '/api/projects', async (req, res, _p, { store, bus, settings, conn
     model: body.model ?? settings.model(),
     permissionMode: body.permissionMode ?? settings.permissionMode(),
     effort: settings.effort(),
+    location: body.location ?? null,
   });
   bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
   // D21 has the agent scaffold master from the description; that run starts in
   // M3. The repo, master branch, worktree and root commit all exist now.
+  sendJson(res, 201, created);
+});
+
+/** Uses a folder the user already has, in place. Nothing is copied or moved. */
+route('POST', '/api/projects/adopt', async (req, res, _p, { store, bus, settings, connection }) => {
+  requireConnection(connection);
+  const body = await readJson<AdoptProjectRequest>(req);
+  const created = await adoptProject(store, {
+    path: requireString(body.path, 'path'),
+    name: body.name,
+    description: typeof body.description === 'string' ? body.description : '',
+    model: settings.model(),
+    permissionMode: settings.permissionMode(),
+    effort: settings.effort(),
+    includeUncommitted: body.includeUncommitted === true,
+  });
+  bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
   sendJson(res, 201, created);
 });
 
@@ -169,6 +203,13 @@ route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => 
   });
   bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
   sendJson(res, 200, store.projectView(store.getProject(project.id)!));
+});
+
+/** What deleting this project would destroy -- and, when adopted, what it won't. */
+route('GET', '/api/projects/:id/deletion-impact', (_req, res, params, { store }) => {
+  const impact = projectDeletionImpact(store, params['id']!);
+  if (impact === null) throw new HttpError(404, 'no such project');
+  sendJson(res, 200, impact);
 });
 
 route('DELETE', '/api/projects/:id', async (_req, res, params, { store, bus, jobs }) => {
@@ -322,6 +363,15 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
       return;
 
     case 'discard':
+      // Never against the user's own checkout. `git reset --hard` plus
+      // `git clean -fd` there would destroy work Bonsai did not create and
+      // cannot restore -- an adopted project's master is theirs, not ours.
+      if (isUsersOwnCheckout(store.getProject(row.project_id), row)) {
+        throw new HttpError(
+          400,
+          'This node is your own folder. Bonsai will not discard changes there — use git yourself if you want them gone.',
+        );
+      }
       await discardWorktreeChanges(row.worktree_path);
       store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
       bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });

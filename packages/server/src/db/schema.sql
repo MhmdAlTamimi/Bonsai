@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS project (
   -- D32: reasoning effort, alongside model, as a project-level setting. The
   -- single biggest lever on what a run costs after the model itself.
   default_effort          TEXT,
+  -- 'created' = Bonsai made the repository and owns it outright.
+  -- 'adopted' = the user pointed Bonsai at a directory they already had.
+  -- The difference decides what deleting a project is allowed to remove.
+  source_kind             TEXT NOT NULL DEFAULT 'created',
+  -- The project's working folder: master's checkout. Whose it is depends on
+  -- source_kind -- Bonsai's when created, and the user's, never deleted, when
+  -- adopted. Null only for projects made before this column existed.
+  source_path             TEXT,
+  -- The branch that was already checked out when the project was adopted.
+  -- Bonsai must never delete it: it is the user's own branch, not a node/<uuid>.
+  protected_branch        TEXT,
   created_at              TEXT NOT NULL
 );
 

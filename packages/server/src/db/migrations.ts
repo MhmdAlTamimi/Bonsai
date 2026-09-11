@@ -59,6 +59,15 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'run: commit produced',
     up: (db) => addColumn(db, 'run', 'commit_sha', 'TEXT'),
   },
+  {
+    version: 6,
+    name: 'project: adopted directories',
+    up: (db) => {
+      addColumn(db, 'project', 'source_kind', "TEXT NOT NULL DEFAULT 'created'");
+      addColumn(db, 'project', 'source_path', 'TEXT');
+      addColumn(db, 'project', 'protected_branch', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
