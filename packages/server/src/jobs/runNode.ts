@@ -256,14 +256,28 @@ export class RunJobs {
         return;
       }
 
-      // The agent touched files; the app touches git (D28).
-      const outcome = await commitRunOutput({
-        repoPath: project.repo_path,
-        worktreePath: node.worktree_path,
-        branchName: node.branch_name ?? branchNameFor(nodeId),
-        message: commitMessageFor(node.display_name, node.description),
-        fallbackContext: contextFallback(node.display_name, prompt),
-      });
+      /**
+       * The agent touched files; the app touches git (D28) -- unless the run
+       * was read-only, in which case the app touches nothing either.
+       *
+       * Skipping the commit here is not an optimisation. A read-only run cannot
+       * have caused a change, so anything the worktree contains was already
+       * there, and committing it would attribute someone else's work to this
+       * run. That is merely untidy for a frozen node inside Bonsai's own
+       * directory; for an adopted project's master, whose worktree IS the
+       * user's checkout on their own branch, it would mean `git add -A` and a
+       * commit over their uncommitted work. Same for the CONTEXT.md revert in
+       * the no-change path, which would discard an edit of theirs.
+       */
+      const outcome = readOnly
+        ? { committed: false, commit: null, branch: null, changedPaths: [] }
+        : await commitRunOutput({
+            repoPath: project.repo_path,
+            worktreePath: node.worktree_path,
+            branchName: node.branch_name ?? branchNameFor(nodeId),
+            message: commitMessageFor(node.display_name, node.description),
+            fallbackContext: contextFallback(node.display_name, prompt),
+          });
 
       const commitSha = outcome.commit;
 
