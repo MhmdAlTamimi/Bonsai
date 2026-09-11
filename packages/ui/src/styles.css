@@ -87,6 +87,7 @@ body {
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
   border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--muted);
 }
+.pill.tiny { font-size: 9px; padding: 0 5px; flex: none; }
 
 /* ---- panel ---- */
 
@@ -150,6 +151,38 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-radius: 10px; padding: 24px;
 }
 .new-project h1 { margin: 0; font-size: 18px; }
+.new-project label { display: flex; gap: 8px; color: var(--muted); font-size: 12px; }
+.new-project label.stacked { flex-direction: column; gap: 5px; }
+.new-project label input[type='checkbox'] { flex: none; margin-top: 2px; }
+
+/* Two ways to start a project, side by side, because which one you want is
+   the first decision and it should not be buried in a menu. */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs button {
+  background: none; border: none; border-bottom: 2px solid transparent;
+  border-radius: 0; color: var(--muted); padding: 6px 10px;
+}
+.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
+
+/* A folder picker served by the backend: a browser cannot tell us where a
+   chosen directory is, so the server lists and we render. */
+.picker { display: flex; flex-direction: column; gap: 6px; }
+.picker-bar { display: flex; gap: 6px; }
+.picker-bar input { flex: 1; min-width: 0; font: 11px ui-monospace, SFMono-Regular, monospace; }
+.picker-bar button { flex: none; padding: 6px 9px; }
+.picker-list {
+  height: 150px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
+  display: flex; flex-direction: column;
+}
+.picker-list .muted { padding: 8px; font-size: 12px; }
+.picker-entry {
+  background: none; border: none; border-radius: 4px; text-align: left;
+  padding: 4px 8px; font-size: 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.picker-entry:hover { background: var(--surface-2); }
+.picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .panel details summary { cursor: pointer; }
 .panel code {
   background: var(--surface-2); border-radius: 3px; padding: 0 4px;
@@ -201,7 +234,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   text-transform: uppercase; letter-spacing: 0.05em;
 }
 .menu-empty { text-transform: none; letter-spacing: 0; }
-.menubar-project { color: var(--muted); margin-left: 10px; }
+.menubar-project {
+  color: var(--muted); margin-left: 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+}
 .menubar-spacer { flex: 1; }
 .menubar-cost { color: var(--muted); font-variant-numeric: tabular-nums; cursor: help; }
 

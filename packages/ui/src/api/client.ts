@@ -1,6 +1,10 @@
 import type {
+  AdoptProjectRequest,
   ConnectionStatus,
   CreateProjectRequest,
+  DeletionImpactView,
+  DirectoryInspectionView,
+  DirectoryListingView,
   DiffView,
   MessageView,
   RecoverAction,
@@ -67,16 +71,48 @@ export const api = {
   reveal: (path: string) =>
     json<{ ok: true }>('/api/reveal', { method: 'POST', body: JSON.stringify({ path }) }),
 
+  /**
+   * The server picks the folder, because a browser cannot. A file input hands
+   * over names, never locations, so there is no way to turn a native folder
+   * dialog into a path the server could open -- hence a picker driven by these
+   * two calls instead.
+   */
+  browse: (path?: string) =>
+    json<DirectoryListingView>(
+      path === undefined ? '/api/browse' : `/api/browse?path=${encodeURIComponent(path)}`,
+    ),
+
+  inspect: (path: string) =>
+    json<DirectoryInspectionView>('/api/inspect', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+
   deleteProject: (projectId: string) =>
-    json<{ ok: true; nodes: number }>(`/api/projects/${projectId}`, { method: 'DELETE' }),
+    json<{ ok: true; nodes: number; removedDirectory: string | null; keptDirectory: string | null }>(
+      `/api/projects/${projectId}`,
+      { method: 'DELETE' },
+    ),
+
+  projectDeletionImpact: (projectId: string) =>
+    json<DeletionImpactView>(`/api/projects/${projectId}/deletion-impact`),
 
   listProjects: () => json<Array<{ id: string; name: string }>>('/api/projects'),
 
   createProject: (body: CreateProjectRequest) =>
-    json<{ projectId: string; masterNodeId: string }>('/api/projects', {
+    json<{ projectId: string; masterNodeId: string; path: string }>('/api/projects', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+
+  /** Uses a folder the user already has, in place. Nothing is copied or moved. */
+  adoptProject: (body: AdoptProjectRequest) =>
+    json<{
+      projectId: string;
+      masterNodeId: string;
+      initialised: boolean;
+      snapshot: boolean;
+    }>('/api/projects/adopt', { method: 'POST', body: JSON.stringify(body) }),
 
   diff: (nodeId: string) => json<NodeDiffView>(`/api/nodes/${nodeId}/diff`),
 
