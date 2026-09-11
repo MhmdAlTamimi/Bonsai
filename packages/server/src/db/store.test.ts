@@ -56,6 +56,10 @@ describe('store, against real SQL', () => {
   test('a node with a committed child is frozen', () => {
     assert.equal(byName.get('master')!.writable, false);
     assert.equal(byName.get('why argparse?')!.writable, false);
+    // And says which of the two reasons it is, since a node can also be
+    // unwritable for being the user's own folder.
+    assert.equal(byName.get('master')!.frozenReason, 'child_committed');
+    assert.equal(byName.get('argparse')!.frozenReason, null);
   });
 
   test('createsBranch is an outcome, not a creation-time choice', () => {
