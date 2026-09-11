@@ -39,6 +39,39 @@ back `interrupted` with its partial work intact, and resume tells the agent what
 actually landed rather than letting it guess. Routes whose milestone has not arrived
 return `501` naming the milestone rather than silently doing nothing.
 
+### Two ways to start a project
+
+**New project** builds a fresh repository in a folder you pick. Bonsai owns all
+of it, including deleting it when you delete the project.
+
+**Use an existing folder** points Bonsai at a directory you already have, and
+uses it *where it is* — nothing is copied and nothing is moved. That folder
+becomes the project's repository, master is that folder on the branch it is
+already on, and each node you create is an ordinary `node/<uuid>` branch inside
+your own repo with its own worktree elsewhere. So the work a node does is
+reachable with your normal git:
+
+```bash
+git branch                 # your branches, plus one per node that committed
+git switch node/<uuid>     # or diff it, cherry-pick it, whatever you like
+```
+
+That is also why there is no export feature: the output was never anywhere else.
+
+Two consequences worth knowing before you use it:
+
+- **Master is read-only.** Its worktree is your checkout, on the branch you work
+  on yourself, so Bonsai reads it and answers questions about it but never
+  writes or commits there. To change anything, drag out a child.
+- **Your existing branches do not become nodes**, deliberately. Git branches form
+  a DAG rather than a tree, git does not record which branch was forked from
+  which, and decisively an imported branch carries no conversation — a node
+  without one is an empty shell that gives its children nothing.
+
+Deleting a project you adopted removes the nodes, their worktrees and the
+`node/<uuid>` branches Bonsai created. Your folder, your history and your branch
+are left exactly as they were, and the confirmation says so by name.
+
 ### Trying it
 
 Create a project, then create children from the side panel. Nothing asks you
@@ -106,9 +139,9 @@ these variables are for tests and unusual setups.
 
 ### What a run costs, and how to spend less
 
-The bar at the top of the canvas sets the **model** and the **effort** for the
-project, and shows the estimated total across every run in the tree. Both are
-changeable at any time and apply to the next run.
+**Settings** holds the **model** and the **effort**, and the menu bar shows the
+estimated total across every run in the project. Both are changeable at any time
+and apply to the next run.
 
 Expect roughly **$0.05–0.15 per run on Opus at default effort**, most of which
 is fixed overhead rather than your prompt: the Claude Code system prompt and

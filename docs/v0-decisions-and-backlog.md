@@ -38,12 +38,14 @@ not for shipping code.
 | # | Decision | Notes |
 |---|---|---|
 | D8 | **The app owns the repo and is the source of truth.** It creates branches, commits, and later merges. The user never types a git command. | |
-| D9 | **Projects are created from scratch inside the app.** No importing existing repos in V0. | Sidesteps the dirty-working-tree problem. |
+| D9 | **Projects are created from scratch inside the app.** No importing existing repos in V0. | Sidesteps the dirty-working-tree problem. **Superseded in part by D36** — a folder can now be adopted, though its branches still do not become nodes. |
 | D10 | The user's own copy of the code is **separate**; seeing app changes there needs a sync step. | Sync deferred — B2. |
 | D11 | **No merge feature in V0.** Branches accumulate. | |
 | D12 | Auto-commit after agent work, message generated from the node description. No staging or commit UI. | |
 | D17 | Each node gets its **own git worktree**; that directory is the agent's `cwd` and the isolation boundary. | One shared `.git`, real branches, parallel agents, main checkout untouched. |
 | D19 | The agent is **blocked from running git itself** (hooks / tool restriction). The app commits. | An agent creating branches behind your back would corrupt the tree. |
+| D36 | **A directory the user already has can be adopted, and is used in place.** Nothing is copied or moved: that folder IS the project's repository, master is that folder on the branch it is already on, and nodes are `node/<uuid>` branches inside the user's own repo with worktrees under Bonsai's directory. | Answers most of B4. Three consequences, all deliberate: **(a)** master is read-only from creation, not from its first child — its worktree is the user's checkout on the branch they work on, so Bonsai must never write there; **(b)** export becomes unnecessary, because the output is already a branch in their repo; **(c)** deletion becomes the dangerous path, so Bonsai removes only what it created — ownership is decided by `source_kind` and a `node/` prefix, never by a name comparison. |
+| D37 | **Existing branches are not turned into nodes.** | Not a shortcut not taken. Branches form a DAG rather than a tree (B11), git does not record which branch forked from which, and decisively an imported branch carries no conversation — the one thing a node passes to its children. It would be an empty shell with a name. |
 
 ### Agent integration
 
@@ -111,9 +113,13 @@ one-way vs. two-way all undecided.
 **B3 — Conflict resolution / "cleaning agent."** Deliberately unexplored. Needed
 as soon as B1 or B2 lands.
 
-**B4 — Importing an existing repository.** V0 is new-projects-only. Probably the
-highest-value real-world case and the main thing between this and daily use.
-Requires answering: uncommitted changes, hand-made commits, branch-name clashes.
+**B4 — Importing an existing repository.** *Largely landed, as D36/D37.* A folder
+can be adopted and used in place; uncommitted changes are handled by an optional
+`git stash create` snapshot that commits nothing to the user's branch, and
+branch-name clashes cannot happen because Bonsai only ever writes `node/<uuid>`.
+What remains deferred is turning the repository's **existing branches** into
+nodes (D37 says why that is a dead end rather than unfinished work) and anything
+that would write back to the user's own branch, which is B1 and B2.
 
 **B5 — Scalability of node count.** No merge and no pruning means branches
 accumulate forever. Needs archive / prune / collapse-subtree / search.
