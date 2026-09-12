@@ -95,11 +95,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         x: 320,
         y: 620,
       });
-      await session.waitFor('!!document.querySelector(\'[aria-label="child name"]\')', {
+      await session.waitFor('!!document.querySelector(\'[aria-label="what should change"]\')', {
         label: 'the new-child dialog',
       });
-      await session.type('[aria-label="child name"]', 'child');
-      await session.type('[aria-label="child description"]', 'do a thing');
+      // One field now (4.10): the name is derived from what you type here.
+      await session.type('[aria-label="what should change"]', 'do a thing');
       // `.primary`, not the first button in the row -- that one is Cancel, and
       // clicking it closes the dialog while every later wait times out saying
       // nothing about why.
