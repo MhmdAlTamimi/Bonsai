@@ -20,19 +20,21 @@ export interface DropTarget {
  */
 export function Canvas({
   nodes,
+  selectedId,
   onSelect,
   onToggleSelect,
   onMoved,
   onDropOnPane,
 }: {
   nodes: readonly NodeView[];
+  selectedId: string | null;
   onSelect: (nodeId: string) => void;
   onToggleSelect: (nodeId: string) => void;
   onMoved: (nodeId: string, position: { x: number; y: number }) => void;
   /** A drag out of a node's handle, released over empty canvas. */
   onDropOnPane: (target: DropTarget) => void;
 }): JSX.Element {
-  const { flowNodes, edges, onNodesChange } = useLaidOutNodes(nodes);
+  const { flowNodes, edges, onNodesChange } = useLaidOutNodes(nodes, selectedId);
 
   // Behind a ref for the same reason fitView is: useReactFlow() hands back a
   // new identity whenever the viewport moves.

@@ -128,6 +128,7 @@ export function App(): JSX.Element {
 
         <Canvas
           nodes={tree?.nodes ?? []}
+          selectedId={selection.primary}
           onSelect={selection.select}
           onToggleSelect={selection.toggle}
           onMoved={(nodeId, position) => {
