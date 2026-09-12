@@ -47,7 +47,31 @@ export class FakeRunner implements AgentRunner {
       return;
     }
 
-    if (!question) {
+    /**
+     * The stand-in stands in for asking, too (D34).
+     *
+     * `ask` is non-null only under the `default` permission mode, so this is
+     * silent unless the user chose "ask before each change" -- and when they
+     * did, the whole path is drivable without a credential: the node parks,
+     * the panel shows the question, and the answer comes back here.
+     *
+     * A refusal changes what it does rather than stopping it, because that is
+     * what a refusal does to a real agent: the message is handed back as the
+     * tool's result and the run carries on.
+     */
+    let refused: string | null = null;
+    if (!question && spec.ask !== null) {
+      const file = `notes/${slug(spec.prompt)}.md`;
+      const decision = await spec.ask({ toolName: 'Write', detail: file });
+      if (!decision.allow) refused = decision.reason;
+      if (spec.signal.aborted) return;
+      yield {
+        type: 'text',
+        text: refused === null ? 'Going ahead.' : `Told not to: ${refused}`,
+      };
+    }
+
+    if (!question && refused === null) {
       const file = `notes/${slug(spec.prompt)}.md`;
       await writeInside(spec.cwd, file, `# ${spec.prompt.trim()}\n\nWritten by FakeRunner.\n`);
       yield { type: 'tool', name: 'Write', detail: file };
@@ -89,7 +113,13 @@ export class FakeRunner implements AgentRunner {
     await writeInside(
       spec.cwd,
       'CONTEXT.md',
-      `# Context\n\n${spec.prompt.trim()}\n\n${question ? 'Answered without changing code.' : 'Changed code.'}\n${testing}`,
+      `# Context\n\n${spec.prompt.trim()}\n\n${
+        question
+          ? 'Answered without changing code.'
+          : refused === null
+            ? 'Changed code.'
+            : `Did not change code: ${refused}`
+      }\n${testing}`,
     );
     yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md' };
 

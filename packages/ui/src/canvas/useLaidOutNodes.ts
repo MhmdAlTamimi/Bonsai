@@ -12,7 +12,10 @@ import { layoutTree } from './layout.ts';
  * they were missing. If you are here to tidy something, read the two comments
  * below first.
  */
-export function useLaidOutNodes(nodes: readonly NodeView[]): {
+export function useLaidOutNodes(
+  nodes: readonly NodeView[],
+  selectedId: string | null,
+): {
   flowNodes: Array<Node<NodeView>>;
   edges: Edge[];
   onNodesChange: ReturnType<typeof useNodesState<NodeView>>[2];
@@ -47,13 +50,27 @@ export function useLaidOutNodes(nodes: readonly NodeView[]): {
       const byId = new Map(current.map((n) => [n.id, n]));
       return laid.nodes.map((fresh) => {
         const previous = byId.get(fresh.id);
+        /**
+         * `selected` is set from OUR selection, not React Flow's.
+         *
+         * Bonsai keeps selection in its own store (it is a list, per PRD §9),
+         * and React Flow's internal selection was never told about it -- so
+         * the prop the card reads was permanently false and the canvas gave no
+         * hint which of twenty nodes the panel was showing.
+         */
+        const marked = { ...fresh, selected: fresh.id === selectedId };
         // Keep the measured node and overlay only what the server changed.
         return previous === undefined
-          ? fresh
-          : { ...previous, data: fresh.data, position: fresh.position };
+          ? marked
+          : {
+              ...previous,
+              data: marked.data,
+              position: marked.position,
+              selected: marked.selected,
+            };
       });
     });
-  }, [nodes, setFlowNodes]);
+  }, [nodes, selectedId, setFlowNodes]);
 
   /**
    * Refit when the tree grows. Not cosmetic: the layout extends downward, so

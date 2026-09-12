@@ -48,9 +48,7 @@ export function NewNodeSetup({
     <section>
       <h4>New nodes in {project.name}</h4>
       <p className="hint">
-        A node's folder is made with <code>git worktree add</code>, which checks out tracked files
-        only — so everything gitignored is missing until it is put there. Without these two, the
-        agent lands somewhere the app cannot start and the tests cannot run.
+        A new node checks out tracked files only. These put back what git leaves behind.
       </p>
       <label className="stacked">
         Files to copy in, one per line
@@ -63,10 +61,7 @@ export function NewNodeSetup({
           spellCheck={false}
         />
         <span className="hint">
-          Copied, never linked — an agent editing <code>.env</code> must not edit yours. A file that
-          git tracks is refused: Bonsai commits with <code>git add -A</code>, so copying it would
-          commit its contents to the node's branch. Dependencies belong in the command below, not
-          here.
+          Copied, not linked. Tracked files are refused — they would be committed.
         </span>
       </label>
       <label className="stacked">
@@ -78,9 +73,7 @@ export function NewNodeSetup({
           aria-label="setup command"
           spellCheck={false}
         />
-        <span className="hint">
-          Run once in each new node's folder, to completion, before its first agent message.
-        </span>
+        <span className="hint">Run once per node, before the agent starts.</span>
       </label>
       <div className="row">
         <button disabled={busy} onClick={() => void save()}>

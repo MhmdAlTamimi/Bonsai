@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
+  AnswerQuestionRequest,
   CreateNodeRequest,
   CreateProjectRequest,
   NodeDetail,
@@ -10,6 +11,7 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
+import { deriveNodeName } from '@bonsai/shared';
 import type {
   AdoptProjectRequest,
   DiagnosticsView,
@@ -37,7 +39,7 @@ import { discardWorktreeChanges } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
 import { readContextFile, testingSection } from '../git/context.js';
-import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
+import { HttpError, readJson, requireString, sendError, sendJson } from './http.js';
 import { FileLogger, type Logger } from '../log.js';
 
 interface Ctx {
@@ -393,7 +395,10 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   const created = await createChildNode(store, {
     projectId,
     parentId,
-    displayName: requireString(body.displayName, 'displayName'),
+    displayName:
+      typeof body.displayName === 'string' && body.displayName.trim() !== ''
+        ? body.displayName.trim()
+        : deriveNodeName(typeof body.description === 'string' ? body.description : ''),
     description: typeof body.description === 'string' ? body.description : '',
     model: body.model ?? null,
     permissionMode: body.permissionMode ?? null,
@@ -569,9 +574,38 @@ route('POST', '/api/runs/:id/cancel', (_req, res, params, { store, jobs }) => {
   if (run === undefined) throw new HttpError(404, 'no such run');
   sendJson(res, 200, { cancelled: jobs.cancel(run.node_id) });
 });
-route('POST', '/api/runs/:id/reply', (_req, _res) =>
-  notYet('later', 'answering an agent question (the ask-user mechanism is postponed)'),
-);
+/**
+ * D34: the answer to a question an agent stopped on.
+ *
+ * Question-shaped rather than node-shaped, unlike cancel. The id is the guard:
+ * two windows open on the same node must not answer the same question twice,
+ * and a click on a question the run has since moved past has to be refused
+ * rather than applied to whatever it is asking now.
+ *
+ * A refusal carries the user's words to the agent, because the SDK hands a
+ * denial's message back as the tool's result. That is the difference between
+ * stopping a run and steering it.
+ */
+route('POST', '/api/questions/:id/answer', async (req, res, params, { store, jobs }) => {
+  const question = store.getQuestion(params['id']!);
+  if (question === undefined) throw new HttpError(404, 'no such question');
+
+  const body = await readJson<AnswerQuestionRequest>(req);
+  if (typeof body.allow !== 'boolean') throw new HttpError(400, 'allow must be true or false');
+
+  const said = (body.message ?? '').trim();
+  const answered = jobs.answer(
+    question.id,
+    body.allow ? { allow: true } : { allow: false, reason: said === '' ? 'No.' : said },
+  );
+  if (!answered) {
+    throw new HttpError(
+      409,
+      'That question is no longer waiting — it was already answered, or the run has ended.',
+    );
+  }
+  sendJson(res, 200, { ok: true });
+});
 /** §6.6: resume / discard / keep. */
 route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
   const { store, bus, jobs } = ctx;

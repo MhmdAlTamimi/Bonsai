@@ -149,7 +149,7 @@ export function MenuBar({
         <span className="menubar-project" title={project.sourcePath ?? project.name}>
           {project.name}
           {project.sourceKind === 'adopted' && (
-            <span className="pill tiny" title="Your own folder, used in place.">
+            <span className="chip tiny" title="Your own folder, used in place.">
               your folder
             </span>
           )}

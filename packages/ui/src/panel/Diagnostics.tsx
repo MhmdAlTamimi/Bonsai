@@ -47,8 +47,7 @@ export function Diagnostics({ nodeId }: { nodeId: string | null }): JSX.Element 
         {state === 'failed' && <span className="error">Could not gather diagnostics.</span>}
       </div>
       <p className="hint">
-        Versions, paths, connection state, counts, the last 50 log lines and the selected node's run
-        history. No API key, and no prompts or file contents — the log never records them.
+        Versions, paths, counts, the last 50 log lines. No key, no prompts, no file contents.
       </p>
       {text !== null && <pre className="stream">{text}</pre>}
     </section>

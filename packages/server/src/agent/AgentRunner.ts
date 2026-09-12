@@ -43,8 +43,37 @@ export interface RunSpec {
   permissionMode: string;
   /** Extra environment for the agent subprocess, e.g. a stored API key. */
   agentEnv: Record<string, string> | null;
+  /**
+   * How the run asks the user whether it may do something, or null when it may
+   * not ask and everything is approved automatically.
+   *
+   * This is the mechanism behind `needs_you` (D34). The runner does not know
+   * what parking a run means -- it awaits a promise. The pipeline decides that
+   * awaiting one means writing a question, flipping the node's status and
+   * waiting for an answer from the interface.
+   *
+   * Null unless the run's permission mode is `default`. Under `acceptEdits` or
+   * `bypassPermissions` the user has already said not to be asked, and a gate
+   * that ignored that would be a worse bug than no gate at all.
+   */
+  ask: ((request: PermissionRequest) => Promise<PermissionDecision>) | null;
   signal: AbortSignal;
 }
+
+/** A tool call the agent wants to make, held until someone decides. */
+export interface PermissionRequest {
+  toolName: string;
+  /** The same one-line summary the transcript shows for a tool call. */
+  detail: string;
+}
+
+/**
+ * The answer. A refusal carries words because that is the only channel back to
+ * the agent: the SDK delivers a denial's message as the tool's result, so "no,
+ * use the existing helper" steers the run instead of merely stopping it. An
+ * approval has no such channel, which is why it carries nothing.
+ */
+export type PermissionDecision = { allow: true } | { allow: false; reason: string };
 
 export type RunEvent =
   | { type: 'text'; text: string }
