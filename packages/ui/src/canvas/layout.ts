@@ -23,7 +23,9 @@ export const RANK_DIR: 'TB' | 'LR' = 'TB';
  * has been dragged carries its own position and is pinned there; everything
  * else is laid out by dagre.
  */
-export function layoutTree(nodes: readonly NodeView[]): { nodes: Node[]; edges: Edge[] } {
+export function layoutTree(
+  nodes: readonly NodeView[],
+): { nodes: Array<Node<NodeView>>; edges: Edge[] } {
   const graph = new dagre.graphlib.Graph();
   // In TB, nodesep is the horizontal gap between siblings and ranksep the
   // vertical gap between generations; in LR the two swap roles, so the numbers
@@ -69,7 +71,7 @@ export function layoutTree(nodes: readonly NodeView[]): { nodes: Node[]; edges: 
         position: { x, y },
         data: n,
         draggable: true,
-      } satisfies Node;
+      } satisfies Node<NodeView>;
     }),
     edges,
   };

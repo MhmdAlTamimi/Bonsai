@@ -1,0 +1,8 @@
+dist
+node_modules
+package-lock.json
+
+# Prose, not code. docs/v0-prd.md and the decision log are the design record and
+# are referenced by section; reflowing their paragraphs and realigning their
+# tables is churn in the files that most need to stay stable.
+*.md

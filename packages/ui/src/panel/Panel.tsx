@@ -51,6 +51,10 @@ export function Panel({
     return () => {
       alive = false;
     };
+    // Deliberately not `[node]`. A refetch hands back a new object every time,
+    // so depending on it would refetch the detail in a loop; the id and the
+    // status are the only parts this effect actually reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.id, node?.status]);
 
   if (node === null) {
@@ -287,14 +291,14 @@ function Cost({
   runs,
 }: {
   node: NodeView;
-  runs: readonly {
+  runs: ReadonlyArray<{
     costUsd: number;
     model: string | null;
     apiKeySource: string | null;
     inputTokens: number;
     outputTokens: number;
     cacheReadTokens: number;
-  }[];
+  }>;
 }): JSX.Element {
   const model = runs.map((r) => r.model).filter((m): m is string => m !== null).at(-1);
   // 'none' is a claude.ai subscription login: nothing is charged per token.

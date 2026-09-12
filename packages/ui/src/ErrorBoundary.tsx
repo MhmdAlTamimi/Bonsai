@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type JSX, type ReactNode } from 'react';
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 /**
  * The last line of defence between a render-time bug and a white screen.

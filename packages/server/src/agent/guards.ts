@@ -101,11 +101,13 @@ export function gitGuardHook(): HookCallbackMatcher {
   return {
     matcher: 'Bash',
     hooks: [
-      async (input): Promise<HookJSONOutput> => {
+      // Not `async`: the SDK's hook signature wants a promise and this decides
+      // synchronously, so the promise is made explicitly rather than implied.
+      (input): Promise<HookJSONOutput> => {
         const pre = input as PreToolUseHookInput;
         const command = (pre.tool_input as { command?: unknown } | undefined)?.command;
         if (typeof command === 'string' && mutatesGit(command)) {
-          return {
+          return Promise.resolve({
             hookSpecificOutput: {
               hookEventName: 'PreToolUse',
               permissionDecision: 'deny',
@@ -114,9 +116,9 @@ export function gitGuardHook(): HookCallbackMatcher {
                 'but committing, branching, checking out, merging or resetting is not — ' +
                 'the app commits your work for you when the run finishes.',
             },
-          };
+          });
         }
-        return { continue: true };
+        return Promise.resolve({ continue: true });
       },
     ],
   };

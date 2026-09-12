@@ -99,7 +99,7 @@ export async function commitRunOutput(opts: {
  */
 async function revertContextFile(
   worktreePath: string,
-  entries: readonly { path: string; untracked: boolean }[],
+  entries: ReadonlyArray<{ path: string; untracked: boolean }>,
 ): Promise<void> {
   const context = entries.find((e) => e.path === CONTEXT_FILE);
   if (context === undefined) return;

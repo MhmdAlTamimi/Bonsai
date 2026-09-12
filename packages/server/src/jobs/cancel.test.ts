@@ -92,7 +92,7 @@ describe('cancelling a run', () => {
     assert.equal(run.status, 'cancelled');
   });
 
-  test('cancelling a node that is not running is false, not an error', async () => {
+  test('cancelling a node that is not running is false, not an error', () => {
     // The route returns 200 with this. "It already stopped" is not a failure,
     // and making it one would put an error banner in front of the user for
     // pressing stop twice.

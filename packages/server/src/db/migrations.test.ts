@@ -25,7 +25,7 @@ describe('schema migrations', () => {
     db.close();
   });
 
-  test('an old database is migrated, and backed up first', async () => {
+  test('an old database is migrated, and backed up first', () => {
     // A v1-era database: the run table without any of the later columns.
     const file = join(dir, 'bonsai.db');
     const old = new DatabaseSync(file);

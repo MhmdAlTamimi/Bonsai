@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
 

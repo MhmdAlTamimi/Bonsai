@@ -419,7 +419,7 @@ route('POST', '/api/runs/:id/cancel', (_req, res, params, { store, jobs }) => {
   if (run === undefined) throw new HttpError(404, 'no such run');
   sendJson(res, 200, { cancelled: jobs.cancel(run.node_id) });
 });
-route('POST', '/api/runs/:id/reply', (_req, res) =>
+route('POST', '/api/runs/:id/reply', (_req, _res) =>
   notYet('later', 'answering an agent question (the ask-user mechanism is postponed)'),
 );
 /** §6.6: resume / discard / keep. */

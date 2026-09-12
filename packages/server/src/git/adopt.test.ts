@@ -190,7 +190,7 @@ describe('adopting a directory', () => {
     // But the branch is in the user's repository, so their git can see it --
     // which is what makes an export feature unnecessary.
     const branches = await gitLine(['branch', '--format=%(refname:short)'], path);
-    assert.ok(branches.split('\n').includes(child.branch_name!));
+    assert.ok(branches.split('\n').includes(child.branch_name));
     assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
   });
 

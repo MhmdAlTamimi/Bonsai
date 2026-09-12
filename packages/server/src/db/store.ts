@@ -124,8 +124,8 @@ export class Store {
   }
 
   getProject(id: string): ProjectRow | undefined {
-    return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as
-      | unknown as ProjectRow
+    return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as unknown as
+      | ProjectRow
       | undefined;
   }
 
@@ -267,8 +267,8 @@ export class Store {
   }
 
   getNode(id: string): NodeRow | undefined {
-    return this.db.prepare(`SELECT * FROM node WHERE id = ?`).get(id) as
-      | unknown as NodeRow
+    return this.db.prepare(`SELECT * FROM node WHERE id = ?`).get(id) as unknown as
+      | NodeRow
       | undefined;
   }
 
