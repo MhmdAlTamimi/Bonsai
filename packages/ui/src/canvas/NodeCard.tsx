@@ -4,6 +4,7 @@ import { RANK_DIR } from './layout.ts';
 import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { STATUS_LABEL, StatusChip } from '../nodeStatus.tsx';
 
 /**
  * The node card. Renders from FLAGS, never from a node "type" string
@@ -13,14 +14,6 @@ import { api } from '../api/client.ts';
  * commits gets the dashed border and the chat glyph because `createsBranch` is
  * false -- an outcome of what its run did, not a category chosen up front.
  */
-
-const STATUS_LABEL: Record<NodeView['status'], string> = {
-  new: 'not started',
-  running: 'running',
-  needs_you: 'needs you',
-  ready: 'ready',
-  interrupted: 'interrupted',
-};
 
 /**
  * D35: detail thins as you zoom out -- full card, then name + dot, then dot.
@@ -89,21 +82,24 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
       ) : (
         <>
           <div className="card-head">
-            <span className="status-dot" />
             <span className="card-name">{data.displayName}</span>
             {/* No diff to show, so say so rather than hiding it. */}
             {code === 'none' && (
-              <span className="glyph" title={CODE_LABEL[code]}>
+              <span className="glyph lock" title={CODE_LABEL[code]}>
                 &#9993;
               </span>
             )}
             {!data.writable && (
               <span
-                className="glyph"
+                className="glyph lock"
                 title={FROZEN_TOOLTIP[data.frozenReason ?? 'child_committed']}
               >
                 &#128274;
               </span>
+            )}
+            {/* At compact zoom the word is gone, so the glyph carries it. */}
+            {lod === 'compact' && (
+              <StatusChip status={data.status} queuePosition={data.queuePosition} compact />
             )}
           </div>
           {lod === 'full' && (
@@ -113,14 +109,10 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 {/* On the card as well as in the panel: with several nodes in
                     flight, the one you want to stop is rarely the one selected,
                     and stopping it should not cost a click to select it first. */}
-                {data.queuePosition !== null ? (
-                  // Waiting for a slot. Still `running` as far as the state
-                  // machine is concerned -- the badge is the only difference,
-                  // and stopping it here is what keeps it from being a trap.
-                  <span className="pill queued" title="Waiting for a free slot">
-                    queued #{data.queuePosition}
-                  </span>
-                ) : data.status === 'running' ? (
+                {data.status === 'running' && data.queuePosition === null ? (
+                  // On the card as well as in the panel: with several nodes in
+                  // flight, the one you want to stop is rarely the one
+                  // selected, and stopping it should not cost a click first.
                   <button
                     className="stop"
                     title="Stop this run"
@@ -131,10 +123,10 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                       void api.cancelNode(data.id);
                     }}
                   >
-                    ■ Stop
+                    ■ stop
                   </button>
                 ) : (
-                  <span className="pill">{STATUS_LABEL[data.status]}</span>
+                  <StatusChip status={data.status} queuePosition={data.queuePosition} />
                 )}
                 {/*
                  * The most informative fact available about a node, and the
@@ -147,8 +139,8 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                     className="diffstat"
                     title={`${data.diffStat.files} file${data.diffStat.files === 1 ? '' : 's'} changed since this node's base`}
                   >
-                    {data.diffStat.files}f<span className="added"> +{data.diffStat.added}</span>
-                    <span className="removed"> −{data.diffStat.removed}</span>
+                    {data.diffStat.files}f <span className="added">+{data.diffStat.added}</span>{' '}
+                    <span className="removed">−{data.diffStat.removed}</span>
                   </span>
                 )}
                 {data.costUsd > 0 && <span className="cost">${data.costUsd.toFixed(3)}</span>}

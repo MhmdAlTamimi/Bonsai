@@ -109,7 +109,7 @@ export function DirectoryPicker({
               onClick={() => void load(entry.path)}
             >
               <span className="picker-name">{entry.name}</span>
-              {markRepos && entry.isGitRepo && <span className="pill tiny">git</span>}
+              {markRepos && entry.isGitRepo && <span className="chip tiny">git</span>}
             </button>
           ))
         )}

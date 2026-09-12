@@ -9,6 +9,7 @@ import { CreateChild } from './node/CreateChild.tsx';
 import { Details } from './node/Details.tsx';
 import { Recover } from './node/Recover.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
+import { StatusChip } from '../nodeStatus.tsx';
 
 /**
  * The side panel, built around the conversation.
@@ -112,7 +113,7 @@ function NodePanel({
               delete
             </button>
           )}
-          <span className={`pill status-${node.status}`}>{node.status.replace('_', ' ')}</span>
+          <StatusChip status={node.status} queuePosition={node.queuePosition} />
         </div>
       </header>
 
