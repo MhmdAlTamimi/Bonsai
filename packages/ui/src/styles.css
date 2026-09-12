@@ -484,3 +484,10 @@ button.stop:hover { background: var(--err); color: var(--bg); }
    above the conversation rather than behind the details disclosure. */
 .checks { gap: 6px; }
 .checks .stream { min-height: 0; max-height: 200px; }
+
+/* The one command that gets a node's work into a terminal. */
+.checkout {
+  flex: 1; overflow-x: auto; white-space: nowrap;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 7px; font: 11px ui-monospace, SFMono-Regular, monospace;
+}

@@ -32,6 +32,7 @@ import { nodeDiff, runDiff } from '../git/diff.js';
 import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
 import { rejectPath } from '../git/seedWorktree.js';
+import { checkoutFor } from './checkout.js';
 import { discardWorktreeChanges } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
@@ -431,9 +432,13 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   if (row === undefined) throw new HttpError(404, 'no such node');
   const view = withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
   const contextMd = await readContextFile(row.worktree_path);
+  const project = store.getProject(row.project_id);
+  const checkout = checkoutFor(project, row);
   const body: NodeDetail = {
     node: view,
     runs: store.listRuns(row.id),
+    checkoutCommand: checkout?.command ?? null,
+    checkoutHint: checkout?.hint ?? null,
     successCriteria: row.success_criteria,
     verificationHint: row.verification_hint,
     testingNotes: testingSection(contextMd),

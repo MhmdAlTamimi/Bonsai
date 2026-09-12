@@ -36,6 +36,7 @@ export function Panel({
   const [childName, setChildName] = useState('');
   const [childDesc, setChildDesc] = useState('');
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setError(null);
@@ -258,6 +259,32 @@ export function Panel({
       <Chat node={node} runs={runs} live={stream} onChanged={onChanged} onError={setError} />
 
       {error !== null && <p className="error">{error}</p>}
+
+      {/*
+       * The payoff of adopting a folder: the branch is already in the user's
+       * own repository, so getting at it is one command where they already
+       * are. Shown for any node with commits.
+       */}
+      {detail?.checkoutCommand != null && (
+        <section>
+          <h3>Get this branch</h3>
+          <div className="row">
+            <code className="checkout">{detail.checkoutCommand}</code>
+            <button
+              className="linkish"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(detail.checkoutCommand!)
+                  .then(() => setCopied(true))
+                  .catch(() => setError('Could not copy — select the command instead.'));
+              }}
+            >
+              {copied ? 'copied' : 'copy'}
+            </button>
+          </div>
+          {detail.checkoutHint != null && <p className="hint">{detail.checkoutHint}</p>}
+        </section>
+      )}
 
       <details className="disclosure">
         <summary>Details</summary>

@@ -307,6 +307,19 @@ export interface MessageView {
 export interface NodeDetail {
   node: NodeView;
   runs: RunView[];
+  /**
+   * A shell command that puts this node's branch in front of the user, ready
+   * to copy. Null for a node that has committed nothing, since there is no
+   * branch yet.
+   *
+   * A ready-made STRING rather than a branch name, deliberately: NodeView and
+   * NodeDetail carry nothing git-shaped, so the interface cannot misuse a ref
+   * or a path it was never given. It also lets the command differ by project
+   * kind without the interface knowing that projects have kinds.
+   */
+  checkoutCommand: string | null;
+  /** Where to run it, in words. */
+  checkoutHint: string | null;
   /** What the user said success looks like, as they wrote it. */
   successCriteria: string | null;
   verificationHint: string | null;
