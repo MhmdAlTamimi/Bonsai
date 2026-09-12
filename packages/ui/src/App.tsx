@@ -131,24 +131,6 @@ export function App(): JSX.Element {
   }, [projectId, refresh]);
 
   /**
-   * Rebuild the laid-out nodes, CARRYING OVER what React Flow measured.
-   *
-   * This is the fix for the canvas going blank after a refresh — reported for
-   * changing the model, for chatting, and earlier for creating a node, because
-   * all three end in a refetch.
-   *
-   * React Flow hides a node whose dimensions it has not measured yet
-   * (`visibility: hidden`). Handing it a brand-new object on every refresh
-   * threw those measurements away, so every node was hidden until it had been
-   * re-measured. Locally that is a few milliseconds and invisible; with more
-   * nodes or a slower machine the canvas simply looks empty, and zooming --
-   * which forces a re-measure -- brings it back. That "zoom in and out to fix
-   * it" is the tell.
-   *
-   * So width/height/positionAbsolute are carried forward per node id, and only
-   * the things that actually changed (data, position) are replaced.
-   */
-  /**
    * React Flow owns the node array; we merge server state into it.
    *
    * This is the fix for the canvas going blank after a refresh — reported for
@@ -187,16 +169,6 @@ export function App(): JSX.Element {
       });
     });
   }, [tree, setFlowNodes]);
-
-  // Refit when the tree gains or loses a node. The layout grows downward, so
-  // without this a newly created node lands off-screen -- and having just
-  // created one, seeing it is what you want. Keyed on the count rather than the
-  // tree so panning and dragging are left alone.
-  //
-  // Gated on nodesInitialized, not a timer: React Flow has to measure the new
-  // card before its bounds are known, and fitting early fits to a partial set.
-  // maxZoom caps the other half of that failure -- fitting one small node would
-  // otherwise zoom to the limit and fill the screen with a single card.
 
   /**
    * Refit when the tree grows. Not cosmetic: the layout extends downward, so

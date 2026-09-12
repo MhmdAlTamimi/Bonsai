@@ -185,7 +185,7 @@ and `npm run dev:ui` in another, then open http://localhost:5173.
 npm test
 ```
 
-65 tests, no network and no agent — they run the same with or without
+89 tests, no network and no agent — they run the same with or without
 credentials, and never spend anything. The last of them is the §2 demo script
 itself, run against real git from project creation to the five-node tree. Roughly half are pure unit tests over
 `domain/lineage.ts` — the nearest-ancestor-commit walk. The rest are integration
@@ -247,3 +247,7 @@ cannot misuse a path it was never given.
   design were hunted deliberately; a new one is probably real.
 - The demo script in PRD §2 is the definition of done. If a change isn't needed by that script, it
   doesn't belong in V0. PRD §3 lists the non-goals by name.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
