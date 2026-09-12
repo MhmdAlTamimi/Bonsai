@@ -35,6 +35,7 @@ export interface NodeRow {
   permission_mode: PermissionMode | null;
   success_criteria: string | null;
   verification_hint: string | null;
+  setup_ran_at: string | null;
   position_x: number | null;
   position_y: number | null;
   created_at: string;
@@ -51,6 +52,8 @@ export interface ProjectRow {
   source_kind: 'created' | 'adopted';
   source_path: string | null;
   protected_branch: string | null;
+  copy_files: string | null;
+  setup_command: string | null;
   created_at: string;
 }
 
@@ -103,14 +106,19 @@ export class Store {
       source_kind: input.adopt === undefined ? 'created' : 'adopted',
       source_path: input.adopt?.sourcePath ?? null,
       protected_branch: input.adopt?.protectedBranch ?? null,
+      // `.env` by default because it is the file whose absence breaks a node
+      // most often and most confusingly: the app simply will not start.
+      copy_files: JSON.stringify(['.env']),
+      setup_command: null,
       created_at: now(),
     };
     this.db
       .prepare(
         `INSERT INTO project (id, name, description, repo_path, default_model,
                               default_permission_mode, default_effort, source_kind,
-                              source_path, protected_branch, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              source_path, protected_branch, copy_files, setup_command,
+                              created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -123,6 +131,8 @@ export class Store {
         row.source_kind,
         row.source_path,
         row.protected_branch,
+        row.copy_files,
+        row.setup_command,
         row.created_at,
       );
     return row;
@@ -155,6 +165,29 @@ export class Store {
    */
   setProjectSourcePath(id: string, path: string): void {
     this.db.prepare(`UPDATE project SET source_path = ? WHERE id = ?`).run(path, id);
+  }
+
+  /** What a new node's worktree needs before the agent arrives. */
+  updateProjectSetup(
+    id: string,
+    patch: { copyFiles?: readonly string[]; setupCommand?: string | null },
+  ): void {
+    if (patch.copyFiles !== undefined) {
+      this.db
+        .prepare(`UPDATE project SET copy_files = ? WHERE id = ?`)
+        .run(JSON.stringify(patch.copyFiles), id);
+    }
+    if (patch.setupCommand !== undefined) {
+      const value = patch.setupCommand === null ? null : patch.setupCommand.trim();
+      this.db
+        .prepare(`UPDATE project SET setup_command = ? WHERE id = ?`)
+        .run(value === '' ? null : value, id);
+    }
+  }
+
+  /** Records that the setup command has run here, so it runs exactly once. */
+  markSetupRan(nodeId: string): void {
+    this.db.prepare(`UPDATE node SET setup_ran_at = ? WHERE id = ?`).run(now(), nodeId);
   }
 
   /** D32: the model and effort a project's runs use. Changing them is not a
@@ -248,6 +281,7 @@ export class Store {
       permission_mode: input.permissionMode ?? null,
       success_criteria: blankToNull(input.successCriteria),
       verification_hint: blankToNull(input.verificationHint),
+      setup_ran_at: null,
       position_x: null,
       position_y: null,
       created_at: now(),
@@ -651,6 +685,10 @@ export class Store {
       defaultEffort: row.default_effort,
       sourceKind: row.source_kind,
       sourcePath: row.source_path,
+      setup: {
+        copyFiles: parseStringArray(row.copy_files) ?? [],
+        setupCommand: row.setup_command,
+      },
       costUsd: this.projectCost(row.id),
       createdAt: row.created_at,
     };
@@ -720,6 +758,17 @@ function blankToNull(value: string | null | undefined): string | null {
   if (value === undefined || value === null) return null;
   const trimmed = value.trim();
   return trimmed === '' ? null : trimmed;
+}
+
+/** Shared by the tool list and the copy-files list; both are JSON arrays. */
+function parseStringArray(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Tolerant on purpose: a malformed row should not break the whole panel. */

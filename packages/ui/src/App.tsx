@@ -446,6 +446,7 @@ export function App(): JSX.Element {
         <SettingsDialog
           settings={settings}
           connection={connection}
+          project={tree?.project ?? null}
           selectedNodeId={selection.primary}
           onClose={() => setShowSettings(false)}
           onChanged={() => void loadConnection()}

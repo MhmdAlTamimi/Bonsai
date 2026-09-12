@@ -85,6 +85,15 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'node', 'verification_hint', 'TEXT');
     },
   },
+  {
+    version: 9,
+    name: 'project: what a new node needs before the agent arrives',
+    up: (db) => {
+      addColumn(db, 'project', 'copy_files', 'TEXT');
+      addColumn(db, 'project', 'setup_command', 'TEXT');
+      addColumn(db, 'node', 'setup_ran_at', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

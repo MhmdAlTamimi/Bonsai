@@ -166,6 +166,7 @@ export interface ProjectView {
    * was recorded.
    */
   sourcePath: string | null;
+  setup: ProjectSetupView;
   /** Estimated total across every run in the tree, at API list price. */
   costUsd: number;
   createdAt: string;
@@ -174,6 +175,21 @@ export interface ProjectView {
 export interface UpdateProjectRequest {
   model?: string | null;
   effort?: string | null;
+  /** Paths relative to the project folder. Validated; see the response. */
+  copyFiles?: string[];
+  setupCommand?: string | null;
+}
+
+/**
+ * Per-project, not per-app, because the answer is a property of the project.
+ * One needs `uv sync`, the next needs `npm install`, and a single global
+ * setting would be wrong for every project but the one it was typed for.
+ */
+export interface ProjectSetupView {
+  /** Copied into each new node's worktree. Empty is normal and fine. */
+  copyFiles: string[];
+  /** Run once in a new node's folder before its first agent run. */
+  setupCommand: string | null;
 }
 
 /**

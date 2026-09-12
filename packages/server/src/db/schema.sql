@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS project (
   -- The branch that was already checked out when the project was adopted.
   -- Bonsai must never delete it: it is the user's own branch, not a node/<uuid>.
   protected_branch        TEXT,
+  -- Files to copy into each new node's worktree, as a JSON array of paths
+  -- relative to the project folder. `git worktree add` checks out tracked
+  -- files only, so anything gitignored -- .env above all -- is missing from
+  -- every node until it is put there.
+  copy_files              TEXT,
+  -- Run once in a new node's folder before its first agent run: npm install,
+  -- uv sync, whatever this project needs. Dependencies are regenerated rather
+  -- than copied because copying them is either enormous or, for a virtualenv,
+  -- actively broken.
+  setup_command           TEXT,
   created_at              TEXT NOT NULL
 );
 
@@ -76,6 +86,10 @@ CREATE TABLE IF NOT EXISTS node (
   -- depending on which message you happened to send.
   success_criteria TEXT,
   verification_hint TEXT,
+  -- When the project's setup command last completed here. Null means it has
+  -- not run, which is what makes "run it once, before the first agent run"
+  -- survive a restart in the middle.
+  setup_ran_at  TEXT,
   position_x    REAL,
   position_y    REAL,
   created_at    TEXT NOT NULL,

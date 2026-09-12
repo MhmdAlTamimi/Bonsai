@@ -214,12 +214,23 @@ describe('the run queue', () => {
     }
   }
 
+  /** Lets the dispatched jobs get past their (empty) setup phase. */
+  async function tick(): Promise<void> {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+
   test('five runs with a cap of three: three run, two queue', async () => {
     const ids = await fiveChildren();
     for (const id of ids) jobs.start(id, 'slow');
 
+    // Slots are taken synchronously, which is what stops five setups running
+    // at once...
     assert.equal(jobs.activeCount(), 3);
     assert.equal(jobs.queuedCount(), 2);
+
+    // ...but the agent itself starts after the node's setup phase, so it is a
+    // turn behind. Nothing observable depends on the ordering; the count does.
+    await tick();
     assert.equal(runner.started, 3, 'only three agents were actually started');
 
     // The two waiting ones are `running` to the state machine -- there is no
@@ -256,6 +267,7 @@ describe('the run queue', () => {
     // not be left saying `running` for the rest of the session.
     assert.notEqual(store.getNode(ids[4]!)!.status, 'running');
     assert.equal(store.listRuns(ids[4]!)[0]!.status, 'cancelled');
+    await tick();
     assert.equal(runner.started, 3, 'cancelling a queued run starts no agent');
   });
 

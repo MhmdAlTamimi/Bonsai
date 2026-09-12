@@ -15,6 +15,7 @@ import {
 import { resolveBaseCommit } from './domain/lineage.js';
 import { toLineage } from './db/store.js';
 import { adoptDirectory, snapshotUncommitted, suggestProjectName } from './git/adopt.js';
+import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
 
 /**
  * The flows that need git and the database to agree. Kept out of the router so
@@ -216,7 +217,7 @@ export async function createChildNode(
     successCriteria?: string | null;
     verificationHint?: string | null;
   },
-): Promise<{ nodeId: string; baseCommit: string }> {
+): Promise<{ nodeId: string; baseCommit: string; seeded: SeedFileOutcome[] }> {
   const project = store.getProject(input.projectId);
   if (project === undefined) throw new Error('no such project');
   const parent = store.getNode(input.parentId);
@@ -229,7 +230,27 @@ export async function createChildNode(
   const node = store.createNode(input);
   await addDetachedWorktree(project.repo_path, node.worktree_path, baseCommit);
 
-  return { nodeId: node.id, baseCommit };
+  /**
+   * The worktree is checked out; now give it what git left behind.
+   *
+   * Copying happens HERE, synchronously, because it is a handful of small
+   * files and the node should never be visible without them. The SETUP COMMAND
+   * does not: `npm install` on a cold cache takes minutes, and holding the
+   * HTTP response open for that would freeze the canvas at the exact moment
+   * the user is watching it. It runs instead as the first phase of the node's
+   * first run, where it is asynchronous, cancellable and visible -- and still,
+   * as required, complete before the agent starts.
+   */
+  const seeded =
+    project.source_path === null
+      ? []
+      : await seedFiles({
+          sourceDir: project.source_path,
+          targetDir: node.worktree_path,
+          files: store.projectView(project).setup.copyFiles,
+        });
+
+  return { nodeId: node.id, baseCommit, seeded };
 }
 
 /**
