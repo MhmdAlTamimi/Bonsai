@@ -2,15 +2,26 @@ import { useCallback, useState } from 'react';
 
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
-import type { DropTarget } from '../canvas/Canvas.tsx';
 
 /**
- * Creating a child from a drag onto empty canvas.
+ * Creating a child, from wherever it was asked for.
  *
  * Three server calls that have to happen in order and are one action from the
  * user's side: create the node, pin it where they dropped it, start its first
  * run. Kept together so nothing can do two of the three.
+ *
+ * `position` is nullable because the gesture is no longer the only door. A drag
+ * onto empty canvas says where the node goes; the panel's button does not, and
+ * a node with no pinned position is laid out by dagre -- which is the documented
+ * default (PRD §9), not a fallback.
  */
+export interface ChildTarget {
+  parentId: string;
+  parentName: string;
+  /** Where the user dropped it, or null to let auto-layout decide. */
+  position: { x: number; y: number } | null;
+}
+
 export function useChildCreation(opts: {
   projectId: string | null;
   onCreated: (nodeId: string) => void;
@@ -18,8 +29,8 @@ export function useChildCreation(opts: {
   refresh: () => void;
 }): {
   /** Non-null while the dialog is open. */
-  pending: DropTarget | null;
-  begin: (target: DropTarget) => void;
+  pending: ChildTarget | null;
+  begin: (target: ChildTarget) => void;
   cancel: () => void;
   create: (
     name: string,
@@ -28,7 +39,7 @@ export function useChildCreation(opts: {
     verificationHint: string,
   ) => Promise<void>;
 } {
-  const [pending, setPending] = useState<DropTarget | null>(null);
+  const [pending, setPending] = useState<ChildTarget | null>(null);
   const { projectId, onCreated, onError, refresh } = opts;
 
   const create = useCallback(
@@ -48,10 +59,12 @@ export function useChildCreation(opts: {
           verificationHint,
         });
         // Pin it where it was dropped, so the gesture places the node.
-        await api.updateNode(node.id, {
-          positionX: pending.position.x,
-          positionY: pending.position.y,
-        });
+        if (pending.position !== null) {
+          await api.updateNode(node.id, {
+            positionX: pending.position.x,
+            positionY: pending.position.y,
+          });
+        }
         await api.startRun(node.id, description || name);
         setPending(null);
         onCreated(node.id);
@@ -66,7 +79,7 @@ export function useChildCreation(opts: {
 
   return {
     pending,
-    begin: useCallback((target: DropTarget) => setPending(target), []),
+    begin: useCallback((target: ChildTarget) => setPending(target), []),
     cancel: useCallback(() => setPending(null), []),
     create,
   };

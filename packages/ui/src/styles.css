@@ -755,24 +755,63 @@ body.resizing .panel-resizer {
 
 /* ---- panel --------------------------------------------------------------- */
 
+/*
+ * One scrolling region, and a composer that never leaves.
+ *
+ * The panel used to scroll AND contain a transcript that scrolled inside it, so
+ * the wheel did different things two centimetres apart and a long conversation
+ * was read through a 48vh letterbox. Now the shell is a fixed column: header,
+ * scrolling body, pinned foot. `min-height: 0` on the body is what actually
+ * makes it scroll rather than stretch its parent -- a flex item's default
+ * minimum size is its content.
+ */
 .panel {
   border-left: none;
   background: var(--surface);
-  padding: var(--s4);
-  overflow-y: auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--s4);
 }
 .panel.empty {
   align-items: center;
   justify-content: center;
+  gap: var(--s2);
+  padding: var(--s4);
+  text-align: center;
   color: var(--muted);
 }
-.panel header {
+/* Child combinator, deliberately: a turn has its own <header> and <footer>, and
+   a descendant selector here would style those too. */
+.panel > header {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s4) var(--s4) var(--s3);
+  border-bottom: 1px solid var(--line);
+}
+.panel > .note {
+  flex: none;
+  margin: var(--s3) var(--s4) 0;
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.panel-foot {
+  flex: none;
+  padding: var(--s3) var(--s4) var(--s4);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
   gap: var(--s2);
 }
 .panel h2 {
@@ -902,122 +941,441 @@ body.resizing .panel-resizer {
   margin-bottom: var(--s2);
 }
 
-/* ---- chat ---------------------------------------------------------------- */
+/* ---- transcript ---------------------------------------------------------- */
 
-.chat {
+/*
+ * A run is the unit, not a message.
+ *
+ * The old transcript was a flat list of divs distinguished only by shade of
+ * grey and font size: your prompt in a rounded box that looked exactly like the
+ * composer below it, the reply in the DIMMER of the two greys, and every tool
+ * call as its own monospace line at the same indent. A turn is a block now,
+ * with a header, a body and a footer, and a rule between one and the next.
+ */
+.transcript {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.turn:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.turn-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+}
+.turn-who {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.turn-when {
+  font-size: 10.5px;
+  color: var(--muted);
+  cursor: help;
+}
+/* A rule, not a bubble. The bubble was the same surface, radius and padding as
+   a textarea, so a message you had already sent looked like one you could type
+   into -- with the real composer a few centimetres below it. */
+.turn-prompt {
+  border-left: 2px solid var(--line-strong);
+  padding-left: var(--s3);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.turn-reply {
   display: flex;
   flex-direction: column;
   gap: var(--s3);
 }
-/* Capped rather than stretched: with four messages a flex:1 log left a screen
-   of empty space between the last reply and the box you type in. */
-.chat-log {
-  max-height: 48vh;
-  overflow-y: auto;
+/* The agent's answer is the thing you are waiting for, and it used to be set
+   dimmer than your own prompt. */
+.said.assistant {
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.said.streaming {
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.said.system {
+  color: var(--muted);
+}
+.said.system pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11px/1.5 var(--mono);
+}
+
+/*
+ * Toggle left, stats right, diff on its own line beneath.
+ *
+ * `order` rather than a wrapper div, because RunDiff renders the toggle and the
+ * expanded patch as one fragment -- so in DOM order the diff sits BETWEEN the
+ * toggle and the stats, and a plain wrapping flex row stranded the duration and
+ * cost underneath the patch.
+ */
+.turn-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  font-size: 11px;
+  color: var(--muted);
+}
+.turn-foot > .turn-stats {
+  order: 1;
+}
+.turn-foot > .turn-diff {
+  order: 2;
+}
+.turn-foot.failed {
+  color: var(--err);
+}
+.turn-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  font-variant-numeric: tabular-nums;
+}
+.turn-model {
+  font: 10.5px var(--mono);
+}
+.turn-diff-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.turn-diff-toggle:hover:not(:disabled) {
+  background: none;
+  border-color: transparent;
+  color: var(--text);
+}
+.turn-diff {
+  width: 100%;
+}
+
+/* ---- markdown ------------------------------------------------------------ */
+
+.md {
   display: flex;
   flex-direction: column;
   gap: var(--s2);
-  padding-right: 2px;
+  overflow-wrap: anywhere;
 }
-.chat-empty {
-  color: var(--muted);
-  font-size: 12px;
-  margin: auto 0;
-  text-align: center;
-}
-.msg {
-  font-size: 12.5px;
-  line-height: 1.55;
-}
-.msg pre {
+.md p {
   margin: 0;
-  white-space: pre-wrap;
-  font: inherit;
 }
-.msg.user {
-  background: var(--surface-2);
-  border-radius: var(--r-md);
-  padding: var(--s2) var(--s3);
+.md h4,
+.md h5,
+.md h6 {
+  margin: var(--s1) 0 0;
   color: var(--text);
+  font-weight: 600;
 }
-.msg.assistant {
-  padding: 0 2px;
+.md-h1 {
+  font-size: 13.5px;
+}
+.md-h2 {
+  font-size: 12.5px;
+}
+.md-h3 {
+  font-size: 12px;
   color: var(--text-dim);
 }
-.msg.system {
-  color: var(--muted);
-  font-size: 11.5px;
-  padding: 0 2px;
+.md ul,
+.md ol {
+  margin: 0;
+  padding-left: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
-.msg.tool {
-  font: 11px var(--mono);
+.md blockquote {
+  margin: 0;
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-dim);
+}
+.md a {
+  color: var(--text);
+  text-underline-offset: 2px;
+}
+/* A fenced block is the reason this renderer exists: code in a reply used to
+   arrive as unindented, unmonospaced, wrapped-mid-token prose. */
+.md-code {
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+  overflow-x: auto;
+  font: 11.5px/1.55 var(--mono);
+  color: var(--text-dim);
+}
+.md-code code {
+  background: none;
+  padding: 0;
+  font: inherit;
+}
+
+/* ---- tool calls ---------------------------------------------------------- */
+
+/*
+ * Collapsed, because a real run makes twenty to forty of these and the few
+ * sentences worth reading were scattered through them.
+ */
+.tools {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+}
+.tools-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  background: none;
+  border: none;
+  border-radius: var(--r-md);
+  padding: 5px 9px;
+  text-align: left;
+  font-size: 11.5px;
   color: var(--muted);
-  padding: 0 2px;
+}
+.tools-head:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text-dim);
+}
+.tools-caret {
+  font-size: 9px;
+  flex: none;
+}
+.tools-names {
+  flex: 1;
+  min-width: 0;
+  font: 10.5px var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.tools-list {
+  margin: 0;
+  padding: 0 9px 7px 24px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* The gap IS the fix for tool lines rendering as `writenotes/file.md`: the two
+   spans were adjacent with nothing between them. */
+.tools-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+  font: 11px var(--mono);
+}
+.tool-name {
+  flex: none;
+  color: var(--text-dim);
+}
+.tool-detail {
+  min-width: 0;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* A tool line is a log entry, not an input: the panel's code background made
-   every filename look like a field. */
-.msg.tool code,
-.msg.tool .tool-detail {
-  background: none;
-  padding: 0;
-}
-.tool-name {
-  color: var(--text-dim);
-}
-.tool-detail {
-  color: var(--muted);
-}
-.msg.working {
-  color: var(--muted);
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-size: 11.5px;
+  color: var(--muted);
 }
-.msg.streaming {
-  color: var(--text-dim);
+.working-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--st-running);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-dot {
+    animation: none;
+  }
 }
 
-.run-footer {
+.chat-empty {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+  padding: var(--s4) 0;
+}
+
+/* ---- diff ---------------------------------------------------------------- */
+
+/*
+ * Coloured and grouped by file. This is the artefact the node exists to
+ * produce, and it used to render as one undifferentiated block of text -- worse
+ * than `git diff` in a terminal, which at least colours the lines.
+ */
+.diff {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.diff-summary {
   display: flex;
   align-items: center;
   gap: var(--s2);
-  flex-wrap: wrap;
   font-size: 11px;
   color: var(--muted);
-  padding: 2px;
+  font-variant-numeric: tabular-nums;
 }
-.run-footer.failed {
+.diff-summary .added,
+.diff-counts .added {
+  color: var(--ok);
+}
+.diff-summary .removed,
+.diff-counts .removed {
   color: var(--err);
 }
-.run-internals {
-  color: var(--muted);
-  font-size: 10.5px;
-  cursor: help;
+.diff-copy {
+  margin-left: auto;
 }
-.diff-files {
-  font: 11px var(--mono);
-  color: var(--text-dim);
-  width: 100%;
-}
-.diff-patch {
-  width: 100%;
-  max-height: 260px;
-  overflow: auto;
-  background: var(--bg);
+.diff-file {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  padding: var(--s2);
+  overflow: hidden;
+  background: var(--bg);
+}
+.diff-file-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  background: var(--surface-2);
+  border: none;
+  border-radius: 0;
+  padding: 5px 9px;
+  text-align: left;
+  font: 11px var(--mono);
+  color: var(--text-dim);
+}
+.diff-file-head:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: transparent;
+}
+.diff-caret {
+  flex: none;
+  font-size: 9px;
+}
+.diff-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-counts {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.diff-body {
+  overflow-x: auto;
+  padding: 4px 0;
+}
+/* `min-width: 100%` so a short line's tint still spans the full column, and
+   `width: max-content` so a long one is reachable by scrolling rather than
+   clipped. */
+.dl {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
   font: 11px/1.5 var(--mono);
   white-space: pre;
 }
+.dl-mark {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  user-select: none;
+  color: var(--muted);
+}
+.dl-text {
+  padding-right: var(--s3);
+}
+.dl-add {
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  color: color-mix(in srgb, var(--ok) 55%, var(--text));
+}
+.dl-del {
+  background: color-mix(in srgb, var(--err) 13%, transparent);
+  color: color-mix(in srgb, var(--err) 55%, var(--text));
+}
+.dl-add .dl-mark {
+  color: var(--ok);
+}
+.dl-del .dl-mark {
+  color: var(--err);
+}
+.dl-hunk {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.dl-context {
+  color: var(--text-dim);
+}
+.dl-meta {
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ---- composer ------------------------------------------------------------ */
 
 .composer {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  border-top: 1px solid var(--line);
-  padding-top: var(--s3);
 }
 .composer textarea {
   min-height: 62px;
@@ -1029,6 +1387,103 @@ body.resizing .panel-resizer {
 }
 .composer-row .hint {
   flex: 1;
+}
+/*
+ * Frozen nodes get one line instead of a disabled three-row box explaining that
+ * it is disabled. Most nodes in a tree are frozen, so this is the common case,
+ * not the exception.
+ */
+.composer.collapsed {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s3);
+}
+.composer-open {
+  flex: 1;
+  text-align: left;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+.composer-open:hover:not(:disabled) {
+  color: var(--text-dim);
+}
+
+/* ---- panel actions ------------------------------------------------------- */
+
+/*
+ * Dashed, not accent-coloured: the stylesheet's one-accent rule means the
+ * primary button on this panel is Send, and a second violet button would make
+ * neither of them read as the action. The dash echoes the branch it makes.
+ */
+.branch-child {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px dashed var(--line-strong);
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.branch-child:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.start {
+  padding: var(--s3);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+.start h3 {
+  color: var(--text);
+  margin-bottom: 0;
+}
+
+/* PRD §4's divergence: quiet when the two lineages agree, loud when they do not. */
+.lineage {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.lineage strong {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.lineage.diverged {
+  padding: var(--s2) var(--s3);
+  background: color-mix(in srgb, var(--st-needs) 7%, var(--surface-2));
+  border-left: 2px solid color-mix(in srgb, var(--st-needs) 45%, transparent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  color: var(--text-dim);
+}
+.lineage.diverged strong {
+  color: var(--text);
+}
+
+.overflow {
+  background: none;
+  border: none;
+  padding: 1px 7px;
+  line-height: 1;
+  font-size: 15px;
+  color: var(--muted);
+}
+.overflow:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text);
+}
+.menu-panel.right {
+  left: auto;
+  right: 0;
 }
 
 /* The agent has stopped and wants an answer. Carries the needs_you colour, so
@@ -1348,4 +1803,33 @@ label.check {
 .named-as input {
   flex: 1;
   font-size: 12.5px;
+}
+
+/* ---- confirmation -------------------------------------------------------- */
+
+/*
+ * Destructive confirmations, in the app's own dialog rather than the browser's.
+ * `window.confirm` was doing this at the one moment the interface most needs to
+ * look like it knows what it is doing.
+ */
+.dialog.confirm {
+  width: min(430px, 94vw);
+  gap: var(--s3);
+}
+.confirm-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+button.destructive {
+  background: var(--err);
+  border-color: var(--err);
+  color: var(--bg);
+  font-weight: 500;
+}
+button.destructive:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 82%, #fff);
+  border-color: color-mix(in srgb, var(--err) 82%, #fff);
 }

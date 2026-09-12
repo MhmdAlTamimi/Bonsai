@@ -2,6 +2,7 @@ import type { JSX } from 'react';
 import type { NodeDetail, NodeView, RunView } from '@bonsai/shared';
 
 import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../../nodeCode.ts';
+import { exactTime, relativeTime } from '../chat/time.ts';
 
 /**
  * Facts about the node, read occasionally rather than constantly, so behind a
@@ -38,6 +39,28 @@ export function Details({
                 : 'frozen — a child committed'}
           </dd>
         </div>
+        {/* The two lineages again, spelled out. The block above the chat says
+            it in a sentence; this is the version you check a fact against. */}
+        {detail?.lineage.conversationFrom != null && (
+          <>
+            <div>
+              <dt>conversation</dt>
+              <dd>forked from {detail.lineage.conversationFrom.displayName}</dd>
+            </div>
+            <div>
+              <dt>code</dt>
+              <dd>
+                {detail.lineage.codeFrom === null
+                  ? 'no committing ancestor yet'
+                  : `branched from ${detail.lineage.codeFrom.displayName}`}
+              </dd>
+            </div>
+          </>
+        )}
+        <div>
+          <dt>created</dt>
+          <dd title={exactTime(node.createdAt)}>{relativeTime(node.createdAt)}</dd>
+        </div>
         <div>
           <dt>runs</dt>
           <dd>{runs.length}</dd>
@@ -65,6 +88,14 @@ export function Details({
           </>
         )}
         <Cost node={node} runs={runs} />
+        {/* Last, and monospace: nobody reads this until they are reporting a
+            problem, and then it is the first thing asked for. */}
+        <div>
+          <dt>node id</dt>
+          <dd>
+            <code>{node.id}</code>
+          </dd>
+        </div>
       </dl>
       {detail?.contextMd != null && (
         <>

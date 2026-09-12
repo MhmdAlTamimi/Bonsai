@@ -18,6 +18,7 @@ import { MenuBar } from './canvas/MenuBar.tsx';
 import { SettingsDialog } from './panel/SettingsDialog.tsx';
 import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
 import { PanelResizer } from './PanelResizer.tsx';
+import { useConfirm } from './ConfirmDialog.tsx';
 
 /**
  * Composition, and as little else as possible.
@@ -33,10 +34,14 @@ export function App(): JSX.Element {
   const report = useCallback((message: string) => setError(message), []);
 
   const { connection, settings, setSettings, reload } = useConnection();
+  // One confirmation dialog for the whole app, so nothing falls back to the
+  // browser's own modal. Project deletion asks through it; node deletion has
+  // its own, rendered inside the panel.
+  const confirm = useConfirm();
   // Read before anything can overwrite it: startup writes to the address bar
   // within a tick, so asking later returns what the app just put there.
   const arrivedAt = useRef(readAddress()).current;
-  const projectTree = useProjectTree(report, arrivedAt.projectId);
+  const projectTree = useProjectTree(report, confirm.ask, arrivedAt.projectId);
   const { projects, projectId, tree, noProjects } = projectTree;
   const selection = useSelection();
   useAddressBar({ projectId, nodeId: selection.primary });
@@ -179,7 +184,15 @@ export function App(): JSX.Element {
         node={selected}
         stream={selected === null ? [] : (streams[selected.id] ?? [])}
         onChanged={projectTree.refresh}
+        /* The panel does not own a second, weaker version of this form any
+           more -- it opens the one dialog, with no position, and dagre places
+           the node. */
+        onCreateChild={(parent) =>
+          child.begin({ parentId: parent.id, parentName: parent.displayName, position: null })
+        }
       />
+
+      {confirm.dialog}
     </div>
   );
 }
