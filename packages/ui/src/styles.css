@@ -1,494 +1,1313 @@
+/*
+ * Bonsai's visual system.
+ *
+ * Written as tokens plus a small set of primitives, because the thing that
+ * made the old stylesheet read as a prototype was not any single colour: it was
+ * that nothing agreed. Six spacings, four radii, type at 10/11/12/13 with no
+ * relationship, and one accent doing selection, links, buttons, user messages,
+ * the connection indicator and the create-child handle at once — so nothing on
+ * screen read as more important than anything else.
+ *
+ * The rules, in order of how much they matter:
+ *
+ *   ONE ACCENT, ONE JOB. --accent means "this is the action here". It is the
+ *   primary button and the selection ring, and nothing else. A running node is
+ *   blue, a link is plain text with an underline, the user's own messages are
+ *   a surface. If a second thing on a screen wants the accent, one of them is
+ *   not the primary action.
+ *
+ *   STATUS IS NEVER COLOUR ALONE. Every status has a glyph and a word as well
+ *   as a hue (4.6). An 8-pixel coloured dot is invisible to eight percent of
+ *   men, and it was carrying the single most important fact on the card.
+ *
+ *   ONE SPACING SCALE, ONE TYPE SCALE. Both below. Nothing hard-codes a pixel
+ *   that could be a step.
+ */
+
 :root {
-  --bg: #14161a;
-  --surface: #1d2026;
-  --surface-2: #252932;
-  --line: #333944;
-  --edge: #5a6478;
-  --edge-dim: #3c4350;
-  --text: #e6e9ef;
-  --muted: #939bab;
-  --accent: #7aa2f7;
-  --ok: #7dcfa0;
-  --warn: #e0af68;
-  --err: #f07c7c;
+  /* Neutrals. A single ramp, so surfaces stack predictably. */
+  --bg: #0d0e11;
+  --surface: #15171b;
+  --surface-2: #1c1f25;
+  --surface-3: #23272e;
+  --line: #262a31;
+  --line-strong: #343943;
+  --text: #e9ebef;
+  --text-dim: #b0b6c0;
+  --muted: #7f8794;
+
+  /*
+   * The accent, used for the primary action and the selection ring only.
+   * Violet rather than blue on purpose: `running` is blue, and an accent that
+   * matched it would make every selected node look like it was working.
+   */
+  --accent: #6d5df6;
+  --accent-hover: #7f71f7;
+  --accent-fg: #ffffff;
+  --accent-soft: #6d5df633;
+
+  /* Status. Distinct hues, but never the only signal — see .chip. */
+  --st-new: #7f8794;
+  --st-running: #4c9aff;
+  --st-needs: #d9a441;
+  --st-ready: #3fb950;
+  --st-interrupted: #f0663f;
+
+  --ok: var(--st-ready);
+  --warn: var(--st-needs);
+  --err: #f0563a;
+  --edge: #3a4150;
+  --edge-dim: #2a3040;
+
+  /* One spacing scale. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+
+  --shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.5);
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --panel-width: 380px;
   color-scheme: dark;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font:
+    13px/1.55 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* The panel width is a CSS variable so dragging the divider costs a style
-   recalculation rather than a React re-render per frame. PanelResizer sets it;
-   the stored value comes from settings on load. */
-:root { --panel-width: 360px; }
-.app { display: grid; grid-template-columns: 1fr 5px var(--panel-width); height: 100vh; }
+/* ---- type scale ---------------------------------------------------------- */
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+h1 {
+  font-size: 19px;
+}
+h2 {
+  font-size: 15px;
+}
+h3 {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+h4 {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0;
+}
+.hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin: 0;
+}
+.error {
+  color: var(--err);
+  font-size: 12px;
+  margin: 0;
+}
+.summary {
+  margin: 0;
+}
+code {
+  font: 11.5px/1.5 var(--mono);
+}
+
+/* ---- primitives ---------------------------------------------------------- */
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+textarea,
+select {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 6px 9px;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* A native select is the tell that nobody looked at a screen. */
+select {
+  appearance: none;
+  padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) calc(50% + 1px),
+    calc(100% - 9px) calc(50% + 1px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+button {
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12.5px;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    opacity 0.12s;
+}
+button:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--muted);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* The one action on the screen. If there are two of these, one is wrong. */
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 500;
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* A control that reads as text: never accent-coloured, so it cannot compete. */
+button.linkish {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.linkish:hover:not(:disabled) {
+  background: none;
+  color: var(--text);
+}
+button.linkish.danger {
+  color: var(--muted);
+}
+button.linkish.danger:hover:not(:disabled) {
+  color: var(--err);
+}
+
+/* Stop. The only red control that is not a delete: a run in flight is spending
+   money, and the button that ends it should be findable without reading. */
+button.stop {
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--err) 55%, transparent);
+  color: var(--err);
+  padding: 2px 9px;
+  font-size: 11.5px;
+}
+button.stop:hover:not(:disabled) {
+  background: var(--err);
+  border-color: var(--err);
+  color: var(--bg);
+}
+
+.row {
+  display: flex;
+  gap: var(--s2);
+  align-items: center;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+/*
+ * A status chip: glyph, then word, then colour. In that order deliberately.
+ * Colour is the last of the three to carry meaning, so the chip still works in
+ * greyscale and for a colourblind reader.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.chip .glyph {
+  font-size: 10px;
+  line-height: 1;
+  font-family: var(--mono);
+}
+.chip.st-new {
+  color: var(--st-new);
+  border-color: color-mix(in srgb, var(--st-new) 35%, transparent);
+}
+.chip.st-running {
+  color: var(--st-running);
+  border-color: color-mix(in srgb, var(--st-running) 45%, transparent);
+  background: color-mix(in srgb, var(--st-running) 10%, transparent);
+}
+.chip.st-needs_you {
+  color: var(--st-needs);
+  border-color: color-mix(in srgb, var(--st-needs) 50%, transparent);
+  background: color-mix(in srgb, var(--st-needs) 12%, transparent);
+}
+.chip.st-ready {
+  color: var(--st-ready);
+  border-color: color-mix(in srgb, var(--st-ready) 40%, transparent);
+}
+.chip.st-interrupted {
+  color: var(--st-interrupted);
+  border-color: color-mix(in srgb, var(--st-interrupted) 50%, transparent);
+  background: color-mix(in srgb, var(--st-interrupted) 12%, transparent);
+}
+.chip.queued {
+  color: var(--muted);
+}
+.chip.tiny {
+  font-size: 10px;
+  padding: 0 6px;
+}
+
+/* The running glyph turns, so a working node is legible from motion too. */
+.chip.st-running .glyph {
+  display: inline-block;
+  animation: spin 1.4s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip.st-running .glyph {
+    animation: none;
+  }
+}
+
+/* ---- shell --------------------------------------------------------------- */
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr 1px var(--panel-width);
+  height: 100vh;
+}
+.app.single {
+  grid-template-columns: 1fr;
+  place-items: center;
+  overflow-y: auto;
+}
+.app.single .panel-resizer {
+  display: none;
+}
+.canvas {
+  position: relative;
+  min-width: 0;
+}
+.react-flow__attribution {
+  display: none;
+}
 
 .panel-resizer {
-  cursor: col-resize; background: var(--line);
-  border: none; padding: 0; position: relative;
+  cursor: col-resize;
+  background: var(--line);
+  border: none;
+  padding: 0;
+  position: relative;
+  border-radius: 0;
 }
 .panel-resizer::after {
-  /* A wider invisible grab area than the visible line, so the divider is not
-     a five-pixel target. */
-  content: ''; position: absolute; inset: 0 -4px;
+  content: '';
+  position: absolute;
+  inset: 0 -5px;
 }
-.panel-resizer:hover, .panel-resizer:focus-visible { background: var(--accent); outline: none; }
-/* While dragging, the cursor must not flicker as it crosses the canvas, and a
-   drag across the page must not select every label it passes over. */
-body.resizing { cursor: col-resize; user-select: none; }
-body.resizing .panel-resizer { background: var(--accent); }
-.canvas { position: relative; min-width: 0; }
-.react-flow__attribution { display: none; }
+.panel-resizer:hover,
+.panel-resizer:focus-visible {
+  background: var(--accent);
+  outline: none;
+  box-shadow: none;
+}
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+body.resizing .panel-resizer {
+  background: var(--accent);
+}
 
 .banner {
-  position: absolute; z-index: 10; top: 12px; left: 12px;
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 6px; padding: 6px 10px; color: var(--warn);
+  position: absolute;
+  z-index: 10;
+  top: 52px;
+  left: var(--s4);
+  right: var(--s4);
+  background: color-mix(in srgb, var(--err) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: var(--shadow);
 }
 
-/* ---- node card: styled from flags, never from a type ---- */
-
-.card {
-  width: 220px; min-height: 76px;
+.stop-all {
+  position: absolute;
+  z-index: 9;
+  top: 52px;
+  right: var(--s4);
   background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex; flex-direction: column; gap: 4px;
-}
-/* No commits -> no diff to show. Dashed border says so before you click. */
-.card.code-none { border-style: dashed; background: transparent; }
-.card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(122 162 247 / 0.25); }
-.card.frozen { opacity: 0.88; }
-
-.card-head { display: flex; align-items: center; gap: 6px; }
-.card-name {
-  font-weight: 600; flex: 1;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.glyph { font-size: 11px; opacity: 0.65; }
-
-.card-summary {
-  color: var(--muted); font-size: 12px;
-  display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.card-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.cost { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-/* What the node actually did: the most informative thing on the card. */
-.diffstat { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.diffstat .added { color: var(--ok); }
-.diffstat .removed { color: var(--err); }
-
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
-.status-ready .status-dot { background: var(--ok); }
-.status-running .status-dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
-.status-needs_you .status-dot { background: var(--warn); }
-.status-interrupted .status-dot { background: var(--err); }
-@keyframes pulse { 50% { opacity: 0.35; } }
-
-/* D35: detail thins as you zoom out. */
-.card.lod-compact { min-height: 0; padding: 6px 10px; }
-.card.lod-dot {
-  /* Size is set inline, scaled against the zoom, so it stays legible. */
-  min-height: 0; padding: 0; border-radius: 50%;
-  align-items: center; justify-content: center;
-}
-.dot-only { width: 55%; height: 55%; border-radius: 50%; background: var(--muted); }
-.lod-dot.status-ready .dot-only { background: var(--ok); }
-.lod-dot.status-running .dot-only { background: var(--accent); }
-.lod-dot.status-needs_you .dot-only { background: var(--warn); }
-.lod-dot.status-interrupted .dot-only { background: var(--err); }
-
-.pill {
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-  border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--muted);
-}
-.pill.tiny { font-size: 9px; padding: 0 5px; flex: none; }
-
-/* ---- panel ---- */
-
-.panel {
-  border-left: 1px solid var(--line); background: var(--surface);
-  padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
-}
-.panel.empty { align-items: center; justify-content: center; color: var(--muted); }
-.panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.panel h2 { margin: 0; font-size: 15px; }
-.panel h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.05em; }
-.panel section { display: flex; flex-direction: column; gap: 8px; }
-
-.facts { margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.facts > div { display: grid; grid-template-columns: 72px 1fr; gap: 8px; }
-.facts dt { color: var(--muted); font-size: 12px; }
-.facts dd { margin: 0; font-size: 12px; }
-
-.muted { color: var(--muted); margin: 0; }
-.hint { color: var(--muted); font-size: 11px; margin: 0; }
-.summary { margin: 0; }
-.error { color: var(--err); margin: 0; font-size: 12px; }
-.question { margin: 0; color: var(--warn); }
-.note {
-  margin: 0; padding: 8px 10px; font-size: 12px; color: var(--muted);
-  background: var(--surface-2); border-left: 2px solid var(--accent); border-radius: 4px;
-}
-.stream {
-  margin: 0; min-height: 80px; max-height: 220px; overflow: auto;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px;
-  font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
-}
-.row { display: flex; gap: 8px; }
-
-input, textarea, button {
-  font: inherit; color: inherit;
-  background: var(--surface-2); border: 1px solid var(--line);
-  border-radius: 6px; padding: 6px 8px;
-}
-textarea { resize: vertical; }
-button { cursor: pointer; }
-button:hover:not(:disabled) { border-color: var(--accent); }
-button:disabled { opacity: 0.45; cursor: not-allowed; }
-
-.create-child { border-top: 1px solid var(--line); padding-top: 14px; }
-
-/* React Flow ships light-themed controls; match the canvas. */
-.react-flow__controls { box-shadow: none; }
-.react-flow__controls-button {
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--line);
-  fill: var(--text);
-}
-.react-flow__controls-button:hover { background: var(--line); }
-.react-flow__handle { background: var(--edge); border: none; width: 6px; height: 6px; }
-
-.app.single { grid-template-columns: 1fr; place-items: center; }
-.app.single .panel-resizer { display: none; }
-.new-project {
-  width: min(520px, 90vw); display: flex; flex-direction: column; gap: 12px;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 10px; padding: 24px;
-}
-.new-project h1 { margin: 0; font-size: 18px; }
-.new-project label { display: flex; gap: 8px; color: var(--muted); font-size: 12px; }
-.new-project label.stacked { flex-direction: column; gap: 5px; }
-.new-project label input[type='checkbox'] { flex: none; margin-top: 2px; }
-
-/* Two ways to start a project, side by side, because which one you want is
-   the first decision and it should not be buried in a menu. */
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
-.tabs button {
-  background: none; border: none; border-bottom: 2px solid transparent;
-  border-radius: 0; color: var(--muted); padding: 6px 10px;
-}
-.tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
-
-/* A folder picker served by the backend: a browser cannot tell us where a
-   chosen directory is, so the server lists and we render. */
-.picker { display: flex; flex-direction: column; gap: 6px; }
-.picker-bar { display: flex; gap: 6px; }
-.picker-bar input { flex: 1; min-width: 0; font: 11px ui-monospace, SFMono-Regular, monospace; }
-.picker-bar button { flex: none; padding: 6px 9px; }
-.picker-list {
-  /* Six visible rows was a letterbox for a folder with twenty entries. */
-  height: 300px; overflow-y: auto;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
-  display: flex; flex-direction: column;
-}
-.picker-list .muted { padding: 8px; font-size: 12px; }
-.picker-entry {
-  background: none; border: none; border-radius: 4px; text-align: left;
-  padding: 4px 8px; font-size: 12px;
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-}
-.picker-entry:hover { background: var(--surface-2); }
-.picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.panel details summary { cursor: pointer; }
-.panel code {
-  background: var(--surface-2); border-radius: 3px; padding: 0 4px;
-  font: 11px ui-monospace, SFMono-Regular, monospace;
+  padding: 5px 12px;
+  font-size: 12px;
+  box-shadow: var(--shadow);
 }
 
-/* The application menu. Replaces the model/effort strip, which was a settings
-   control wearing a toolbar's clothes. */
+/* ---- menu bar ------------------------------------------------------------ */
+
 .menubar {
-  position: absolute; z-index: 8; top: 0; left: 0; right: 0;
-  display: flex; align-items: center; gap: 4px;
-  background: var(--surface); border-bottom: 1px solid var(--line);
-  padding: 6px 12px; font-size: 12px;
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+  padding: 0 var(--s3);
+  font-size: 12.5px;
 }
-.brand { display: inline-flex; align-items: center; margin-right: 10px; }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--s2) 0 var(--s1);
+  color: var(--text-dim);
+}
 
 /* The mark is a mask, so it takes the surrounding text colour and works on any
    background — the artwork itself is dark line work, which would vanish here. */
 .logo {
-  display: inline-block; flex: none;
+  display: inline-block;
+  flex: none;
   background-color: currentColor;
-  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-  -webkit-mask-position: center; mask-position: center;
-  -webkit-mask-size: contain; mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
-.connect h1, .new-project h1 { display: flex; align-items: center; gap: 10px; }
-.menu { position: relative; }
+
+.menu {
+  position: relative;
+}
 .menu-title {
-  background: none; border: none; color: var(--text); font: inherit;
-  padding: 4px 10px; border-radius: 5px; cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
 }
-.menu-title:hover { background: var(--surface-2); }
+.menu-title:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text);
+}
 .menu-panel {
-  position: absolute; top: calc(100% + 6px); left: 0; min-width: 230px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
-  padding: 5px; display: flex; flex-direction: column;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: var(--s1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
 }
 .menu-panel button {
-  background: none; border: none; color: var(--text); font: inherit;
-  text-align: left; padding: 6px 9px; border-radius: 5px; cursor: pointer;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
 }
-.menu-panel button:hover:not(:disabled) { background: var(--surface-2); }
-.menu-panel button:disabled { opacity: 0.4; cursor: not-allowed; }
-.menu-panel button.danger { color: var(--err); }
-.menu-sep { height: 1px; background: var(--line); margin: 5px 0; }
-.menu-label, .menu-empty {
-  padding: 4px 9px; color: var(--muted); font-size: 11px;
-  text-transform: uppercase; letter-spacing: 0.05em;
+.menu-panel button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
 }
-.menu-empty { text-transform: none; letter-spacing: 0; }
+.menu-panel button.danger:hover:not(:disabled) {
+  color: var(--err);
+}
+.menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: var(--s1) 0;
+}
+.menu-label {
+  padding: var(--s2) 9px var(--s1);
+  color: var(--muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.menu-empty {
+  padding: var(--s1) 9px var(--s2);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
 .menubar-project {
-  color: var(--muted); margin-left: 10px;
-  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text);
+  font-weight: 500;
+  margin-left: var(--s3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
-.menubar-spacer { flex: 1; }
-.menubar-cost { color: var(--muted); font-variant-numeric: tabular-nums; cursor: help; }
-
-/* Connection is the one thing that stops everything else working, so it gets a
-   permanent indicator rather than living inside a dialog. */
-.conn, .conn-row {
-  display: flex; align-items: center; gap: 7px;
-  background: none; border: 1px solid var(--line); border-radius: 999px;
-  padding: 3px 10px; color: var(--muted); font: inherit; cursor: pointer;
+.menubar-spacer {
+  flex: 1;
 }
-.conn-row { border-radius: 6px; padding: 7px 10px; cursor: default; width: 100%; }
-.conn-row button { margin-left: auto; }
-.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
-.conn-connected .conn-dot { background: var(--ok); }
-.conn-no_credential .conn-dot, .conn-error .conn-dot { background: var(--err); }
-.conn-rate_limited .conn-dot { background: var(--warn); }
-.conn-connected { color: var(--text); }
-
-/* The canvas sits under the menu bar. */
-.react-flow { padding-top: 0; }
-.menubar + .banner { top: 46px; }
-
-.connect {
-  width: min(560px, 92vw); max-height: 92vh; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 18px;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 10px; padding: 28px;
+.menubar-cost {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+  font-size: 11.5px;
+  padding-left: var(--s3);
 }
-.connect h1 { margin: 0; font-size: 19px; }
-.connect h2 { margin: 0 0 6px; font-size: 13px; }
-.connect section {
-  display: flex; flex-direction: column; gap: 8px;
-  border-top: 1px solid var(--line); padding-top: 16px;
-}
-.warn { color: var(--warn); margin: 0; }
 
-.dialog.wide { width: min(600px, 94vw); max-height: 88vh; overflow-y: auto; }
-.dialog h4 {
-  margin: 0 0 4px; font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--muted);
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 3px 10px;
+  color: var(--text-dim);
+  font-size: 11.5px;
 }
-.dialog section {
-  display: flex; flex-direction: column; gap: 8px;
-  border-top: 1px solid var(--line); padding-top: 14px;
+.conn-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
 }
-.dialog label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-.dialog label.stacked { flex-direction: column; align-items: stretch; gap: 5px; }
-.dialog label select { flex: 1; }
-.dialog label .row { display: flex; gap: 6px; }
-.dialog label .row input { flex: 1; }
-
-
-/* §7: the conversation is the primary workspace, so it gets the room. */
-.panel { gap: 12px; }
-.panel header h2 {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.conn-connected .conn-dot {
+  background: var(--ok);
 }
-.header-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.conn-no .conn-dot,
+.conn-error .conn-dot {
+  background: var(--err);
+}
+.conn-rate .conn-dot,
+.conn-rate_limited .conn-dot {
+  background: var(--warn);
+}
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+}
+.conn-row span:nth-of-type(2) {
+  flex: 1;
+}
 
-.chat {
-  display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--bg);
+/* ---- canvas cards -------------------------------------------------------- */
+
+.card {
+  width: 216px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+.card:hover {
+  border-color: var(--muted);
+}
+.card.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* Dashed means "ran and wrote nothing" — a real outcome, not a failure. */
+.card.code-none {
+  border-style: dashed;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.card-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.card-summary {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 1px;
+}
+.card .glyph.lock {
+  color: var(--muted);
+  font-size: 10px;
+}
+.cost,
+.diffstat {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.diffstat .added {
+  color: var(--ok);
+}
+.diffstat .removed {
+  color: var(--err);
+}
+
+/* Level of detail. At a distance a card is a shape, and the shape says what
+   the status is — filled, ringed or hollow — so the tree reads while zoomed
+   out without depending on hue. */
+.lod-compact .card-summary,
+.lod-compact .card-foot .cost {
+  display: none;
+}
+.lod-dot {
+  width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  display: grid;
+  place-items: center;
+}
+.lod-dot .card-head,
+.lod-dot .card-summary,
+.lod-dot .card-foot {
+  display: none;
+}
+.dot-only {
+  width: 62%;
+  height: 62%;
+  border-radius: 50%;
+  background: var(--st-new);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--line-strong);
+}
+.lod-dot.status-ready .dot-only {
+  background: var(--st-ready);
+}
+.lod-dot.status-running .dot-only {
+  background: var(--st-running);
+}
+.lod-dot.status-needs_you .dot-only {
+  background: var(--st-needs);
+  border-radius: 20%;
+}
+.lod-dot.status-interrupted .dot-only {
+  background: var(--st-interrupted);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  border-radius: 0;
+}
+.lod-dot.status-new .dot-only {
+  background: transparent;
+  box-shadow: 0 0 0 2px var(--st-new);
+}
+.lod-dot.selected .dot-only {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+/* The target handle is plumbing; the source handle is the create-a-child
+   gesture, so it is the one given size and a hover state. */
+.react-flow__handle {
+  background: var(--line-strong);
+  border: none;
+  width: 6px;
+  height: 6px;
+}
+.react-flow__handle.add-child-handle {
+  width: 10px;
+  height: 10px;
+  background: var(--surface-3);
+  border: 1.5px solid var(--muted);
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.card:hover .add-child-handle {
+  border-color: var(--text-dim);
+}
+.react-flow__handle.add-child-handle:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  fill: var(--text-dim);
+  width: 26px;
+  height: 26px;
+}
+.react-flow__controls-button:hover {
+  background: var(--surface-2);
+  fill: var(--text);
+}
+
+/* ---- panel --------------------------------------------------------------- */
+
+.panel {
+  border-left: none;
+  background: var(--surface);
+  padding: var(--s4);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.panel.empty {
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.panel h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel h3 {
+  margin-bottom: var(--s2);
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: none;
+}
+.panel section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.panel code {
+  background: var(--surface-2);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.note {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+}
+.note.attention {
+  border-left-color: var(--warn);
+}
+
+.facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.facts > div {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: var(--s2);
+  align-items: baseline;
+}
+.facts dt {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.facts dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.stream {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+  font: 11.5px/1.55 var(--mono);
+  white-space: pre-wrap;
+  color: var(--text-dim);
+}
+
+.checks .stream {
+  min-height: 0;
+  max-height: 180px;
+}
+
+.checkout {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+  font: 11.5px var(--mono);
+  color: var(--text-dim);
+}
+
+.disclosure {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s3);
+}
+.disclosure > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11.5px;
+  list-style: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure > summary::before {
+  content: '›';
+  display: inline-block;
+  transition: transform 0.12s;
+}
+.disclosure[open] > summary::before {
+  transform: rotate(90deg);
+}
+.disclosure > summary:hover {
+  color: var(--text);
+}
+.disclosure[open] > summary {
+  margin-bottom: var(--s3);
+}
+.disclosure > *:not(summary) {
+  margin-bottom: var(--s2);
+}
+
+/* ---- chat ---------------------------------------------------------------- */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+/* Capped rather than stretched: with four messages a flex:1 log left a screen
+   of empty space between the last reply and the box you type in. */
 .chat-log {
-  flex: 1 1 auto; min-height: 180px; overflow-y: auto;
-  padding: 10px; display: flex; flex-direction: column; gap: 10px;
+  max-height: 48vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-right: 2px;
 }
-.chat-empty { padding: 4px 2px; }
-
-.msg { font-size: 12px; line-height: 1.55; }
-.msg pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+.chat-empty {
+  color: var(--muted);
+  font-size: 12px;
+  margin: auto 0;
+  text-align: center;
+}
+.msg {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.msg pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font: inherit;
+}
 .msg.user {
-  background: var(--surface-2); border-left: 2px solid var(--accent);
-  border-radius: 4px; padding: 7px 9px; align-self: stretch;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+  color: var(--text);
 }
-.msg.assistant { padding: 0 2px; }
-.msg.assistant.streaming { opacity: 0.85; }
-.msg.working { color: var(--muted); font-style: italic; padding: 0 2px; }
+.msg.assistant {
+  padding: 0 2px;
+  color: var(--text-dim);
+}
+.msg.system {
+  color: var(--muted);
+  font-size: 11.5px;
+  padding: 0 2px;
+}
 .msg.tool {
-  display: flex; gap: 8px; align-items: baseline; min-width: 0;
-  color: var(--muted); font: 11px ui-monospace, SFMono-Regular, monospace;
+  font: 11px var(--mono);
+  color: var(--muted);
+  padding: 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tool-name { color: var(--accent); flex: none; }
-/* Collapsed: scrolls horizontally rather than clipping the end of a command,
-   which is usually the part worth reading. Click to wrap it instead. */
+/* A tool line is a log entry, not an input: the panel's code background made
+   every filename look like a field. */
+.msg.tool code,
+.msg.tool .tool-detail {
+  background: none;
+  padding: 0;
+}
+.tool-name {
+  color: var(--text-dim);
+}
 .tool-detail {
-  flex: 1; min-width: 0; text-align: left; cursor: pointer;
-  background: none; border: none; padding: 0; color: inherit; font: inherit;
-  overflow-x: auto; white-space: nowrap; scrollbar-width: thin;
+  color: var(--muted);
 }
-.tool-detail:hover { color: var(--text); }
-.msg.tool.expanded { align-items: flex-start; }
-.msg.tool.expanded .tool-detail {
-  white-space: pre-wrap; word-break: break-all; overflow-x: visible;
-  background: var(--surface); border-radius: 4px; padding: 4px 6px;
+.msg.working {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.msg.streaming {
+  color: var(--text-dim);
 }
 
-/* What one exchange produced, expandable where it happened. */
 .run-footer {
-  border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 6px;
-  font-size: 11px; color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px;
 }
-.run-footer.failed { color: var(--err); border-top-color: var(--err); }
-.diff-files { margin: 4px 0; word-break: break-all; }
+.run-footer.failed {
+  color: var(--err);
+}
+.run-internals {
+  color: var(--muted);
+  font-size: 10.5px;
+  cursor: help;
+}
+.diff-files {
+  font: 11px var(--mono);
+  color: var(--text-dim);
+  width: 100%;
+}
 .diff-patch {
-  margin: 4px 0 0; max-height: 260px; overflow: auto;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
-  padding: 8px; font: 11px/1.5 ui-monospace, SFMono-Regular, monospace;
+  width: 100%;
+  max-height: 260px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s2);
+  font: 11px/1.5 var(--mono);
   white-space: pre;
 }
 
-/* The composer sits directly under the messages. It used to be three sections
-   further down, which made replies look like they landed somewhere else. */
 .composer {
-  border-top: 1px solid var(--line); padding: 8px;
-  display: flex; flex-direction: column; gap: 6px; background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  padding-top: var(--s3);
 }
-.composer textarea { resize: vertical; min-height: 54px; }
-.composer-row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
-.composer-row .hint { flex: 1; }
+.composer textarea {
+  min-height: 62px;
+}
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.composer-row .hint {
+  flex: 1;
+}
 
 .recover {
-  border: 1px solid var(--warn); border-radius: 8px; padding: 10px;
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  background: color-mix(in srgb, var(--st-interrupted) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--st-interrupted) 30%, transparent);
+  border-radius: var(--r-md);
+  padding: var(--s3);
 }
 
-.disclosure { border-top: 1px solid var(--line); padding-top: 10px; }
-.disclosure > summary {
-  cursor: pointer; color: var(--muted); font-size: 11px;
-  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px;
-}
-.disclosure > * + * { margin-top: 8px; }
-.disclosure input, .disclosure textarea, .disclosure button { width: 100%; }
-
-button.linkish {
-  background: none; border: none; padding: 0; color: var(--accent);
-  font: inherit; cursor: pointer; text-align: left;
-}
-button.linkish:hover { text-decoration: underline; }
-
-/* The source handle is the create-a-child affordance, so it is sized to be
-   grabbed and marked with a + rather than looking like a wiring port. */
-.react-flow__handle.add-child-handle {
-  width: 20px; height: 20px; border-radius: 50%;
-  background: var(--surface-2); border: 1px solid var(--line);
-  opacity: 0; transition: opacity 120ms, border-color 120ms, background 120ms;
-}
-.react-flow__handle.add-child-handle::after {
-  content: '+'; position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px; line-height: 1; color: var(--muted);
-}
-.card:hover .add-child-handle,
-.card.selected .add-child-handle { opacity: 1; }
-.react-flow__handle.add-child-handle:hover {
-  background: var(--accent); border-color: var(--accent); opacity: 1;
-}
-.react-flow__handle.add-child-handle:hover::after { color: var(--bg); }
-/* Target handles are plumbing, not an affordance. */
-.react-flow__handle-top, .react-flow__handle-left { opacity: 0; }
+/* ---- dialogs and full-screen states -------------------------------------- */
 
 .dialog-backdrop {
-  position: fixed; inset: 0; z-index: 40;
-  background: rgb(0 0 0 / 0.45);
-  display: flex; align-items: center; justify-content: center;
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgb(0 0 0 / 0.55);
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  backdrop-filter: blur(2px);
 }
 .dialog {
-  width: min(460px, 92vw); display: flex; flex-direction: column; gap: 10px;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 10px; padding: 16px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.5);
+  width: min(460px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  box-shadow: var(--shadow-lg);
 }
-.dialog header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dialog.wide {
+  width: min(560px, 94vw);
+}
+.dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
 .dialog h3 {
-  margin: 0; font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--text);
+  font-size: 15px;
+  color: var(--text);
 }
 .dialog-close {
-  background: none; border: none; color: var(--muted);
-  font-size: 20px; line-height: 1; padding: 0 4px; cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 6px;
 }
-.dialog-close:hover { color: var(--text); }
-.dialog-actions { display: flex; align-items: center; gap: 8px; }
-.dialog-actions .hint { flex: 1; }
-.dialog button.primary { border-color: var(--accent); color: var(--text); }
-
-button.linkish.danger { color: var(--err); }
-button.linkish:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: none; }
-
-/* The error boundary. Deliberately styled like the other full-screen states
-   rather than like a browser error page -- it is still Bonsai talking. */
-.crash {
-  width: min(680px, 92vw); margin: 48px auto; display: flex; flex-direction: column; gap: 12px;
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: 10px; padding: 24px;
+.dialog-close:hover {
+  color: var(--text);
+  background: none;
+  border-color: transparent;
 }
-.crash h1 { margin: 0; font-size: 18px; }
-.crash .stream { max-height: 320px; white-space: pre-wrap; }
-
-/* Stop. Deliberately the only red control that is not a delete: a run in
-   flight is spending money, and the button that ends it should be findable
-   without reading. */
-button.stop {
-  background: none; border: 1px solid var(--err); color: var(--err);
-  border-radius: 5px; padding: 1px 8px; font-size: 11px; line-height: 1.6;
+.dialog section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--line);
 }
-button.stop:hover { background: var(--err); color: var(--bg); }
-.stop-all {
-  position: absolute; z-index: 9; top: 48px; right: 12px;
-  padding: 5px 12px; font-size: 12px;
+.dialog section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  justify-content: flex-end;
+}
+.dialog-actions .hint {
+  flex: 1;
+}
+
+/*
+ * A label in a dialog is a two-column row: name at a fixed width on the left,
+ * control filling the rest. Applied to the element rather than behind a class
+ * so nothing can opt out by forgetting -- inconsistent label widths were most
+ * of why the settings screen read as unfinished, with every control starting
+ * at a different x.
+ */
+.dialog label,
+.field {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: var(--s3);
+  align-items: center;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.dialog label > :not(:first-child),
+.field > :not(:first-child) {
+  min-width: 0;
+}
+.dialog label select,
+.dialog label input:not([type='checkbox']) {
+  width: 100%;
+}
+.dialog label.check {
+  display: flex;
+}
+.dialog label.stacked,
+.field.stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.dialog label .row,
+.field .row {
+  min-width: 0;
+}
+.dialog label .row input,
+.dialog label .row select,
+.field .row input,
+.field .row select {
+  flex: 1;
+  min-width: 0;
+}
+.field input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  flex: none;
+}
+label.check {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.new-project {
+  width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
   background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s6);
+  margin: var(--s5) 0;
+  box-shadow: var(--shadow);
+}
+.new-project h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.connect h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.connect {
+  width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s6);
+  margin: var(--s5) 0;
+  box-shadow: var(--shadow);
+}
+.connect section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
 }
 
-/* A node waiting for a slot. Not a status -- there are five and this is not
-   one of them -- just the one visible difference from a node that is running. */
-.pill.queued { border-color: var(--accent); color: var(--accent); }
-
-/* "Did it work?" -- the answer the whole node exists to settle, so it sits
-   above the conversation rather than behind the details disclosure. */
-.checks { gap: 6px; }
-.checks .stream { min-height: 0; max-height: 200px; }
-
-/* The one command that gets a node's work into a terminal. */
-.checkout {
-  flex: 1; overflow-x: auto; white-space: nowrap;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
-  padding: 4px 7px; font: 11px ui-monospace, SFMono-Regular, monospace;
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+  padding: 3px;
 }
-.run-internals { color: var(--muted); font-size: 10px; margin-left: 8px; cursor: help; }
+.tabs button {
+  flex: 1;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  padding: 6px 10px;
+}
+.tabs button:hover:not(:disabled) {
+  background: none;
+  color: var(--text-dim);
+}
+.tabs button.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+/* A folder picker served by the backend: a browser cannot tell us where a
+   chosen directory is, so the server lists and we render. */
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.picker-bar {
+  display: flex;
+  gap: 6px;
+}
+.picker-bar input {
+  flex: 1;
+  min-width: 0;
+  font: 11.5px var(--mono);
+}
+.picker-bar button {
+  flex: none;
+  padding: 6px 10px;
+}
+.picker-list {
+  height: 208px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s1);
+  display: flex;
+  flex-direction: column;
+}
+.picker-list .muted {
+  padding: var(--s2);
+  font-size: 12px;
+}
+.picker-entry {
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  text-align: left;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.picker-entry:hover {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text);
+}
+.picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The error boundary. Still Bonsai talking, not a browser error page. */
+.crash {
+  width: min(680px, 92vw);
+  margin: 48px auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s6);
+}
+.crash .stream {
+  max-height: 320px;
+}
