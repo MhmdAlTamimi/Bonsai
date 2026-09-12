@@ -51,7 +51,7 @@ export interface ConnectionStatus {
 }
 
 export interface SettingsView {
-  /** How Bonsai authenticates. 'cli' uses whatever `claude login` stored. */
+  /** How Bonsai authenticates. 'cli' uses whatever `claude auth login` stored. */
   authMode: 'cli' | 'api_key';
   /** Whether a key is stored. The key itself is never sent to the UI. */
   hasStoredApiKey: boolean;

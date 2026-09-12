@@ -24,7 +24,11 @@ const store = new Store(db, config.reposRoot);
 const bus = new EventBus();
 
 const settings = new Settings(config);
-const connection = new Connection(settings);
+// Declared before the gate because the gate needs to know: a stand-in run has
+// no credential to check, and probing for one on a machine without the CLI
+// would block the app behind a connection screen for no reason.
+const useStandIn = process.env['BONSAI_FAKE_AGENT'] === '1';
+const connection = new Connection(settings, useStandIn);
 
 /**
  * D14e: agent invocation sits behind one interface.
@@ -40,7 +44,6 @@ const connection = new Connection(settings);
  * Without BONSAI_FAKE_AGENT=1 there is exactly one runner, and the connection
  * gate stops runs before they start when it cannot reach Claude.
  */
-const useStandIn = process.env['BONSAI_FAKE_AGENT'] === '1';
 const jobs = new RunJobs(
   store,
   bus,

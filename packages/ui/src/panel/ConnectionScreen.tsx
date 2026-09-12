@@ -57,7 +57,7 @@ export function ConnectionScreen({
               })
             }
           >
-            {busy === 'login' ? 'Signing in…' : 'Run claude login'}
+            {busy === 'login' ? 'Signing in…' : 'Sign in with Claude'}
           </button>
           <button
             disabled={busy !== null}
@@ -76,7 +76,7 @@ export function ConnectionScreen({
             <pre className="stream">{loginOutput}</pre>
             <p className="hint">
               Signing in is interactive, so it may need a real terminal. If nothing happened above,
-              run <code>claude login</code> in a terminal and then press Recheck.
+              run <code>claude auth login --claudeai</code> in a terminal and then press Recheck.
             </p>
           </>
         )}
