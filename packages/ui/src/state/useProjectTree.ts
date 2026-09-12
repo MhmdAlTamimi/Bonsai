@@ -18,7 +18,11 @@ export interface ProjectSummary {
  * lineage rules the server already owns, and would be wrong the first time
  * they disagreed.
  */
-export function useProjectTree(onError: (message: string) => void): {
+export function useProjectTree(
+  onError: (message: string) => void,
+  /** Preferred on first load, usually from the URL. Ignored if it is unknown. */
+  preferredId?: string | null,
+): {
   projects: ProjectSummary[];
   projectId: string | null;
   tree: TreeResponse | null;
@@ -62,13 +66,18 @@ export function useProjectTree(onError: (message: string) => void): {
       .listProjects()
       .then((ps) => {
         setProjects(ps);
-        const first = ps[0];
-        if (first === undefined) {
+        if (ps.length === 0) {
           setNoProjects(true);
           return;
         }
-        setProjectId(first.id);
-        return load(first.id);
+        // A project id from the URL wins, but only if it still exists. A
+        // stale bookmark opens the newest project rather than an error page:
+        // the id may have been deleted, and there is nothing useful to say
+        // about that which is better than showing them their work.
+        const wanted = ps.find((p) => p.id === preferredId);
+        const chosen = wanted ?? ps[0]!;
+        setProjectId(chosen.id);
+        return load(chosen.id);
       })
       .catch((e: unknown) => onError(String(e)));
     // Once, on mount. `open` is deliberately not a dependency: this decides

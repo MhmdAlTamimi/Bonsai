@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useState } from 'react';
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
 
@@ -7,6 +7,7 @@ import { useSelection } from './state/selection.ts';
 import { useConnection } from './state/useConnection.ts';
 import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
+import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
 import { Canvas } from './canvas/Canvas.tsx';
 import { Panel } from './panel/Panel.tsx';
@@ -31,9 +32,13 @@ export function App(): JSX.Element {
   const report = useCallback((message: string) => setError(message), []);
 
   const { connection, settings, setSettings, reload } = useConnection();
-  const projectTree = useProjectTree(report);
+  // Read before anything can overwrite it: startup writes to the address bar
+  // within a tick, so asking later returns what the app just put there.
+  const arrivedAt = useRef(readAddress()).current;
+  const projectTree = useProjectTree(report, arrivedAt.projectId);
   const { projects, projectId, tree, noProjects } = projectTree;
   const selection = useSelection();
+  useAddressBar({ projectId, nodeId: selection.primary });
   const streams = useRunStream(projectId, projectTree.refresh);
   const child = useChildCreation({
     projectId,
@@ -45,6 +50,21 @@ export function App(): JSX.Element {
   const [showSettings, setShowSettings] = useState(false);
   /** Set when the user asked for the start screen, and which half of it. */
   const [startMode, setStartMode] = useState<'new' | 'existing' | null>(null);
+
+  /**
+   * Restore the node named in the URL, once, when its tree arrives.
+   *
+   * Guarded by a ref rather than by "is nothing selected", which would keep
+   * re-selecting it every time the user clicked the canvas background.
+   * An id that is not in the tree is simply not selected -- a stale link
+   * lands you in the right project with nothing chosen, which is recoverable.
+   */
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current || tree === null || arrivedAt.nodeId === null) return;
+    restored.current = true;
+    if (tree.nodes.some((n) => n.id === arrivedAt.nodeId)) selection.select(arrivedAt.nodeId);
+  }, [tree, arrivedAt.nodeId, selection]);
 
   const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
   const runningCount = tree?.nodes.filter((n) => n.status === 'running').length ?? 0;
