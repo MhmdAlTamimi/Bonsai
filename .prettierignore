@@ -6,3 +6,9 @@ package-lock.json
 # are referenced by section; reflowing their paragraphs and realigning their
 # tables is churn in the files that most need to stay stable.
 *.md
+
+# The stylesheet, for the same reason. It is written one rule per line on
+# purpose and Prettier's first pass took it from 460 lines to 1127 -- exploding
+# every one-liner and splitting font stacks across five lines each. Longer and
+# harder to scan, in exchange for nothing.
+packages/ui/src/styles.css
