@@ -8,7 +8,13 @@ import ReactFlow, {
   useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import type { ConnectionStatus, NodeView, SettingsView, TreeResponse } from '@bonsai/shared';
+import {
+  PANEL_WIDTH,
+  type ConnectionStatus,
+  type NodeView,
+  type SettingsView,
+  type TreeResponse,
+} from '@bonsai/shared';
 
 import { api, subscribe } from './api/client.ts';
 import { useSelection } from './state/selection.ts';
@@ -20,6 +26,7 @@ import { NewChildDialog } from './canvas/NewChildDialog.tsx';
 import { MenuBar } from './canvas/MenuBar.tsx';
 import { SettingsDialog } from './panel/SettingsDialog.tsx';
 import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
+import { PanelResizer } from './PanelResizer.tsx';
 
 const nodeTypes = { bonsai: NodeCard };
 
@@ -440,6 +447,18 @@ export function App(): JSX.Element {
           onCreate={createPendingChild}
         />
       )}
+
+      <PanelResizer
+        width={settings?.panelWidth ?? PANEL_WIDTH.default}
+        min={PANEL_WIDTH.min}
+        max={PANEL_WIDTH.max}
+        onCommit={(panelWidth) => {
+          // Fire and forget: the width is already applied to the CSS variable,
+          // so a failed save costs this session nothing and the next one a
+          // default. Not worth a banner.
+          void api.updateSettings({ panelWidth }).then(setSettings).catch(() => {});
+        }}
+      />
 
       <Panel
         project={tree?.project ?? null}

@@ -62,7 +62,24 @@ export interface SettingsView {
   dataDir: string;
   reposRoot: string;
   platform: string;
+  /**
+   * Width of the side panel, in pixels.
+   *
+   * A view preference rather than app state, but it lives here because the
+   * project's rule is that nothing persists in browser storage — and this is
+   * the one place preferences already are.
+   */
+  panelWidth: number;
 }
+
+/**
+ * How wide the side panel may be dragged, and where it starts.
+ *
+ * Shared because both ends enforce it: the drag handler so the divider stops,
+ * and the server so a bad stored value cannot come back on every launch. Two
+ * copies of these numbers would eventually disagree.
+ */
+export const PANEL_WIDTH = { min: 280, max: 900, default: 360 } as const;
 
 export interface UpdateSettingsRequest {
   authMode?: 'cli' | 'api_key';
@@ -72,6 +89,8 @@ export interface UpdateSettingsRequest {
   permissionMode?: PermissionMode;
   effort?: string | null;
   reposRoot?: string;
+  /** Clamped server-side; see settings.ts for the bounds and why. */
+  panelWidth?: number;
 }
 
 export interface ProjectView {

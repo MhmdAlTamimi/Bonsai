@@ -23,7 +23,26 @@ body {
   font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-.app { display: grid; grid-template-columns: 1fr 360px; height: 100vh; }
+/* The panel width is a CSS variable so dragging the divider costs a style
+   recalculation rather than a React re-render per frame. PanelResizer sets it;
+   the stored value comes from settings on load. */
+:root { --panel-width: 360px; }
+.app { display: grid; grid-template-columns: 1fr 5px var(--panel-width); height: 100vh; }
+
+.panel-resizer {
+  cursor: col-resize; background: var(--line);
+  border: none; padding: 0; position: relative;
+}
+.panel-resizer::after {
+  /* A wider invisible grab area than the visible line, so the divider is not
+     a five-pixel target. */
+  content: ''; position: absolute; inset: 0 -4px;
+}
+.panel-resizer:hover, .panel-resizer:focus-visible { background: var(--accent); outline: none; }
+/* While dragging, the cursor must not flicker as it crosses the canvas, and a
+   drag across the page must not select every label it passes over. */
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .panel-resizer { background: var(--accent); }
 .canvas { position: relative; min-width: 0; }
 .react-flow__attribution { display: none; }
 
@@ -145,6 +164,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .react-flow__handle { background: var(--edge); border: none; width: 6px; height: 6px; }
 
 .app.single { grid-template-columns: 1fr; place-items: center; }
+.app.single .panel-resizer { display: none; }
 .new-project {
   width: min(520px, 90vw); display: flex; flex-direction: column; gap: 12px;
   background: var(--surface); border: 1px solid var(--line);
