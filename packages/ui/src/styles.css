@@ -426,3 +426,13 @@ button.linkish:hover { text-decoration: underline; }
 
 button.linkish.danger { color: var(--err); }
 button.linkish:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: none; }
+
+/* The error boundary. Deliberately styled like the other full-screen states
+   rather than like a browser error page -- it is still Bonsai talking. */
+.crash {
+  width: min(680px, 92vw); margin: 48px auto; display: flex; flex-direction: column; gap: 12px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 24px;
+}
+.crash h1 { margin: 0; font-size: 18px; }
+.crash .stream { max-height: 320px; white-space: pre-wrap; }
