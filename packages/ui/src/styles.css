@@ -23,7 +23,26 @@ body {
   font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-.app { display: grid; grid-template-columns: 1fr 360px; height: 100vh; }
+/* The panel width is a CSS variable so dragging the divider costs a style
+   recalculation rather than a React re-render per frame. PanelResizer sets it;
+   the stored value comes from settings on load. */
+:root { --panel-width: 360px; }
+.app { display: grid; grid-template-columns: 1fr 5px var(--panel-width); height: 100vh; }
+
+.panel-resizer {
+  cursor: col-resize; background: var(--line);
+  border: none; padding: 0; position: relative;
+}
+.panel-resizer::after {
+  /* A wider invisible grab area than the visible line, so the divider is not
+     a five-pixel target. */
+  content: ''; position: absolute; inset: 0 -4px;
+}
+.panel-resizer:hover, .panel-resizer:focus-visible { background: var(--accent); outline: none; }
+/* While dragging, the cursor must not flicker as it crosses the canvas, and a
+   drag across the page must not select every label it passes over. */
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .panel-resizer { background: var(--accent); }
 .canvas { position: relative; min-width: 0; }
 .react-flow__attribution { display: none; }
 
@@ -145,6 +164,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .react-flow__handle { background: var(--edge); border: none; width: 6px; height: 6px; }
 
 .app.single { grid-template-columns: 1fr; place-items: center; }
+.app.single .panel-resizer { display: none; }
 .new-project {
   width: min(520px, 90vw); display: flex; flex-direction: column; gap: 12px;
   background: var(--surface); border: 1px solid var(--line);
@@ -171,7 +191,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .picker-bar input { flex: 1; min-width: 0; font: 11px ui-monospace, SFMono-Regular, monospace; }
 .picker-bar button { flex: none; padding: 6px 9px; }
 .picker-list {
-  height: 150px; overflow-y: auto;
+  /* Six visible rows was a letterbox for a folder with twenty entries. */
+  height: 300px; overflow-y: auto;
   background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
   display: flex; flex-direction: column;
 }
@@ -426,3 +447,27 @@ button.linkish:hover { text-decoration: underline; }
 
 button.linkish.danger { color: var(--err); }
 button.linkish:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: none; }
+
+/* The error boundary. Deliberately styled like the other full-screen states
+   rather than like a browser error page -- it is still Bonsai talking. */
+.crash {
+  width: min(680px, 92vw); margin: 48px auto; display: flex; flex-direction: column; gap: 12px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 24px;
+}
+.crash h1 { margin: 0; font-size: 18px; }
+.crash .stream { max-height: 320px; white-space: pre-wrap; }
+
+/* Stop. Deliberately the only red control that is not a delete: a run in
+   flight is spending money, and the button that ends it should be findable
+   without reading. */
+button.stop {
+  background: none; border: 1px solid var(--err); color: var(--err);
+  border-radius: 5px; padding: 1px 8px; font-size: 11px; line-height: 1.6;
+}
+button.stop:hover { background: var(--err); color: var(--bg); }
+.stop-all {
+  position: absolute; z-index: 9; top: 48px; right: 12px;
+  padding: 5px 12px; font-size: 12px;
+  background: var(--surface);
+}

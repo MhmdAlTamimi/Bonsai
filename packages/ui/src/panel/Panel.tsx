@@ -126,11 +126,17 @@ export function Panel({
     }
   };
 
+  /**
+   * Stop the node, not a run.
+   *
+   * This used to hunt for the running run inside `detail` and return silently
+   * when it had not arrived yet -- so pressing stop early did nothing at all,
+   * with no error, while the agent kept spending. Cancelling by node id needs
+   * nothing fetched, so there is no window in which the button is a no-op.
+   */
   const cancel = async (): Promise<void> => {
-    const run = detail?.runs.find((r) => r.status === 'running');
-    if (run === undefined) return;
     try {
-      await api.cancelRun(run.id);
+      await api.cancelNode(node.id);
       onChanged();
     } catch (e) {
       setError(describe(e));
@@ -156,8 +162,8 @@ export function Panel({
         <h2 title={node.displayName}>{node.displayName}</h2>
         <div className="header-right">
           {node.status === 'running' && (
-            <button className="linkish" onClick={() => void cancel()}>
-              cancel
+            <button className="stop" onClick={() => void cancel()}>
+              ■ Stop
             </button>
           )}
           {node.parentId !== null && (

@@ -62,7 +62,24 @@ export interface SettingsView {
   dataDir: string;
   reposRoot: string;
   platform: string;
+  /**
+   * Width of the side panel, in pixels.
+   *
+   * A view preference rather than app state, but it lives here because the
+   * project's rule is that nothing persists in browser storage — and this is
+   * the one place preferences already are.
+   */
+  panelWidth: number;
 }
+
+/**
+ * How wide the side panel may be dragged, and where it starts.
+ *
+ * Shared because both ends enforce it: the drag handler so the divider stops,
+ * and the server so a bad stored value cannot come back on every launch. Two
+ * copies of these numbers would eventually disagree.
+ */
+export const PANEL_WIDTH = { min: 280, max: 900, default: 360 } as const;
 
 export interface UpdateSettingsRequest {
   authMode?: 'cli' | 'api_key';
@@ -72,6 +89,8 @@ export interface UpdateSettingsRequest {
   permissionMode?: PermissionMode;
   effort?: string | null;
   reposRoot?: string;
+  /** Clamped server-side; see settings.ts for the bounds and why. */
+  panelWidth?: number;
 }
 
 export interface ProjectView {
@@ -234,6 +253,20 @@ export interface AdoptProjectRequest {
   includeUncommitted?: boolean;
 }
 
+/**
+ * A folder that already belongs to a Bonsai project.
+ *
+ * Bonsai knows its own worktrees, so pointing the picker at one should produce
+ * a name and a way to open it rather than a sentence about git internals.
+ */
+export interface KnownFolderView {
+  projectId: string;
+  projectName: string;
+  /** Set when the folder is a specific node's worktree, rather than the project's. */
+  nodeId: string | null;
+  nodeName: string | null;
+}
+
 export interface DirectoryInspectionView {
   path: string;
   exists: boolean;
@@ -244,6 +277,8 @@ export interface DirectoryInspectionView {
   dirtyFiles: number;
   entryCount: number;
   blockedReason: string | null;
+  /** Non-null when this folder is already part of a project Bonsai is running. */
+  knownTo: KnownFolderView | null;
 }
 
 /** What deleting something would destroy, so the UI can say so before it does. */

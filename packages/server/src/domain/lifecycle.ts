@@ -5,9 +5,12 @@ import type { NodeStatus } from '@bonsai/shared';
  * them -- a failed run lands the node in `interrupted` and is distinguished by
  * `run.error`, per D31.
  *
- * `needs_you` is reachable in this table but unreachable in practice until the
- * ask-user mechanism lands (postponed; see docs/v0-open-items.md). The state and
- * its transitions ship now so the schema and the panel do not need rebuilding.
+ * `needs_you` is reachable in this table but unreachable in practice: the state
+ * is specified (PRD 5, D34) but the mechanism that would put a node into it --
+ * the agent asking the user a question mid-run and waiting for a reply -- is
+ * postponed, and POST /api/runs/:id/reply says so. The state and its
+ * transitions ship anyway, so the schema and the panel do not need rebuilding
+ * when it arrives.
  */
 const TRANSITIONS: Record<NodeStatus, readonly NodeStatus[]> = {
   new: ['running', 'interrupted'],

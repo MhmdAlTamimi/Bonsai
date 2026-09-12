@@ -98,7 +98,11 @@ export function DirectoryPicker({
               type="button"
               key={entry.path}
               className="picker-entry"
-              onDoubleClick={() => void load(entry.path)}
+              // One click enters. There was an onDoubleClick doing the same
+              // thing, which made a double click navigate twice: the list
+              // re-rendered after the first, so the second landed on whatever
+              // folder had moved under the cursor. Where you ended up depended
+              // on timing.
               onClick={() => void load(entry.path)}
             >
               <span className="picker-name">{entry.name}</span>

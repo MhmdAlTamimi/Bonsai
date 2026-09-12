@@ -10,7 +10,7 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
-import type { AdoptProjectRequest } from '@bonsai/shared';
+import type { AdoptProjectRequest, DirectoryInspectionView } from '@bonsai/shared';
 
 import { isUsersOwnCheckout, type Store } from '../db/store.js';
 import type { EventBus } from './events.js';
@@ -116,10 +116,53 @@ route('GET', '/api/browse', async (req, res) => {
   sendJson(res, 200, await listDirectory(url.searchParams.get('path') ?? undefined));
 });
 
-/** Looks at a folder without changing it, so the UI can warn before adopting. */
-route('POST', '/api/inspect', async (req, res) => {
+/**
+ * Looks at a folder without changing it, so the UI can warn before adopting.
+ *
+ * The database is asked FIRST, and that order is the whole point. Bonsai
+ * creates worktrees and then cannot recognise them: pointing the picker at one
+ * used to reach git, which answered with a sentence about linked worktrees and
+ * advice ("choose that repository instead") that leads to a bare repo nobody
+ * can adopt. Bonsai already knew the answer -- the path was sitting in its own
+ * node table -- so it says which node it is and lets the interface offer to
+ * open it.
+ *
+ * The lookup lives here rather than in git/adopt.ts because that module shells
+ * out to git and must not grow a database dependency.
+ */
+route('POST', '/api/inspect', async (req, res, _p, { store }) => {
   const body = await readJson<{ path?: string }>(req);
-  sendJson(res, 200, await inspectDirectory(requireString(body.path, 'path')));
+  const path = requireString(body.path, 'path');
+
+  const owner = store.findFolderOwner(path);
+  if (owner !== null) {
+    const { project, node } = owner;
+    const what =
+      node === null
+        ? `part of your project ${project.name}`
+        : `the node ${node.display_name} in your project ${project.name}`;
+    const view: DirectoryInspectionView = {
+      path,
+      exists: true,
+      isDirectory: true,
+      isGitRepo: true,
+      branch: null,
+      headCommit: null,
+      dirtyFiles: 0,
+      entryCount: 0,
+      blockedReason: `This folder is ${what}. It is already in Bonsai.`,
+      knownTo: {
+        projectId: project.id,
+        projectName: project.name,
+        nodeId: node?.id ?? null,
+        nodeName: node?.display_name ?? null,
+      },
+    };
+    sendJson(res, 200, view);
+    return;
+  }
+
+  sendJson(res, 200, { ...(await inspectDirectory(path)), knownTo: null });
 });
 
 route('GET', '/api/settings', (_req, res, _p, { settings }) => {
@@ -340,6 +383,37 @@ route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, con
   }
 });
 
+/**
+ * Stop whatever this node is doing.
+ *
+ * Node-shaped, not run-shaped, and that is the fix rather than a convenience.
+ * The jobs runner has always cancelled by node -- only the route needed a run
+ * id, so the interface had to find the running run first, which it did by
+ * searching the panel's fetched detail. Press stop before that detail arrives
+ * and the handler found nothing and returned silently while the agent carried
+ * on spending money. With no run id required there is nothing to look up and
+ * nothing to fail to find.
+ *
+ * Idempotent: stopping a node that is not running is a 200 with
+ * `cancelled: false`, not an error. "It already stopped" is not a failure.
+ */
+route('POST', '/api/nodes/:id/cancel', (_req, res, params, { store, jobs }) => {
+  const node = store.getNode(params['id']!);
+  if (node === undefined) throw new HttpError(404, 'no such node');
+  sendJson(res, 200, { cancelled: jobs.cancel(node.id) });
+});
+
+/** Stops every run in a project at once, for when several are in flight. */
+route('POST', '/api/projects/:id/cancel', (_req, res, params, { store, jobs }) => {
+  if (store.getProject(params['id']!) === undefined) throw new HttpError(404, 'no such project');
+  let cancelled = 0;
+  for (const node of store.listNodes(params['id']!)) {
+    if (jobs.cancel(node.id)) cancelled += 1;
+  }
+  sendJson(res, 200, { cancelled });
+});
+
+/** Kept: cancelling a specific run is still meaningful, and nothing has to change. */
 route('POST', '/api/runs/:id/cancel', (_req, res, params, { store, jobs }) => {
   const run = store.getRun(params['id']!);
   if (run === undefined) throw new HttpError(404, 'no such run');

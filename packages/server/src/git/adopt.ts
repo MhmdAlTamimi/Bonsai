@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
 
@@ -40,6 +40,13 @@ export interface DirectoryInspection {
   /** Reason this directory cannot be adopted, if any. */
   blockedReason: string | null;
 }
+
+/**
+ * Note what is NOT in the interface above: anything Bonsai knows about its own
+ * projects. This module shells out to git and must not gain a database
+ * dependency, so recognising a folder as one of Bonsai's own is the route's
+ * job -- see api/router.ts, which does that lookup before calling in here.
+ */
 
 /** Looks at a directory without changing anything. */
 export async function inspectDirectory(path: string): Promise<DirectoryInspection> {
@@ -105,7 +112,9 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
       return {
         ...result,
         isGitRepo: true,
-        blockedReason: `That folder is a linked git worktree of the repository at ${common.replace(/\/\.git$/, '')}. Choose that repository instead.`,
+        blockedReason:
+          `This folder is a second checkout of a repository that lives at ${repoRootOf(common)}. ` +
+          `Pick that repository's main folder instead.`,
       };
     }
   } catch {
@@ -130,6 +139,19 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
   } catch (err) {
     return { ...result, blockedReason: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * The working folder a `.git` directory belongs to.
+ *
+ * `--git-common-dir` answers with the `.git` directory itself, and the string
+ * that used to strip it was written with a forward slash -- so on Windows the
+ * user was shown `C:\\work\\repo\\.git` and told to pick it, which is not a
+ * folder they can pick. The path module knows which separator it is on.
+ */
+function repoRootOf(gitDir: string): string {
+  const full = resolve(gitDir);
+  return basename(full) === '.git' ? dirname(full) : full;
 }
 
 export interface AdoptedRepo {

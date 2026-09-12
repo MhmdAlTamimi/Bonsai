@@ -8,7 +8,13 @@ import ReactFlow, {
   useReactFlow,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import type { ConnectionStatus, NodeView, SettingsView, TreeResponse } from '@bonsai/shared';
+import {
+  PANEL_WIDTH,
+  type ConnectionStatus,
+  type NodeView,
+  type SettingsView,
+  type TreeResponse,
+} from '@bonsai/shared';
 
 import { api, subscribe } from './api/client.ts';
 import { useSelection } from './state/selection.ts';
@@ -20,6 +26,7 @@ import { NewChildDialog } from './canvas/NewChildDialog.tsx';
 import { MenuBar } from './canvas/MenuBar.tsx';
 import { SettingsDialog } from './panel/SettingsDialog.tsx';
 import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
+import { PanelResizer } from './PanelResizer.tsx';
 
 const nodeTypes = { bonsai: NodeCard };
 
@@ -124,24 +131,6 @@ export function App(): JSX.Element {
   }, [projectId, refresh]);
 
   /**
-   * Rebuild the laid-out nodes, CARRYING OVER what React Flow measured.
-   *
-   * This is the fix for the canvas going blank after a refresh — reported for
-   * changing the model, for chatting, and earlier for creating a node, because
-   * all three end in a refetch.
-   *
-   * React Flow hides a node whose dimensions it has not measured yet
-   * (`visibility: hidden`). Handing it a brand-new object on every refresh
-   * threw those measurements away, so every node was hidden until it had been
-   * re-measured. Locally that is a few milliseconds and invisible; with more
-   * nodes or a slower machine the canvas simply looks empty, and zooming --
-   * which forces a re-measure -- brings it back. That "zoom in and out to fix
-   * it" is the tell.
-   *
-   * So width/height/positionAbsolute are carried forward per node id, and only
-   * the things that actually changed (data, position) are replaced.
-   */
-  /**
    * React Flow owns the node array; we merge server state into it.
    *
    * This is the fix for the canvas going blank after a refresh — reported for
@@ -181,16 +170,6 @@ export function App(): JSX.Element {
     });
   }, [tree, setFlowNodes]);
 
-  // Refit when the tree gains or loses a node. The layout grows downward, so
-  // without this a newly created node lands off-screen -- and having just
-  // created one, seeing it is what you want. Keyed on the count rather than the
-  // tree so panning and dragging are left alone.
-  //
-  // Gated on nodesInitialized, not a timer: React Flow has to measure the new
-  // card before its bounds are known, and fitting early fits to a partial set.
-  // maxZoom caps the other half of that failure -- fitting one small node would
-  // otherwise zoom to the limit and fill the screen with a single card.
-
   /**
    * Refit when the tree grows. Not cosmetic: the layout extends downward, so
    * without this a newly created node lands outside the viewport and cannot be
@@ -222,6 +201,8 @@ export function App(): JSX.Element {
 
   const selected: NodeView | null =
     tree?.nodes.find((n) => n.id === selection.primary) ?? null;
+
+  const runningCount = tree?.nodes.filter((n) => n.status === 'running').length ?? 0;
 
   const onNodeClick: NodeMouseHandler = (event, node) => {
     // Multi-select is wired now even though V0 reads only the first element.
@@ -366,6 +347,13 @@ export function App(): JSX.Element {
             void api.listProjects().then(setProjects);
             void refresh(id);
           }}
+          onOpenExisting={(id, nodeId) => {
+            setStartMode(null);
+            setNoProjects(false);
+            setProjectId(id);
+            if (nodeId !== null) selection.select(nodeId);
+            void refresh(id);
+          }}
           {...(projects.length > 0
             ? {
                 onCancel: () => {
@@ -402,6 +390,19 @@ export function App(): JSX.Element {
           onDeleteProject={() => void deleteCurrentProject()}
         />
         {error !== null && <div className="banner">{error}</div>}
+
+        {/* Only when there is more than one, because with a single run in
+            flight the card's own Stop is nearer and less ambiguous. */}
+        {runningCount > 1 && (
+          <button
+            className="stop stop-all"
+            onClick={() => {
+              if (projectId !== null) void api.cancelProject(projectId).then(() => refresh(projectId));
+            }}
+          >
+            ■ Stop all {runningCount} runs
+          </button>
+        )}
         <ReactFlow
           nodes={flowNodes}
           edges={edges}
@@ -440,6 +441,18 @@ export function App(): JSX.Element {
           onCreate={createPendingChild}
         />
       )}
+
+      <PanelResizer
+        width={settings?.panelWidth ?? PANEL_WIDTH.default}
+        min={PANEL_WIDTH.min}
+        max={PANEL_WIDTH.max}
+        onCommit={(panelWidth) => {
+          // Fire and forget: the width is already applied to the CSS variable,
+          // so a failed save costs this session nothing and the next one a
+          // default. Not worth a banner.
+          void api.updateSettings({ panelWidth }).then(setSettings).catch(() => {});
+        }}
+      />
 
       <Panel
         project={tree?.project ?? null}

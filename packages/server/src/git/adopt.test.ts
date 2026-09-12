@@ -206,6 +206,72 @@ describe('adopting a directory', () => {
     await assert.rejects(() => adopt(inner), /rooted at/);
   });
 
+  test('recognises its own folders from the database, not from git', async () => {
+    const path = await userRepo();
+    const { projectId, masterNodeId } = await adopt(path);
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'try Redis',
+      description: '',
+    });
+
+    // A node's worktree names the node. This is the case that used to produce
+    // a sentence about linked git worktrees and advice leading to a bare repo.
+    const child = store.getNode(nodeId)!;
+    const found = store.findFolderOwner(child.worktree_path);
+    assert.equal(found?.node?.id, nodeId);
+    assert.equal(found?.project.id, projectId);
+
+    // The adopted folder itself is master's worktree, so it names master.
+    assert.equal(store.findFolderOwner(path)?.node?.id, masterNodeId);
+
+    // Scaffolding around the worktrees belongs to the project but to no node.
+    const scratch = store.projectScratchDir(projectId);
+    assert.equal(store.findFolderOwner(join(scratch, 'worktrees'))?.project.id, projectId);
+    assert.equal(store.findFolderOwner(join(scratch, 'worktrees'))?.node, null);
+
+    // Somewhere unrelated is nobody's.
+    assert.equal(store.findFolderOwner(join(root, 'elsewhere')), null);
+  });
+
+  test("a created project's bare repository is recognised too", async () => {
+    const created = await createProject(store, {
+      name: 'owned',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const project = store.getProject(created.projectId)!;
+    // `git rev-parse --show-toplevel` fails inside a bare repo, so without this
+    // lookup the picker would treat it as a plain folder and offer to git-init
+    // Bonsai's own repository.
+    assert.equal(store.findFolderOwner(project.repo_path)?.project.id, created.projectId);
+  });
+
+  test('a folder next to an adopted project is not claimed by it', async () => {
+    // Containment only covers directories Bonsai created. An adopted project's
+    // folder is the user's, and its neighbours are none of Bonsai's business.
+    const path = await userRepo();
+    await adopt(path);
+    const sibling = join(root, 'unrelated');
+    await mkdir(sibling, { recursive: true });
+    assert.equal(store.findFolderOwner(sibling), null);
+  });
+
+  test('an unrelated linked worktree is refused in plain language', async () => {
+    // Still a real case: a second checkout of a repository that has nothing to
+    // do with Bonsai. The message must name a folder the user can actually
+    // pick, which the old one did not -- it stripped "/.git" with a hard-coded
+    // forward slash and named the git directory.
+    const path = await userRepo();
+    const second = join(root, 'second-checkout');
+    await git(['worktree', 'add', '--detach', second], path);
+
+    const inspection = await inspectDirectory(second);
+    assert.equal(inspection.blockedReason, `This folder is a second checkout of a repository that lives at ${path}. Pick that repository's main folder instead.`);
+  });
+
   test('reports what it found without changing anything', async () => {
     const path = await userRepo();
     await writeFile(join(path, 'dirty.txt'), 'x\n', 'utf8');

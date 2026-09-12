@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PermissionMode, SettingsView, UpdateSettingsRequest } from '@bonsai/shared';
+import { PANEL_WIDTH, type PermissionMode, type SettingsView, type UpdateSettingsRequest } from '@bonsai/shared';
 
 import type { Config } from './config.js';
 
@@ -11,6 +11,7 @@ interface StoredSettings {
   permissionMode: PermissionMode;
   effort: string | null;
   reposRoot: string | null;
+  panelWidth: number;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -20,7 +21,15 @@ const DEFAULTS: StoredSettings = {
   permissionMode: 'acceptEdits',
   effort: null,
   reposRoot: null,
+  panelWidth: PANEL_WIDTH.default,
 };
+
+/*
+ * Clamped on the server as well as in the drag handler, because the stored
+ * value outlives the session that produced it: a bad number written once would
+ * come back on every launch. Bounds live in the contract so the two ends
+ * cannot drift apart.
+ */
 
 /**
  * Bonsai's own settings, kept in a file rather than the database.
@@ -86,6 +95,10 @@ export class Settings {
     return this.current.effort;
   }
 
+  panelWidth(): number {
+    return clampPanel(this.current.panelWidth);
+  }
+
   /** Where new projects are created. Existing ones keep the path they were made with. */
   reposRoot(): string {
     return this.current.reposRoot ?? this.config.reposRoot;
@@ -101,6 +114,7 @@ export class Settings {
       dataDir: this.config.dataDir,
       reposRoot: this.reposRoot(),
       platform: process.platform,
+      panelWidth: this.panelWidth(),
     };
   }
 
@@ -112,6 +126,7 @@ export class Settings {
     if (patch.model !== undefined) this.current.model = patch.model;
     if (patch.permissionMode !== undefined) this.current.permissionMode = patch.permissionMode;
     if (patch.effort !== undefined) this.current.effort = patch.effort;
+    if (patch.panelWidth !== undefined) this.current.panelWidth = clampPanel(patch.panelWidth);
     if (patch.reposRoot !== undefined) {
       // Only affects projects created from now on. Moving an existing root
       // would break every worktree: git stores absolute paths in its worktree
@@ -122,4 +137,9 @@ export class Settings {
     this.write();
     return this.view();
   }
+}
+
+function clampPanel(width: number): number {
+  if (!Number.isFinite(width)) return DEFAULTS.panelWidth;
+  return Math.min(PANEL_WIDTH.max, Math.max(PANEL_WIDTH.min, Math.round(width)));
 }

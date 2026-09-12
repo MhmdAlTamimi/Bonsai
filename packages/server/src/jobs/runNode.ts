@@ -308,6 +308,23 @@ export class RunJobs {
       });
       this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
     } catch (err) {
+      /**
+       * An abort is a cancellation whatever the runner said on its way out.
+       *
+       * The real runner returns silently once its signal fires, so this path
+       * was never exercised by it -- but a runner that reports the abort as an
+       * error (the stand-in did) recorded the run as `failed` with the message
+       * "cancelled mid-run", which is not what happened. Deciding this from
+       * the signal rather than from the message means no runner can mislabel
+       * a stop the user asked for.
+       */
+      if (controller.signal.aborted) {
+        this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
+          cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model, apiKeySource,
+        });
+        return;
+      }
+
       const message = err instanceof Error ? err.message : String(err);
       // D31: a failed run is an `interrupted` node plus an error, not a sixth
       // state. The worktree is left dirty on purpose so M4 can resume it.
