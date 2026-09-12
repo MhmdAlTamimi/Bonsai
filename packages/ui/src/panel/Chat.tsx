@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import type { DiffView, MessageView, NodeView, RunView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 
 /**
  * The conversation with this node, and the box you reply in.
@@ -62,7 +63,7 @@ export function Chat({
       setPrompt('');
       onChanged();
     } catch (e) {
-      onError(e instanceof Error ? e.message : String(e));
+      onError(describeError(e));
     } finally {
       setSending(false);
     }

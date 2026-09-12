@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useState } from 'react';
 import type { DirectoryInspectionView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
 import { DirectoryPicker } from './DirectoryPicker.tsx';
 
@@ -78,7 +79,7 @@ export function NewProject({
         onCreated(projectId);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }

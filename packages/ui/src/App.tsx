@@ -3,6 +3,7 @@ import { ReactFlowProvider } from 'reactflow';
 import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
 
 import { api } from './api/client.ts';
+import { describeError } from './api/describeError.ts';
 import { useSelection } from './state/selection.ts';
 import { useConnection } from './state/useConnection.ts';
 import { useProjectTree } from './state/useProjectTree.ts';
@@ -132,7 +133,7 @@ export function App(): JSX.Element {
           onMoved={(nodeId, position) => {
             void api
               .updateNode(nodeId, { positionX: position.x, positionY: position.y })
-              .catch((e: unknown) => report(String(e)));
+              .catch((e: unknown) => report(describeError(e)));
           }}
           onDropOnPane={child.begin}
         />

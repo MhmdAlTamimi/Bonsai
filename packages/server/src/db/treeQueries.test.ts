@@ -39,10 +39,10 @@ describe('building a tree', () => {
   function countQueries<T>(work: () => T): { result: T; queries: number } {
     const original = db.prepare.bind(db);
     let queries = 0;
-    (db as unknown as { prepare: typeof db.prepare }).prepare = ((sql: string) => {
+    (db as unknown as { prepare: typeof db.prepare }).prepare = (sql: string) => {
       queries += 1;
       return original(sql);
-    });
+    };
     try {
       return { result: work(), queries };
     } finally {

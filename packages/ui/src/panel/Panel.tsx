@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useState } from 'react';
 import type { NodeDetail, NodeView, ProjectView, RecoverAction } from '@bonsai/shared';
-import { ApiCallError, api } from '../api/client.ts';
+import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import { Chat } from './Chat.tsx';
 
@@ -48,7 +49,7 @@ export function Panel({
     void api
       .node(node.id)
       .then((d) => alive && setDetail(d))
-      .catch((e: unknown) => alive && setError(String(e)));
+      .catch((e: unknown) => alive && setError(describeError(e)));
     return () => {
       alive = false;
     };
@@ -80,7 +81,7 @@ export function Panel({
       setChildDesc('');
       onChanged();
     } catch (e) {
-      setError(describe(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
@@ -93,7 +94,7 @@ export function Panel({
       await api.recover(node.id, action);
       onChanged();
     } catch (e) {
-      setError(describe(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
@@ -125,7 +126,7 @@ export function Panel({
       await api.deleteNode(node.id);
       onChanged();
     } catch (e) {
-      setError(describe(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
@@ -144,7 +145,7 @@ export function Panel({
       await api.cancelNode(node.id);
       onChanged();
     } catch (e) {
-      setError(describe(e));
+      setError(describeError(e));
     }
   };
 
@@ -423,11 +424,4 @@ function Cost({
       )}
     </>
   );
-}
-
-function describe(e: unknown): string {
-  if (e instanceof ApiCallError) {
-    return e.milestone === undefined ? e.message : `${e.message} (not built yet)`;
-  }
-  return String(e);
 }

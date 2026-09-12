@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import type { DropTarget } from '../canvas/Canvas.tsx';
 
 /**
@@ -56,7 +57,7 @@ export function useChildCreation(opts: {
         onCreated(node.id);
         refresh();
       } catch (e) {
-        onError(String(e));
+        onError(describeError(e));
         setPending(null);
       }
     },

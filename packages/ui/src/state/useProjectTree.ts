@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TreeResponse } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import { deletionMessage } from './deletionMessage.ts';
 
 /**
@@ -52,7 +53,7 @@ export function useProjectTree(
       try {
         setTree(await api.tree(id));
       } catch (e) {
-        onError(String(e));
+        onError(describeError(e));
       }
     },
     [onError],
@@ -129,7 +130,7 @@ export function useProjectTree(
         setProjectId(chosen.id);
         return load(chosen.id);
       })
-      .catch((e: unknown) => onError(String(e)));
+      .catch((e: unknown) => onError(describeError(e)));
     // Once, on mount. `open` is deliberately not a dependency: this decides
     // which project to start on, and re-running it would yank the user back to
     // the first one every time the callback identity changed.

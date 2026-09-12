@@ -7,6 +7,7 @@ import {
   type SettingsView,
 } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import { useEscape } from '../useEscape.ts';
 
 const MODELS: Array<{ id: string | null; label: string }> = [
@@ -311,7 +312,7 @@ function NewNodeSetup({
       setSaved(true);
       onChanged();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(describeError(e));
     } finally {
       setBusy(false);
     }
