@@ -116,6 +116,25 @@ export default tseslint.config(
   },
 
   {
+    /**
+     * The shared package's tests, which the build deliberately excludes.
+     *
+     * They import with a `.ts` extension so `node --experimental-strip-types`
+     * can run them from source, and tsc refuses that without
+     * allowImportingTsExtensions -- which in turn requires noEmit, which the
+     * package cannot have. So the build config drops them and this one picks
+     * them up; `npm run typecheck` runs it too, so they are still checked.
+     */
+    files: ['packages/shared/src/**/*.test.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: ['packages/shared/tsconfig.test.json'],
+      },
+    },
+  },
+
+  {
     // Plain Node scripts, outside any package's tsconfig. Type-aware rules
     // cannot run without a project, so they are switched off rather than left
     // to fail on every line with a parse error.

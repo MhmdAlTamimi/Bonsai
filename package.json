@@ -16,7 +16,7 @@
     "build:server": "tsc -b packages/shared packages/server && cp packages/server/src/db/schema.sql packages/server/dist/db/schema.sql",
     "build:ui": "npm -w @bonsai/ui run build",
     "start": "npm run build && node --no-warnings packages/server/dist/index.js --open",
-    "typecheck": "tsc -p packages/ui --noEmit",
+    "typecheck": "tsc -p packages/ui --noEmit && tsc -p packages/shared/tsconfig.test.json",
     "test:ui": "node --experimental-strip-types --test \"packages/ui/src/**/*.test.ts\" \"packages/shared/src/**/*.test.ts\"",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
