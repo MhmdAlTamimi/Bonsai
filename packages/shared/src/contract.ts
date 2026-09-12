@@ -453,6 +453,18 @@ export interface StartRunRequest {
   prompt: string;
 }
 
+/**
+ * D34: the answer to a question an agent stopped on mid-run.
+ *
+ * `message` reaches the agent only on a refusal — the SDK delivers a denial's
+ * message as the tool's result, and an approval has no such channel. So a "no"
+ * can say what to do instead; a "yes" is just a yes.
+ */
+export interface AnswerQuestionRequest {
+  allow: boolean;
+  message?: string;
+}
+
 export type RecoverAction = 'resume' | 'discard' | 'keep';
 
 export interface RecoverRequest {

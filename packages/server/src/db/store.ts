@@ -637,6 +637,46 @@ export class Store {
     }
   }
 
+  /**
+   * D34: the agent has stopped and wants an answer.
+   *
+   * Written before the node's status changes, so there is never a moment where
+   * a card says `needs_you` and the panel has no question to show.
+   */
+  askQuestion(input: { id: string; runId: string; nodeId: string; text: string }): void {
+    this.db
+      .prepare(`INSERT INTO question (id, run_id, node_id, text, asked_at) VALUES (?, ?, ?, ?, ?)`)
+      .run(input.id, input.runId, input.nodeId, input.text, now());
+  }
+
+  /**
+   * Records the answer and reports whether this call is the one that landed it.
+   *
+   * False means it was already answered. The interface can be open in two
+   * windows, and the second click must not resume a run twice -- so the check
+   * and the write are one statement rather than a read followed by a write.
+   */
+  answerQuestion(questionId: string, answer: string): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE question SET answer = ?, answered_at = ? WHERE id = ? AND answered_at IS NULL`,
+      )
+      .run(answer, now(), questionId);
+    return result.changes > 0;
+  }
+
+  getQuestion(
+    questionId: string,
+  ):
+    | { id: string; node_id: string; run_id: string; text: string; answered_at: string | null }
+    | undefined {
+    return this.db
+      .prepare(`SELECT id, node_id, run_id, text, answered_at FROM question WHERE id = ?`)
+      .get(questionId) as unknown as
+      | { id: string; node_id: string; run_id: string; text: string; answered_at: string | null }
+      | undefined;
+  }
+
   pendingQuestion(nodeId: string): { id: string; text: string } | null {
     const row = this.db
       .prepare(

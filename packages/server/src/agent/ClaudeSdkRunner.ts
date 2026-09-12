@@ -1,5 +1,6 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
+  CanUseTool,
   EffortLevel,
   ModelUsage,
   Options,
@@ -47,14 +48,10 @@ export class ClaudeSdkRunner implements AgentRunner {
        *
        * Nothing is loosened by this: the git hook below still blocks mutating
        * git, and read-only nodes are still restricted by name.
+       *
+       * That callback is also where a run stops to ask (D34). See `gate`.
        */
-      ...(spec.readOnly
-        ? { allowedTools: [...READ_ONLY_TOOLS] }
-        : {
-            // Promise.resolve rather than `async`: the SDK's signature wants a
-            // promise, and there is nothing here to await.
-            canUseTool: () => Promise.resolve({ behavior: 'allow' as const, updatedInput: {} }),
-          }),
+      ...(spec.readOnly ? { allowedTools: [...READ_ONLY_TOOLS] } : { canUseTool: gate(spec) }),
 
       // D19/D30: the app owns git. Read-only git stays available for recovery.
       ...(spec.readOnly ? {} : { hooks: { PreToolUse: [gitGuardHook()] } }),
@@ -171,6 +168,44 @@ export class ClaudeSdkRunner implements AgentRunner {
       spec.signal.removeEventListener('abort', abort);
     }
   }
+}
+
+/**
+ * The approval callback: either a rubber stamp or the ask-user gate.
+ *
+ * `spec.ask` is non-null only when the run's permission mode is `default`,
+ * which is the mode that means "ask me". Under `acceptEdits` this stays the
+ * rubber stamp it has always been.
+ *
+ * Reading is never asked about. With `settingSources: []` there are no
+ * permission rules to pre-approve anything, so in `default` mode the harness
+ * escalates every tool -- including Read, Glob and Grep. Asking permission to
+ * read a file inside the node's own worktree is forty questions before the
+ * first interesting one, and it is already the tool set a frozen node gets
+ * unsupervised (D18). Approving those here keeps the questions to the actions
+ * that actually change something.
+ *
+ * No `updatedInput` on the allow path. It is optional, and it REPLACES the
+ * tool's input when present -- the previous `updatedInput: {}` was a loaded
+ * gun that happened not to have gone off.
+ */
+function gate(spec: RunSpec): CanUseTool {
+  const allow = { behavior: 'allow' as const };
+  return (toolName, input, options) => {
+    if (spec.ask === null || (READ_ONLY_TOOLS as readonly string[]).includes(toolName)) {
+      return Promise.resolve(allow);
+    }
+    // A parked question outlives nothing: cancelling the node aborts the run,
+    // and the pipeline resolves the promise so this returns rather than hangs.
+    if (options.signal.aborted) {
+      return Promise.resolve({ behavior: 'deny' as const, message: 'the run was stopped' });
+    }
+    return spec
+      .ask({ toolName, detail: describeToolInput(input) })
+      .then((decision) =>
+        decision.allow ? allow : { behavior: 'deny' as const, message: decision.reason },
+      );
+  };
 }
 
 /**

@@ -99,7 +99,9 @@ function NodePanel({
       <header>
         <h2 title={node.displayName}>{node.displayName}</h2>
         <div className="header-right">
-          {node.status === 'running' && (
+          {/* A node parked on a question is still holding an agent and a
+              concurrency slot, so it needs the same way out as a running one. */}
+          {(node.status === 'running' || node.status === 'needs_you') && (
             <button className="stop" onClick={() => void actions.cancel()}>
               ■ Stop
             </button>

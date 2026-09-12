@@ -2,6 +2,7 @@ import { type JSX, useEffect, useRef, useState } from 'react';
 import type { DiffView, MessageView, NodeView, RunView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import { AskBox } from './node/AskBox.tsx';
 
 /**
  * The conversation with this node, and the box you reply in.
@@ -52,10 +53,17 @@ export function Chat({
   }, [messages.length, live.length, node.status]);
 
   const running = node.status === 'running';
+  /**
+   * A parked node is not `running`, but it is just as busy: its agent is alive
+   * and holding a question. Sending it a new message would be rejected by the
+   * server ("this node is already running"), so the composer says so instead.
+   */
+  const asking = node.status === 'needs_you';
+  const busy = running || asking;
 
   const send = async (): Promise<void> => {
     const text = prompt.trim();
-    if (text === '' || running) return;
+    if (text === '' || busy) return;
     setSending(true);
     onError(null);
     try {
@@ -107,6 +115,8 @@ export function Chat({
         {running && <div className="msg working">working…</div>}
       </div>
 
+      <AskBox node={node} onAnswered={onChanged} onError={onError} />
+
       <div className="composer">
         <textarea
           value={prompt}
@@ -119,16 +129,18 @@ export function Chat({
             }
           }}
           placeholder={
-            running
-              ? 'The agent is working…'
-              : node.writable
-                ? 'Reply, ask a question, or describe a change…'
-                : node.frozenReason === 'your_folder'
-                  ? 'Your own folder — ask about it; drag out a child to change anything.'
-                  : 'This node is frozen — you can still ask questions.'
+            asking
+              ? 'Answer the question above to let it carry on.'
+              : running
+                ? 'The agent is working…'
+                : node.writable
+                  ? 'Reply, ask a question, or describe a change…'
+                  : node.frozenReason === 'your_folder'
+                    ? 'Your own folder — ask about it; drag out a child to change anything.'
+                    : 'This node is frozen — you can still ask questions.'
           }
           rows={3}
-          disabled={running}
+          disabled={busy}
           aria-label="message"
         />
         <div className="composer-row">
@@ -142,7 +154,7 @@ export function Chat({
           <button
             className="primary"
             onClick={() => void send()}
-            disabled={running || sending || prompt.trim() === ''}
+            disabled={busy || sending || prompt.trim() === ''}
           >
             Send
           </button>

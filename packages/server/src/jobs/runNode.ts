@@ -27,7 +27,7 @@ export interface SettingsSource {
 }
 import type { EventBus } from '../api/events.js';
 import { silentLogger, type Logger } from '../log.js';
-import type { AgentRunner } from '../agent/AgentRunner.js';
+import type { AgentRunner, PermissionDecision, PermissionRequest } from '../agent/AgentRunner.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { branchNameFor } from '../git/repo.js';
 import { readWorktreeState, resumePrompt } from '../git/recovery.js';
@@ -42,6 +42,23 @@ import { status } from '../git/exec.js';
  * nothing here. What happens around the run -- freeze check, streaming,
  * commit-or-not, lineage bookkeeping -- is already final.
  */
+/** What a parked run is told when the node is stopped rather than answered. */
+const STOPPED: PermissionDecision = { allow: false, reason: 'the run was stopped' };
+
+/**
+ * The question, as the panel and the card will show it.
+ *
+ * A statement rather than a question mark: the card already carries a `?`
+ * glyph and the words "needs you", so "May the agent...?" would be the third
+ * time the same screen asked.
+ */
+function questionText(request: PermissionRequest): string {
+  const detail = request.detail.trim();
+  return detail === ''
+    ? `The agent wants to use ${request.toolName}.`
+    : `The agent wants to use ${request.toolName}: ${detail}`;
+}
+
 /** A run that has been asked for and is waiting for a slot. */
 interface Queued {
   runId: string;
@@ -50,6 +67,12 @@ interface Queued {
   prompt: string;
   readOnly: boolean;
   controller: AbortController;
+}
+
+/** A run held on a question, and the one function that lets it go. */
+interface Waiter {
+  questionId: string;
+  settle: (decision: PermissionDecision, resume: boolean) => void;
 }
 
 export class RunJobs {
@@ -65,6 +88,18 @@ export class RunJobs {
    * to everything except the card's queue badge.
    */
   private readonly queue: Queued[] = [];
+
+  /**
+   * Runs parked on a question, by node id. One at a time per node: a node has
+   * at most one run, and a run stops dead until its question is answered.
+   *
+   * A parked run still holds its concurrency slot, because it still holds an
+   * agent process and a live session -- there is nothing to release. That is
+   * visible (the card says `needs you`) and escapable (stopping the node
+   * resolves the question as a refusal and frees the slot), which is the
+   * honest version of a problem the alternatives only hide.
+   */
+  private readonly waiting = new Map<string, Waiter>();
 
   constructor(
     private readonly store: Store,
@@ -126,6 +161,28 @@ export class RunJobs {
       projectId: dropped.projectId,
     });
     return true;
+  }
+
+  /**
+   * D34: the user's answer to a question the agent stopped on.
+   *
+   * Returns false when there is nothing waiting on this question -- it was
+   * already answered, or the app restarted and the run it belonged to died
+   * with the process. Neither is an error worth a red banner; the tree will
+   * already be showing the node as interrupted.
+   */
+  answer(questionId: string, decision: PermissionDecision): boolean {
+    const question = this.store.getQuestion(questionId);
+    if (question === undefined) return false;
+    const waiter = this.waiting.get(question.node_id);
+    if (waiter?.questionId !== questionId) return false;
+    waiter.settle(decision, true);
+    return true;
+  }
+
+  /** The question a node is parked on, if it is. */
+  pendingAsk(nodeId: string): string | null {
+    return this.waiting.get(nodeId)?.questionId ?? null;
   }
 
   cancelAll(): void {
@@ -449,6 +506,9 @@ export class RunJobs {
 
     try {
       const inheritance = this.resolveInheritance(node);
+      // Node override, then the project's default, then the app's.
+      const permissionMode =
+        node.permission_mode ?? project.default_permission_mode ?? 'acceptEdits';
 
       for await (const event of this.runner.run({
         runId,
@@ -463,8 +523,22 @@ export class RunJobs {
         // Node override, then the project's default, then the app setting.
         model: node.model ?? project.default_model ?? this.settings?.model() ?? null,
         effort: project.default_effort ?? this.settings?.effort() ?? null,
-        permissionMode: node.permission_mode ?? project.default_permission_mode ?? 'acceptEdits',
+        permissionMode,
         agentEnv: this.settings?.agentEnv() ?? null,
+        /**
+         * D34, and the only thing that makes `needs_you` reachable.
+         *
+         * Offered only under `default`, the mode that means "ask me". Under
+         * `acceptEdits` the user has said they do not want to be asked, and a
+         * read-only run has nothing to ask about -- its tools cannot change
+         * anything, so every question would be one it already knows the answer
+         * to.
+         */
+        ask:
+          permissionMode === 'default' && !readOnly
+            ? (request): Promise<PermissionDecision> =>
+                this.askUser(node, runId, request, controller)
+            : null,
         signal: controller.signal,
       })) {
         switch (event.type) {
@@ -689,6 +763,85 @@ export class RunJobs {
       });
       this.bus.publish(node.project_id, { type: 'run.error', nodeId, runId, error: message });
     }
+  }
+
+  /**
+   * Stops the run and asks (D34). Resolves when the user answers, or when the
+   * node is stopped.
+   *
+   * The order matters: the question row is written BEFORE the status changes,
+   * so there is no instant where a card reads `needs you` and the panel has
+   * nothing to show. It is also appended to the transcript, because "why did
+   * this run stall for ten minutes" should be answerable a week later from the
+   * conversation alone.
+   */
+  private askUser(
+    node: NodeRow,
+    runId: string,
+    request: PermissionRequest,
+    controller: AbortController,
+  ): Promise<PermissionDecision> {
+    if (controller.signal.aborted) return Promise.resolve(STOPPED);
+
+    const questionId = randomUUID();
+    const text = questionText(request);
+    this.store.askQuestion({ id: questionId, runId, nodeId: node.id, text });
+    this.store.appendMessage({
+      nodeId: node.id,
+      runId,
+      role: 'system',
+      kind: 'text',
+      content: text,
+    });
+    this.log.info('run.asked', {
+      runId,
+      nodeId: node.id,
+      projectId: node.project_id,
+      tool: request.toolName,
+    });
+    this.setStatus(node.id, 'needs_you');
+    this.bus.publish(node.project_id, {
+      type: 'run.question',
+      nodeId: node.id,
+      runId,
+      questionId,
+      text,
+    });
+    this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+
+    return new Promise<PermissionDecision>((resolve) => {
+      let settled = false;
+      const settle = (decision: PermissionDecision, resume: boolean): void => {
+        // Two ways in -- an answer and an abort -- and they can race.
+        if (settled) return;
+        settled = true;
+        this.waiting.delete(node.id);
+        controller.signal.removeEventListener('abort', onAbort);
+
+        const said = decision.allow ? 'Allowed.' : `Refused: ${decision.reason}`;
+        this.store.answerQuestion(questionId, said);
+        this.store.appendMessage({
+          nodeId: node.id,
+          runId,
+          role: 'user',
+          kind: 'text',
+          content: said,
+        });
+        if (resume) {
+          // Back to running BEFORE the promise resolves, so the card never
+          // shows `needs you` for a run that is already going again.
+          this.setStatus(node.id, 'running');
+          this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+        }
+        resolve(decision);
+      };
+
+      // Stopping a parked node has to let the agent go, or the run hangs on a
+      // promise nobody will ever resolve and the slot never comes back.
+      const onAbort = (): void => settle(STOPPED, false);
+      controller.signal.addEventListener('abort', onAbort, { once: true });
+      this.waiting.set(node.id, { questionId, settle });
+    });
   }
 
   private finishRun(

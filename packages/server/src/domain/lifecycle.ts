@@ -5,12 +5,12 @@ import type { NodeStatus } from '@bonsai/shared';
  * them -- a failed run lands the node in `interrupted` and is distinguished by
  * `run.error`, per D31.
  *
- * `needs_you` is reachable in this table but unreachable in practice: the state
- * is specified (PRD 5, D34) but the mechanism that would put a node into it --
- * the agent asking the user a question mid-run and waiting for a reply -- is
- * postponed, and POST /api/runs/:id/reply says so. The state and its
- * transitions ship anyway, so the schema and the panel do not need rebuilding
- * when it arrives.
+ * `needs_you` is what a run parked on a question looks like (PRD 5, D34). The
+ * mechanism is the permission callback: under the `default` permission mode a
+ * tool call is held until the user answers, and the node sits in `needs_you`
+ * until they do. Both edges are used -- `running -> needs_you` when it asks,
+ * and either `needs_you -> running` on an answer or `-> interrupted` if the
+ * node is stopped while parked.
  */
 const TRANSITIONS: Record<NodeStatus, readonly NodeStatus[]> = {
   new: ['running', 'interrupted'],

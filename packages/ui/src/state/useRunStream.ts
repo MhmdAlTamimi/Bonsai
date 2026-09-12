@@ -47,8 +47,13 @@ export function useRunStream(
           }));
           notify.current();
           break;
+        // run.question is here rather than in a case of its own because the
+        // tree already carries the question (NodeView.pendingQuestion) -- this
+        // only has to say "look again". It has to say it promptly, though: the
+        // agent is stopped until someone answers.
         case 'tree.updated':
         case 'node.status':
+        case 'run.question':
         case 'run.finished':
           notify.current();
           break;

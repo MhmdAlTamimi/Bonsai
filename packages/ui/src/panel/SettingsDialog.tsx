@@ -18,8 +18,14 @@ const MODELS: Array<{ id: string | null; label: string }> = [
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5 — cheapest' },
 ];
 
+/**
+ * `default` is here now that it does something. It used to be omitted because
+ * a run had no way to ask anything: choosing it would have stopped the agent
+ * on a question nobody could ever answer.
+ */
 const PERMISSION_MODES = [
   { id: 'acceptEdits', label: 'Accept edits (recommended)' },
+  { id: 'default', label: 'Ask before each change' },
   { id: 'bypassPermissions', label: 'Bypass all permission checks' },
   { id: 'plan', label: 'Plan only — never edits' },
 ] as const;

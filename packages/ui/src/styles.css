@@ -1031,6 +1031,28 @@ body.resizing .panel-resizer {
   flex: 1;
 }
 
+/* The agent has stopped and wants an answer. Carries the needs_you colour, so
+   the box and the card's chip read as the same event. */
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  background: color-mix(in srgb, var(--st-needs) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--st-needs) 32%, transparent);
+  border-radius: var(--r-md);
+  padding: var(--s3);
+}
+.ask-question {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+}
+
 .recover {
   display: flex;
   flex-direction: column;

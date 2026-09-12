@@ -1,5 +1,6 @@
 import type {
   AdoptProjectRequest,
+  AnswerQuestionRequest,
   ConnectionStatus,
   CreateProjectRequest,
   DeletionImpactView,
@@ -130,6 +131,17 @@ export const api = {
     json<ProjectView>(`/api/projects/${projectId}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    }),
+
+  /**
+   * D34: answer a question the agent stopped on. A refusal's message is the
+   * only thing that reaches the agent, so it is where you say what to do
+   * instead.
+   */
+  answerQuestion: (questionId: string, allow: boolean, message?: string) =>
+    json<{ ok: true }>(`/api/questions/${questionId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ allow, message } satisfies AnswerQuestionRequest),
     }),
 
   cancelRun: (runId: string) =>
