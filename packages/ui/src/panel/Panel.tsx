@@ -149,6 +149,7 @@ export function Panel({
   };
 
   const runs = detail?.runs ?? [];
+  const latest = runs.at(-1);
 
   /**
    * Master of an adopted project: its worktree is the user's own folder, on the
@@ -307,6 +308,29 @@ export function Panel({
             <dt>runs</dt>
             <dd>{runs.length}</dd>
           </div>
+          {/* What 1.4 started capturing, made visible: the agent's behaviour
+              becomes legible rather than magic. Read occasionally, so it lives
+              in here next to cost and tokens rather than on the surface. */}
+          {latest !== undefined && (
+            <>
+              <div>
+                <dt>last run</dt>
+                <dd>
+                  {latest.durationMs === null ? '—' : `${(latest.durationMs / 1000).toFixed(1)}s`}
+                  {latest.toolCalls > 0 &&
+                    `, ${latest.toolCalls} tool call${latest.toolCalls === 1 ? '' : 's'}`}
+                </dd>
+              </div>
+              <div>
+                <dt>tools</dt>
+                <dd title={latest.toolsOffered?.join(', ') ?? undefined}>
+                  {latest.toolsOffered === null
+                    ? 'not recorded'
+                    : `${latest.toolsOffered.length} offered — ${latest.toolsOffered.slice(0, 6).join(', ')}${latest.toolsOffered.length > 6 ? '…' : ''}`}
+                </dd>
+              </div>
+            </>
+          )}
           <Cost node={node} runs={runs} />
         </dl>
         {detail?.contextMd != null && (

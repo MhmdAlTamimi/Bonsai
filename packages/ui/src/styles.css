@@ -491,3 +491,4 @@ button.stop:hover { background: var(--err); color: var(--bg); }
   background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
   padding: 4px 7px; font: 11px ui-monospace, SFMono-Regular, monospace;
 }
+.run-internals { color: var(--muted); font-size: 10px; margin-left: 8px; cursor: help; }
