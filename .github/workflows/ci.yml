@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# A second push to the same branch makes the first run's answer worthless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite is a built-in and needs 22.5 or newer. Pinned to 22.x
+          # rather than `lts/*` so a new LTS cannot quietly change what the
+          # suite runs against.
+          node-version: '22.x'
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs exactly the lockfile,
+      # so a run that passes here is a run against the same tree everyone else
+      # has. No credentials are needed anywhere below -- the suite never
+      # touches the network and never starts a real agent.
+      - run: npm ci
+
+      # Everything, in the same command a contributor runs: build, typecheck,
+      # lint, format check, then the tests.
+      - run: npm test
+
+      # Building the interface is not covered by the above -- vite transpiles
+      # without typechecking, and typechecking does not bundle. A build that
+      # fails only in CI is exactly what this job is for.
+      - run: npm run build:ui
