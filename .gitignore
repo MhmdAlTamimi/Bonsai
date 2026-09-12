@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .bonsai-data/
+
+# Screenshots the browser test leaves behind when it fails. CI uploads them;
+# they are never worth committing.
+test-results/

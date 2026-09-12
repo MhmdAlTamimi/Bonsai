@@ -39,3 +39,21 @@ jobs:
       # without typechecking, and typechecking does not bundle. A build that
       # fails only in CI is exactly what this job is for.
       - run: npm run build:ui
+
+      # The browser test. Separate from `npm test` because it needs a built
+      # interface and a browser and takes forty seconds, while the inner loop
+      # is worth keeping at four.
+      #
+      # No browser is installed here: ubuntu-latest ships Chrome, and the
+      # harness looks for it among a list of known locations. If it is ever
+      # missing the test fails naming every path it tried, which is what
+      # should happen -- a browser test that silently skips is a browser test
+      # that does not exist.
+      - run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-screenshots
+          path: test-results/
+          if-no-files-found: ignore

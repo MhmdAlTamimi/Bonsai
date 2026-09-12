@@ -128,6 +128,7 @@ export default tseslint.config(
         fetch: 'readonly',
         WebSocket: 'readonly',
         URL: 'readonly',
+        Buffer: 'readonly',
       },
     },
     rules: tseslint.configs.disableTypeChecked.rules,
