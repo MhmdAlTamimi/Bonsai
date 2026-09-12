@@ -213,6 +213,8 @@ export async function createChildNode(
     description: string;
     model?: string | null;
     permissionMode?: PermissionMode | null;
+    successCriteria?: string | null;
+    verificationHint?: string | null;
   },
 ): Promise<{ nodeId: string; baseCommit: string }> {
   const project = store.getProject(input.projectId);

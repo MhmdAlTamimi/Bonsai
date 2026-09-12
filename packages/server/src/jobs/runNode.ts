@@ -335,6 +335,8 @@ export class RunJobs {
         resumeSessionId: inheritance.sessionId,
         forkSession: inheritance.fork,
         readOnly,
+        successCriteria: node.success_criteria,
+        verificationHint: node.verification_hint,
         // Node override, then the project's default, then the app setting.
         model: node.model ?? project.default_model ?? this.settings?.model() ?? null,
         effort: project.default_effort ?? this.settings?.effort() ?? null,

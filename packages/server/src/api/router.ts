@@ -34,7 +34,7 @@ import { listDirectory } from './browse.js';
 import { discardWorktreeChanges } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
-import { readContextFile } from '../git/context.js';
+import { readContextFile, testingSection } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
 import { FileLogger, type Logger } from '../log.js';
 
@@ -368,6 +368,10 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
     description: typeof body.description === 'string' ? body.description : '',
     model: body.model ?? null,
     permissionMode: body.permissionMode ?? null,
+    // Optional, and deliberately not validated into existence: an empty answer
+    // means the node behaves exactly as nodes did before these were asked.
+    successCriteria: typeof body.successCriteria === 'string' ? body.successCriteria : null,
+    verificationHint: typeof body.verificationHint === 'string' ? body.verificationHint : null,
   });
 
   bus.publish(projectId, { type: 'tree.updated', projectId });
@@ -383,10 +387,14 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const view = withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
+  const contextMd = await readContextFile(row.worktree_path);
   const body: NodeDetail = {
     node: view,
     runs: store.listRuns(row.id),
-    contextMd: await readContextFile(row.worktree_path),
+    successCriteria: row.success_criteria,
+    verificationHint: row.verification_hint,
+    testingNotes: testingSection(contextMd),
+    contextMd,
     baseIsPinnedBehindLiveWalk: store.baseDiverges(row),
   };
   sendJson(res, 200, body);

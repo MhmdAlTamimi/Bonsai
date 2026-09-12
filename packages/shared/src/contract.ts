@@ -286,6 +286,18 @@ export interface MessageView {
 export interface NodeDetail {
   node: NodeView;
   runs: RunView[];
+  /** What the user said success looks like, as they wrote it. */
+  successCriteria: string | null;
+  verificationHint: string | null;
+  /**
+   * The `## Testing` section the agent wrote into CONTEXT.md, on its own.
+   *
+   * Split out because it is the answer to the question this whole feature
+   * exists for, and burying it in the middle of a file behind a disclosure
+   * would waste it. Null when the agent wrote no such section -- which is
+   * normal for a conversation-only node, since it changed nothing to test.
+   */
+  testingNotes: string | null;
   /** D22: a human-readable record shown in the panel. Null until a run commits one. */
   contextMd: string | null;
   /**
@@ -379,6 +391,15 @@ export interface CreateNodeRequest {
   description: string;
   model?: string | null;
   permissionMode?: PermissionMode;
+  /**
+   * "What should be true when this works?" and "How should the agent check it?"
+   *
+   * Both optional, and nothing is gated on them: empty means exactly the
+   * behaviour that existed before they did. Asked here rather than afterwards
+   * because node creation is the one moment the answer is actually known.
+   */
+  successCriteria?: string;
+  verificationHint?: string;
 }
 
 export interface UpdateNodeRequest {

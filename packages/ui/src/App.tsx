@@ -302,13 +302,20 @@ export function App(): JSX.Element {
     }
   };
 
-  const createPendingChild = async (name: string, description: string): Promise<void> => {
+  const createPendingChild = async (
+    name: string,
+    description: string,
+    successCriteria: string,
+    verificationHint: string,
+  ): Promise<void> => {
     if (pendingChild === null || projectId === null) return;
     try {
       const { node } = await api.createNode(projectId, {
         parentId: pendingChild.parentId,
         displayName: name,
         description,
+        successCriteria,
+        verificationHint,
       });
       // Pin it where it was dropped, so the gesture places the node.
       await api.updateNode(node.id, {

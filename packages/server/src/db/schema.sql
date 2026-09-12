@@ -67,6 +67,15 @@ CREATE TABLE IF NOT EXISTS node (
   model           TEXT,
   permission_mode TEXT,
   -- Nullable, auto-layout by default (PRD §9).
+  -- What the user said success looks like, captured when they created the node
+  -- -- the one moment they actually know. Both optional; empty means the node
+  -- behaves exactly as nodes did before these existed.
+  --
+  -- Sent to the agent on every run of this node, which is why they live on the
+  -- node rather than on a run: the answer to "did this work" should not change
+  -- depending on which message you happened to send.
+  success_criteria TEXT,
+  verification_hint TEXT,
   position_x    REAL,
   position_y    REAL,
   created_at    TEXT NOT NULL,

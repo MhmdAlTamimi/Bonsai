@@ -223,6 +223,38 @@ export function Panel({
         </p>
       )}
 
+      {/*
+       * Above the conversation, because it is the answer to the question the
+       * whole node exists to settle -- "did this approach work?" -- and the
+       * point of the product is the moment you compare two of them.
+       *
+       * Deliberately the agent's own words, with no verdict extracted from
+       * them. Whether "3 of 14 tests fail" counts as working is a judgement
+       * about your project, and a green tick derived from prose would be a
+       * confident guess dressed as a fact. Anything unclear is a chat away.
+       */}
+      {(detail?.successCriteria != null || detail?.testingNotes != null) && (
+        <section className="checks">
+          <h3>Did it work?</h3>
+          {detail.successCriteria != null && (
+            <p className="hint">
+              Success looks like: <em>{detail.successCriteria}</em>
+            </p>
+          )}
+          {detail.testingNotes != null ? (
+            <pre className="stream">{detail.testingNotes}</pre>
+          ) : (
+            <p className="hint">
+              {node.status === 'running'
+                ? 'The run is still going.'
+                : node.hasCommits
+                  ? 'The agent left no testing notes for this run. Ask it what it checked.'
+                  : 'Nothing has been committed here yet, so there is nothing to check.'}
+            </p>
+          )}
+        </section>
+      )}
+
       <Chat node={node} runs={runs} live={stream} onChanged={onChanged} onError={setError} />
 
       {error !== null && <p className="error">{error}</p>}

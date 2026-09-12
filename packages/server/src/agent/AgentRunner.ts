@@ -28,6 +28,15 @@ export interface RunSpec {
   forkSession: boolean;
   /** D18: read-only tools. True for frozen nodes, which stay conversational. */
   readOnly: boolean;
+  /**
+   * What the user said success looks like for this node, and how they suggested
+   * checking it. Both null unless they answered at creation.
+   *
+   * Passed on EVERY run of the node, not just the first: whether the work is
+   * done should not depend on which message happened to trigger the run.
+   */
+  successCriteria: string | null;
+  verificationHint: string | null;
   model: string | null;
   /** D32: 'low' | 'medium' | 'high' | 'xhigh' | 'max', or null for the SDK default. */
   effort: string | null;

@@ -117,7 +117,7 @@ export class ClaudeSdkRunner implements AgentRunner {
     let sessionAnnounced = false;
 
     try {
-      for await (const message of query({ prompt: spec.prompt, options })) {
+      for await (const message of query({ prompt: promptWithCriteria(spec), options })) {
         // session_id rides every message. A forked run gets a NEW one, which is
         // the id this node must store -- storing the parent's would make later
         // chats on this node write into the parent's conversation.
@@ -178,6 +178,33 @@ export class ClaudeSdkRunner implements AgentRunner {
  * what makes the file and search tools behave well, and D15 chose this SDK
  * precisely for that.
  */
+/**
+ * The prompt, with the node's success criteria attached.
+ *
+ * Appended to the message rather than to the system prompt, deliberately. The
+ * system prompt is kept identical across every node so it stays cacheable
+ * across sessions (see excludeDynamicSections above); putting per-node text in
+ * it would make every node pay full price for its own copy.
+ *
+ * Repeated on every run of the node, not only the first. A later message
+ * ("actually, use a set here") should not quietly drop the definition of done.
+ */
+function promptWithCriteria(spec: RunSpec): string {
+  if (spec.successCriteria === null && spec.verificationHint === null) return spec.prompt;
+
+  const parts = [spec.prompt, '', '---', '', 'Definition of done for this node:'];
+  if (spec.successCriteria !== null) parts.push('', `What should be true: ${spec.successCriteria}`);
+  if (spec.verificationHint !== null) parts.push('', `How to check it: ${spec.verificationHint}`);
+  parts.push(
+    '',
+    'Before you finish, actually run the check and put the result in a `## Testing`',
+    'section of CONTEXT.md. Name the command you ran and quote what it printed --',
+    '"Ran pytest tests/ -- 12 passed, 0 failed" is useful; "verified, works" is not.',
+    'If you could not run it, say exactly what stopped you.',
+  );
+  return parts.join('\n');
+}
+
 const SYSTEM_APPEND = `
 You are working inside one node of Bonsai, a tree of coding experiments. This
 directory is your own git worktree and nothing you do here affects any other node.
@@ -190,6 +217,12 @@ When you have changed files, write a short CONTEXT.md in the working directory
 as your final action: what you were asked for, what you did, and anything a
 later node continuing from here should know. If you only answered a question and
 changed no files, do not create CONTEXT.md.
+
+If the message gives you a definition of done, run the check yourself and add a
+\`## Testing\` section to CONTEXT.md recording the command you ran and what it
+actually printed. Report a failure as a failure — a node that honestly says the
+tests fail is far more useful than one that says it verified something it did
+not. Never claim to have run something you did not run.
 `.trim();
 
 /**

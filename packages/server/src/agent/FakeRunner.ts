@@ -76,10 +76,20 @@ export class FakeRunner implements AgentRunner {
 
     // D28: the agent writes CONTEXT.md as its final action, and the app decides
     // whether it amounts to a commit.
+    //
+    // The Testing section is written whenever the node has success criteria,
+    // mirroring what the real agent is asked to do -- so the stand-in exercises
+    // the same shape rather than a simpler one.
+    const testing =
+      spec.successCriteria === null && spec.verificationHint === null
+        ? ''
+        : `\n## Testing\n\nRan \`${spec.verificationHint ?? 'the check'}\` — FakeRunner did not really run it.\n` +
+          `Success criteria: ${spec.successCriteria ?? '(none given)'}\n`;
+
     await writeInside(
       spec.cwd,
       'CONTEXT.md',
-      `# Context\n\n${spec.prompt.trim()}\n\n${question ? 'Answered without changing code.' : 'Changed code.'}\n`,
+      `# Context\n\n${spec.prompt.trim()}\n\n${question ? 'Answered without changing code.' : 'Changed code.'}\n${testing}`,
     );
     yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md' };
 

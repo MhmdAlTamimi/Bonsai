@@ -33,6 +33,8 @@ export interface NodeRow {
   status: NodeStatus;
   model: string | null;
   permission_mode: PermissionMode | null;
+  success_criteria: string | null;
+  verification_hint: string | null;
   position_x: number | null;
   position_y: number | null;
   created_at: string;
@@ -206,6 +208,9 @@ export class Store {
     rootBranchName?: string;
     /** Master of an adopted project: its worktree IS the user's directory. */
     worktreePath?: string;
+    /** Optional, and nothing depends on them being set. See the schema. */
+    successCriteria?: string | null;
+    verificationHint?: string | null;
   }): NodeRow {
     const id = randomUUID();
 
@@ -241,6 +246,8 @@ export class Store {
       status: 'new',
       model: input.model ?? null,
       permission_mode: input.permissionMode ?? null,
+      success_criteria: blankToNull(input.successCriteria),
+      verification_hint: blankToNull(input.verificationHint),
       position_x: null,
       position_y: null,
       created_at: now(),
@@ -251,8 +258,9 @@ export class Store {
         `INSERT INTO node (id, project_id, parent_id, display_name, description,
                            session_id, forked_from_message_seq, branch_name,
                            base_commit, head_commit, worktree_path, status, model,
-                           permission_mode, position_x, position_y, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           permission_mode, success_criteria, verification_hint,
+                           position_x, position_y, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -269,6 +277,8 @@ export class Store {
         row.status,
         row.model,
         row.permission_mode,
+        row.success_criteria,
+        row.verification_hint,
         row.position_x,
         row.position_y,
         row.created_at,
@@ -703,6 +713,13 @@ export function toLineage(row: NodeRow): LineageNode {
     baseCommit: row.base_commit,
     headCommit: row.head_commit,
   };
+}
+
+/** An untouched optional field and an empty one mean the same thing: absent. */
+function blankToNull(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
 }
 
 /** Tolerant on purpose: a malformed row should not break the whole panel. */

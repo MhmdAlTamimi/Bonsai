@@ -77,6 +77,14 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'run', 'duration_ms', 'INTEGER');
     },
   },
+  {
+    version: 8,
+    name: 'node: what success looks like',
+    up: (db) => {
+      addColumn(db, 'node', 'success_criteria', 'TEXT');
+      addColumn(db, 'node', 'verification_hint', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

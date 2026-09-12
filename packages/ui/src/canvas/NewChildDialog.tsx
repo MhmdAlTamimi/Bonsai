@@ -15,10 +15,17 @@ export function NewChildDialog({
 }: {
   parentName: string;
   onCancel: () => void;
-  onCreate: (name: string, description: string) => Promise<void>;
+  onCreate: (
+    name: string,
+    description: string,
+    successCriteria: string,
+    verificationHint: string,
+  ) => Promise<void>;
 }): JSX.Element {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [successCriteria, setSuccessCriteria] = useState('');
+  const [verificationHint, setVerificationHint] = useState('');
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -32,7 +39,12 @@ export function NewChildDialog({
     if (busy) return;
     setBusy(true);
     try {
-      await onCreate(name.trim() || 'untitled', description.trim());
+      await onCreate(
+        name.trim() || 'untitled',
+        description.trim(),
+        successCriteria.trim(),
+        verificationHint.trim(),
+      );
     } finally {
       setBusy(false);
     }
@@ -74,6 +86,44 @@ export function NewChildDialog({
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit();
           }}
         />
+
+        {/*
+         * Behind a disclosure on purpose.
+         *
+         * These two answers are the point of the whole feature, and putting
+         * them in the flow as two more required-looking boxes is how
+         * enthusiasm dies -- there is already friction here, since a name and
+         * a description are both wanted before anything happens. Closed by
+         * default, one click to open, and creating without them behaves
+         * exactly as it did before they existed.
+         */}
+        <details className="disclosure">
+          <summary>What would make this a success? (optional)</summary>
+          <label className="stacked">
+            What should be true when this works?
+            <textarea
+              value={successCriteria}
+              onChange={(e) => setSuccessCriteria(e.target.value)}
+              placeholder="the /search endpoint returns results in under 100ms"
+              aria-label="success criteria"
+              rows={2}
+            />
+          </label>
+          <label className="stacked">
+            How should the agent check it?
+            <textarea
+              value={verificationHint}
+              onChange={(e) => setVerificationHint(e.target.value)}
+              placeholder="pytest tests/test_search.py"
+              aria-label="verification hint"
+              rows={2}
+            />
+          </label>
+          <p className="hint">
+            Sent with every run on this node. The agent runs the check and writes what happened into
+            CONTEXT.md, so you can compare approaches on evidence rather than on prose.
+          </p>
+        </details>
 
         <div className="dialog-actions">
           <span className="hint">Esc to cancel</span>

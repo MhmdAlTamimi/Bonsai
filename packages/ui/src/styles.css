@@ -475,3 +475,8 @@ button.stop:hover { background: var(--err); color: var(--bg); }
 /* A node waiting for a slot. Not a status -- there are five and this is not
    one of them -- just the one visible difference from a node that is running. */
 .pill.queued { border-color: var(--accent); color: var(--accent); }
+
+/* "Did it work?" -- the answer the whole node exists to settle, so it sits
+   above the conversation rather than behind the details disclosure. */
+.checks { gap: 6px; }
+.checks .stream { min-height: 0; max-height: 200px; }
