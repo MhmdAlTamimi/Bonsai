@@ -202,6 +202,8 @@ export function App(): JSX.Element {
   const selected: NodeView | null =
     tree?.nodes.find((n) => n.id === selection.primary) ?? null;
 
+  const runningCount = tree?.nodes.filter((n) => n.status === 'running').length ?? 0;
+
   const onNodeClick: NodeMouseHandler = (event, node) => {
     // Multi-select is wired now even though V0 reads only the first element.
     if (event.metaKey || event.ctrlKey) selection.toggle(node.id);
@@ -388,6 +390,19 @@ export function App(): JSX.Element {
           onDeleteProject={() => void deleteCurrentProject()}
         />
         {error !== null && <div className="banner">{error}</div>}
+
+        {/* Only when there is more than one, because with a single run in
+            flight the card's own Stop is nearer and less ambiguous. */}
+        {runningCount > 1 && (
+          <button
+            className="stop stop-all"
+            onClick={() => {
+              if (projectId !== null) void api.cancelProject(projectId).then(() => refresh(projectId));
+            }}
+          >
+            ■ Stop all {runningCount} runs
+          </button>
+        )}
         <ReactFlow
           nodes={flowNodes}
           edges={edges}

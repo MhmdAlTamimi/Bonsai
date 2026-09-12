@@ -3,6 +3,7 @@ import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
 import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
+import { api } from '../api/client.ts';
 
 /**
  * The node card. Renders from FLAGS, never from a node "type" string
@@ -103,7 +104,25 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
             <>
               <div className="card-summary">{data.summaryLine || <em>no description</em>}</div>
               <div className="card-foot">
-                <span className="pill">{STATUS_LABEL[data.status]}</span>
+                {/* On the card as well as in the panel: with several nodes in
+                    flight, the one you want to stop is rarely the one selected,
+                    and stopping it should not cost a click to select it first. */}
+                {data.status === 'running' ? (
+                  <button
+                    className="stop"
+                    title="Stop this run"
+                    onClick={(e) => {
+                      // The card is a canvas node; without this the click
+                      // selects it and React Flow starts a drag.
+                      e.stopPropagation();
+                      void api.cancelNode(data.id);
+                    }}
+                  >
+                    ■ Stop
+                  </button>
+                ) : (
+                  <span className="pill">{STATUS_LABEL[data.status]}</span>
+                )}
                 {data.costUsd > 0 && <span className="cost">${data.costUsd.toFixed(3)}</span>}
               </div>
             </>

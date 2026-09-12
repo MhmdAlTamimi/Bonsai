@@ -457,3 +457,17 @@ button.linkish:disabled { opacity: 0.4; cursor: not-allowed; text-decoration: no
 }
 .crash h1 { margin: 0; font-size: 18px; }
 .crash .stream { max-height: 320px; white-space: pre-wrap; }
+
+/* Stop. Deliberately the only red control that is not a delete: a run in
+   flight is spending money, and the button that ends it should be findable
+   without reading. */
+button.stop {
+  background: none; border: 1px solid var(--err); color: var(--err);
+  border-radius: 5px; padding: 1px 8px; font-size: 11px; line-height: 1.6;
+}
+button.stop:hover { background: var(--err); color: var(--bg); }
+.stop-all {
+  position: absolute; z-index: 9; top: 48px; right: 12px;
+  padding: 5px 12px; font-size: 12px;
+  background: var(--surface);
+}

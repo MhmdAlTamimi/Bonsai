@@ -68,10 +68,11 @@ export class FakeRunner implements AgentRunner {
 
     // A cancelled run stops here rather than finishing. Whatever it already
     // wrote stays on disk for recovery to decide about.
-    if (spec.signal.aborted) {
-      yield { type: 'error', error: 'cancelled mid-run' };
-      return;
-    }
+    //
+    // It returns silently rather than reporting an error, matching the real
+    // runner: a cancellation is not a failure, and saying otherwise made the
+    // run row read `failed` with the message "cancelled mid-run".
+    if (spec.signal.aborted) return;
 
     // D28: the agent writes CONTEXT.md as its final action, and the app decides
     // whether it amounts to a commit.

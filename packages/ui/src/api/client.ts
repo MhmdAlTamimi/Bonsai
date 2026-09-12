@@ -133,6 +133,17 @@ export const api = {
   cancelRun: (runId: string) =>
     json<{ cancelled: boolean }>(`/api/runs/${runId}/cancel`, { method: 'POST' }),
 
+  /**
+   * Stop a node. Preferred over cancelRun everywhere in the interface: it needs
+   * nothing but the id already on the card, so stop works the instant a node
+   * starts running rather than once its detail has been fetched.
+   */
+  cancelNode: (nodeId: string) =>
+    json<{ cancelled: boolean }>(`/api/nodes/${nodeId}/cancel`, { method: 'POST' }),
+
+  cancelProject: (projectId: string) =>
+    json<{ cancelled: number }>(`/api/projects/${projectId}/cancel`, { method: 'POST' }),
+
   tree: (projectId: string) => json<TreeResponse>(`/api/projects/${projectId}/tree`),
 
   node: (nodeId: string) => json<NodeDetail>(`/api/nodes/${nodeId}`),
