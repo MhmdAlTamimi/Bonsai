@@ -180,7 +180,7 @@ export class Connection {
         output:
           output === ''
             ? `Sign-in could not be completed from inside Bonsai — it needs an interactive ` +
-              `terminal. Run this, then press Recheck:\n\n    claude auth login\n\n` +
+              `terminal. Run this, then press Recheck:\n\n    claude auth login --claudeai\n\n` +
               `(${e.message ?? 'no output'})`
             : output,
       };

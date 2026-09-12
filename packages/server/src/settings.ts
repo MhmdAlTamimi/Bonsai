@@ -47,7 +47,7 @@ const DEFAULTS: StoredSettings = {
  * debugging a tree — so settings live in their own file, written 0600, and the
  * key is NEVER sent to the UI: the client is told only whether one is stored.
  *
- * Using `claude login` instead keeps the credential entirely out of Bonsai's
+ * Using `claude auth login` instead keeps the credential entirely out of Bonsai's
  * hands, which is why that is the default.
  */
 export class Settings {
