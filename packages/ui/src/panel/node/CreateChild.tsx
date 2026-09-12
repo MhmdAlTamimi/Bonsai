@@ -1,4 +1,5 @@
 import type { JSX } from 'react';
+import { deriveNodeName } from '@bonsai/shared';
 
 import type { useNodeActions } from './useNodeActions.ts';
 
@@ -17,18 +18,20 @@ export function CreateChild({
   return (
     <details className="disclosure">
       <summary>Create a child</summary>
-      <input
-        value={actions.childName}
-        onChange={(e) => actions.setChildName(e.target.value)}
-        placeholder="name"
-        aria-label="child name"
-      />
       <textarea
         value={actions.childDesc}
         onChange={(e) => actions.setChildDesc(e.target.value)}
-        placeholder="what should change?"
+        placeholder="What should change?"
         aria-label="child description"
         rows={3}
+      />
+      {/* Optional, and second: the name is derived from the description unless
+          this is filled in. Asking for it first was the friction. */}
+      <input
+        value={actions.childName}
+        onChange={(e) => actions.setChildName(e.target.value)}
+        placeholder={deriveNodeName(actions.childDesc, 'name (optional)')}
+        aria-label="child name"
       />
       <button
         className="primary"

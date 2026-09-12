@@ -1311,3 +1311,19 @@ label.check {
 .crash .stream {
   max-height: 320px;
 }
+
+/* The derived name, shown live next to the box that produces it. */
+.named-as {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 26px;
+}
+.named-as .hint strong {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.named-as input {
+  flex: 1;
+  font-size: 12.5px;
+}

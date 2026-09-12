@@ -17,7 +17,7 @@
     "build:ui": "npm -w @bonsai/ui run build",
     "start": "npm run build && node --no-warnings packages/server/dist/index.js --open",
     "typecheck": "tsc -p packages/ui --noEmit",
-    "test:ui": "node --experimental-strip-types --test \"packages/ui/src/**/*.test.ts\"",
+    "test:ui": "node --experimental-strip-types --test \"packages/ui/src/**/*.test.ts\" \"packages/shared/src/**/*.test.ts\"",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

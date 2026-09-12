@@ -10,6 +10,7 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
+import { deriveNodeName } from '@bonsai/shared';
 import type {
   AdoptProjectRequest,
   DiagnosticsView,
@@ -393,7 +394,10 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   const created = await createChildNode(store, {
     projectId,
     parentId,
-    displayName: requireString(body.displayName, 'displayName'),
+    displayName:
+      typeof body.displayName === 'string' && body.displayName.trim() !== ''
+        ? body.displayName.trim()
+        : deriveNodeName(typeof body.description === 'string' ? body.description : ''),
     description: typeof body.description === 'string' ? body.description : '',
     model: body.model ?? null,
     permissionMode: body.permissionMode ?? null,

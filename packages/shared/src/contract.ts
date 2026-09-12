@@ -421,7 +421,14 @@ export interface DirectoryListingView {
 
 export interface CreateNodeRequest {
   parentId: string;
-  displayName: string;
+  /**
+   * Optional. Left out, it is derived from the description.
+   *
+   * A name is metadata that changes freely (D3 constrains node code, not
+   * labels), so a derived one that is slightly wrong costs a rename — while
+   * requiring one costs a decision before every experiment.
+   */
+  displayName?: string;
   description: string;
   model?: string | null;
   permissionMode?: PermissionMode;

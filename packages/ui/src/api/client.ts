@@ -157,7 +157,7 @@ export const api = {
     projectId: string,
     body: {
       parentId: string;
-      displayName: string;
+      displayName?: string;
       description: string;
       successCriteria?: string;
       verificationHint?: string;
