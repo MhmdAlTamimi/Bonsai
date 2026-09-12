@@ -234,6 +234,11 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
 
   if (run === undefined) return null;
 
+  // A run still in flight has no verdict yet. It used to render "answered · no
+  // commit" the moment it produced a message, which was invisible while runs
+  // were seconds long and is a plain lie once one parks on a question.
+  if (run.status === 'running') return null;
+
   if (run.status === 'failed' || run.status === 'cancelled') {
     return <div className="run-footer failed">{run.error ?? run.status}</div>;
   }
