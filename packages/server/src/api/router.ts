@@ -442,6 +442,7 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   const body: NodeDetail = {
     node: view,
     runs: store.listRuns(row.id),
+    lineage: store.lineageOf(row),
     checkoutCommand: checkout?.command ?? null,
     checkoutHint: checkout?.hint ?? null,
     successCriteria: row.success_criteria,
