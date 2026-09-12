@@ -191,7 +191,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .picker-bar input { flex: 1; min-width: 0; font: 11px ui-monospace, SFMono-Regular, monospace; }
 .picker-bar button { flex: none; padding: 6px 9px; }
 .picker-list {
-  height: 150px; overflow-y: auto;
+  /* Six visible rows was a letterbox for a folder with twenty entries. */
+  height: 300px; overflow-y: auto;
   background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px;
   display: flex; flex-direction: column;
 }
