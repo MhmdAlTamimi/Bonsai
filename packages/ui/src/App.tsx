@@ -439,6 +439,7 @@ export function App(): JSX.Element {
         <SettingsDialog
           settings={settings}
           connection={connection}
+          selectedNodeId={selection.primary}
           onClose={() => setShowSettings(false)}
           onChanged={() => void loadConnection()}
         />

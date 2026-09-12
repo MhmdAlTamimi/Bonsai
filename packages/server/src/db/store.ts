@@ -435,6 +435,20 @@ export class Store {
     return row?.previous ?? row?.base ?? null;
   }
 
+  /** Row counts, for the diagnostics report. One query, not three lists. */
+  counts(): { projects: number; nodes: number; runs: number; running: number } {
+    const one = (sql: string): number => {
+      const row = this.db.prepare(sql).get() as unknown as { n: number } | undefined;
+      return Number(row?.n ?? 0);
+    };
+    return {
+      projects: one(`SELECT COUNT(*) AS n FROM project`),
+      nodes: one(`SELECT COUNT(*) AS n FROM node`),
+      runs: one(`SELECT COUNT(*) AS n FROM run`),
+      running: one(`SELECT COUNT(*) AS n FROM run WHERE status = 'running'`),
+    };
+  }
+
   /** D31: any run still marked running at startup died with the process. */
   markOrphanedRunsInterrupted(): number {
     const runs = this.db

@@ -3,6 +3,7 @@ import type {
   ConnectionStatus,
   CreateProjectRequest,
   DeletionImpactView,
+  DiagnosticsView,
   DirectoryInspectionView,
   DirectoryListingView,
   DiffView,
@@ -65,6 +66,12 @@ export const api = {
     }),
 
   settings: () => json<SettingsView>('/api/settings'),
+
+  /** Everything needed to investigate a problem, assembled server-side. */
+  diagnostics: (nodeId?: string | null) =>
+    json<DiagnosticsView>(
+      nodeId == null ? '/api/diagnostics' : `/api/diagnostics?nodeId=${encodeURIComponent(nodeId)}`,
+    ),
   updateSettings: (body: UpdateSettingsRequest) =>
     json<SettingsView>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
 

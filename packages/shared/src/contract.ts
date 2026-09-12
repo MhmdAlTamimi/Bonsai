@@ -93,6 +93,43 @@ export interface UpdateSettingsRequest {
   panelWidth?: number;
 }
 
+/**
+ * Everything needed to investigate a problem, in one block of text.
+ *
+ * Assembled server-side rather than by the interface, because most of it --
+ * versions, paths, log lines -- is not in the contract and should not be. The
+ * point is that reporting a bug costs one click instead of a conversation.
+ *
+ * The API key is never here. Whether one is stored is, which is the part that
+ * changes behaviour.
+ */
+export interface DiagnosticsView {
+  generatedAt: string;
+  app: { node: string; platform: string; arch: string };
+  paths: { dataDir: string; reposRoot: string; logDir: string };
+  agent: {
+    authMode: 'cli' | 'api_key';
+    hasStoredApiKey: boolean;
+    model: string | null;
+    effort: string | null;
+    permissionMode: PermissionMode;
+    standIn: boolean;
+  };
+  connection: ConnectionStatus;
+  counts: { projects: number; nodes: number; runs: number; running: number };
+  /** The most recent log lines, oldest first, exactly as written. */
+  log: string[];
+  /** The selected node's runs, when one was named. */
+  node: {
+    id: string;
+    displayName: string;
+    status: NodeStatus;
+    writable: boolean;
+    frozenReason: FrozenReason | null;
+    runs: RunView[];
+  } | null;
+}
+
 export interface ProjectView {
   id: string;
   name: string;

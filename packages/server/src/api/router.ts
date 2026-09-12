@@ -10,7 +10,7 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
-import type { AdoptProjectRequest, DirectoryInspectionView } from '@bonsai/shared';
+import type { AdoptProjectRequest, DiagnosticsView, DirectoryInspectionView } from '@bonsai/shared';
 
 import { isUsersOwnCheckout, type Store } from '../db/store.js';
 import type { EventBus } from './events.js';
@@ -31,7 +31,7 @@ import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
 import { readContextFile } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
-import type { Logger } from '../log.js';
+import { FileLogger, type Logger } from '../log.js';
 
 interface Ctx {
   store: Store;
@@ -170,6 +170,59 @@ route('POST', '/api/inspect', async (req, res, _p, { store }) => {
   }
 
   sendJson(res, 200, { ...(await inspectDirectory(path)), knownTo: null });
+});
+
+/**
+ * Everything needed to investigate a problem, in one response.
+ *
+ * The alternative is a conversation -- what version, what platform, where is
+ * your data directory, what does the log say -- and every round of that is a
+ * day. Assembled here because most of it is not in the contract and should not
+ * be: versions, paths and log lines are the server's business.
+ *
+ * The API key is not here and cannot be. Only whether one is stored, which is
+ * the part that changes behaviour.
+ */
+route('GET', '/api/diagnostics', (req, res, _p, { store, settings, connection, jobs, log }) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const nodeId = url.searchParams.get('nodeId');
+  const row = nodeId === null ? undefined : store.getNode(nodeId);
+  const view =
+    row === undefined ? undefined : store.treeView(row.project_id).find((n) => n.id === row.id);
+
+  const settingsView = settings.view();
+  const body: DiagnosticsView = {
+    generatedAt: new Date().toISOString(),
+    app: { node: process.version, platform: process.platform, arch: process.arch },
+    paths: {
+      dataDir: settingsView.dataDir,
+      reposRoot: settingsView.reposRoot,
+      logDir: log instanceof FileLogger ? log.directory() : '(not a file logger)',
+    },
+    agent: {
+      authMode: settingsView.authMode,
+      hasStoredApiKey: settingsView.hasStoredApiKey,
+      model: settingsView.model,
+      effort: settingsView.effort,
+      permissionMode: settingsView.permissionMode,
+      standIn: process.env['BONSAI_FAKE_AGENT'] === '1',
+    },
+    connection: connection.current(),
+    counts: { ...store.counts(), running: jobs.activeCount() },
+    log: log instanceof FileLogger ? log.tail(50) : [],
+    node:
+      view === undefined
+        ? null
+        : {
+            id: view.id,
+            displayName: view.displayName,
+            status: view.status,
+            writable: view.writable,
+            frozenReason: view.frozenReason,
+            runs: store.listRuns(view.id),
+          },
+  };
+  sendJson(res, 200, body);
 });
 
 route('GET', '/api/settings', (_req, res, _p, { settings }) => {
