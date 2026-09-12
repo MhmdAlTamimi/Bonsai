@@ -26,7 +26,11 @@ export class Connection {
   };
   private inFlight: Promise<ConnectionStatus> | null = null;
 
-  constructor(private readonly settings: Settings) {}
+  constructor(
+    private readonly settings: Settings,
+    /** True when the runner is the stand-in, which has nothing to authenticate. */
+    private readonly standIn = false,
+  ) {}
 
   current(): ConnectionStatus {
     return this.status;
@@ -60,6 +64,23 @@ export class Connection {
    * token reports logged in right up until it fails.
    */
   private async resolve(): Promise<ConnectionStatus> {
+    /**
+     * The stand-in agent has no credential, because it talks to nothing.
+     *
+     * Without this the gate blocks the whole app on a machine with no Claude
+     * CLI -- which is every CI runner, and is exactly how the browser test
+     * failed on its first run: the server came up, the page loaded, and the
+     * connection screen sat there instead of the app.
+     *
+     * This is not a bypass. BONSAI_FAKE_AGENT is opt-in and prints a warning
+     * at startup, so it cannot be reached by accident, and the reason the gate
+     * exists -- stopping a real run from failing halfway with no credential --
+     * does not apply when no real run can happen.
+     */
+    if (this.standIn) {
+      return { state: 'connected', apiKeySource: 'stand-in', model: 'stand-in', message: null };
+    }
+
     const key = this.settings.apiKey();
     if (key === null) {
       const cli = await this.cliAuthStatus();

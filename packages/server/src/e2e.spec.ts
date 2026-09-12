@@ -158,9 +158,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         `the canvas dropped to ${worst} visible cards during a refetch (it should never drop below 2)`,
       );
     } catch (err) {
-      // A CI log saying "expected 2, got 1" about a canvas is nearly useless.
+      // A CI log saying "timed out waiting for the start screen" is true and
+      // nearly useless -- the first failure of this test was the connection
+      // screen sitting where the app should have been, and nothing in the
+      // output said so. The screenshot proves it; this says it in text, which
+      // is what someone reads first.
       const shot = await session.screenshot(join(repoRoot, 'test-results', 'e2e-failure.png'));
       if (shot !== null) t.diagnostic(`screenshot: ${shot}`);
+      t.diagnostic(`page: ${JSON.stringify(await session.eval(WHAT_IS_ON_SCREEN))}`);
       throw err;
     }
   });
@@ -179,6 +184,15 @@ const VISIBLE_CARDS = `Array.from(document.querySelectorAll('.react-flow__node')
   const r = n.getBoundingClientRect();
   return s.visibility !== 'hidden' && s.display !== 'none' && r.width > 0 && r.height > 0;
 }).length`;
+
+/** Enough of the page to recognise which screen is up, when one is not expected. */
+const WHAT_IS_ON_SCREEN = `({
+  heading: document.querySelector('h1, h2')?.textContent ?? null,
+  connection: document.querySelector('.conn, .connect')?.textContent ?? null,
+  error: document.querySelector('.error, .banner')?.textContent ?? null,
+  crashed: !!document.querySelector('.crash'),
+  cards: document.querySelectorAll('.react-flow__node').length,
+})`;
 
 async function waitForServer(): Promise<void> {
   const deadline = Date.now() + 30000;
