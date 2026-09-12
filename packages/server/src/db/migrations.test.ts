@@ -7,7 +7,12 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 import { openDatabase } from './open.js';
-import { DatabaseTooNewError, LATEST_VERSION, currentVersion, runMigrations } from './migrations.js';
+import {
+  DatabaseTooNewError,
+  LATEST_VERSION,
+  currentVersion,
+  runMigrations,
+} from './migrations.js';
 
 describe('schema migrations', () => {
   let dir: string;
@@ -25,7 +30,7 @@ describe('schema migrations', () => {
     db.close();
   });
 
-  test('an old database is migrated, and backed up first', async () => {
+  test('an old database is migrated, and backed up first', () => {
     // A v1-era database: the run table without any of the later columns.
     const file = join(dir, 'bonsai.db');
     const old = new DatabaseSync(file);
@@ -36,20 +41,35 @@ describe('schema migrations', () => {
       CREATE TABLE run (id TEXT PRIMARY KEY, node_id TEXT, status TEXT NOT NULL,
         started_at TEXT NOT NULL, cost REAL NOT NULL DEFAULT 0);`);
     old.prepare(`INSERT INTO meta VALUES ('schema_version', '1')`).run();
-    old.prepare(`INSERT INTO run (id,node_id,status,started_at,cost) VALUES ('r1','n1','done','t',0.5)`).run();
+    old
+      .prepare(
+        `INSERT INTO run (id,node_id,status,started_at,cost) VALUES ('r1','n1','done','t',0.5)`,
+      )
+      .run();
     old.close();
 
     const db = openDatabase(dir);
     assert.equal(currentVersion(db), LATEST_VERSION);
 
-    const columns = (db.prepare(`PRAGMA table_info(run)`).all() as unknown as Array<{ name: string }>)
-      .map((c) => c.name);
-    for (const added of ['model', 'cache_read_tokens', 'api_key_source', 'commit_sha']) {
+    const columns = (
+      db.prepare(`PRAGMA table_info(run)`).all() as unknown as Array<{ name: string }>
+    ).map((c) => c.name);
+    for (const added of [
+      'model',
+      'cache_read_tokens',
+      'api_key_source',
+      'commit_sha',
+      'tools_offered',
+      'tool_calls',
+      'duration_ms',
+    ]) {
       assert.ok(columns.includes(added), `missing ${added}`);
     }
 
     // The row survived, and there is something to go back to.
-    const row = db.prepare(`SELECT cost FROM run WHERE id = 'r1'`).get() as unknown as { cost: number };
+    const row = db.prepare(`SELECT cost FROM run WHERE id = 'r1'`).get() as unknown as {
+      cost: number;
+    };
     assert.equal(row.cost, 0.5);
     assert.ok(existsSync(`${file}.v1.backup`), 'a backup must be written before migrating');
     db.close();

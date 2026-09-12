@@ -31,7 +31,10 @@ export async function readWorktreeState(worktreePath: string): Promise<WorktreeS
   const entries = await status(worktreePath);
   return {
     changed: entries.map((e) => e.path).sort(),
-    untracked: entries.filter((e) => e.untracked).map((e) => e.path).sort(),
+    untracked: entries
+      .filter((e) => e.untracked)
+      .map((e) => e.path)
+      .sort(),
     patch: await git(['diff'], worktreePath),
   };
 }

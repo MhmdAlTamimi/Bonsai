@@ -1,5 +1,5 @@
 import { type JSX, useState } from 'react';
-import { EFFORTS, type ConnectionStatus, type SettingsView } from '@bonsai/shared';
+import { CONCURRENCY, EFFORTS, type ConnectionStatus, type SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { useEscape } from '../useEscape.ts';
 
@@ -20,11 +20,14 @@ const PERMISSION_MODES = [
 export function SettingsDialog({
   settings,
   connection,
+  selectedNodeId,
   onClose,
   onChanged,
 }: {
   settings: SettingsView;
   connection: ConnectionStatus;
+  /** Included in the diagnostics report, when there is one. */
+  selectedNodeId: string | null;
   onClose: () => void;
   onChanged: () => void;
 }): JSX.Element {
@@ -46,10 +49,17 @@ export function SettingsDialog({
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <div className="dialog wide" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="dialog wide"
+        role="dialog"
+        aria-label="Settings"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header>
           <h3>Settings</h3>
-          <button className="dialog-close" onClick={onClose} aria-label="close">×</button>
+          <button className="dialog-close" onClick={onClose} aria-label="close">
+            ×
+          </button>
         </header>
 
         <section>
@@ -63,10 +73,17 @@ export function SettingsDialog({
             </span>
             <button
               disabled={busy}
-              onClick={() => void (async () => {
-                setBusy(true);
-                try { await api.checkConnection(); onChanged(); } finally { setBusy(false); }
-              })()}
+              onClick={() =>
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await api.checkConnection();
+                    onChanged();
+                  } finally {
+                    setBusy(false);
+                  }
+                })()
+              }
             >
               Recheck
             </button>
@@ -89,14 +106,18 @@ export function SettingsDialog({
             <div className="row">
               <button
                 disabled={busy}
-                onClick={() => void (async () => {
-                  setBusy(true);
-                  try {
-                    const r = await api.login();
-                    setNote(r.output);
-                    onChanged();
-                  } finally { setBusy(false); }
-                })()}
+                onClick={() =>
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      const r = await api.login();
+                      setNote(r.output);
+                      onChanged();
+                    } finally {
+                      setBusy(false);
+                    }
+                  })()
+                }
               >
                 Sign in
               </button>
@@ -108,15 +129,22 @@ export function SettingsDialog({
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={settings.hasStoredApiKey ? 'a key is stored — type to replace' : 'sk-ant-...'}
+                placeholder={
+                  settings.hasStoredApiKey ? 'a key is stored — type to replace' : 'sk-ant-...'
+                }
                 aria-label="API key"
               />
               <div className="row">
-                <button disabled={busy || apiKey.trim() === ''} onClick={() => void save({ apiKey: apiKey.trim() }).then(() => setApiKey(''))}>
+                <button
+                  disabled={busy || apiKey.trim() === ''}
+                  onClick={() => void save({ apiKey: apiKey.trim() }).then(() => setApiKey(''))}
+                >
                   Save key
                 </button>
                 {settings.hasStoredApiKey && (
-                  <button disabled={busy} onClick={() => void save({ apiKey: '' })}>Remove key</button>
+                  <button disabled={busy} onClick={() => void save({ apiKey: '' })}>
+                    Remove key
+                  </button>
                 )}
               </div>
               <p className="hint">Stored on this machine only, in a file readable just by you.</p>
@@ -134,7 +162,11 @@ export function SettingsDialog({
               disabled={busy}
               onChange={(e) => void save({ model: e.target.value === '' ? null : e.target.value })}
             >
-              {MODELS.map((m) => <option key={m.label} value={m.id ?? ''}>{m.label}</option>)}
+              {MODELS.map((m) => (
+                <option key={m.label} value={m.id ?? ''}>
+                  {m.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -145,7 +177,11 @@ export function SettingsDialog({
               onChange={(e) => void save({ effort: e.target.value === '' ? null : e.target.value })}
             >
               <option value="">default</option>
-              {EFFORTS.map((x) => <option key={x} value={x}>{x}</option>)}
+              {EFFORTS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -153,14 +189,36 @@ export function SettingsDialog({
             <select
               value={settings.permissionMode}
               disabled={busy}
-              onChange={(e) => void save({ permissionMode: e.target.value as SettingsView['permissionMode'] })}
+              onChange={(e) =>
+                void save({ permissionMode: e.target.value as SettingsView['permissionMode'] })
+              }
             >
-              {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {PERMISSION_MODES.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Run at most
+            <select
+              value={settings.maxConcurrentRuns}
+              disabled={busy}
+              onChange={(e) => void save({ maxConcurrentRuns: Number(e.target.value) })}
+            >
+              {Array.from({ length: CONCURRENCY.max - CONCURRENCY.min + 1 }, (_, i) => (
+                <option key={i + CONCURRENCY.min} value={i + CONCURRENCY.min}>
+                  {i + CONCURRENCY.min} at once
+                </option>
+              ))}
             </select>
           </label>
           <p className="hint">
-            Applies to projects created from now on; existing projects keep what they were made
-            with. Lower effort and a cheaper model both reduce what a run costs.
+            Model, effort and permission mode apply to projects created from now on; existing
+            projects keep what they were made with. Lower effort and a cheaper model both reduce
+            what a run costs. The concurrency limit applies immediately — anything over it waits in
+            a queue rather than competing for the machine.
           </p>
         </section>
 
@@ -169,11 +227,20 @@ export function SettingsDialog({
           <label className="stacked">
             Projects folder
             <div className="row">
-              <input value={reposRoot} onChange={(e) => setReposRoot(e.target.value)} aria-label="projects folder" />
-              <button disabled={busy || reposRoot === settings.reposRoot} onClick={() => void save({ reposRoot })}>
+              <input
+                value={reposRoot}
+                onChange={(e) => setReposRoot(e.target.value)}
+                aria-label="projects folder"
+              />
+              <button
+                disabled={busy || reposRoot === settings.reposRoot}
+                onClick={() => void save({ reposRoot })}
+              >
                 Save
               </button>
-              <button disabled={busy} onClick={() => void api.reveal(settings.reposRoot)}>Reveal</button>
+              <button disabled={busy} onClick={() => void api.reveal(settings.reposRoot)}>
+                Reveal
+              </button>
             </div>
           </label>
           <p className="hint">
@@ -185,11 +252,69 @@ export function SettingsDialog({
             Data folder
             <div className="row">
               <input value={settings.dataDir} readOnly aria-label="data folder" />
-              <button disabled={busy} onClick={() => void api.reveal(settings.dataDir)}>Reveal</button>
+              <button disabled={busy} onClick={() => void api.reveal(settings.dataDir)}>
+                Reveal
+              </button>
             </div>
           </label>
         </section>
+
+        <Diagnostics nodeId={selectedNodeId} />
       </div>
     </div>
+  );
+}
+
+/**
+ * One click turns "something went wrong" into a block of text worth reading.
+ *
+ * Without it, investigating anything starts with a conversation -- what
+ * version, what platform, where is your data directory, what does the log say
+ * -- and every round of that costs a day.
+ *
+ * It is shown before it is copied, deliberately. Asking someone to paste a
+ * blob they have not seen into a public issue is asking them to trust it, and
+ * the whole reason the API key is absent is that the trust would be misplaced
+ * if it were not.
+ */
+function Diagnostics({ nodeId }: { nodeId: string | null }): JSX.Element {
+  const [text, setText] = useState<string | null>(null);
+  const [state, setState] = useState<'idle' | 'loading' | 'copied' | 'failed'>('idle');
+
+  const gather = async (): Promise<void> => {
+    setState('loading');
+    try {
+      const report = await api.diagnostics(nodeId);
+      const body = JSON.stringify(report, null, 2);
+      setText(body);
+      try {
+        await navigator.clipboard.writeText(body);
+        setState('copied');
+      } catch {
+        // No clipboard permission, or an insecure context. The text is on
+        // screen and selectable, which is the point; the copy was a shortcut.
+        setState('idle');
+      }
+    } catch {
+      setState('failed');
+    }
+  };
+
+  return (
+    <section>
+      <h4>Diagnostics</h4>
+      <div className="row">
+        <button disabled={state === 'loading'} onClick={() => void gather()}>
+          {state === 'loading' ? 'Gathering…' : 'Copy diagnostics'}
+        </button>
+        {state === 'copied' && <span className="hint">Copied to the clipboard.</span>}
+        {state === 'failed' && <span className="error">Could not gather diagnostics.</span>}
+      </div>
+      <p className="hint">
+        Versions, paths, connection state, counts, the last 50 log lines and the selected node's run
+        history. No API key, and no prompts or file contents — the log never records them.
+      </p>
+      {text !== null && <pre className="stream">{text}</pre>}
+    </section>
   );
 }

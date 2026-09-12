@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
 
@@ -65,7 +65,8 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
 
   if (!existsSync(full)) return { ...base, blockedReason: 'That folder does not exist.' };
   const info = await stat(full);
-  if (!info.isDirectory()) return { ...base, exists: true, blockedReason: 'That is a file, not a folder.' };
+  if (!info.isDirectory())
+    return { ...base, exists: true, blockedReason: 'That is a file, not a folder.' };
 
   const entries = await readdir(full);
   const result: DirectoryInspection = {

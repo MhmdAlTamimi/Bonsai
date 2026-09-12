@@ -6,7 +6,12 @@ import type { PermissionMode } from '@bonsai/shared';
 
 import type { NodeRow, ProjectRow, Store } from './db/store.js';
 import { DEFAULT_BRANCH, branchNameFor, createRepo } from './git/repo.js';
-import { addBranchWorktree, addDetachedWorktree, deleteBranch, removeWorktree } from './git/worktree.js';
+import {
+  addBranchWorktree,
+  addDetachedWorktree,
+  deleteBranch,
+  removeWorktree,
+} from './git/worktree.js';
 import { resolveBaseCommit } from './domain/lineage.js';
 import { toLineage } from './db/store.js';
 import { adoptDirectory, snapshotUncommitted, suggestProjectName } from './git/adopt.js';

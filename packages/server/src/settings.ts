@@ -1,6 +1,12 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PANEL_WIDTH, type PermissionMode, type SettingsView, type UpdateSettingsRequest } from '@bonsai/shared';
+import {
+  CONCURRENCY,
+  PANEL_WIDTH,
+  type PermissionMode,
+  type SettingsView,
+  type UpdateSettingsRequest,
+} from '@bonsai/shared';
 
 import type { Config } from './config.js';
 
@@ -12,6 +18,7 @@ interface StoredSettings {
   effort: string | null;
   reposRoot: string | null;
   panelWidth: number;
+  maxConcurrentRuns: number;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -22,6 +29,7 @@ const DEFAULTS: StoredSettings = {
   effort: null,
   reposRoot: null,
   panelWidth: PANEL_WIDTH.default,
+  maxConcurrentRuns: CONCURRENCY.default,
 };
 
 /*
@@ -99,6 +107,10 @@ export class Settings {
     return clampPanel(this.current.panelWidth);
   }
 
+  maxConcurrentRuns(): number {
+    return clampConcurrency(this.current.maxConcurrentRuns);
+  }
+
   /** Where new projects are created. Existing ones keep the path they were made with. */
   reposRoot(): string {
     return this.current.reposRoot ?? this.config.reposRoot;
@@ -115,6 +127,7 @@ export class Settings {
       reposRoot: this.reposRoot(),
       platform: process.platform,
       panelWidth: this.panelWidth(),
+      maxConcurrentRuns: this.maxConcurrentRuns(),
     };
   }
 
@@ -127,6 +140,9 @@ export class Settings {
     if (patch.permissionMode !== undefined) this.current.permissionMode = patch.permissionMode;
     if (patch.effort !== undefined) this.current.effort = patch.effort;
     if (patch.panelWidth !== undefined) this.current.panelWidth = clampPanel(patch.panelWidth);
+    if (patch.maxConcurrentRuns !== undefined) {
+      this.current.maxConcurrentRuns = clampConcurrency(patch.maxConcurrentRuns);
+    }
     if (patch.reposRoot !== undefined) {
       // Only affects projects created from now on. Moving an existing root
       // would break every worktree: git stores absolute paths in its worktree
@@ -142,4 +158,9 @@ export class Settings {
 function clampPanel(width: number): number {
   if (!Number.isFinite(width)) return DEFAULTS.panelWidth;
   return Math.min(PANEL_WIDTH.max, Math.max(PANEL_WIDTH.min, Math.round(width)));
+}
+
+function clampConcurrency(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULTS.maxConcurrentRuns;
+  return Math.min(CONCURRENCY.max, Math.max(CONCURRENCY.min, Math.round(value)));
 }

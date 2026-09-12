@@ -59,13 +59,28 @@ export function MenuBar({
       </span>
 
       <div className="menu">
-        <button className="menu-title" onClick={() => setOpen(open === 'project' ? null : 'project')}>
+        <button
+          className="menu-title"
+          onClick={() => setOpen(open === 'project' ? null : 'project')}
+        >
           Project
         </button>
         {open === 'project' && (
           <div className="menu-panel" role="menu">
-            <button onClick={() => { setOpen(null); onStart('new'); }}>New project…</button>
-            <button onClick={() => { setOpen(null); onStart('existing'); }}>
+            <button
+              onClick={() => {
+                setOpen(null);
+                onStart('new');
+              }}
+            >
+              New project…
+            </button>
+            <button
+              onClick={() => {
+                setOpen(null);
+                onStart('existing');
+              }}
+            >
               Use an existing folder…
             </button>
 
@@ -99,7 +114,13 @@ export function MenuBar({
               <div className="menu-empty">No other projects</div>
             ) : (
               recent.map((p) => (
-                <button key={p.id} onClick={() => { setOpen(null); onOpenProject(p.id); }}>
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    setOpen(null);
+                    onOpenProject(p.id);
+                  }}
+                >
                   {p.name}
                 </button>
               ))
@@ -109,7 +130,10 @@ export function MenuBar({
             <button
               className="danger"
               disabled={project === null}
-              onClick={() => { setOpen(null); onDeleteProject(); }}
+              onClick={() => {
+                setOpen(null);
+                onDeleteProject();
+              }}
             >
               Delete this project…
             </button>
@@ -122,10 +146,7 @@ export function MenuBar({
       </button>
 
       {project !== null && (
-        <span
-          className="menubar-project"
-          title={project.sourcePath ?? project.name}
-        >
+        <span className="menubar-project" title={project.sourcePath ?? project.name}>
           {project.name}
           {project.sourceKind === 'adopted' && (
             <span className="pill tiny" title="Your own folder, used in place.">

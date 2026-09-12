@@ -10,7 +10,12 @@ import type {
   RunView,
 } from '@bonsai/shared';
 import { deriveFlags } from '../domain/flags.js';
-import { type LineageNode, lookupFrom, resolveBaseCommit, divergesFromLiveWalk } from '../domain/lineage.js';
+import {
+  type LineageNode,
+  lookupFrom,
+  resolveBaseCommit,
+  divergesFromLiveWalk,
+} from '../domain/lineage.js';
 
 /** The full node row. Only the server ever sees this shape. */
 export interface NodeRow {
@@ -61,6 +66,10 @@ export interface RunTotals {
   apiKeySource?: string | null;
   /** The commit this run produced, if it produced one. */
   commitSha?: string | null;
+  /** The tool names the agent was offered. See the schema for why it is kept. */
+  toolsOffered?: readonly string[] | null;
+  toolCalls?: number;
+  durationMs?: number | null;
 }
 
 export class Store {
@@ -124,9 +133,8 @@ export class Store {
   }
 
   getProject(id: string): ProjectRow | undefined {
-    return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as
-      | unknown as ProjectRow
-      | undefined;
+    return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as unknown as
+      ProjectRow | undefined;
   }
 
   /**
@@ -149,7 +157,10 @@ export class Store {
 
   /** D32: the model and effort a project's runs use. Changing them is not a
    *  node edit -- D3 constrains nodes, not settings. */
-  updateProjectSettings(id: string, patch: { model?: string | null; effort?: string | null }): void {
+  updateProjectSettings(
+    id: string,
+    patch: { model?: string | null; effort?: string | null },
+  ): void {
     if (patch.model !== undefined) {
       this.db.prepare(`UPDATE project SET default_model = ? WHERE id = ?`).run(patch.model, id);
     }
@@ -226,8 +237,7 @@ export class Store {
       branch_name: branchName,
       base_commit: baseCommit,
       head_commit: headCommit,
-      worktree_path:
-        input.worktreePath ?? join(this.reposRoot, input.projectId, 'worktrees', id),
+      worktree_path: input.worktreePath ?? join(this.reposRoot, input.projectId, 'worktrees', id),
       status: 'new',
       model: input.model ?? null,
       permission_mode: input.permissionMode ?? null,
@@ -267,9 +277,8 @@ export class Store {
   }
 
   getNode(id: string): NodeRow | undefined {
-    return this.db.prepare(`SELECT * FROM node WHERE id = ?`).get(id) as
-      | unknown as NodeRow
-      | undefined;
+    return this.db.prepare(`SELECT * FROM node WHERE id = ?`).get(id) as unknown as
+      NodeRow | undefined;
   }
 
   listNodes(projectId: string): NodeRow[] {
@@ -371,7 +380,8 @@ export class Store {
         `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
                         input_tokens = ?, output_tokens = ?,
                         cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
-                        api_key_source = ?, commit_sha = ?
+                        api_key_source = ?, commit_sha = ?, tools_offered = ?,
+                        tool_calls = ?, duration_ms = ?
          WHERE id = ?`,
       )
       .run(
@@ -386,6 +396,11 @@ export class Store {
         totals.model ?? null,
         totals.apiKeySource ?? null,
         totals.commitSha ?? null,
+        // JSON rather than a join table: it is written once, read whole, and
+        // never queried by element.
+        totals.toolsOffered == null ? null : JSON.stringify(totals.toolsOffered),
+        totals.toolCalls ?? 0,
+        totals.durationMs ?? null,
         runId,
       );
   }
@@ -396,8 +411,7 @@ export class Store {
     return this.db
       .prepare(`SELECT id, node_id, status, commit_sha FROM run WHERE id = ?`)
       .get(runId) as unknown as
-      | { id: string; node_id: string; status: string; commit_sha: string | null }
-      | undefined;
+      { id: string; node_id: string; status: string; commit_sha: string | null } | undefined;
   }
 
   /**
@@ -421,6 +435,20 @@ export class Store {
     return row?.previous ?? row?.base ?? null;
   }
 
+  /** Row counts, for the diagnostics report. One query, not three lists. */
+  counts(): { projects: number; nodes: number; runs: number; running: number } {
+    const one = (sql: string): number => {
+      const row = this.db.prepare(sql).get() as unknown as { n: number } | undefined;
+      return Number(row?.n ?? 0);
+    };
+    return {
+      projects: one(`SELECT COUNT(*) AS n FROM project`),
+      nodes: one(`SELECT COUNT(*) AS n FROM node`),
+      runs: one(`SELECT COUNT(*) AS n FROM run`),
+      running: one(`SELECT COUNT(*) AS n FROM run WHERE status = 'running'`),
+    };
+  }
+
   /** D31: any run still marked running at startup died with the process. */
   markOrphanedRunsInterrupted(): number {
     const runs = this.db
@@ -434,7 +462,6 @@ export class Store {
     }
     return runs.length;
   }
-
 
   listRuns(nodeId: string): RunView[] {
     const rows = this.db
@@ -454,6 +481,9 @@ export class Store {
       model: (r['model'] as string | null) ?? null,
       apiKeySource: (r['api_key_source'] as string | null) ?? null,
       commitSha: (r['commit_sha'] as string | null) ?? null,
+      toolsOffered: parseTools(r['tools_offered']),
+      toolCalls: Number(r['tool_calls'] ?? 0),
+      durationMs: r['duration_ms'] == null ? null : Number(r['duration_ms']),
       error: (r['error'] as string | null) ?? null,
     }));
   }
@@ -593,6 +623,9 @@ export class Store {
         positionX: row.position_x,
         positionY: row.position_y,
         costUsd: this.nodeCost(row.id),
+        // Filled in by the router from the jobs runner. The store knows about
+        // the tree, not about what this process happens to be doing with it.
+        queuePosition: null,
         createdAt: row.created_at,
       } satisfies NodeView;
     });
@@ -659,10 +692,7 @@ export class Store {
 }
 
 /** True for the one node whose worktree the user owns: an adopted master. */
-export function isUsersOwnCheckout(
-  project: ProjectRow | undefined,
-  row: NodeRow,
-): boolean {
+export function isUsersOwnCheckout(project: ProjectRow | undefined, row: NodeRow): boolean {
   return project?.source_kind === 'adopted' && row.parent_id === null;
 }
 
@@ -673,6 +703,17 @@ export function toLineage(row: NodeRow): LineageNode {
     baseCommit: row.base_commit,
     headCommit: row.head_commit,
   };
+}
+
+/** Tolerant on purpose: a malformed row should not break the whole panel. */
+function parseTools(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : null;
+  } catch {
+    return null;
+  }
 }
 
 function isInside(parent: string, child: string): boolean {

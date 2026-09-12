@@ -10,7 +10,12 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
-import type { AdoptProjectRequest, DirectoryInspectionView } from '@bonsai/shared';
+import type {
+  AdoptProjectRequest,
+  DiagnosticsView,
+  DirectoryInspectionView,
+  NodeView,
+} from '@bonsai/shared';
 
 import { isUsersOwnCheckout, type Store } from '../db/store.js';
 import type { EventBus } from './events.js';
@@ -31,6 +36,7 @@ import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
 import { readContextFile } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
+import { FileLogger, type Logger } from '../log.js';
 
 interface Ctx {
   store: Store;
@@ -38,6 +44,7 @@ interface Ctx {
   jobs: RunJobs;
   settings: Settings;
   connection: Connection;
+  log: Logger;
 }
 
 /**
@@ -45,6 +52,18 @@ interface Ctx {
  * credential. 428 Precondition Required, so the UI can tell this apart from a
  * bug and show the connection screen rather than an error.
  */
+/**
+ * Stamps each node with its place in the run queue.
+ *
+ * Done here rather than in the store because queue position is a fact about
+ * this process, not about the tree: the store holds what is true after a
+ * restart, and nothing in the queue survives one. Everything the interface
+ * receives goes through this, so a card can never show a stale position.
+ */
+function withQueue(jobs: RunJobs, nodes: NodeView[]): NodeView[] {
+  return nodes.map((n) => ({ ...n, queuePosition: jobs.queuePosition(n.id) }));
+}
+
 function requireConnection(connection: Connection): void {
   if (connection.isConnected()) return;
   const status = connection.current();
@@ -66,15 +85,20 @@ interface Route {
   method: string;
   segments: string[];
   handler: Handler;
+  /** The pattern as written, for logs: '/api/nodes/:id' rather than a uuid. */
+  pattern: string;
 }
 
 const routes: Route[] = [];
 
 function route(method: string, pattern: string, handler: Handler): void {
-  routes.push({ method, segments: pattern.split('/').filter(Boolean), handler });
+  routes.push({ method, segments: pattern.split('/').filter(Boolean), handler, pattern });
 }
 
-function match(method: string, path: string): { handler: Handler; params: Record<string, string> } | null {
+function match(
+  method: string,
+  path: string,
+): { handler: Handler; params: Record<string, string>; pattern: string } | null {
   const parts = path.split('/').filter(Boolean);
   for (const r of routes) {
     if (r.method !== method || r.segments.length !== parts.length) continue;
@@ -89,7 +113,7 @@ function match(method: string, path: string): { handler: Handler; params: Record
         break;
       }
     }
-    if (ok) return { handler: r.handler, params };
+    if (ok) return { handler: r.handler, params, pattern: r.pattern };
   }
   return null;
 }
@@ -165,6 +189,59 @@ route('POST', '/api/inspect', async (req, res, _p, { store }) => {
   sendJson(res, 200, { ...(await inspectDirectory(path)), knownTo: null });
 });
 
+/**
+ * Everything needed to investigate a problem, in one response.
+ *
+ * The alternative is a conversation -- what version, what platform, where is
+ * your data directory, what does the log say -- and every round of that is a
+ * day. Assembled here because most of it is not in the contract and should not
+ * be: versions, paths and log lines are the server's business.
+ *
+ * The API key is not here and cannot be. Only whether one is stored, which is
+ * the part that changes behaviour.
+ */
+route('GET', '/api/diagnostics', (req, res, _p, { store, settings, connection, jobs, log }) => {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const nodeId = url.searchParams.get('nodeId');
+  const row = nodeId === null ? undefined : store.getNode(nodeId);
+  const view =
+    row === undefined ? undefined : store.treeView(row.project_id).find((n) => n.id === row.id);
+
+  const settingsView = settings.view();
+  const body: DiagnosticsView = {
+    generatedAt: new Date().toISOString(),
+    app: { node: process.version, platform: process.platform, arch: process.arch },
+    paths: {
+      dataDir: settingsView.dataDir,
+      reposRoot: settingsView.reposRoot,
+      logDir: log instanceof FileLogger ? log.directory() : '(not a file logger)',
+    },
+    agent: {
+      authMode: settingsView.authMode,
+      hasStoredApiKey: settingsView.hasStoredApiKey,
+      model: settingsView.model,
+      effort: settingsView.effort,
+      permissionMode: settingsView.permissionMode,
+      standIn: process.env['BONSAI_FAKE_AGENT'] === '1',
+    },
+    connection: connection.current(),
+    counts: { ...store.counts(), running: jobs.activeCount() },
+    log: log instanceof FileLogger ? log.tail(50) : [],
+    node:
+      view === undefined
+        ? null
+        : {
+            id: view.id,
+            displayName: view.displayName,
+            status: view.status,
+            writable: view.writable,
+            frozenReason: view.frozenReason,
+            runs: store.listRuns(view.id),
+          },
+  };
+  sendJson(res, 200, body);
+});
+
 route('GET', '/api/settings', (_req, res, _p, { settings }) => {
   sendJson(res, 200, settings.view());
 });
@@ -188,7 +265,11 @@ route('POST', '/api/reveal', async (req, res) => {
 // -- projects ----------------------------------------------------------------
 
 route('GET', '/api/projects', (_req, res, _p, { store }) => {
-  sendJson(res, 200, store.listProjects().map((p) => store.projectView(p)));
+  sendJson(
+    res,
+    200,
+    store.listProjects().map((p) => store.projectView(p)),
+  );
 });
 
 route('POST', '/api/projects', async (req, res, _p, { store, bus, settings, connection }) => {
@@ -225,12 +306,12 @@ route('POST', '/api/projects/adopt', async (req, res, _p, { store, bus, settings
   sendJson(res, 201, created);
 });
 
-route('GET', '/api/projects/:id/tree', (_req, res, params, { store }) => {
+route('GET', '/api/projects/:id/tree', (_req, res, params, { store, jobs }) => {
   const project = store.getProject(params['id']!);
   if (project === undefined) throw new HttpError(404, 'no such project');
   const body: TreeResponse = {
     project: store.projectView(project),
-    nodes: store.treeView(project.id),
+    nodes: withQueue(jobs, store.treeView(project.id)),
   };
   sendJson(res, 200, body);
 });
@@ -266,7 +347,7 @@ route('DELETE', '/api/projects/:id', async (_req, res, params, { store, bus, job
 
 // -- nodes -------------------------------------------------------------------
 
-route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus }) => {
+route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, jobs }) => {
   const projectId = params['id']!;
   if (store.getProject(projectId) === undefined) throw new HttpError(404, 'no such project');
 
@@ -293,13 +374,15 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus }
   // §6.2: the user stays on the canvas and the node appears immediately. The
   // run is started separately until M3 so the git layer can be driven on its
   // own; `new` is the brief window the state was kept for.
-  sendJson(res, 201, { node: store.treeView(projectId).find((n) => n.id === nodeId) });
+  sendJson(res, 201, {
+    node: withQueue(jobs, store.treeView(projectId)).find((n) => n.id === nodeId),
+  });
 });
 
-route('GET', '/api/nodes/:id', async (_req, res, params, { store }) => {
+route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  const view = store.treeView(row.project_id).find((n) => n.id === row.id)!;
+  const view = withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
   const body: NodeDetail = {
     node: view,
     runs: store.listRuns(row.id),
@@ -309,19 +392,25 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store }) => {
   sendJson(res, 200, body);
 });
 
-route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus }) => {
+route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const body = await readJson<UpdateNodeRequest>(req);
   // D3: nodes are immutable. Display name and canvas position are metadata and
   // are the only things this route will touch.
   store.updateNode(row.id, {
-    ...(body.displayName !== undefined ? { displayName: requireString(body.displayName, 'displayName') } : {}),
+    ...(body.displayName !== undefined
+      ? { displayName: requireString(body.displayName, 'displayName') }
+      : {}),
     ...(body.positionX !== undefined ? { positionX: body.positionX } : {}),
     ...(body.positionY !== undefined ? { positionY: body.positionY } : {}),
   });
   bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
-  sendJson(res, 200, store.treeView(row.project_id).find((n) => n.id === row.id));
+  sendJson(
+    res,
+    200,
+    withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id),
+  );
 });
 
 /** What deleting this node would destroy, so the UI can say so before it does. */
@@ -339,7 +428,8 @@ route('GET', '/api/nodes/:id/deletion-impact', (_req, res, params, { store }) =>
 route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  if (row.parent_id === null) throw new HttpError(400, 'deleting master means deleting the project');
+  if (row.parent_id === null)
+    throw new HttpError(400, 'deleting master means deleting the project');
   // Open Question 3, answered: cancel, then delete. Blocking the delete would
   // strand a node behind a run that may never finish.
   jobs.cancel(row.id);
@@ -365,7 +455,11 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   sendJson(
     res,
     200,
-    await nodeDiff(row.worktree_path, row.base_commit ?? row.head_commit!, row.head_commit !== null),
+    await nodeDiff(
+      row.worktree_path,
+      row.base_commit ?? row.head_commit!,
+      row.head_commit !== null,
+    ),
   );
 });
 
@@ -419,7 +513,7 @@ route('POST', '/api/runs/:id/cancel', (_req, res, params, { store, jobs }) => {
   if (run === undefined) throw new HttpError(404, 'no such run');
   sendJson(res, 200, { cancelled: jobs.cancel(run.node_id) });
 });
-route('POST', '/api/runs/:id/reply', (_req, res) =>
+route('POST', '/api/runs/:id/reply', (_req, _res) =>
   notYet('later', 'answering an agent question (the ask-user mechanism is postponed)'),
 );
 /** §6.6: resume / discard / keep. */
@@ -498,12 +592,29 @@ export async function handleApi(
 
   const found = match(req.method ?? 'GET', url.pathname);
   if (found === null) {
+    ctx.log.warn('api.unrouted', { method: req.method, path: url.pathname });
     sendError(res, new HttpError(404, `no route for ${req.method} ${url.pathname}`));
     return true;
   }
   try {
     await found.handler(req, res, found.params, ctx);
   } catch (err) {
+    /**
+     * Logged here rather than in sendError, which has the error but not the
+     * request -- and "something 500'd" without a method and a path is the
+     * least useful line a log can hold.
+     *
+     * The path is logged as the ROUTE PATTERN, not the request path, so ids
+     * do not accumulate as unique strings and the message is greppable.
+     */
+    const status = err instanceof HttpError ? err.status : 500;
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.log[status >= 500 ? 'error' : 'warn']('api.error', {
+      method: req.method,
+      route: found.pattern,
+      status,
+      error: message,
+    });
     sendError(res, err);
   }
   return true;

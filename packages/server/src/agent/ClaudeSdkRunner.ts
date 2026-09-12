@@ -50,7 +50,11 @@ export class ClaudeSdkRunner implements AgentRunner {
        */
       ...(spec.readOnly
         ? { allowedTools: [...READ_ONLY_TOOLS] }
-        : { canUseTool: async () => ({ behavior: 'allow' as const, updatedInput: {} }) }),
+        : {
+            // Promise.resolve rather than `async`: the SDK's signature wants a
+            // promise, and there is nothing here to await.
+            canUseTool: () => Promise.resolve({ behavior: 'allow' as const, updatedInput: {} }),
+          }),
 
       // D19/D30: the app owns git. Read-only git stays available for recovery.
       ...(spec.readOnly ? {} : { hooks: { PreToolUse: [gitGuardHook()] } }),

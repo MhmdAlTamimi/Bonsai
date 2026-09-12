@@ -14,7 +14,13 @@ import { type JSX, useEffect, useState } from 'react';
  */
 const CUSTOM_LOGO = '/logo.png';
 
-export function Logo({ size = 22, title = 'Bonsai' }: { size?: number; title?: string }): JSX.Element {
+export function Logo({
+  size = 22,
+  title = 'Bonsai',
+}: {
+  size?: number;
+  title?: string;
+}): JSX.Element {
   const [custom, setCustom] = useState(false);
 
   useEffect(() => {

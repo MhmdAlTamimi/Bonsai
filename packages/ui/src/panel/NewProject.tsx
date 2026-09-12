@@ -237,10 +237,11 @@ function Inspected({
   if (!inspection.isGitRepo) {
     return (
       <p className="note">
-        Not a git repository yet. Bonsai will run <code>git init</code> here and make one commit
-        of what is already in the folder — {inspection.entryCount} item
+        Not a git repository yet. Bonsai will run <code>git init</code> here and make one commit of
+        what is already in the folder — {inspection.entryCount} item
         {inspection.entryCount === 1 ? '' : 's'} — so nodes have something to branch from.
-        {inspection.entryCount > 400 && ' That is a lot of files; check there is no build output or node_modules in there first.'}
+        {inspection.entryCount > 400 &&
+          ' That is a lot of files; check there is no build output or node_modules in there first.'}
       </p>
     );
   }

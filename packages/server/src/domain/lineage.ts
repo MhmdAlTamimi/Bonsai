@@ -154,7 +154,8 @@ export function ancestors(startId: string, lookup: NodeLookup): LineageNode[] {
   const seen = new Set<string>([startId]);
   let cursor = lookup(startId);
   while (cursor?.parentId != null) {
-    if (seen.has(cursor.parentId)) throw new LineageError(`cycle in ancestry at ${cursor.parentId}`);
+    if (seen.has(cursor.parentId))
+      throw new LineageError(`cycle in ancestry at ${cursor.parentId}`);
     seen.add(cursor.parentId);
     const parent = lookup(cursor.parentId);
     if (parent === undefined) {

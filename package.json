@@ -16,13 +16,24 @@
     "build:server": "tsc -b packages/shared packages/server && cp packages/server/src/db/schema.sql packages/server/dist/db/schema.sql",
     "build:ui": "npm -w @bonsai/ui run build",
     "start": "npm run build && node --no-warnings packages/server/dist/index.js --open",
-    "test": "npm run build:server && node --test \"packages/server/dist/**/*.test.js\"",
+    "typecheck": "tsc -p packages/ui --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build:server && npm run typecheck && npm run lint && npm run format:check && node --test \"packages/server/dist/**/*.test.js\"",
+    "test:e2e": "npm run build:server && npm run build:ui && node --test packages/server/dist/e2e.spec.js",
     "dev": "npm run build:server && node --no-warnings packages/server/dist/index.js",
     "dev:ui": "npm -w @bonsai/ui run dev",
     "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^22.20.1",
-    "typescript": "^5.9.3"
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
   }
 }

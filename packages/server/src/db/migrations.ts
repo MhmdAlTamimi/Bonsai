@@ -68,6 +68,15 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'project', 'protected_branch', 'TEXT');
     },
   },
+  {
+    version: 7,
+    name: 'run: what the agent was offered, and what it did',
+    up: (db) => {
+      addColumn(db, 'run', 'tools_offered', 'TEXT');
+      addColumn(db, 'run', 'tool_calls', 'INTEGER NOT NULL DEFAULT 0');
+      addColumn(db, 'run', 'duration_ms', 'INTEGER');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
@@ -87,9 +96,8 @@ export class DatabaseTooNewError extends Error {
 }
 
 export function currentVersion(db: DatabaseSync): number {
-  const row = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as
-    | unknown as { value: string }
-    | undefined;
+  const row = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as unknown as
+    { value: string } | undefined;
   const parsed = Number(row?.value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }

@@ -84,8 +84,8 @@ export function Chat({
       <div className="chat-log" ref={listRef}>
         {messages.length === 0 && streamed.length === 0 && !running && (
           <p className="muted chat-empty">
-            No conversation yet. Ask for a change, or ask a question — a question that
-            changes no files leaves this node conversation-only.
+            No conversation yet. Ask for a change, or ask a question — a question that changes no
+            files leaves this node conversation-only.
           </p>
         )}
 
@@ -186,7 +186,7 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!open || run === undefined || run.commitSha === null) return;
+    if (!open || run?.commitSha == null) return;
     let alive = true;
     void api
       .runDiff(run.id)
@@ -195,6 +195,9 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
     return () => {
       alive = false;
     };
+    // Keyed on the run's id and commit rather than on `run` itself: the panel
+    // refetches on every tree update, so the object identity changes constantly
+    // while the two things this effect depends on do not.
   }, [open, run?.id, run?.commitSha]);
 
   if (run === undefined) return null;
@@ -206,7 +209,10 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
     // Not a failure: a reply that answered without editing is exactly what
     // keeps a node conversation-only, which is the whole emergent model.
     return (
-      <div className="run-footer" title="This reply answered without editing files, so it added no commit.">
+      <div
+        className="run-footer"
+        title="This reply answered without editing files, so it added no commit."
+      >
         answered · no commit
       </div>
     );

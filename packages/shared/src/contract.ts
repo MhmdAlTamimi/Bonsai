@@ -62,6 +62,8 @@ export interface SettingsView {
   dataDir: string;
   reposRoot: string;
   platform: string;
+  /** How many agents may run at once; the rest queue. */
+  maxConcurrentRuns: number;
   /**
    * Width of the side panel, in pixels.
    *
@@ -81,6 +83,17 @@ export interface SettingsView {
  */
 export const PANEL_WIDTH = { min: 280, max: 900, default: 360 } as const;
 
+/**
+ * How many agents may run at once.
+ *
+ * "Run several experiments in parallel" is the product, so this is not a
+ * throttle bolted on out of caution -- it is what keeps the parallelism usable.
+ * Ten agents started together do not finish ten times sooner; they contend for
+ * CPU and memory until the machine stops responding, in the one place the
+ * product is meant to shine.
+ */
+export const CONCURRENCY = { min: 1, max: 10, default: 3 } as const;
+
 export interface UpdateSettingsRequest {
   authMode?: 'cli' | 'api_key';
   /** Empty string clears the stored key. */
@@ -91,6 +104,44 @@ export interface UpdateSettingsRequest {
   reposRoot?: string;
   /** Clamped server-side; see settings.ts for the bounds and why. */
   panelWidth?: number;
+  maxConcurrentRuns?: number;
+}
+
+/**
+ * Everything needed to investigate a problem, in one block of text.
+ *
+ * Assembled server-side rather than by the interface, because most of it --
+ * versions, paths, log lines -- is not in the contract and should not be. The
+ * point is that reporting a bug costs one click instead of a conversation.
+ *
+ * The API key is never here. Whether one is stored is, which is the part that
+ * changes behaviour.
+ */
+export interface DiagnosticsView {
+  generatedAt: string;
+  app: { node: string; platform: string; arch: string };
+  paths: { dataDir: string; reposRoot: string; logDir: string };
+  agent: {
+    authMode: 'cli' | 'api_key';
+    hasStoredApiKey: boolean;
+    model: string | null;
+    effort: string | null;
+    permissionMode: PermissionMode;
+    standIn: boolean;
+  };
+  connection: ConnectionStatus;
+  counts: { projects: number; nodes: number; runs: number; running: number };
+  /** The most recent log lines, oldest first, exactly as written. */
+  log: string[];
+  /** The selected node's runs, when one was named. */
+  node: {
+    id: string;
+    displayName: string;
+    status: NodeStatus;
+    writable: boolean;
+    frozenReason: FrozenReason | null;
+    runs: RunView[];
+  } | null;
 }
 
 export interface ProjectView {
@@ -161,6 +212,16 @@ export interface NodeView {
   positionX: number | null;
   positionY: number | null;
   costUsd: number;
+  /**
+   * 1-based place in the queue when this node is waiting for a free slot, and
+   * null when it is not waiting.
+   *
+   * Derived, never stored, and deliberately NOT a sixth node status: there are
+   * exactly five, the schema constrains them, and a queued node genuinely is
+   * `running` from the user's point of view -- they asked for it, it is going
+   * to happen, and nothing else about it differs.
+   */
+  queuePosition: number | null;
   createdAt: string;
 }
 
@@ -191,6 +252,17 @@ export interface RunView {
   apiKeySource: string | null;
   /** The commit this run produced, or null when it changed nothing. */
   commitSha: string | null;
+  /**
+   * The tools the agent was actually offered on this run.
+   *
+   * Kept because it is the only thing that distinguishes "the agent chose not
+   * to edit anything" from "the agent was never given a way to". Those look
+   * identical in a transcript and have opposite fixes.
+   */
+  toolsOffered: string[] | null;
+  toolCalls: number;
+  /** Wall-clock, in milliseconds. Null for runs recorded before this existed. */
+  durationMs: number | null;
   error: string | null;
 }
 

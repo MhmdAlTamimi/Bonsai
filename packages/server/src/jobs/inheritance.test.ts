@@ -71,7 +71,12 @@ describe('session inheritance (D16)', () => {
   });
 
   const project = async () =>
-    createProject(store, { name: 'p', description: 'd', model: null, permissionMode: 'acceptEdits' });
+    createProject(store, {
+      name: 'p',
+      description: 'd',
+      model: null,
+      permissionMode: 'acceptEdits',
+    });
 
   const run = async (nodeId: string, prompt: string): Promise<void> => {
     jobs.start(nodeId, prompt);
@@ -100,7 +105,10 @@ describe('session inheritance (D16)', () => {
     const { projectId, masterNodeId } = await project();
     await run(masterNodeId, 'scaffold');
     const { nodeId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     await run(nodeId, 'do the thing');
 
@@ -116,10 +124,16 @@ describe('session inheritance (D16)', () => {
     const { projectId, masterNodeId } = await project();
     await run(masterNodeId, 'scaffold');
     const a = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     const b = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'b', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'b',
+      description: 'd',
     });
     await run(a.nodeId, 'approach a');
     await run(b.nodeId, 'approach b');
@@ -140,7 +154,10 @@ describe('session inheritance (D16)', () => {
     const masterCommit = store.getNode(masterNodeId)!.head_commit;
 
     const a = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'argparse', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'argparse',
+      description: 'd',
     });
     await run(a.nodeId, 'build it');
     const aCommit = store.getNode(a.nodeId)!.head_commit;
@@ -148,7 +165,10 @@ describe('session inheritance (D16)', () => {
 
     // A question: runs, writes nothing, so it never gets a commit.
     const e = await createChildNode(store, {
-      projectId, parentId: a.nodeId, displayName: 'why', description: 'd',
+      projectId,
+      parentId: a.nodeId,
+      displayName: 'why',
+      description: 'd',
     });
     jobs.start(e.nodeId, '? explain');
     await settle(jobs, e.nodeId);
@@ -163,7 +183,10 @@ describe('session inheritance (D16)', () => {
     );
 
     const f = await createChildNode(store, {
-      projectId, parentId: e.nodeId, displayName: 'child of the question', description: 'd',
+      projectId,
+      parentId: e.nodeId,
+      displayName: 'child of the question',
+      description: 'd',
     });
     await run(f.nodeId, 'act on it');
 
@@ -183,7 +206,10 @@ describe('session inheritance (D16)', () => {
     const { projectId, masterNodeId } = await project();
     await run(masterNodeId, 'scaffold');
     const a = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     await run(a.nodeId, 'commit something');
     assert.notEqual(store.getNode(a.nodeId)!.head_commit, null, 'setup: the child must commit');
@@ -200,7 +226,10 @@ describe('session inheritance (D16)', () => {
     await run(masterNodeId, 'scaffold');
     const before = store.getNode(masterNodeId)!.head_commit;
     const a = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     await run(a.nodeId, 'commit something');
 

@@ -136,9 +136,7 @@ describe('adopting a directory', () => {
       model: null,
       permissionMode: 'default',
     });
-    const master = store
-      .treeView(created.projectId)
-      .find((n) => n.id === created.masterNodeId)!;
+    const master = store.treeView(created.projectId).find((n) => n.id === created.masterNodeId)!;
     assert.equal(master.writable, true);
     assert.equal(master.frozenReason, null);
   });
@@ -151,7 +149,7 @@ describe('adopting a directory', () => {
     const { initialised } = await adopt(path);
 
     assert.equal(initialised, true);
-    assert.equal((await gitLine(['rev-list', '--count', 'HEAD'], path)) , '1');
+    assert.equal(await gitLine(['rev-list', '--count', 'HEAD'], path), '1');
     assert.equal(await readFile(join(path, 'notes.txt'), 'utf8'), 'hello\n');
   });
 
@@ -186,11 +184,11 @@ describe('adopting a directory', () => {
 
     const child = store.getNode(nodeId)!;
     assert.equal(child.branch_name, branchNameFor(nodeId));
-    assert.ok(!child.worktree_path.startsWith(path), 'the worktree lives in Bonsai\'s directory');
+    assert.ok(!child.worktree_path.startsWith(path), "the worktree lives in Bonsai's directory");
     // But the branch is in the user's repository, so their git can see it --
     // which is what makes an export feature unnecessary.
     const branches = await gitLine(['branch', '--format=%(refname:short)'], path);
-    assert.ok(branches.split('\n').includes(child.branch_name!));
+    assert.ok(branches.split('\n').includes(child.branch_name));
     assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
   });
 
@@ -269,7 +267,10 @@ describe('adopting a directory', () => {
     await git(['worktree', 'add', '--detach', second], path);
 
     const inspection = await inspectDirectory(second);
-    assert.equal(inspection.blockedReason, `This folder is a second checkout of a repository that lives at ${path}. Pick that repository's main folder instead.`);
+    assert.equal(
+      inspection.blockedReason,
+      `This folder is a second checkout of a repository that lives at ${path}. Pick that repository's main folder instead.`,
+    );
   });
 
   test('reports what it found without changing anything', async () => {
@@ -336,7 +337,7 @@ describe('adopting a directory', () => {
     assert.ok(existsSync(join(path, 'README.md')));
   });
 
-  test('a project on a branch called master is still the user\'s branch', async () => {
+  test("a project on a branch called master is still the user's branch", async () => {
     // The regression this whole guard exists for, in its most confusing shape:
     // an adopted repo whose branch happens to share the name Bonsai gives its
     // own. The old exclusion list would not have saved it; ownership does.
@@ -423,7 +424,10 @@ describe('adopting a directory', () => {
     });
 
     assert.equal(created.path, join(where, 'my-thing-2'));
-    assert.equal(await readFile(join(where, 'my-thing', 'precious.txt'), 'utf8'), 'do not delete\n');
+    assert.equal(
+      await readFile(join(where, 'my-thing', 'precious.txt'), 'utf8'),
+      'do not delete\n',
+    );
   });
 
   test('a created project without a location still records where its code is', async () => {

@@ -39,7 +39,10 @@ export function App(): JSX.Element {
   const [startMode, setStartMode] = useState<'new' | 'existing' | null>(null);
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [connection, setConnection] = useState<ConnectionStatus>({
-    state: 'unknown', apiKeySource: null, model: null, message: null,
+    state: 'unknown',
+    apiKeySource: null,
+    model: null,
+    message: null,
   });
   const [settings, setSettings] = useState<SettingsView | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -113,10 +116,16 @@ export function App(): JSX.Element {
           setStreams((prev) => ({ ...prev, [event.nodeId]: [] }));
           break;
         case 'run.delta':
-          setStreams((prev) => ({ ...prev, [event.nodeId]: [...(prev[event.nodeId] ?? []), event.text] }));
+          setStreams((prev) => ({
+            ...prev,
+            [event.nodeId]: [...(prev[event.nodeId] ?? []), event.text],
+          }));
           break;
         case 'run.error':
-          setStreams((prev) => ({ ...prev, [event.nodeId]: [...(prev[event.nodeId] ?? []), event.error] }));
+          setStreams((prev) => ({
+            ...prev,
+            [event.nodeId]: [...(prev[event.nodeId] ?? []), event.error],
+          }));
           void refresh(projectId);
           break;
         case 'tree.updated':
@@ -148,7 +157,7 @@ export function App(): JSX.Element {
    * useNodesState keeps the applyNodeChanges plumbing, so dimensions persist,
    * and merging by id below preserves them across refetches.
    */
-  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState([]);
+  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<NodeView>([]);
 
   const edges = useMemo(() => (tree === null ? [] : layoutTree(tree.nodes).edges), [tree]);
 
@@ -199,8 +208,7 @@ export function App(): JSX.Element {
     return () => clearTimeout(timer);
   }, [nodeCount]);
 
-  const selected: NodeView | null =
-    tree?.nodes.find((n) => n.id === selection.primary) ?? null;
+  const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
 
   const runningCount = tree?.nodes.filter((n) => n.status === 'running').length ?? 0;
 
@@ -228,7 +236,7 @@ export function App(): JSX.Element {
     if (parentId === null || tree === null) return;
 
     const target = event.target as HTMLElement | null;
-    if (target === null || !target.classList.contains('react-flow__pane')) return;
+    if (!target?.classList.contains('react-flow__pane')) return;
 
     const point = 'clientX' in event ? event : event.changedTouches[0];
     if (point === undefined) return;
@@ -258,7 +266,8 @@ export function App(): JSX.Element {
       return;
     }
 
-    const spent = impact.costUsd > 0 ? ` and about $${impact.costUsd.toFixed(2)} of agent runs` : '';
+    const spent =
+      impact.costUsd > 0 ? ` and about $${impact.costUsd.toFixed(2)} of agent runs` : '';
     const lines = [
       `Delete "${tree.project.name}"?`,
       '',
@@ -397,7 +406,8 @@ export function App(): JSX.Element {
           <button
             className="stop stop-all"
             onClick={() => {
-              if (projectId !== null) void api.cancelProject(projectId).then(() => refresh(projectId));
+              if (projectId !== null)
+                void api.cancelProject(projectId).then(() => refresh(projectId));
             }}
           >
             ■ Stop all {runningCount} runs
@@ -429,6 +439,7 @@ export function App(): JSX.Element {
         <SettingsDialog
           settings={settings}
           connection={connection}
+          selectedNodeId={selection.primary}
           onClose={() => setShowSettings(false)}
           onChanged={() => void loadConnection()}
         />
@@ -450,7 +461,10 @@ export function App(): JSX.Element {
           // Fire and forget: the width is already applied to the CSS variable,
           // so a failed save costs this session nothing and the next one a
           // default. Not worth a banner.
-          void api.updateSettings({ panelWidth }).then(setSettings).catch(() => {});
+          void api
+            .updateSettings({ panelWidth })
+            .then(setSettings)
+            .catch(() => undefined);
         }}
       />
 

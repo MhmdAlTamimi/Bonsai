@@ -73,11 +73,15 @@ describe('PRD §2 — the demo script', () => {
 
     // ---- 2. Branch twice from master, two different approaches. ----
     const a = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'argparse',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'argparse',
       description: 'build the CLI on the stdlib argparse module',
     });
     const b = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'click',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'click',
       description: 'build the CLI on the click library',
     });
     assert.equal(store.getNode(a.nodeId)!.base_commit, masterCommit);
@@ -90,7 +94,9 @@ describe('PRD §2 — the demo script', () => {
 
     // ---- 3. An exploration on one of them: ask a question about the code. ----
     const e = await createChildNode(store, {
-      projectId, parentId: a.nodeId, displayName: 'why argparse?',
+      projectId,
+      parentId: a.nodeId,
+      displayName: 'why argparse?',
       description: 'how does the argument parsing handle subcommands?',
     });
     // §6.4 / D26: no branch, and a worktree detached at the parent's commit.
@@ -107,12 +113,17 @@ describe('PRD §2 — the demo script', () => {
     assert.equal(store.getNode(e.nodeId)!.head_commit, null);
     assert.equal(store.getNode(e.nodeId)!.branch_name, null);
     // D28: exploration nodes get no CONTEXT.md -- the one it wrote was reverted.
-    assert.equal(existsSync(join(store.getNode(e.nodeId)!.worktree_path, 'CONTEXT.md')), true,
-      "argparse's committed CONTEXT.md is inherited and must still be here");
+    assert.equal(
+      existsSync(join(store.getNode(e.nodeId)!.worktree_path, 'CONTEXT.md')),
+      true,
+      "argparse's committed CONTEXT.md is inherited and must still be here",
+    );
 
     // ---- 4. Spawn a child from that exploration node. ----
     const f = await createChildNode(store, {
-      projectId, parentId: e.nodeId, displayName: 'add --verbose',
+      projectId,
+      parentId: e.nodeId,
+      displayName: 'add --verbose',
       description: 'add a --verbose flag using the subcommand pattern discussed',
     });
     await run(f.nodeId, 'add the --verbose flag');
