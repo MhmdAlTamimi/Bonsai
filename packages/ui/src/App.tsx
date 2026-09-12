@@ -373,6 +373,13 @@ export function App(): JSX.Element {
             void api.listProjects().then(setProjects);
             void refresh(id);
           }}
+          onOpenExisting={(id, nodeId) => {
+            setStartMode(null);
+            setNoProjects(false);
+            setProjectId(id);
+            if (nodeId !== null) selection.select(nodeId);
+            void refresh(id);
+          }}
           {...(projects.length > 0
             ? {
                 onCancel: () => {

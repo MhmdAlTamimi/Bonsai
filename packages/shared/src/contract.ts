@@ -253,6 +253,20 @@ export interface AdoptProjectRequest {
   includeUncommitted?: boolean;
 }
 
+/**
+ * A folder that already belongs to a Bonsai project.
+ *
+ * Bonsai knows its own worktrees, so pointing the picker at one should produce
+ * a name and a way to open it rather than a sentence about git internals.
+ */
+export interface KnownFolderView {
+  projectId: string;
+  projectName: string;
+  /** Set when the folder is a specific node's worktree, rather than the project's. */
+  nodeId: string | null;
+  nodeName: string | null;
+}
+
 export interface DirectoryInspectionView {
   path: string;
   exists: boolean;
@@ -263,6 +277,8 @@ export interface DirectoryInspectionView {
   dirtyFiles: number;
   entryCount: number;
   blockedReason: string | null;
+  /** Non-null when this folder is already part of a project Bonsai is running. */
+  knownTo: KnownFolderView | null;
 }
 
 /** What deleting something would destroy, so the UI can say so before it does. */

@@ -20,11 +20,14 @@ import { DirectoryPicker } from './DirectoryPicker.tsx';
 export function NewProject({
   onCreated,
   onCancel,
+  onOpenExisting,
   initialMode = 'new',
 }: {
   onCreated: (id: string) => void;
   /** Only offered when there is a project to go back to. */
   onCancel?: () => void;
+  /** Jump to a folder that turns out to already be in Bonsai. */
+  onOpenExisting?: (projectId: string, nodeId: string | null) => void;
   initialMode?: 'new' | 'existing';
 }): JSX.Element {
   const [mode, setMode] = useState<'new' | 'existing'>(initialMode);
@@ -133,7 +136,7 @@ export function NewProject({
             Your existing branches are left alone and do not become nodes.
           </p>
           <DirectoryPicker value={folder} onChange={setFolder} markRepos />
-          <Inspected inspection={inspection} />
+          <Inspected inspection={inspection} onOpenExisting={onOpenExisting} />
 
           {inspection !== null && inspection.dirtyFiles > 0 && (
             <label>
@@ -190,8 +193,42 @@ export function NewProject({
 }
 
 /** Says plainly what Bonsai found, so nothing about the folder is a surprise. */
-function Inspected({ inspection }: { inspection: DirectoryInspectionView | null }): JSX.Element {
+function Inspected({
+  inspection,
+  onOpenExisting,
+}: {
+  inspection: DirectoryInspectionView | null;
+  onOpenExisting?: (projectId: string, nodeId: string | null) => void;
+}): JSX.Element {
   if (inspection === null) return <p className="hint">Choose a folder above.</p>;
+
+  // Bonsai's own folder. Not an error -- you found something real, it just
+  // already exists here, so the useful thing to offer is a way to it.
+  if (inspection.knownTo !== null) {
+    const { projectId, projectName, nodeId, nodeName } = inspection.knownTo;
+    return (
+      <div className="note">
+        <p>
+          This folder is{' '}
+          {nodeName === null ? (
+            <>
+              part of your project <strong>{projectName}</strong>
+            </>
+          ) : (
+            <>
+              the node <strong>{nodeName}</strong> in your project <strong>{projectName}</strong>
+            </>
+          )}
+          . It is already in Bonsai.
+        </p>
+        {onOpenExisting !== undefined && (
+          <button className="linkish" onClick={() => onOpenExisting(projectId, nodeId)}>
+            Open {nodeName ?? projectName}
+          </button>
+        )}
+      </div>
+    );
+  }
 
   if (inspection.blockedReason !== null) {
     return <p className="error">{inspection.blockedReason}</p>;

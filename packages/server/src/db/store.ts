@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import type {
   MessageView,
   NodeStatus,
@@ -613,6 +613,44 @@ export class Store {
     };
   }
 
+  /**
+   * Finds the project, and where possible the node, that owns a folder.
+   *
+   * Bonsai creates worktrees and then, later, has no idea what they are: point
+   * the folder picker at one and the only thing that answers is git, which
+   * replies with a sentence about linked worktrees and advice that leads to a
+   * bare repository nobody can adopt. The answer was in the database the whole
+   * time.
+   *
+   * Exact match first -- a node's worktree, or the repository itself -- then
+   * containment, which catches the scaffolding around them: the folder holding
+   * the bare repo, and the `worktrees/` directory between them.
+   */
+  findFolderOwner(path: string): { project: ProjectRow; node: NodeRow | null } | null {
+    const target = resolve(path);
+
+    for (const project of this.listProjects()) {
+      for (const node of this.listNodes(project.id)) {
+        if (resolve(node.worktree_path) === target) return { project, node };
+      }
+      if (resolve(project.repo_path) === target) return { project, node: null };
+      if (project.source_path !== null && resolve(project.source_path) === target) {
+        return { project, node: null };
+      }
+    }
+
+    // Nothing owns it outright; see whether it sits inside something that does.
+    // Only Bonsai's own directories count here -- an adopted project's folder
+    // is the user's, and a folder next to it is none of Bonsai's business.
+    for (const project of this.listProjects()) {
+      const scratch = this.projectScratchDir(project.id);
+      const bare = project.source_kind === 'adopted' ? scratch : dirname(project.repo_path);
+      if (isInside(bare, target) || isInside(scratch, target)) return { project, node: null };
+    }
+
+    return null;
+  }
+
   /** Whether a node's pinned base still agrees with a live walk. See lineage.ts. */
   baseDiverges(row: NodeRow): boolean {
     const lookup = lookupFrom(this.listNodes(row.project_id).map(toLineage));
@@ -635,4 +673,9 @@ export function toLineage(row: NodeRow): LineageNode {
     baseCommit: row.base_commit,
     headCommit: row.head_commit,
   };
+}
+
+function isInside(parent: string, child: string): boolean {
+  const p = resolve(parent);
+  return child === p || child.startsWith(p + sep);
 }
