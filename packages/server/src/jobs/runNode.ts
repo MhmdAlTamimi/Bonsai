@@ -564,13 +564,14 @@ export class RunJobs {
        * the no-change path, which would discard an edit of theirs.
        */
       const outcome = readOnly
-        ? { committed: false, commit: null, branch: null, changedPaths: [] }
+        ? { committed: false, commit: null, branch: null, changedPaths: [], stat: null }
         : await commitRunOutput({
             repoPath: project.repo_path,
             worktreePath: node.worktree_path,
             branchName: node.branch_name ?? branchNameFor(nodeId),
             message: commitMessageFor(node.display_name, node.description),
             fallbackContext: contextFallback(node.display_name, prompt),
+            baseCommit: node.base_commit,
           });
 
       const commitSha = outcome.commit;
@@ -593,6 +594,7 @@ export class RunJobs {
         toolsOffered,
         toolCalls,
         durationMs: Date.now() - startedAt,
+        stat: outcome.stat,
       });
       this.log.info('run.done', {
         runId,

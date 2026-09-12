@@ -156,6 +156,14 @@ CREATE TABLE IF NOT EXISTS run (
   -- approximately and only by whoever thinks to try.
   tool_calls            INTEGER NOT NULL DEFAULT 0,
   duration_ms           INTEGER,
+  -- How much this NODE has changed since its base, as of this run. Cumulative
+  -- rather than per-run, so the card needs no aggregation -- summing across
+  -- runs would count a file edited twice as two files. Measured once, at
+  -- commit time, because doing it while building the tree view would shell out
+  -- to git per node on every refetch.
+  stat_files            INTEGER,
+  stat_insertions       INTEGER,
+  stat_deletions        INTEGER,
   -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
   -- sixth node state.
   error         TEXT,

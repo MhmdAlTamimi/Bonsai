@@ -361,3 +361,135 @@ describe('git layer', () => {
     assert.equal(branches, 'master', 'only master should remain');
   });
 });
+
+/**
+ * What the node changed, as a number the card can show.
+ *
+ * Cumulative against the node's base rather than per run, which is the whole
+ * reason it can be shown without aggregating: summing "files changed" across
+ * runs counts a file edited twice as two files, and a card that says "4 files"
+ * about a two-file node is worse than a card that says nothing.
+ */
+describe('diff stats (2.3)', () => {
+  let root: string;
+  let db: DatabaseSync;
+  let store: Store;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'bonsai-stat-'));
+    db = openInMemory();
+    store = new Store(db, join(root, 'repos'));
+  });
+
+  afterEach(async () => {
+    db.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test('accumulate across runs instead of double-counting', async () => {
+    const project = await createProject(store, {
+      name: 'p',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const { nodeId } = await createChildNode(store, {
+      projectId: project.projectId,
+      parentId: project.masterNodeId,
+      displayName: 'child',
+      description: '',
+    });
+    const node = store.getNode(nodeId)!;
+    const repoPath = store.getProject(project.projectId)!.repo_path;
+
+    const commit = async (files: Record<string, string>) => {
+      for (const [path, content] of Object.entries(files)) {
+        await writeFile(join(node.worktree_path, path), content, 'utf8');
+      }
+      return commitRunOutput({
+        repoPath,
+        worktreePath: node.worktree_path,
+        branchName: branchNameFor(nodeId),
+        message: 'work',
+        baseCommit: node.base_commit,
+      });
+    };
+
+    const first = await commit({ 'a.txt': 'one\ntwo\n' });
+    assert.deepEqual(first.stat, { files: 1, insertions: 2, deletions: 0 });
+
+    // A second run edits the SAME file and adds another. Two files, not three.
+    const second = await commit({ 'a.txt': 'one\ntwo\nthree\n', 'b.txt': 'x\n' });
+    assert.deepEqual(second.stat, { files: 2, insertions: 4, deletions: 0 });
+  });
+
+  test('a run that commits nothing has no stat', async () => {
+    const project = await createProject(store, {
+      name: 'p',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const { nodeId } = await createChildNode(store, {
+      projectId: project.projectId,
+      parentId: project.masterNodeId,
+      displayName: 'question',
+      description: '',
+    });
+    const node = store.getNode(nodeId)!;
+
+    const outcome = await commitRunOutput({
+      repoPath: store.getProject(project.projectId)!.repo_path,
+      worktreePath: node.worktree_path,
+      branchName: branchNameFor(nodeId),
+      message: 'nothing',
+      baseCommit: node.base_commit,
+    });
+    assert.equal(outcome.committed, false);
+    // Null, not zeroes: the card shows nothing for a conversation-only node,
+    // because "0 files" reads as a failure rather than a normal outcome.
+    assert.equal(outcome.stat, null);
+  });
+
+  test('deletions against the base are counted as deletions', async () => {
+    // The lines have to exist in the BASE for removing them to be a deletion,
+    // so master writes the file first. A node that adds three lines and then
+    // trims to one has added one line, not removed two -- the earlier version
+    // of this test asserted the trim and proved nothing.
+    const project = await createProject(store, {
+      name: 'p',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const master = store.getNode(project.masterNodeId)!;
+    const repoPath = store.getProject(project.projectId)!.repo_path;
+
+    await writeFile(join(master.worktree_path, 'a.txt'), 'one\ntwo\nthree\n', 'utf8');
+    const seeded = await commitRunOutput({
+      repoPath,
+      worktreePath: master.worktree_path,
+      branchName: 'master',
+      message: 'seed',
+    });
+    store.recordCommit(project.masterNodeId, seeded.branch!, seeded.commit!);
+
+    const { nodeId } = await createChildNode(store, {
+      projectId: project.projectId,
+      parentId: project.masterNodeId,
+      displayName: 'trimmer',
+      description: '',
+    });
+    const node = store.getNode(nodeId)!;
+
+    await writeFile(join(node.worktree_path, 'a.txt'), 'one\n', 'utf8');
+    const outcome = await commitRunOutput({
+      repoPath,
+      worktreePath: node.worktree_path,
+      branchName: branchNameFor(nodeId),
+      message: 'trim',
+      baseCommit: node.base_commit,
+    });
+    assert.deepEqual(outcome.stat, { files: 1, insertions: 0, deletions: 2 });
+  });
+});

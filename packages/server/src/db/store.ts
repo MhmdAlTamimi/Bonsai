@@ -71,6 +71,8 @@ export interface RunTotals {
   apiKeySource?: string | null;
   /** The commit this run produced, if it produced one. */
   commitSha?: string | null;
+  /** The node's cumulative change against its base, as of this run. */
+  stat?: { files: number; insertions: number; deletions: number } | null;
   /** The tool names the agent was offered. See the schema for why it is kept. */
   toolsOffered?: readonly string[] | null;
   toolCalls?: number;
@@ -425,7 +427,8 @@ export class Store {
                         input_tokens = ?, output_tokens = ?,
                         cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
                         api_key_source = ?, commit_sha = ?, tools_offered = ?,
-                        tool_calls = ?, duration_ms = ?
+                        tool_calls = ?, duration_ms = ?, stat_files = ?,
+                        stat_insertions = ?, stat_deletions = ?
          WHERE id = ?`,
       )
       .run(
@@ -445,6 +448,9 @@ export class Store {
         totals.toolsOffered == null ? null : JSON.stringify(totals.toolsOffered),
         totals.toolCalls ?? 0,
         totals.durationMs ?? null,
+        totals.stat?.files ?? null,
+        totals.stat?.insertions ?? null,
+        totals.stat?.deletions ?? null,
         runId,
       );
   }
@@ -624,8 +630,46 @@ export class Store {
   // -- views ---------------------------------------------------------------
 
   /** Assembles NodeViews for a project, deriving every flag from the tree. */
+  /**
+   * The newest committed run's stat, per node, in one query.
+   *
+   * One query for the whole project rather than one per node: the tree view is
+   * rebuilt on every refetch, and every finished run triggers one.
+   */
+  private diffStats(
+    projectId: string,
+  ): Map<string, { files: number; added: number; removed: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.node_id, r.stat_files, r.stat_insertions, r.stat_deletions
+           FROM run r
+           JOIN node n ON n.id = r.node_id
+          WHERE n.project_id = ? AND r.stat_files IS NOT NULL
+          ORDER BY r.started_at ASC`,
+      )
+      .all(projectId) as unknown as Array<{
+      node_id: string;
+      stat_files: number;
+      stat_insertions: number;
+      stat_deletions: number;
+    }>;
+
+    // Ascending, so the last write per node wins: the stat is cumulative
+    // against the node's base, so the newest one is the whole story.
+    const out = new Map<string, { files: number; added: number; removed: number }>();
+    for (const r of rows) {
+      out.set(r.node_id, {
+        files: Number(r.stat_files),
+        added: Number(r.stat_insertions),
+        removed: Number(r.stat_deletions),
+      });
+    }
+    return out;
+  }
+
   treeView(projectId: string): NodeView[] {
     const project = this.getProject(projectId);
+    const stats = this.diffStats(projectId);
     const rows = this.listNodes(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
@@ -666,6 +710,7 @@ export class Store {
         pendingQuestion: question,
         positionX: row.position_x,
         positionY: row.position_y,
+        diffStat: stats.get(row.id) ?? null,
         costUsd: this.nodeCost(row.id),
         // Filled in by the router from the jobs runner. The store knows about
         // the tree, not about what this process happens to be doing with it.

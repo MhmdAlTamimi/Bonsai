@@ -227,6 +227,11 @@ export interface NodeView {
   pendingQuestion: { id: string; text: string } | null;
   positionX: number | null;
   positionY: number | null;
+  /**
+   * How much this node changed, against its base. Null when it has committed
+   * nothing -- which the card renders as nothing at all, rather than "0 files".
+   */
+  diffStat: { files: number; added: number; removed: number } | null;
   costUsd: number;
   /**
    * 1-based place in the queue when this node is waiting for a free slot, and

@@ -94,6 +94,15 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'node', 'setup_ran_at', 'TEXT');
     },
   },
+  {
+    version: 10,
+    name: 'run: how much the node has changed',
+    up: (db) => {
+      addColumn(db, 'run', 'stat_files', 'INTEGER');
+      addColumn(db, 'run', 'stat_insertions', 'INTEGER');
+      addColumn(db, 'run', 'stat_deletions', 'INTEGER');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

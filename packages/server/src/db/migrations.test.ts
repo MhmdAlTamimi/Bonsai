@@ -69,6 +69,9 @@ describe('schema migrations', () => {
       'tools_offered',
       'tool_calls',
       'duration_ms',
+      'stat_files',
+      'stat_insertions',
+      'stat_deletions',
     ]) {
       assert.ok(columns.includes(added), `missing ${added}`);
     }

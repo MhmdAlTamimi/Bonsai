@@ -136,6 +136,21 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 ) : (
                   <span className="pill">{STATUS_LABEL[data.status]}</span>
                 )}
+                {/*
+                 * The most informative fact available about a node, and the
+                 * card did not show it. Nothing at all for a node that
+                 * committed nothing -- "0 files" reads like a failure, when
+                 * a conversation-only node is a normal and useful outcome.
+                 */}
+                {data.diffStat !== null && (
+                  <span
+                    className="diffstat"
+                    title={`${data.diffStat.files} file${data.diffStat.files === 1 ? '' : 's'} changed since this node's base`}
+                  >
+                    {data.diffStat.files}f<span className="added"> +{data.diffStat.added}</span>
+                    <span className="removed"> −{data.diffStat.removed}</span>
+                  </span>
+                )}
                 {data.costUsd > 0 && <span className="cost">${data.costUsd.toFixed(3)}</span>}
               </div>
             </>

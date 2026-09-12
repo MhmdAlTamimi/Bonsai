@@ -81,6 +81,10 @@ body.resizing .panel-resizer { background: var(--accent); }
 }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .cost { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* What the node actually did: the most informative thing on the card. */
+.diffstat { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.diffstat .added { color: var(--ok); }
+.diffstat .removed { color: var(--err); }
 
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .status-ready .status-dot { background: var(--ok); }
