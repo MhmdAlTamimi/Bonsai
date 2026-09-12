@@ -36,6 +36,7 @@ export function Panel({
   const [childName, setChildName] = useState('');
   const [childDesc, setChildDesc] = useState('');
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setError(null);
@@ -148,6 +149,7 @@ export function Panel({
   };
 
   const runs = detail?.runs ?? [];
+  const latest = runs.at(-1);
 
   /**
    * Master of an adopted project: its worktree is the user's own folder, on the
@@ -223,9 +225,67 @@ export function Panel({
         </p>
       )}
 
+      {/*
+       * Above the conversation, because it is the answer to the question the
+       * whole node exists to settle -- "did this approach work?" -- and the
+       * point of the product is the moment you compare two of them.
+       *
+       * Deliberately the agent's own words, with no verdict extracted from
+       * them. Whether "3 of 14 tests fail" counts as working is a judgement
+       * about your project, and a green tick derived from prose would be a
+       * confident guess dressed as a fact. Anything unclear is a chat away.
+       */}
+      {(detail?.successCriteria != null || detail?.testingNotes != null) && (
+        <section className="checks">
+          <h3>Did it work?</h3>
+          {detail.successCriteria != null && (
+            <p className="hint">
+              Success looks like: <em>{detail.successCriteria}</em>
+            </p>
+          )}
+          {detail.testingNotes != null ? (
+            <pre className="stream">{detail.testingNotes}</pre>
+          ) : (
+            <p className="hint">
+              {node.status === 'running'
+                ? 'The run is still going.'
+                : node.hasCommits
+                  ? 'The agent left no testing notes for this run. Ask it what it checked.'
+                  : 'Nothing has been committed here yet, so there is nothing to check.'}
+            </p>
+          )}
+        </section>
+      )}
+
       <Chat node={node} runs={runs} live={stream} onChanged={onChanged} onError={setError} />
 
       {error !== null && <p className="error">{error}</p>}
+
+      {/*
+       * The payoff of adopting a folder: the branch is already in the user's
+       * own repository, so getting at it is one command where they already
+       * are. Shown for any node with commits.
+       */}
+      {detail?.checkoutCommand != null && (
+        <section>
+          <h3>Get this branch</h3>
+          <div className="row">
+            <code className="checkout">{detail.checkoutCommand}</code>
+            <button
+              className="linkish"
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(detail.checkoutCommand!)
+                  .then(() => setCopied(true))
+                  .catch(() => setError('Could not copy — select the command instead.'));
+              }}
+            >
+              {copied ? 'copied' : 'copy'}
+            </button>
+          </div>
+          {detail.checkoutHint != null && <p className="hint">{detail.checkoutHint}</p>}
+        </section>
+      )}
 
       <details className="disclosure">
         <summary>Details</summary>
@@ -248,6 +308,29 @@ export function Panel({
             <dt>runs</dt>
             <dd>{runs.length}</dd>
           </div>
+          {/* What 1.4 started capturing, made visible: the agent's behaviour
+              becomes legible rather than magic. Read occasionally, so it lives
+              in here next to cost and tokens rather than on the surface. */}
+          {latest !== undefined && (
+            <>
+              <div>
+                <dt>last run</dt>
+                <dd>
+                  {latest.durationMs === null ? '—' : `${(latest.durationMs / 1000).toFixed(1)}s`}
+                  {latest.toolCalls > 0 &&
+                    `, ${latest.toolCalls} tool call${latest.toolCalls === 1 ? '' : 's'}`}
+                </dd>
+              </div>
+              <div>
+                <dt>tools</dt>
+                <dd title={latest.toolsOffered?.join(', ') ?? undefined}>
+                  {latest.toolsOffered === null
+                    ? 'not recorded'
+                    : `${latest.toolsOffered.length} offered — ${latest.toolsOffered.slice(0, 6).join(', ')}${latest.toolsOffered.length > 6 ? '…' : ''}`}
+                </dd>
+              </div>
+            </>
+          )}
           <Cost node={node} runs={runs} />
         </dl>
         {detail?.contextMd != null && (

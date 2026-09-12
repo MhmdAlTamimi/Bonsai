@@ -54,6 +54,13 @@ describe('schema migrations', () => {
     const columns = (
       db.prepare(`PRAGMA table_info(run)`).all() as unknown as Array<{ name: string }>
     ).map((c) => c.name);
+    const nodeColumns = (
+      db.prepare(`PRAGMA table_info(node)`).all() as unknown as Array<{ name: string }>
+    ).map((c) => c.name);
+    for (const added of ['success_criteria', 'verification_hint']) {
+      assert.ok(nodeColumns.includes(added), `missing node.${added}`);
+    }
+
     for (const added of [
       'model',
       'cache_read_tokens',
@@ -62,6 +69,9 @@ describe('schema migrations', () => {
       'tools_offered',
       'tool_calls',
       'duration_ms',
+      'stat_files',
+      'stat_insertions',
+      'stat_deletions',
     ]) {
       assert.ok(columns.includes(added), `missing ${added}`);
     }

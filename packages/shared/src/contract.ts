@@ -166,6 +166,7 @@ export interface ProjectView {
    * was recorded.
    */
   sourcePath: string | null;
+  setup: ProjectSetupView;
   /** Estimated total across every run in the tree, at API list price. */
   costUsd: number;
   createdAt: string;
@@ -174,6 +175,21 @@ export interface ProjectView {
 export interface UpdateProjectRequest {
   model?: string | null;
   effort?: string | null;
+  /** Paths relative to the project folder. Validated; see the response. */
+  copyFiles?: string[];
+  setupCommand?: string | null;
+}
+
+/**
+ * Per-project, not per-app, because the answer is a property of the project.
+ * One needs `uv sync`, the next needs `npm install`, and a single global
+ * setting would be wrong for every project but the one it was typed for.
+ */
+export interface ProjectSetupView {
+  /** Copied into each new node's worktree. Empty is normal and fine. */
+  copyFiles: string[];
+  /** Run once in a new node's folder before its first agent run. */
+  setupCommand: string | null;
 }
 
 /**
@@ -211,6 +227,11 @@ export interface NodeView {
   pendingQuestion: { id: string; text: string } | null;
   positionX: number | null;
   positionY: number | null;
+  /**
+   * How much this node changed, against its base. Null when it has committed
+   * nothing -- which the card renders as nothing at all, rather than "0 files".
+   */
+  diffStat: { files: number; added: number; removed: number } | null;
   costUsd: number;
   /**
    * 1-based place in the queue when this node is waiting for a free slot, and
@@ -286,6 +307,31 @@ export interface MessageView {
 export interface NodeDetail {
   node: NodeView;
   runs: RunView[];
+  /**
+   * A shell command that puts this node's branch in front of the user, ready
+   * to copy. Null for a node that has committed nothing, since there is no
+   * branch yet.
+   *
+   * A ready-made STRING rather than a branch name, deliberately: NodeView and
+   * NodeDetail carry nothing git-shaped, so the interface cannot misuse a ref
+   * or a path it was never given. It also lets the command differ by project
+   * kind without the interface knowing that projects have kinds.
+   */
+  checkoutCommand: string | null;
+  /** Where to run it, in words. */
+  checkoutHint: string | null;
+  /** What the user said success looks like, as they wrote it. */
+  successCriteria: string | null;
+  verificationHint: string | null;
+  /**
+   * The `## Testing` section the agent wrote into CONTEXT.md, on its own.
+   *
+   * Split out because it is the answer to the question this whole feature
+   * exists for, and burying it in the middle of a file behind a disclosure
+   * would waste it. Null when the agent wrote no such section -- which is
+   * normal for a conversation-only node, since it changed nothing to test.
+   */
+  testingNotes: string | null;
   /** D22: a human-readable record shown in the panel. Null until a run commits one. */
   contextMd: string | null;
   /**
@@ -379,6 +425,15 @@ export interface CreateNodeRequest {
   description: string;
   model?: string | null;
   permissionMode?: PermissionMode;
+  /**
+   * "What should be true when this works?" and "How should the agent check it?"
+   *
+   * Both optional, and nothing is gated on them: empty means exactly the
+   * behaviour that existed before they did. Asked here rather than afterwards
+   * because node creation is the one moment the answer is actually known.
+   */
+  successCriteria?: string;
+  verificationHint?: string;
 }
 
 export interface UpdateNodeRequest {

@@ -237,3 +237,100 @@ describe('session inheritance (D16)', () => {
     assert.equal(store.getNode(masterNodeId)!.head_commit, before, 'frozen node must not advance');
   });
 });
+
+/**
+ * The definition of done reaching the agent.
+ *
+ * Asserted at the pipeline rather than in the SDK runner because that is where
+ * it could go missing: the criteria live on the NODE, and the easy mistake is
+ * to send them only on the run that created it. A later message ("actually use
+ * a set here") must not quietly drop the definition of done.
+ */
+describe('success criteria (2.1)', () => {
+  let root: string;
+  let db: DatabaseSync;
+  let store: Store;
+  let jobs: RunJobs;
+  let runner: RecordingRunner;
+  let projectId: string;
+  let masterId: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'bonsai-criteria-'));
+    db = openInMemory();
+    store = new Store(db, join(root, 'repos'));
+    runner = new RecordingRunner();
+    jobs = new RunJobs(store, new EventBus(), runner);
+    const created = await createProject(store, {
+      name: 'p',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    projectId = created.projectId;
+    masterId = created.masterNodeId;
+  });
+
+  afterEach(async () => {
+    await jobs.drain();
+    db.close();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 300 && jobs.activeCount() > 0; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  test('travel with every run of the node, not just the first', async () => {
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterId,
+      displayName: 'fast search',
+      description: 'make search fast',
+      successCriteria: 'the /search endpoint answers in under 100ms',
+      verificationHint: 'pytest tests/test_search.py',
+    });
+
+    jobs.start(nodeId, 'do it');
+    await settle();
+    jobs.start(nodeId, 'actually, use a set');
+    await settle();
+
+    assert.equal(runner.specs.length, 2);
+    for (const spec of runner.specs) {
+      assert.equal(spec.successCriteria, 'the /search endpoint answers in under 100ms');
+      assert.equal(spec.verificationHint, 'pytest tests/test_search.py');
+    }
+  });
+
+  test('a node created without them is unchanged', async () => {
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterId,
+      displayName: 'plain',
+      description: 'just do a thing',
+    });
+    jobs.start(nodeId, 'go');
+    await settle();
+
+    // Null, not empty string: nothing downstream should have to guess whether
+    // '' means "no answer" or "the answer is nothing".
+    assert.equal(runner.specs[0]!.successCriteria, null);
+    assert.equal(runner.specs[0]!.verificationHint, null);
+  });
+
+  test('whitespace-only answers count as no answer', async () => {
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterId,
+      displayName: 'blank',
+      description: 'x',
+      successCriteria: '   ',
+      verificationHint: '\n',
+    });
+    assert.equal(store.getNode(nodeId)!.success_criteria, null);
+    assert.equal(store.getNode(nodeId)!.verification_hint, null);
+  });
+});

@@ -181,6 +181,33 @@ function Message({ message }: { message: MessageView }): JSX.Element {
 }
 
 /** What one exchange produced: its diff, expandable in place. */
+/**
+ * How long it took and how much the agent did, next to each reply.
+ *
+ * A product feature as much as a debugging one: an agent that thinks for
+ * ninety seconds and makes two tool calls is doing something different from
+ * one that makes forty, and neither was visible. The tool list matters most
+ * when it is short -- a run that had no Write tool explains itself instantly.
+ */
+function RunInternals({ run }: { run: RunView }): JSX.Element | null {
+  if (run.durationMs === null && run.toolCalls === 0) return null;
+  const seconds = run.durationMs === null ? null : (run.durationMs / 1000).toFixed(1);
+  return (
+    <span
+      className="run-internals"
+      title={
+        run.toolsOffered === null
+          ? 'The tools this run was offered were not recorded.'
+          : `Tools available to this run: ${run.toolsOffered.join(', ')}`
+      }
+    >
+      {seconds !== null && `${seconds}s`}
+      {run.toolCalls > 0 && ` · ${run.toolCalls} tool call${run.toolCalls === 1 ? '' : 's'}`}
+      {run.toolsOffered !== null && ` · ${run.toolsOffered.length} tools available`}
+    </span>
+  );
+}
+
 function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
   const [diff, setDiff] = useState<DiffView | null>(null);
   const [open, setOpen] = useState(false);
@@ -214,6 +241,7 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
         title="This reply answered without editing files, so it added no commit."
       >
         answered · no commit
+        <RunInternals run={run} />
       </div>
     );
   }
@@ -223,6 +251,7 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
       <button className="linkish" onClick={() => setOpen((v) => !v)}>
         {open ? '▾' : '▸'} {diff === null ? 'show changes' : `${diff.files.length} file(s) changed`}
       </button>
+      <RunInternals run={run} />
       {open && diff !== null && (
         <>
           <div className="diff-files">{diff.files.join(', ')}</div>

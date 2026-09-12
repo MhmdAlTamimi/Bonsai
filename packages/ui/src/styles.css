@@ -81,6 +81,10 @@ body.resizing .panel-resizer { background: var(--accent); }
 }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .cost { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* What the node actually did: the most informative thing on the card. */
+.diffstat { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.diffstat .added { color: var(--ok); }
+.diffstat .removed { color: var(--err); }
 
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
 .status-ready .status-dot { background: var(--ok); }
@@ -475,3 +479,16 @@ button.stop:hover { background: var(--err); color: var(--bg); }
 /* A node waiting for a slot. Not a status -- there are five and this is not
    one of them -- just the one visible difference from a node that is running. */
 .pill.queued { border-color: var(--accent); color: var(--accent); }
+
+/* "Did it work?" -- the answer the whole node exists to settle, so it sits
+   above the conversation rather than behind the details disclosure. */
+.checks { gap: 6px; }
+.checks .stream { min-height: 0; max-height: 200px; }
+
+/* The one command that gets a node's work into a terminal. */
+.checkout {
+  flex: 1; overflow-x: auto; white-space: nowrap;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 4px;
+  padding: 4px 7px; font: 11px ui-monospace, SFMono-Regular, monospace;
+}
+.run-internals { color: var(--muted); font-size: 10px; margin-left: 8px; cursor: help; }

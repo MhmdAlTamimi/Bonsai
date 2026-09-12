@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS project (
   -- The branch that was already checked out when the project was adopted.
   -- Bonsai must never delete it: it is the user's own branch, not a node/<uuid>.
   protected_branch        TEXT,
+  -- Files to copy into each new node's worktree, as a JSON array of paths
+  -- relative to the project folder. `git worktree add` checks out tracked
+  -- files only, so anything gitignored -- .env above all -- is missing from
+  -- every node until it is put there.
+  copy_files              TEXT,
+  -- Run once in a new node's folder before its first agent run: npm install,
+  -- uv sync, whatever this project needs. Dependencies are regenerated rather
+  -- than copied because copying them is either enormous or, for a virtualenv,
+  -- actively broken.
+  setup_command           TEXT,
   created_at              TEXT NOT NULL
 );
 
@@ -67,6 +77,19 @@ CREATE TABLE IF NOT EXISTS node (
   model           TEXT,
   permission_mode TEXT,
   -- Nullable, auto-layout by default (PRD §9).
+  -- What the user said success looks like, captured when they created the node
+  -- -- the one moment they actually know. Both optional; empty means the node
+  -- behaves exactly as nodes did before these existed.
+  --
+  -- Sent to the agent on every run of this node, which is why they live on the
+  -- node rather than on a run: the answer to "did this work" should not change
+  -- depending on which message you happened to send.
+  success_criteria TEXT,
+  verification_hint TEXT,
+  -- When the project's setup command last completed here. Null means it has
+  -- not run, which is what makes "run it once, before the first agent run"
+  -- survive a restart in the middle.
+  setup_ran_at  TEXT,
   position_x    REAL,
   position_y    REAL,
   created_at    TEXT NOT NULL,
@@ -133,6 +156,14 @@ CREATE TABLE IF NOT EXISTS run (
   -- approximately and only by whoever thinks to try.
   tool_calls            INTEGER NOT NULL DEFAULT 0,
   duration_ms           INTEGER,
+  -- How much this NODE has changed since its base, as of this run. Cumulative
+  -- rather than per-run, so the card needs no aggregation -- summing across
+  -- runs would count a file edited twice as two files. Measured once, at
+  -- commit time, because doing it while building the tree view would shell out
+  -- to git per node on every refetch.
+  stat_files            INTEGER,
+  stat_insertions       INTEGER,
+  stat_deletions        INTEGER,
   -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
   -- sixth node state.
   error         TEXT,

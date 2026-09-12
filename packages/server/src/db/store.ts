@@ -33,6 +33,9 @@ export interface NodeRow {
   status: NodeStatus;
   model: string | null;
   permission_mode: PermissionMode | null;
+  success_criteria: string | null;
+  verification_hint: string | null;
+  setup_ran_at: string | null;
   position_x: number | null;
   position_y: number | null;
   created_at: string;
@@ -49,6 +52,8 @@ export interface ProjectRow {
   source_kind: 'created' | 'adopted';
   source_path: string | null;
   protected_branch: string | null;
+  copy_files: string | null;
+  setup_command: string | null;
   created_at: string;
 }
 
@@ -66,6 +71,8 @@ export interface RunTotals {
   apiKeySource?: string | null;
   /** The commit this run produced, if it produced one. */
   commitSha?: string | null;
+  /** The node's cumulative change against its base, as of this run. */
+  stat?: { files: number; insertions: number; deletions: number } | null;
   /** The tool names the agent was offered. See the schema for why it is kept. */
   toolsOffered?: readonly string[] | null;
   toolCalls?: number;
@@ -101,14 +108,19 @@ export class Store {
       source_kind: input.adopt === undefined ? 'created' : 'adopted',
       source_path: input.adopt?.sourcePath ?? null,
       protected_branch: input.adopt?.protectedBranch ?? null,
+      // `.env` by default because it is the file whose absence breaks a node
+      // most often and most confusingly: the app simply will not start.
+      copy_files: JSON.stringify(['.env']),
+      setup_command: null,
       created_at: now(),
     };
     this.db
       .prepare(
         `INSERT INTO project (id, name, description, repo_path, default_model,
                               default_permission_mode, default_effort, source_kind,
-                              source_path, protected_branch, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              source_path, protected_branch, copy_files, setup_command,
+                              created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -121,6 +133,8 @@ export class Store {
         row.source_kind,
         row.source_path,
         row.protected_branch,
+        row.copy_files,
+        row.setup_command,
         row.created_at,
       );
     return row;
@@ -153,6 +167,29 @@ export class Store {
    */
   setProjectSourcePath(id: string, path: string): void {
     this.db.prepare(`UPDATE project SET source_path = ? WHERE id = ?`).run(path, id);
+  }
+
+  /** What a new node's worktree needs before the agent arrives. */
+  updateProjectSetup(
+    id: string,
+    patch: { copyFiles?: readonly string[]; setupCommand?: string | null },
+  ): void {
+    if (patch.copyFiles !== undefined) {
+      this.db
+        .prepare(`UPDATE project SET copy_files = ? WHERE id = ?`)
+        .run(JSON.stringify(patch.copyFiles), id);
+    }
+    if (patch.setupCommand !== undefined) {
+      const value = patch.setupCommand === null ? null : patch.setupCommand.trim();
+      this.db
+        .prepare(`UPDATE project SET setup_command = ? WHERE id = ?`)
+        .run(value === '' ? null : value, id);
+    }
+  }
+
+  /** Records that the setup command has run here, so it runs exactly once. */
+  markSetupRan(nodeId: string): void {
+    this.db.prepare(`UPDATE node SET setup_ran_at = ? WHERE id = ?`).run(now(), nodeId);
   }
 
   /** D32: the model and effort a project's runs use. Changing them is not a
@@ -206,6 +243,9 @@ export class Store {
     rootBranchName?: string;
     /** Master of an adopted project: its worktree IS the user's directory. */
     worktreePath?: string;
+    /** Optional, and nothing depends on them being set. See the schema. */
+    successCriteria?: string | null;
+    verificationHint?: string | null;
   }): NodeRow {
     const id = randomUUID();
 
@@ -241,6 +281,9 @@ export class Store {
       status: 'new',
       model: input.model ?? null,
       permission_mode: input.permissionMode ?? null,
+      success_criteria: blankToNull(input.successCriteria),
+      verification_hint: blankToNull(input.verificationHint),
+      setup_ran_at: null,
       position_x: null,
       position_y: null,
       created_at: now(),
@@ -251,8 +294,9 @@ export class Store {
         `INSERT INTO node (id, project_id, parent_id, display_name, description,
                            session_id, forked_from_message_seq, branch_name,
                            base_commit, head_commit, worktree_path, status, model,
-                           permission_mode, position_x, position_y, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           permission_mode, success_criteria, verification_hint,
+                           position_x, position_y, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -269,6 +313,8 @@ export class Store {
         row.status,
         row.model,
         row.permission_mode,
+        row.success_criteria,
+        row.verification_hint,
         row.position_x,
         row.position_y,
         row.created_at,
@@ -381,7 +427,8 @@ export class Store {
                         input_tokens = ?, output_tokens = ?,
                         cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
                         api_key_source = ?, commit_sha = ?, tools_offered = ?,
-                        tool_calls = ?, duration_ms = ?
+                        tool_calls = ?, duration_ms = ?, stat_files = ?,
+                        stat_insertions = ?, stat_deletions = ?
          WHERE id = ?`,
       )
       .run(
@@ -401,6 +448,9 @@ export class Store {
         totals.toolsOffered == null ? null : JSON.stringify(totals.toolsOffered),
         totals.toolCalls ?? 0,
         totals.durationMs ?? null,
+        totals.stat?.files ?? null,
+        totals.stat?.insertions ?? null,
+        totals.stat?.deletions ?? null,
         runId,
       );
   }
@@ -580,8 +630,46 @@ export class Store {
   // -- views ---------------------------------------------------------------
 
   /** Assembles NodeViews for a project, deriving every flag from the tree. */
+  /**
+   * The newest committed run's stat, per node, in one query.
+   *
+   * One query for the whole project rather than one per node: the tree view is
+   * rebuilt on every refetch, and every finished run triggers one.
+   */
+  private diffStats(
+    projectId: string,
+  ): Map<string, { files: number; added: number; removed: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.node_id, r.stat_files, r.stat_insertions, r.stat_deletions
+           FROM run r
+           JOIN node n ON n.id = r.node_id
+          WHERE n.project_id = ? AND r.stat_files IS NOT NULL
+          ORDER BY r.started_at ASC`,
+      )
+      .all(projectId) as unknown as Array<{
+      node_id: string;
+      stat_files: number;
+      stat_insertions: number;
+      stat_deletions: number;
+    }>;
+
+    // Ascending, so the last write per node wins: the stat is cumulative
+    // against the node's base, so the newest one is the whole story.
+    const out = new Map<string, { files: number; added: number; removed: number }>();
+    for (const r of rows) {
+      out.set(r.node_id, {
+        files: Number(r.stat_files),
+        added: Number(r.stat_insertions),
+        removed: Number(r.stat_deletions),
+      });
+    }
+    return out;
+  }
+
   treeView(projectId: string): NodeView[] {
     const project = this.getProject(projectId);
+    const stats = this.diffStats(projectId);
     const rows = this.listNodes(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
@@ -622,6 +710,7 @@ export class Store {
         pendingQuestion: question,
         positionX: row.position_x,
         positionY: row.position_y,
+        diffStat: stats.get(row.id) ?? null,
         costUsd: this.nodeCost(row.id),
         // Filled in by the router from the jobs runner. The store knows about
         // the tree, not about what this process happens to be doing with it.
@@ -641,6 +730,10 @@ export class Store {
       defaultEffort: row.default_effort,
       sourceKind: row.source_kind,
       sourcePath: row.source_path,
+      setup: {
+        copyFiles: parseStringArray(row.copy_files) ?? [],
+        setupCommand: row.setup_command,
+      },
       costUsd: this.projectCost(row.id),
       createdAt: row.created_at,
     };
@@ -703,6 +796,24 @@ export function toLineage(row: NodeRow): LineageNode {
     baseCommit: row.base_commit,
     headCommit: row.head_commit,
   };
+}
+
+/** An untouched optional field and an empty one mean the same thing: absent. */
+function blankToNull(value: string | null | undefined): string | null {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+/** Shared by the tool list and the copy-files list; both are JSON arrays. */
+function parseStringArray(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Tolerant on purpose: a malformed row should not break the whole panel. */

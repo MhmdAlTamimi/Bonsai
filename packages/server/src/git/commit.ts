@@ -13,6 +13,21 @@ export interface CommitOutcome {
   branch: string | null;
   /** Paths the run touched, excluding CONTEXT.md. */
   changedPaths: string[];
+  /**
+   * How much this NODE has changed since its base, not how much this run did.
+   *
+   * Cumulative on purpose: it is the number the card should show ("what did
+   * this node do"), it matches the diff the panel already displays, and it
+   * needs no aggregation across runs -- which would double-count a file edited
+   * twice. Null when the run committed nothing.
+   */
+  stat: DiffStat | null;
+}
+
+export interface DiffStat {
+  files: number;
+  insertions: number;
+  deletions: number;
 }
 
 /**
@@ -41,6 +56,8 @@ export async function commitRunOutput(opts: {
   message: string;
   /** Written as CONTEXT.md if the run changed files and the agent wrote none. */
   fallbackContext?: string;
+  /** The node's pinned base, to measure the cumulative change against. */
+  baseCommit?: string | null;
 }): Promise<CommitOutcome> {
   const { worktreePath, branchName, message } = opts;
 
@@ -49,7 +66,7 @@ export async function commitRunOutput(opts: {
 
   if (changed.length === 0) {
     await revertContextFile(worktreePath, entries);
-    return { committed: false, commit: null, branch: null, changedPaths: [] };
+    return { committed: false, commit: null, branch: null, changedPaths: [], stat: null };
   }
 
   /**
@@ -81,12 +98,42 @@ export async function commitRunOutput(opts: {
   await git(['add', '-A'], worktreePath);
   await git(['commit', '-m', message], worktreePath);
 
+  const commit = await gitLine(['rev-parse', 'HEAD'], worktreePath);
+
   return {
     committed: true,
-    commit: await gitLine(['rev-parse', 'HEAD'], worktreePath),
+    commit,
     branch: branchName,
     changedPaths: changed.map((e) => e.path).sort(),
+    // Measured HERE, once, while git is already open on this worktree. Doing
+    // it while building the tree view would mean shelling out per node on
+    // every refetch, which happens after every run of every sibling.
+    stat: opts.baseCommit == null ? null : await diffStat(worktreePath, opts.baseCommit, commit),
   };
+}
+
+/**
+ * `--numstat` rather than `--shortstat`, because shortstat's output is prose
+ * ("2 files changed, 8 insertions(+)") with pluralisation and omitted clauses,
+ * and parsing prose to get three integers is how a display quietly starts
+ * showing zeros.
+ */
+export async function diffStat(cwd: string, from: string, to: string): Promise<DiffStat> {
+  const out = await git(['diff', '--numstat', `${from}..${to}`], cwd);
+  let files = 0;
+  let insertions = 0;
+  let deletions = 0;
+
+  for (const line of out.split('\n')) {
+    if (line.trim() === '') continue;
+    const [added, removed] = line.split('\t');
+    files += 1;
+    // A binary file reports '-' for both. Counted as a changed file, which is
+    // true, with no line counts, which is also true.
+    insertions += Number(added) || 0;
+    deletions += Number(removed) || 0;
+  }
+  return { files, insertions, deletions };
 }
 
 /**

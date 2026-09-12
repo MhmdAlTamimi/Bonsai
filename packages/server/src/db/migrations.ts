@@ -77,6 +77,32 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'run', 'duration_ms', 'INTEGER');
     },
   },
+  {
+    version: 8,
+    name: 'node: what success looks like',
+    up: (db) => {
+      addColumn(db, 'node', 'success_criteria', 'TEXT');
+      addColumn(db, 'node', 'verification_hint', 'TEXT');
+    },
+  },
+  {
+    version: 9,
+    name: 'project: what a new node needs before the agent arrives',
+    up: (db) => {
+      addColumn(db, 'project', 'copy_files', 'TEXT');
+      addColumn(db, 'project', 'setup_command', 'TEXT');
+      addColumn(db, 'node', 'setup_ran_at', 'TEXT');
+    },
+  },
+  {
+    version: 10,
+    name: 'run: how much the node has changed',
+    up: (db) => {
+      addColumn(db, 'run', 'stat_files', 'INTEGER');
+      addColumn(db, 'run', 'stat_insertions', 'INTEGER');
+      addColumn(db, 'run', 'stat_deletions', 'INTEGER');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

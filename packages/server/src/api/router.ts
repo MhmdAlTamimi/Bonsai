@@ -31,10 +31,12 @@ import {
 import { nodeDiff, runDiff } from '../git/diff.js';
 import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
+import { rejectPath } from '../git/seedWorktree.js';
+import { checkoutFor } from './checkout.js';
 import { discardWorktreeChanges } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
-import { readContextFile } from '../git/context.js';
+import { readContextFile, testingSection } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
 import { FileLogger, type Logger } from '../log.js';
 
@@ -325,6 +327,33 @@ route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => 
     ...(body.model !== undefined ? { model: body.model } : {}),
     ...(body.effort !== undefined ? { effort: body.effort } : {}),
   });
+
+  if (body.copyFiles !== undefined) {
+    /**
+     * Refused here rather than at node creation.
+     *
+     * A path that can never be copied -- node_modules, an absolute path, one
+     * that escapes the project -- would otherwise be accepted silently and
+     * fail on every node from then on, in a place nobody is looking. Told now,
+     * while the user is looking at the field they just typed it into.
+     *
+     * The tracked-file check is NOT done here: whether a file is tracked is a
+     * fact about the repository that can change after this is saved, so it is
+     * enforced at copy time and reported with the node.
+     */
+    const bad = body.copyFiles
+      .map((path) => ({ path, reason: rejectPath(path) }))
+      .filter((entry): entry is { path: string; reason: string } => entry.reason !== null);
+    if (bad.length > 0) {
+      throw new HttpError(400, bad.map((b) => `${b.path}: ${b.reason}`).join('; '));
+    }
+    store.updateProjectSetup(project.id, {
+      copyFiles: body.copyFiles.map((p) => p.trim()).filter((p) => p !== ''),
+    });
+  }
+  if (body.setupCommand !== undefined) {
+    store.updateProjectSetup(project.id, { setupCommand: body.setupCommand });
+  }
   bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
   sendJson(res, 200, store.projectView(store.getProject(project.id)!));
 });
@@ -361,21 +390,40 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   // is legal and normal -- freezing constrains what the *parent* may do next,
   // and it is checked at run start rather than continuously.
 
-  const { nodeId } = await createChildNode(store, {
+  const created = await createChildNode(store, {
     projectId,
     parentId,
     displayName: requireString(body.displayName, 'displayName'),
     description: typeof body.description === 'string' ? body.description : '',
     model: body.model ?? null,
     permissionMode: body.permissionMode ?? null,
+    // Optional, and deliberately not validated into existence: an empty answer
+    // means the node behaves exactly as nodes did before these were asked.
+    successCriteria: typeof body.successCriteria === 'string' ? body.successCriteria : null,
+    verificationHint: typeof body.verificationHint === 'string' ? body.verificationHint : null,
   });
 
   bus.publish(projectId, { type: 'tree.updated', projectId });
+
+  // A file that could not be copied is told at the node it affects, not
+  // buried in a log: a node missing its .env will fail its checks later for a
+  // reason that has nothing to do with the code.
+  for (const outcome of created.seeded) {
+    if (outcome.copied) continue;
+    store.appendMessage({
+      nodeId: created.nodeId,
+      runId: null,
+      role: 'system',
+      kind: 'text',
+      content: `Could not copy ${outcome.path} into this node: ${outcome.reason ?? 'unknown reason'}`,
+    });
+  }
+
   // §6.2: the user stays on the canvas and the node appears immediately. The
   // run is started separately until M3 so the git layer can be driven on its
   // own; `new` is the brief window the state was kept for.
   sendJson(res, 201, {
-    node: withQueue(jobs, store.treeView(projectId)).find((n) => n.id === nodeId),
+    node: withQueue(jobs, store.treeView(projectId)).find((n) => n.id === created.nodeId),
   });
 });
 
@@ -383,10 +431,18 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const view = withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
+  const contextMd = await readContextFile(row.worktree_path);
+  const project = store.getProject(row.project_id);
+  const checkout = checkoutFor(project, row);
   const body: NodeDetail = {
     node: view,
     runs: store.listRuns(row.id),
-    contextMd: await readContextFile(row.worktree_path),
+    checkoutCommand: checkout?.command ?? null,
+    checkoutHint: checkout?.hint ?? null,
+    successCriteria: row.success_criteria,
+    verificationHint: row.verification_hint,
+    testingNotes: testingSection(contextMd),
+    contextMd,
     baseIsPinnedBehindLiveWalk: store.baseDiverges(row),
   };
   sendJson(res, 200, body);

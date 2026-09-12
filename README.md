@@ -39,6 +39,43 @@ back `interrupted` with its partial work intact, and resume tells the agent what
 actually landed rather than letting it guess. Routes whose milestone has not arrived
 return `501` naming the milestone rather than silently doing nothing.
 
+### Which one worked?
+
+Recording two approaches is half a tool. The half that matters is picking one,
+so a node can carry a definition of done — asked when you create it, which is
+the one moment you know the answer:
+
+- **What should be true when this works?**
+- **How should the agent check it?**
+
+Both are optional and nothing is gated on them; leave them empty and a node
+behaves exactly as it did before they existed. Answer them and they travel with
+every run on that node, the agent runs the check itself, and it writes what
+happened into a `## Testing` section of `CONTEXT.md` — the command it ran and
+what that command printed. The panel shows it above the conversation.
+
+There is no verdict field and no pass/fail flag, deliberately. Whether "11 of
+14 tests pass" counts as working is a judgement about your project, and a green
+tick derived from prose would be a confident guess dressed up as a fact.
+
+For any of that to be possible, a node's folder has to be able to run your
+project. `git worktree add` checks out tracked files only, so a fresh node has
+no `.env`, no `node_modules` and no virtualenv. Two per-project settings fix it:
+
+- **Files to copy in** — copied, never linked, and a file git *tracks* is
+  refused, because Bonsai commits with `git add -A` and copying a tracked
+  `.env` would commit your secrets to the node's branch.
+- **A setup command** — `npm install`, `uv sync`, whatever the project needs.
+  Run once in the new folder, to completion, before the agent's first message.
+  Dependencies are regenerated rather than copied: `node_modules` is enormous
+  per node, and a virtualenv bakes in absolute paths and breaks when moved.
+
+When you have picked a winner, the panel gives you the command to get it:
+
+```bash
+git switch -c subtract node/73cf4a18-…    # in an adopted project, in your own folder
+```
+
 ### Two ways to start a project
 
 **New project** builds a fresh repository in a folder you pick. Bonsai owns all
@@ -186,7 +223,7 @@ npm test          # build, typecheck, lint, format check, then the unit tests
 npm run test:e2e  # one browser pass; needs a built interface and a Chromium
 ```
 
-105 tests, no network and no agent — they run the same with or without
+130 tests, no network and no agent — they run the same with or without
 credentials, and never spend anything. The last of them is the §2 demo script
 itself, run against real git from project creation to the five-node tree. Roughly half are pure unit tests over
 `domain/lineage.ts` — the nearest-ancestor-commit walk. The rest are integration

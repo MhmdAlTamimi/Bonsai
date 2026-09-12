@@ -162,7 +162,13 @@ export const api = {
 
   createNode: (
     projectId: string,
-    body: { parentId: string; displayName: string; description: string },
+    body: {
+      parentId: string;
+      displayName: string;
+      description: string;
+      successCriteria?: string;
+      verificationHint?: string;
+    },
   ) =>
     json<{ node: NodeView }>(`/api/projects/${projectId}/nodes`, {
       method: 'POST',
