@@ -1,5 +1,5 @@
 import { type JSX, useState } from 'react';
-import { EFFORTS, type ConnectionStatus, type SettingsView } from '@bonsai/shared';
+import { CONCURRENCY, EFFORTS, type ConnectionStatus, type SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { useEscape } from '../useEscape.ts';
 
@@ -200,9 +200,25 @@ export function SettingsDialog({
               ))}
             </select>
           </label>
+          <label>
+            Run at most
+            <select
+              value={settings.maxConcurrentRuns}
+              disabled={busy}
+              onChange={(e) => void save({ maxConcurrentRuns: Number(e.target.value) })}
+            >
+              {Array.from({ length: CONCURRENCY.max - CONCURRENCY.min + 1 }, (_, i) => (
+                <option key={i + CONCURRENCY.min} value={i + CONCURRENCY.min}>
+                  {i + CONCURRENCY.min} at once
+                </option>
+              ))}
+            </select>
+          </label>
           <p className="hint">
-            Applies to projects created from now on; existing projects keep what they were made
-            with. Lower effort and a cheaper model both reduce what a run costs.
+            Model, effort and permission mode apply to projects created from now on; existing
+            projects keep what they were made with. Lower effort and a cheaper model both reduce
+            what a run costs. The concurrency limit applies immediately — anything over it waits in
+            a queue rather than competing for the machine.
           </p>
         </section>
 

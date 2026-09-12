@@ -623,6 +623,9 @@ export class Store {
         positionX: row.position_x,
         positionY: row.position_y,
         costUsd: this.nodeCost(row.id),
+        // Filled in by the router from the jobs runner. The store knows about
+        // the tree, not about what this process happens to be doing with it.
+        queuePosition: null,
         createdAt: row.created_at,
       } satisfies NodeView;
     });

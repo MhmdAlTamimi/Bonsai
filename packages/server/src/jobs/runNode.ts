@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { NodeStatus } from '@bonsai/shared';
+import { CONCURRENCY, type NodeStatus } from '@bonsai/shared';
 
 import type { NodeRow, RunTotals, Store } from '../db/store.js';
 
@@ -22,6 +22,8 @@ export interface SettingsSource {
   model(): string | null;
   effort(): string | null;
   agentEnv(): Record<string, string> | null;
+  /** How many runs may be in flight at once. Absent means the shared default. */
+  maxConcurrentRuns?(): number;
 }
 import type { EventBus } from '../api/events.js';
 import { silentLogger, type Logger } from '../log.js';
@@ -38,8 +40,29 @@ import { readWorktreeState, resumePrompt } from '../git/recovery.js';
  * nothing here. What happens around the run -- freeze check, streaming,
  * commit-or-not, lineage bookkeeping -- is already final.
  */
+/** A run that has been asked for and is waiting for a slot. */
+interface Queued {
+  runId: string;
+  nodeId: string;
+  projectId: string;
+  prompt: string;
+  readOnly: boolean;
+  controller: AbortController;
+}
+
 export class RunJobs {
   private readonly running = new Map<string, AbortController>();
+  /**
+   * Runs waiting for a slot, oldest first.
+   *
+   * A queued run already has its row, its abort controller and its node marked
+   * `running`, because from the user's side it IS running -- they asked for it
+   * and it is going to happen. What it does not have is an agent. Making it a
+   * sixth node status was the obvious alternative and is wrong: there are
+   * exactly five, the schema constrains them, and the difference is invisible
+   * to everything except the card's queue badge.
+   */
+  private readonly queue: Queued[] = [];
 
   constructor(
     private readonly store: Store,
@@ -50,18 +73,63 @@ export class RunJobs {
   ) {}
 
   isRunning(nodeId: string): boolean {
-    return this.running.has(nodeId);
+    return this.running.has(nodeId) || this.queue.some((q) => q.nodeId === nodeId);
   }
 
-  /** Cancellation exists from day one, not as a retrofit. */
+  /**
+   * 1-based place in the queue, or null when this node is not waiting.
+   *
+   * Read by the router when it builds a tree for the interface. The store does
+   * not know about jobs and should not: queue position is a fact about this
+   * process, not about the tree.
+   */
+  queuePosition(nodeId: string): number | null {
+    const index = this.queue.findIndex((q) => q.nodeId === nodeId);
+    return index === -1 ? null : index + 1;
+  }
+
+  queuedCount(): number {
+    return this.queue.length;
+  }
+
+  /**
+   * Cancellation exists from day one, not as a retrofit.
+   *
+   * Two cases now. An in-flight run is aborted and unwinds through the normal
+   * path. A QUEUED run has no agent to abort, so it is dropped from the queue
+   * and closed out here -- otherwise stopping something that had not started
+   * yet would leave a node stuck in `running` for ever.
+   */
   cancel(nodeId: string): boolean {
     const controller = this.running.get(nodeId);
-    if (controller === undefined) return false;
-    controller.abort();
+    if (controller !== undefined) {
+      controller.abort();
+      return true;
+    }
+
+    const index = this.queue.findIndex((q) => q.nodeId === nodeId);
+    if (index === -1) return false;
+    const [dropped] = this.queue.splice(index, 1);
+    if (dropped === undefined) return false;
+
+    this.log.info('run.cancelled', { runId: dropped.runId, nodeId, queued: true });
+    this.store.finishRun(dropped.runId, 'cancelled', 'cancelled before it started', {
+      cost: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    this.setStatus(nodeId, this.store.getNode(nodeId)?.head_commit === null ? 'new' : 'ready');
+    this.bus.publish(dropped.projectId, {
+      type: 'tree.updated',
+      projectId: dropped.projectId,
+    });
     return true;
   }
 
   cancelAll(): void {
+    // The queue first: draining it into aborts would start each run only to
+    // stop it, which costs a subprocess launch apiece.
+    for (const q of [...this.queue]) this.cancel(q.nodeId);
     for (const c of this.running.values()) c.abort();
   }
 
@@ -81,7 +149,7 @@ export class RunJobs {
   async drain(timeoutMs = 5000): Promise<void> {
     this.cancelAll();
     const deadline = Date.now() + timeoutMs;
-    while (this.running.size > 0 && Date.now() < deadline) {
+    while ((this.running.size > 0 || this.queue.length > 0) && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
@@ -127,7 +195,6 @@ export class RunJobs {
 
     const runId = randomUUID();
     const controller = new AbortController();
-    this.running.set(nodeId, controller);
 
     this.store.createRun(runId, nodeId);
     // Lengths, never contents: a log is the artefact most likely to be pasted
@@ -140,14 +207,77 @@ export class RunJobs {
       promptChars: prompt.length,
       readOnly,
     });
+    // Marked running even when it will wait: the user asked for it, it is
+    // going to happen, and the only visible difference is a queue badge.
     this.setStatus(nodeId, 'running');
-    this.bus.publish(node.project_id, { type: 'run.started', nodeId, runId });
 
-    void this.execute(runId, nodeId, prompt, readOnly, controller).finally(() => {
-      this.running.delete(nodeId);
-    });
+    const job: Queued = {
+      runId,
+      nodeId,
+      projectId: node.project_id,
+      prompt,
+      readOnly,
+      controller,
+    };
+
+    if (this.running.size < this.limit()) {
+      this.dispatch(job);
+    } else {
+      this.queue.push(job);
+      this.log.info('run.queued', {
+        runId,
+        nodeId,
+        position: this.queue.length,
+        limit: this.limit(),
+      });
+      // No run.started here -- that event clears the live output pane, and a
+      // queued run has nothing to show yet. tree.updated is what makes the
+      // card render its place in the queue.
+      this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+    }
 
     return { runId };
+  }
+
+  private limit(): number {
+    return this.settings?.maxConcurrentRuns?.() ?? CONCURRENCY.default;
+  }
+
+  /** Starts a job now, and takes the next queued one when it finishes. */
+  private dispatch(job: Queued): void {
+    this.running.set(job.nodeId, job.controller);
+    this.bus.publish(job.projectId, {
+      type: 'run.started',
+      nodeId: job.nodeId,
+      runId: job.runId,
+    });
+
+    void this.execute(job.runId, job.nodeId, job.prompt, job.readOnly, job.controller).finally(
+      () => {
+        this.running.delete(job.nodeId);
+        this.pump();
+      },
+    );
+  }
+
+  /**
+   * Fills every free slot.
+   *
+   * A loop rather than a single take, because the limit can be raised while
+   * runs are queued -- and because cancelling three at once frees three slots
+   * in the same tick.
+   */
+  private pump(): void {
+    while (this.running.size < this.limit()) {
+      const next = this.queue.shift();
+      if (next === undefined) return;
+      // It may have been cancelled while queued; cancel() removes it from the
+      // queue, so reaching here means it is still wanted, but the controller
+      // is checked anyway rather than trusted.
+      if (next.controller.signal.aborted) continue;
+      this.bus.publish(next.projectId, { type: 'tree.updated', projectId: next.projectId });
+      this.dispatch(next);
+    }
   }
 
   private async execute(

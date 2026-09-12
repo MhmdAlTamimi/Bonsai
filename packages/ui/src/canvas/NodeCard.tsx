@@ -113,7 +113,14 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 {/* On the card as well as in the panel: with several nodes in
                     flight, the one you want to stop is rarely the one selected,
                     and stopping it should not cost a click to select it first. */}
-                {data.status === 'running' ? (
+                {data.queuePosition !== null ? (
+                  // Waiting for a slot. Still `running` as far as the state
+                  // machine is concerned -- the badge is the only difference,
+                  // and stopping it here is what keeps it from being a trap.
+                  <span className="pill queued" title="Waiting for a free slot">
+                    queued #{data.queuePosition}
+                  </span>
+                ) : data.status === 'running' ? (
                   <button
                     className="stop"
                     title="Stop this run"

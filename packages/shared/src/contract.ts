@@ -62,6 +62,8 @@ export interface SettingsView {
   dataDir: string;
   reposRoot: string;
   platform: string;
+  /** How many agents may run at once; the rest queue. */
+  maxConcurrentRuns: number;
   /**
    * Width of the side panel, in pixels.
    *
@@ -81,6 +83,17 @@ export interface SettingsView {
  */
 export const PANEL_WIDTH = { min: 280, max: 900, default: 360 } as const;
 
+/**
+ * How many agents may run at once.
+ *
+ * "Run several experiments in parallel" is the product, so this is not a
+ * throttle bolted on out of caution -- it is what keeps the parallelism usable.
+ * Ten agents started together do not finish ten times sooner; they contend for
+ * CPU and memory until the machine stops responding, in the one place the
+ * product is meant to shine.
+ */
+export const CONCURRENCY = { min: 1, max: 10, default: 3 } as const;
+
 export interface UpdateSettingsRequest {
   authMode?: 'cli' | 'api_key';
   /** Empty string clears the stored key. */
@@ -91,6 +104,7 @@ export interface UpdateSettingsRequest {
   reposRoot?: string;
   /** Clamped server-side; see settings.ts for the bounds and why. */
   panelWidth?: number;
+  maxConcurrentRuns?: number;
 }
 
 /**
@@ -198,6 +212,16 @@ export interface NodeView {
   positionX: number | null;
   positionY: number | null;
   costUsd: number;
+  /**
+   * 1-based place in the queue when this node is waiting for a free slot, and
+   * null when it is not waiting.
+   *
+   * Derived, never stored, and deliberately NOT a sixth node status: there are
+   * exactly five, the schema constrains them, and a queued node genuinely is
+   * `running` from the user's point of view -- they asked for it, it is going
+   * to happen, and nothing else about it differs.
+   */
+  queuePosition: number | null;
   createdAt: string;
 }
 

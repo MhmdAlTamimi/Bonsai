@@ -471,3 +471,7 @@ button.stop:hover { background: var(--err); color: var(--bg); }
   padding: 5px 12px; font-size: 12px;
   background: var(--surface);
 }
+
+/* A node waiting for a slot. Not a status -- there are five and this is not
+   one of them -- just the one visible difference from a node that is running. */
+.pill.queued { border-color: var(--accent); color: var(--accent); }

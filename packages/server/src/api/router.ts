@@ -10,7 +10,12 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
-import type { AdoptProjectRequest, DiagnosticsView, DirectoryInspectionView } from '@bonsai/shared';
+import type {
+  AdoptProjectRequest,
+  DiagnosticsView,
+  DirectoryInspectionView,
+  NodeView,
+} from '@bonsai/shared';
 
 import { isUsersOwnCheckout, type Store } from '../db/store.js';
 import type { EventBus } from './events.js';
@@ -47,6 +52,18 @@ interface Ctx {
  * credential. 428 Precondition Required, so the UI can tell this apart from a
  * bug and show the connection screen rather than an error.
  */
+/**
+ * Stamps each node with its place in the run queue.
+ *
+ * Done here rather than in the store because queue position is a fact about
+ * this process, not about the tree: the store holds what is true after a
+ * restart, and nothing in the queue survives one. Everything the interface
+ * receives goes through this, so a card can never show a stale position.
+ */
+function withQueue(jobs: RunJobs, nodes: NodeView[]): NodeView[] {
+  return nodes.map((n) => ({ ...n, queuePosition: jobs.queuePosition(n.id) }));
+}
+
 function requireConnection(connection: Connection): void {
   if (connection.isConnected()) return;
   const status = connection.current();
@@ -289,12 +306,12 @@ route('POST', '/api/projects/adopt', async (req, res, _p, { store, bus, settings
   sendJson(res, 201, created);
 });
 
-route('GET', '/api/projects/:id/tree', (_req, res, params, { store }) => {
+route('GET', '/api/projects/:id/tree', (_req, res, params, { store, jobs }) => {
   const project = store.getProject(params['id']!);
   if (project === undefined) throw new HttpError(404, 'no such project');
   const body: TreeResponse = {
     project: store.projectView(project),
-    nodes: store.treeView(project.id),
+    nodes: withQueue(jobs, store.treeView(project.id)),
   };
   sendJson(res, 200, body);
 });
@@ -330,7 +347,7 @@ route('DELETE', '/api/projects/:id', async (_req, res, params, { store, bus, job
 
 // -- nodes -------------------------------------------------------------------
 
-route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus }) => {
+route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, jobs }) => {
   const projectId = params['id']!;
   if (store.getProject(projectId) === undefined) throw new HttpError(404, 'no such project');
 
@@ -357,13 +374,15 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus }
   // §6.2: the user stays on the canvas and the node appears immediately. The
   // run is started separately until M3 so the git layer can be driven on its
   // own; `new` is the brief window the state was kept for.
-  sendJson(res, 201, { node: store.treeView(projectId).find((n) => n.id === nodeId) });
+  sendJson(res, 201, {
+    node: withQueue(jobs, store.treeView(projectId)).find((n) => n.id === nodeId),
+  });
 });
 
-route('GET', '/api/nodes/:id', async (_req, res, params, { store }) => {
+route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  const view = store.treeView(row.project_id).find((n) => n.id === row.id)!;
+  const view = withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
   const body: NodeDetail = {
     node: view,
     runs: store.listRuns(row.id),
@@ -373,7 +392,7 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store }) => {
   sendJson(res, 200, body);
 });
 
-route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus }) => {
+route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const body = await readJson<UpdateNodeRequest>(req);
@@ -390,7 +409,7 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus }) => {
   sendJson(
     res,
     200,
-    store.treeView(row.project_id).find((n) => n.id === row.id),
+    withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id),
   );
 });
 
