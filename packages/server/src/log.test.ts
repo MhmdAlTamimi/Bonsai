@@ -153,6 +153,32 @@ describe('the log file', () => {
     assert.ok(all.includes(`"promptChars":${SECRET_PROMPT.length}`));
   });
 
+  test('the run row keeps the tools, the call count and the duration', async () => {
+    const jobs = new RunJobs(
+      store,
+      new EventBus(),
+      new ScriptedRunner('writes'),
+      undefined,
+      logger,
+    );
+    const created = await createProject(store, {
+      name: 'p',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    jobs.start(created.masterNodeId, SECRET_PROMPT);
+    for (let i = 0; i < 300 && jobs.activeCount() > 0; i += 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    const run = store.listRuns(created.masterNodeId)[0]!;
+    // The list the runner has always yielded and the pipeline used to drop.
+    assert.deepEqual(run.toolsOffered, ['Read', 'Write', 'Bash']);
+    assert.equal(run.toolCalls, 1);
+    assert.ok((run.durationMs ?? 0) >= 0);
+  });
+
   test('rotates by day and keeps a fortnight', async () => {
     const dir = join(root, 'logs');
     await mkdir(dir, { recursive: true });

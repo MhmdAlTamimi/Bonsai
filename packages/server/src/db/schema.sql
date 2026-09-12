@@ -120,6 +120,19 @@ CREATE TABLE IF NOT EXISTS run (
   -- conversation show the diff for each exchange in place, rather than only a
   -- single whole-node diff detached from the message that caused it.
   commit_sha            TEXT,
+  -- The tool names the agent was actually offered, as a JSON array.
+  --
+  -- The runner has always known this and the pipeline used to throw it away.
+  -- It is the fact that answers "the agent said it edited files but nothing
+  -- was committed" -- a bug this project has already hit, where a hard-coded
+  -- allow-list silently left Write and Edit out of a writable run. Without it
+  -- the only evidence is the agent's own account of what it did.
+  tools_offered         TEXT,
+  -- How many tool calls the run made, and how long it took wall-clock. Both
+  -- are derivable from the message log and the timestamps, but only
+  -- approximately and only by whoever thinks to try.
+  tool_calls            INTEGER NOT NULL DEFAULT 0,
+  duration_ms           INTEGER,
   -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
   -- sixth node state.
   error         TEXT,

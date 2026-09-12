@@ -66,6 +66,10 @@ export interface RunTotals {
   apiKeySource?: string | null;
   /** The commit this run produced, if it produced one. */
   commitSha?: string | null;
+  /** The tool names the agent was offered. See the schema for why it is kept. */
+  toolsOffered?: readonly string[] | null;
+  toolCalls?: number;
+  durationMs?: number | null;
 }
 
 export class Store {
@@ -376,7 +380,8 @@ export class Store {
         `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
                         input_tokens = ?, output_tokens = ?,
                         cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
-                        api_key_source = ?, commit_sha = ?
+                        api_key_source = ?, commit_sha = ?, tools_offered = ?,
+                        tool_calls = ?, duration_ms = ?
          WHERE id = ?`,
       )
       .run(
@@ -391,6 +396,11 @@ export class Store {
         totals.model ?? null,
         totals.apiKeySource ?? null,
         totals.commitSha ?? null,
+        // JSON rather than a join table: it is written once, read whole, and
+        // never queried by element.
+        totals.toolsOffered == null ? null : JSON.stringify(totals.toolsOffered),
+        totals.toolCalls ?? 0,
+        totals.durationMs ?? null,
         runId,
       );
   }
@@ -457,6 +467,9 @@ export class Store {
       model: (r['model'] as string | null) ?? null,
       apiKeySource: (r['api_key_source'] as string | null) ?? null,
       commitSha: (r['commit_sha'] as string | null) ?? null,
+      toolsOffered: parseTools(r['tools_offered']),
+      toolCalls: Number(r['tool_calls'] ?? 0),
+      durationMs: r['duration_ms'] == null ? null : Number(r['duration_ms']),
       error: (r['error'] as string | null) ?? null,
     }));
   }
@@ -673,6 +686,17 @@ export function toLineage(row: NodeRow): LineageNode {
     baseCommit: row.base_commit,
     headCommit: row.head_commit,
   };
+}
+
+/** Tolerant on purpose: a malformed row should not break the whole panel. */
+function parseTools(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value === '') return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : null;
+  } catch {
+    return null;
+  }
 }
 
 function isInside(parent: string, child: string): boolean {

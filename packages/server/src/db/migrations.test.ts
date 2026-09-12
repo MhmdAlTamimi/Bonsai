@@ -54,7 +54,15 @@ describe('schema migrations', () => {
     const columns = (
       db.prepare(`PRAGMA table_info(run)`).all() as unknown as Array<{ name: string }>
     ).map((c) => c.name);
-    for (const added of ['model', 'cache_read_tokens', 'api_key_source', 'commit_sha']) {
+    for (const added of [
+      'model',
+      'cache_read_tokens',
+      'api_key_source',
+      'commit_sha',
+      'tools_offered',
+      'tool_calls',
+      'duration_ms',
+    ]) {
       assert.ok(columns.includes(added), `missing ${added}`);
     }
 

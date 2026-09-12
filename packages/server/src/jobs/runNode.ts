@@ -288,6 +288,9 @@ export class RunJobs {
           cacheCreationTokens,
           model,
           apiKeySource,
+          toolsOffered,
+          toolCalls,
+          durationMs: Date.now() - startedAt,
         });
         return;
       }
@@ -332,6 +335,9 @@ export class RunJobs {
         model,
         apiKeySource,
         commitSha,
+        toolsOffered,
+        toolCalls,
+        durationMs: Date.now() - startedAt,
       });
       this.log.info('run.done', {
         runId,
@@ -388,6 +394,9 @@ export class RunJobs {
           cacheCreationTokens,
           model,
           apiKeySource,
+          toolsOffered,
+          toolCalls,
+          durationMs: Date.now() - startedAt,
         });
         return;
       }
@@ -415,6 +424,11 @@ export class RunJobs {
         cacheCreationTokens,
         model,
         apiKeySource,
+        // Especially on a failure: "which tools did it have" is most of the
+        // answer to "why did it do that".
+        toolsOffered,
+        toolCalls,
+        durationMs: Date.now() - startedAt,
       });
       this.bus.publish(node.project_id, { type: 'run.error', nodeId, runId, error: message });
     }

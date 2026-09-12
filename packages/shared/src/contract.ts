@@ -191,6 +191,17 @@ export interface RunView {
   apiKeySource: string | null;
   /** The commit this run produced, or null when it changed nothing. */
   commitSha: string | null;
+  /**
+   * The tools the agent was actually offered on this run.
+   *
+   * Kept because it is the only thing that distinguishes "the agent chose not
+   * to edit anything" from "the agent was never given a way to". Those look
+   * identical in a transcript and have opposite fixes.
+   */
+  toolsOffered: string[] | null;
+  toolCalls: number;
+  /** Wall-clock, in milliseconds. Null for runs recorded before this existed. */
+  durationMs: number | null;
   error: string | null;
 }
 
