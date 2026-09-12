@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { TreeResponse } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
 import { deletionMessage } from './deletionMessage.ts';
+
+/**
+ * Long enough to swallow the three events one finished run produces, short
+ * enough that a card's status still looks immediate.
+ */
+const REFETCH_DEBOUNCE_MS = 120;
 
 export interface ProjectSummary {
   id: string;
@@ -52,6 +58,50 @@ export function useProjectTree(
     [onError],
   );
 
+  /**
+   * Coalesces refetches that arrive together.
+   *
+   * Every status change and every finished run asks for the whole tree, which
+   * is invisible at five nodes and a storm at a hundred with four agents
+   * running: a single run produces `node.status`, `run.finished` and
+   * `tree.updated` within milliseconds of each other, so three identical
+   * requests race and the last one wins anyway.
+   *
+   * The server stays the source of truth (PRD §9 constraint 3) — this refetches
+   * exactly as before, just fewer times. Nothing here mutates a local tree.
+   *
+   * A trailing debounce, not a leading one: the interesting state is the one
+   * after the burst settles, and firing on the first event would show the tree
+   * as it was mid-change and then need another fetch anyway.
+   */
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pending = useRef<string | null>(null);
+
+  const loadSoon = useCallback(
+    (id: string): void => {
+      pending.current = id;
+      if (timer.current !== null) return;
+      timer.current = setTimeout(() => {
+        timer.current = null;
+        const wanted = pending.current;
+        pending.current = null;
+        if (wanted !== null) void load(wanted);
+      }, REFETCH_DEBOUNCE_MS);
+    },
+    [load],
+  );
+
+  // A pending refetch must not fire into an unmounted component, or into a
+  // project the user has since left.
+  useEffect(
+    () => () => {
+      if (timer.current !== null) clearTimeout(timer.current);
+      timer.current = null;
+      pending.current = null;
+    },
+    [],
+  );
+
   const open = useCallback(
     (id: string): void => {
       setProjectId(id);
@@ -87,8 +137,8 @@ export function useProjectTree(
   }, []);
 
   const refresh = useCallback((): void => {
-    if (projectId !== null) void load(projectId);
-  }, [projectId, load]);
+    if (projectId !== null) loadSoon(projectId);
+  }, [projectId, loadSoon]);
 
   const adopted = useCallback(
     (id: string): void => {
