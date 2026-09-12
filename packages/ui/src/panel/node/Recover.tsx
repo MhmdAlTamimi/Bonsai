@@ -20,11 +20,11 @@ export function Recover({
       <p className="error">{runs.at(-1)?.error ?? 'The run was killed or failed midway.'}</p>
       <p className="hint">
         {isYourFolder
-          ? 'Nothing was written — this node only reads. Resume asks the agent to carry on; keep unflags the node.'
-          : 'Whatever the run had written is still in place. Resume tells the agent what actually landed and asks it to finish; discard throws those changes away; keep leaves them alone and unflags the node.'}
+          ? 'Nothing was written — this node only reads.'
+          : 'What the run wrote is still in the folder.'}
       </p>
       <div className="row">
-        <button disabled={busy} onClick={() => onRecover('resume')}>
+        <button className="primary" disabled={busy} onClick={() => onRecover('resume')}>
           Resume
         </button>
         {/* Not offered for the user's own folder: discard is a hard reset plus

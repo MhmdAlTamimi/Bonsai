@@ -132,7 +132,7 @@ export function SettingsDialog({
               >
                 Sign in
               </button>
-              <span className="hint">Bonsai never sees or stores this credential.</span>
+              <span className="hint">Never stored by Bonsai.</span>
             </div>
           ) : (
             <>
@@ -158,7 +158,7 @@ export function SettingsDialog({
                   </button>
                 )}
               </div>
-              <p className="hint">Stored on this machine only, in a file readable just by you.</p>
+              <p className="hint">Stored on this machine, readable only by you.</p>
             </>
           )}
           {note !== null && <pre className="stream">{note}</pre>}
@@ -226,10 +226,7 @@ export function SettingsDialog({
             </select>
           </label>
           <p className="hint">
-            Model, effort and permission mode apply to projects created from now on; existing
-            projects keep what they were made with. Lower effort and a cheaper model both reduce
-            what a run costs. The concurrency limit applies immediately — anything over it waits in
-            a queue rather than competing for the machine.
+            Model, effort and mode apply to new projects. The limit applies now.
           </p>
         </section>
 
@@ -254,11 +251,7 @@ export function SettingsDialog({
               </button>
             </div>
           </label>
-          <p className="hint">
-            Only affects <strong>new</strong> projects. Existing ones cannot be moved by changing
-            this: git records absolute paths in each worktree, so relocating a project needs
-            <code>git worktree repair</code> and is not something to do silently.
-          </p>
+          <p className="hint">New projects only — git records absolute worktree paths.</p>
           <label className="stacked">
             Data folder
             <div className="row">

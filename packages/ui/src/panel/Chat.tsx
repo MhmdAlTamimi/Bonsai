@@ -134,12 +134,16 @@ export function Chat({
         <div className="composer-row">
           <span className="hint">
             {node.writable
-              ? 'Enter to send · each reply that changes files adds a commit here'
+              ? 'Enter to send'
               : node.frozenReason === 'your_folder'
-                ? 'Read-only: Bonsai never writes to your own folder'
-                : 'Frozen: a child committed, so replies are read-only'}
+                ? 'Read only — your own folder'
+                : 'Frozen — a child committed'}
           </span>
-          <button onClick={() => void send()} disabled={running || sending || prompt.trim() === ''}>
+          <button
+            className="primary"
+            onClick={() => void send()}
+            disabled={running || sending || prompt.trim() === ''}
+          >
             Send
           </button>
         </div>

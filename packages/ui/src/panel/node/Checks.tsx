@@ -26,11 +26,7 @@ export function Checks({
   return (
     <section className="checks">
       <h3>Did it work?</h3>
-      {detail.successCriteria != null && (
-        <p className="hint">
-          Success looks like: <em>{detail.successCriteria}</em>
-        </p>
-      )}
+      {detail.successCriteria != null && <p className="hint">Goal: {detail.successCriteria}</p>}
       {detail.testingNotes != null ? (
         <pre className="stream">{detail.testingNotes}</pre>
       ) : (
@@ -38,8 +34,8 @@ export function Checks({
           {node.status === 'running'
             ? 'The run is still going.'
             : node.hasCommits
-              ? 'The agent left no testing notes for this run. Ask it what it checked.'
-              : 'Nothing has been committed here yet, so there is nothing to check.'}
+              ? 'No notes from the agent — ask it what it checked.'
+              : 'Nothing committed here yet.'}
         </p>
       )}
     </section>

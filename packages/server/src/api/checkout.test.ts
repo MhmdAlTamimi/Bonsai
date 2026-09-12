@@ -80,7 +80,8 @@ describe('the checkout command', () => {
     const checkout = checkoutFor(store.getProject(adopted.projectId), node)!;
 
     assert.ok(checkout.command.includes(node.branch_name!));
-    assert.match(checkout.hint, /your own branch/);
+    // The hint says WHERE to run it; the `-c` in the command says what it does.
+    assert.match(checkout.hint, new RegExp(folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 
     // The part that matters: it works, in their folder, while Bonsai's
     // worktree still holds the same branch.

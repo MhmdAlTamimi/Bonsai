@@ -31,13 +31,13 @@ export function checkoutFor(
      */
     return {
       command: `git switch -c ${suggestBranchName(node.display_name)} ${node.branch_name}`,
-      hint: `Run this in ${project.source_path ?? 'your project folder'} — it makes your own branch from this node's work.`,
+      hint: `Run it in ${project.source_path ?? 'your project folder'}.`,
     };
   }
 
   return {
     command: `git clone --branch ${node.branch_name} ${shellQuote(project.repo_path)} ${shellQuote(node.display_name.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'node')}`,
-    hint: "Bonsai created this project, so its repository lives in Bonsai's own folder.",
+    hint: "This project's repository lives in Bonsai's own folder.",
   };
 }
 

@@ -30,13 +30,14 @@ export function CreateChild({
         aria-label="child description"
         rows={3}
       />
-      <button disabled={actions.busy} onClick={() => void actions.createChild()}>
+      <button
+        className="primary"
+        disabled={actions.busy}
+        onClick={() => void actions.createChild()}
+      >
         Create and run
       </button>
-      <p className="hint">
-        A child forks this node's whole conversation, and branches from the nearest ancestor that
-        has a commit — which is not this node if it changed no files.
-      </p>
+      <p className="hint">Forks this node's conversation. Branches from its nearest commit.</p>
     </details>
   );
 }

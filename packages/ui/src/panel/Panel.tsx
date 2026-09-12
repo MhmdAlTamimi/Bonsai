@@ -118,12 +118,8 @@ function NodePanel({
       </header>
 
       {isYourFolder && (
-        <p className="note">
-          This node is your own folder
-          {project?.sourcePath == null ? '' : ` (${project.sourcePath})`}. Bonsai reads it and
-          answers questions about it, but never writes or commits there — to change anything, drag
-          out a child node. Children get their own worktree on a <code>node/…</code> branch inside
-          this same repository, so you can check them out with git whenever you like.
+        <p className="note" title={project?.sourcePath ?? undefined}>
+          Your own folder — read only. Drag out a child to make changes.
         </p>
       )}
 
@@ -137,9 +133,11 @@ function NodePanel({
       )}
 
       {detail?.baseIsPinnedBehindLiveWalk === true && (
-        <p className="note">
-          An ancestor has committed since this node was created. Its base stays pinned where it was,
-          so its code and its inherited conversation still describe the same tree.
+        <p
+          className="note"
+          title="Its base stays pinned where it was, so its code and its inherited conversation still describe the same tree."
+        >
+          An ancestor has committed since this node branched.
         </p>
       )}
 
