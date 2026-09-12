@@ -538,11 +538,32 @@ export class Store {
     }));
   }
 
+  /**
+   * One node's cost. Used by the panel, where there is exactly one node.
+   *
+   * NOT used when building a tree: see nodeCosts below. A per-node query in
+   * that loop meant a hundred-node project issued a hundred and one queries
+   * every time anything changed, which with several agents running is several
+   * times a second.
+   */
   nodeCost(nodeId: string): number {
     const row = this.db
       .prepare(`SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id = ?`)
       .get(nodeId) as unknown as { total: number } | undefined;
     return Number(row?.total ?? 0);
+  }
+
+  /** Every node's cost in a project, in one grouped query. */
+  private nodeCosts(projectId: string): Map<string, number> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.node_id, SUM(r.cost) AS total
+           FROM run r JOIN node n ON n.id = r.node_id
+          WHERE n.project_id = ?
+          GROUP BY r.node_id`,
+      )
+      .all(projectId) as unknown as Array<{ node_id: string; total: number }>;
+    return new Map(rows.map((r) => [r.node_id, Number(r.total)]));
   }
 
   listMessages(nodeId: string, afterSeq: number): MessageView[] {
@@ -667,9 +688,16 @@ export class Store {
     return out;
   }
 
+  /**
+   * Building a tree issues a constant number of queries, whatever its size.
+   *
+   * Five: the project, the nodes, the costs, the diff stats, and one for any
+   * pending question. It used to be that plus one per node for cost alone.
+   */
   treeView(projectId: string): NodeView[] {
     const project = this.getProject(projectId);
     const stats = this.diffStats(projectId);
+    const costs = this.nodeCosts(projectId);
     const rows = this.listNodes(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
@@ -711,7 +739,7 @@ export class Store {
         positionX: row.position_x,
         positionY: row.position_y,
         diffStat: stats.get(row.id) ?? null,
-        costUsd: this.nodeCost(row.id),
+        costUsd: costs.get(row.id) ?? 0,
         // Filled in by the router from the jobs runner. The store knows about
         // the tree, not about what this process happens to be doing with it.
         queuePosition: null,

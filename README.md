@@ -223,7 +223,10 @@ npm test          # build, typecheck, lint, format check, then the unit tests
 npm run test:e2e  # one browser pass; needs a built interface and a Chromium
 ```
 
-130 tests, no network and no agent — they run the same with or without
+The interface has unit tests too, run by `npm test` via Node's type stripping
+— no bundler and no browser, so only modules that avoid both can have them.
+
+137 tests, no network and no agent — they run the same with or without
 credentials, and never spend anything. The last of them is the §2 demo script
 itself, run against real git from project creation to the five-node tree. Roughly half are pure unit tests over
 `domain/lineage.ts` — the nearest-ancestor-commit walk. The rest are integration

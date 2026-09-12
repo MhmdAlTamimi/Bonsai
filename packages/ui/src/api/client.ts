@@ -20,6 +20,10 @@ import type {
   UpdateNodeRequest,
 } from '@bonsai/shared';
 
+import { ApiCallError } from './ApiCallError.ts';
+
+export { ApiCallError };
+
 /**
  * The only module in the UI that knows a server exists.
  *
@@ -38,17 +42,6 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
     throw new ApiCallError(err.error ?? res.statusText, res.status, err.milestone);
   }
   return body as T;
-}
-
-export class ApiCallError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly milestone?: string,
-  ) {
-    super(message);
-    this.name = 'ApiCallError';
-  }
 }
 
 export interface NodeDiffView {
