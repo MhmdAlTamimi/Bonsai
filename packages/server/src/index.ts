@@ -15,8 +15,10 @@ import { FakeRunner } from './agent/FakeRunner.js';
 import { ClaudeSdkRunner } from './agent/ClaudeSdkRunner.js';
 import { Settings } from './settings.js';
 import { Connection } from './api/connectionGate.js';
+import { FileLogger } from './log.js';
 
 const config = loadConfig();
+const log = new FileLogger(config.dataDir);
 const db = openDatabase(config.dataDir);
 const store = new Store(db, config.reposRoot);
 const bus = new EventBus();
@@ -44,10 +46,18 @@ const jobs = new RunJobs(
   bus,
   useStandIn ? new FakeRunner() : new ClaudeSdkRunner(),
   settings,
+  log,
 );
 if (useStandIn) {
   process.stdout.write('[bonsai] agent: STAND-IN (BONSAI_FAKE_AGENT=1) — output is fake\n');
 }
+log.info('app.start', {
+  node: process.version,
+  platform: process.platform,
+  dataDir: config.dataDir,
+  reposRoot: config.reposRoot,
+  standIn: useStandIn,
+});
 
 // Check on startup so the UI knows immediately, without blocking the listen.
 void connection.check().then((status) => {
@@ -56,6 +66,13 @@ void connection.check().then((status) => {
       ? `[bonsai] connected to Claude (${status.model}, credential: ${status.apiKeySource})\n`
       : `[bonsai] not connected: ${status.state}${status.message === null ? '' : ` — ${status.message}`}\n`,
   );
+  // The credential SOURCE, never the credential. 'none' here means a
+  // subscription login, which is a fact about how it authenticated.
+  log.info('connection.check', {
+    state: status.state,
+    model: status.model,
+    apiKeySource: status.apiKeySource,
+  });
 });
 
 // D31: any run still marked `running` in the database died with the process,
@@ -85,7 +102,7 @@ const MIME: Record<string, string> = {
 
 const server = createServer((req, res) => {
   void (async () => {
-    if (await handleApi(req, res, { store, bus, jobs, settings, connection })) return;
+    if (await handleApi(req, res, { store, bus, jobs, settings, connection, log })) return;
 
     // Serve the built UI when it exists. In development the vite dev server
     // proxies /api here instead, so this path is unused.

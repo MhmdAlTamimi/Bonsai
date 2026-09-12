@@ -31,6 +31,7 @@ import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
 import { readContextFile } from '../git/context.js';
 import { HttpError, notYet, readJson, requireString, sendError, sendJson } from './http.js';
+import type { Logger } from '../log.js';
 
 interface Ctx {
   store: Store;
@@ -38,6 +39,7 @@ interface Ctx {
   jobs: RunJobs;
   settings: Settings;
   connection: Connection;
+  log: Logger;
 }
 
 /**
@@ -66,18 +68,20 @@ interface Route {
   method: string;
   segments: string[];
   handler: Handler;
+  /** The pattern as written, for logs: '/api/nodes/:id' rather than a uuid. */
+  pattern: string;
 }
 
 const routes: Route[] = [];
 
 function route(method: string, pattern: string, handler: Handler): void {
-  routes.push({ method, segments: pattern.split('/').filter(Boolean), handler });
+  routes.push({ method, segments: pattern.split('/').filter(Boolean), handler, pattern });
 }
 
 function match(
   method: string,
   path: string,
-): { handler: Handler; params: Record<string, string> } | null {
+): { handler: Handler; params: Record<string, string>; pattern: string } | null {
   const parts = path.split('/').filter(Boolean);
   for (const r of routes) {
     if (r.method !== method || r.segments.length !== parts.length) continue;
@@ -92,7 +96,7 @@ function match(
         break;
       }
     }
-    if (ok) return { handler: r.handler, params };
+    if (ok) return { handler: r.handler, params, pattern: r.pattern };
   }
   return null;
 }
@@ -516,12 +520,29 @@ export async function handleApi(
 
   const found = match(req.method ?? 'GET', url.pathname);
   if (found === null) {
+    ctx.log.warn('api.unrouted', { method: req.method, path: url.pathname });
     sendError(res, new HttpError(404, `no route for ${req.method} ${url.pathname}`));
     return true;
   }
   try {
     await found.handler(req, res, found.params, ctx);
   } catch (err) {
+    /**
+     * Logged here rather than in sendError, which has the error but not the
+     * request -- and "something 500'd" without a method and a path is the
+     * least useful line a log can hold.
+     *
+     * The path is logged as the ROUTE PATTERN, not the request path, so ids
+     * do not accumulate as unique strings and the message is greppable.
+     */
+    const status = err instanceof HttpError ? err.status : 500;
+    const message = err instanceof Error ? err.message : String(err);
+    ctx.log[status >= 500 ? 'error' : 'warn']('api.error', {
+      method: req.method,
+      route: found.pattern,
+      status,
+      error: message,
+    });
     sendError(res, err);
   }
   return true;

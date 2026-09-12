@@ -24,6 +24,7 @@ export interface SettingsSource {
   agentEnv(): Record<string, string> | null;
 }
 import type { EventBus } from '../api/events.js';
+import { silentLogger, type Logger } from '../log.js';
 import type { AgentRunner } from '../agent/AgentRunner.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { branchNameFor } from '../git/repo.js';
@@ -45,6 +46,7 @@ export class RunJobs {
     private readonly bus: EventBus,
     private readonly runner: AgentRunner,
     private readonly settings?: SettingsSource,
+    private readonly log: Logger = silentLogger,
   ) {}
 
   isRunning(nodeId: string): boolean {
@@ -128,6 +130,16 @@ export class RunJobs {
     this.running.set(nodeId, controller);
 
     this.store.createRun(runId, nodeId);
+    // Lengths, never contents: a log is the artefact most likely to be pasted
+    // into a bug report, and the prompt is the user's own words about their
+    // own code.
+    this.log.info('run.start', {
+      runId,
+      nodeId,
+      projectId: node.project_id,
+      promptChars: prompt.length,
+      readOnly,
+    });
     this.setStatus(nodeId, 'running');
     this.bus.publish(node.project_id, { type: 'run.started', nodeId, runId });
 
@@ -169,6 +181,16 @@ export class RunJobs {
     let cacheCreationTokens = 0;
     let model: string | null = null;
     let apiKeySource: string | null = null;
+    /**
+     * The tool names the agent was actually offered, and how many calls it
+     * made. The runner has always yielded the first of these and the pipeline
+     * dropped it, which is unfortunate: "which tools did it have" is the exact
+     * question behind "it said it edited files but committed nothing", a bug
+     * this project has already hit once.
+     */
+    let toolsOffered: string[] | null = null;
+    let toolCalls = 0;
+    const startedAt = Date.now();
 
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
@@ -212,6 +234,7 @@ export class RunJobs {
             });
             break;
           case 'tool':
+            toolCalls += 1;
             seq += 1;
             this.store.appendMessage({
               nodeId,
@@ -231,6 +254,7 @@ export class RunJobs {
           case 'model':
             model = event.model;
             apiKeySource = event.apiKeySource ?? null;
+            toolsOffered = event.tools ?? toolsOffered;
             break;
           case 'done':
             // Assigned, never accumulated: total_cost_usd is documented as the
@@ -249,6 +273,13 @@ export class RunJobs {
       }
 
       if (controller.signal.aborted) {
+        this.log.info('run.cancelled', {
+          runId,
+          nodeId,
+          durationMs: Date.now() - startedAt,
+          toolCalls,
+          costUsd: cost,
+        });
         this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
           cost,
           inputTokens,
@@ -302,6 +333,24 @@ export class RunJobs {
         apiKeySource,
         commitSha,
       });
+      this.log.info('run.done', {
+        runId,
+        nodeId,
+        projectId: node.project_id,
+        model,
+        effort: project.default_effort ?? this.settings?.effort() ?? null,
+        apiKeySource,
+        readOnly,
+        durationMs: Date.now() - startedAt,
+        toolCalls,
+        toolsOffered: toolsOffered?.length ?? null,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        costUsd: cost,
+        committed: outcome.committed,
+        changedFiles: outcome.changedPaths.length,
+      });
       this.setStatus(nodeId, 'ready');
       this.bus.publish(node.project_id, {
         type: 'run.finished',
@@ -324,6 +373,13 @@ export class RunJobs {
        * a stop the user asked for.
        */
       if (controller.signal.aborted) {
+        this.log.info('run.cancelled', {
+          runId,
+          nodeId,
+          durationMs: Date.now() - startedAt,
+          toolCalls,
+          costUsd: cost,
+        });
         this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
           cost,
           inputTokens,
@@ -337,6 +393,18 @@ export class RunJobs {
       }
 
       const message = err instanceof Error ? err.message : String(err);
+      this.log.error('run.failed', {
+        runId,
+        nodeId,
+        projectId: node.project_id,
+        model,
+        readOnly,
+        durationMs: Date.now() - startedAt,
+        toolCalls,
+        toolsOffered: toolsOffered?.length ?? null,
+        costUsd: cost,
+        error: message,
+      });
       // D31: a failed run is an `interrupted` node plus an error, not a sixth
       // state. The worktree is left dirty on purpose so M4 can resume it.
       this.finishRun(runId, nodeId, 'failed', message, {
