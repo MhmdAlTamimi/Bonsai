@@ -84,8 +84,8 @@ export function Chat({
       <div className="chat-log" ref={listRef}>
         {messages.length === 0 && streamed.length === 0 && !running && (
           <p className="muted chat-empty">
-            No conversation yet. Ask for a change, or ask a question — a question that
-            changes no files leaves this node conversation-only.
+            No conversation yet. Ask for a change, or ask a question — a question that changes no
+            files leaves this node conversation-only.
           </p>
         )}
 
@@ -209,7 +209,10 @@ function RunFooter({ run }: { run: RunView | undefined }): JSX.Element | null {
     // Not a failure: a reply that answered without editing is exactly what
     // keeps a node conversation-only, which is the whole emergent model.
     return (
-      <div className="run-footer" title="This reply answered without editing files, so it added no commit.">
+      <div
+        className="run-footer"
+        title="This reply answered without editing files, so it added no commit."
+      >
         answered · no commit
       </div>
     );

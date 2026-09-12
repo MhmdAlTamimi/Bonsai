@@ -1,6 +1,11 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PANEL_WIDTH, type PermissionMode, type SettingsView, type UpdateSettingsRequest } from '@bonsai/shared';
+import {
+  PANEL_WIDTH,
+  type PermissionMode,
+  type SettingsView,
+  type UpdateSettingsRequest,
+} from '@bonsai/shared';
 
 import type { Config } from './config.js';
 

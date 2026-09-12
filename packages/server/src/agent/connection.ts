@@ -41,7 +41,9 @@ export async function probeConnection(options: {
         systemPrompt: 'You are a connection check. Reply with exactly: ok',
         settingSources: [],
         ...(options.model === null ? {} : { model: options.model }),
-        ...(options.apiKey === null ? {} : { env: { ...process.env, ANTHROPIC_API_KEY: options.apiKey } }),
+        ...(options.apiKey === null
+          ? {}
+          : { env: { ...process.env, ANTHROPIC_API_KEY: options.apiKey } }),
       },
     })) {
       if (message.type === 'system' && message.subtype === 'init') {
@@ -110,8 +112,13 @@ function classify(raw: string): ConnectionStatus {
   if (missingCredential) {
     return { ...base, state: 'no_credential', message: raw };
   }
-  if (/\b429\b/.test(text) || text.includes('rate limit') || text.includes('overloaded') ||
-      text.includes('usage limit') || text.includes('quota')) {
+  if (
+    /\b429\b/.test(text) ||
+    text.includes('rate limit') ||
+    text.includes('overloaded') ||
+    text.includes('usage limit') ||
+    text.includes('quota')
+  ) {
     return { ...base, state: 'rate_limited', message: raw };
   }
   if (text.includes('enoent') || text.includes('spawn')) {

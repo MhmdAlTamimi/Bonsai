@@ -89,10 +89,12 @@ export const api = {
     }),
 
   deleteProject: (projectId: string) =>
-    json<{ ok: true; nodes: number; removedDirectory: string | null; keptDirectory: string | null }>(
-      `/api/projects/${projectId}`,
-      { method: 'DELETE' },
-    ),
+    json<{
+      ok: true;
+      nodes: number;
+      removedDirectory: string | null;
+      keptDirectory: string | null;
+    }>(`/api/projects/${projectId}`, { method: 'DELETE' }),
 
   projectDeletionImpact: (projectId: string) =>
     json<DeletionImpactView>(`/api/projects/${projectId}/deletion-impact`),

@@ -1,4 +1,8 @@
-import type { HookCallbackMatcher, HookJSONOutput, PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  HookCallbackMatcher,
+  HookJSONOutput,
+  PreToolUseHookInput,
+} from '@anthropic-ai/claude-agent-sdk';
 
 /**
  * What the agent is allowed to do.

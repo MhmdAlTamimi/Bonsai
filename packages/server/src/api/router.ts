@@ -74,7 +74,10 @@ function route(method: string, pattern: string, handler: Handler): void {
   routes.push({ method, segments: pattern.split('/').filter(Boolean), handler });
 }
 
-function match(method: string, path: string): { handler: Handler; params: Record<string, string> } | null {
+function match(
+  method: string,
+  path: string,
+): { handler: Handler; params: Record<string, string> } | null {
   const parts = path.split('/').filter(Boolean);
   for (const r of routes) {
     if (r.method !== method || r.segments.length !== parts.length) continue;
@@ -188,7 +191,11 @@ route('POST', '/api/reveal', async (req, res) => {
 // -- projects ----------------------------------------------------------------
 
 route('GET', '/api/projects', (_req, res, _p, { store }) => {
-  sendJson(res, 200, store.listProjects().map((p) => store.projectView(p)));
+  sendJson(
+    res,
+    200,
+    store.listProjects().map((p) => store.projectView(p)),
+  );
 });
 
 route('POST', '/api/projects', async (req, res, _p, { store, bus, settings, connection }) => {
@@ -316,12 +323,18 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus }) => {
   // D3: nodes are immutable. Display name and canvas position are metadata and
   // are the only things this route will touch.
   store.updateNode(row.id, {
-    ...(body.displayName !== undefined ? { displayName: requireString(body.displayName, 'displayName') } : {}),
+    ...(body.displayName !== undefined
+      ? { displayName: requireString(body.displayName, 'displayName') }
+      : {}),
     ...(body.positionX !== undefined ? { positionX: body.positionX } : {}),
     ...(body.positionY !== undefined ? { positionY: body.positionY } : {}),
   });
   bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
-  sendJson(res, 200, store.treeView(row.project_id).find((n) => n.id === row.id));
+  sendJson(
+    res,
+    200,
+    store.treeView(row.project_id).find((n) => n.id === row.id),
+  );
 });
 
 /** What deleting this node would destroy, so the UI can say so before it does. */
@@ -339,7 +352,8 @@ route('GET', '/api/nodes/:id/deletion-impact', (_req, res, params, { store }) =>
 route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  if (row.parent_id === null) throw new HttpError(400, 'deleting master means deleting the project');
+  if (row.parent_id === null)
+    throw new HttpError(400, 'deleting master means deleting the project');
   // Open Question 3, answered: cancel, then delete. Blocking the delete would
   // strand a node behind a run that may never finish.
   jobs.cancel(row.id);
@@ -365,7 +379,11 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   sendJson(
     res,
     200,
-    await nodeDiff(row.worktree_path, row.base_commit ?? row.head_commit!, row.head_commit !== null),
+    await nodeDiff(
+      row.worktree_path,
+      row.base_commit ?? row.head_commit!,
+      row.head_commit !== null,
+    ),
   );
 });
 

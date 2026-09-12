@@ -30,20 +30,23 @@ export function DirectoryPicker({
   // being typed, and half a path should not send the list somewhere else.
   const [typed, setTyped] = useState(value);
 
-  const load = useCallback(async (path?: string): Promise<void> => {
-    setLoading(true);
-    try {
-      const next = await api.browse(path);
-      setListing(next);
-      setTyped(next.path);
-      onChange(next.path);
-    } finally {
-      setLoading(false);
-    }
-    // onChange is called on every navigation on purpose: browsing to a folder
-    // *is* choosing it, and requiring a second click to confirm the folder you
-    // are looking at is the kind of step people miss.
-  }, [onChange]);
+  const load = useCallback(
+    async (path?: string): Promise<void> => {
+      setLoading(true);
+      try {
+        const next = await api.browse(path);
+        setListing(next);
+        setTyped(next.path);
+        onChange(next.path);
+      } finally {
+        setLoading(false);
+      }
+      // onChange is called on every navigation on purpose: browsing to a folder
+      // *is* choosing it, and requiring a second click to confirm the folder you
+      // are looking at is the kind of step people miss.
+    },
+    [onChange],
+  );
 
   useEffect(() => {
     void load(value === '' ? undefined : value).catch(() => {

@@ -59,10 +59,15 @@ export function ConnectionScreen({
           >
             {busy === 'login' ? 'Signing in…' : 'Run claude login'}
           </button>
-          <button disabled={busy !== null} onClick={() => void act('check', async () => {
-            await api.checkConnection();
-            onChanged();
-          })}>
+          <button
+            disabled={busy !== null}
+            onClick={() =>
+              void act('check', async () => {
+                await api.checkConnection();
+                onChanged();
+              })
+            }
+          >
             {busy === 'check' ? 'Checking…' : 'Recheck'}
           </button>
         </div>
@@ -80,8 +85,8 @@ export function ConnectionScreen({
       <section>
         <h2>Or use an API key</h2>
         <p className="muted">
-          Billed per token. Stored on this machine only, in a file readable just by you — never
-          sent anywhere except to Anthropic.
+          Billed per token. Stored on this machine only, in a file readable just by you — never sent
+          anywhere except to Anthropic.
         </p>
         <input
           type="password"
@@ -122,16 +127,14 @@ function Explanation({ status }: { status: ConnectionStatus }): JSX.Element {
       return <p className="muted">Checking the connection…</p>;
     case 'no_credential':
       return (
-        <p className="muted">
-          No working credential was found. Sign in below, or add an API key.
-        </p>
+        <p className="muted">No working credential was found. Sign in below, or add an API key.</p>
       );
     case 'rate_limited':
       return (
         <>
           <p className="warn">
-            Your credential works, but Claude is rate-limiting or you have hit a usage limit.
-            Bonsai will work again once that clears.
+            Your credential works, but Claude is rate-limiting or you have hit a usage limit. Bonsai
+            will work again once that clears.
           </p>
           {status.message !== null && <pre className="stream">{status.message}</pre>}
         </>

@@ -21,7 +21,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build:server && npm run typecheck && npm run lint && node --test \"packages/server/dist/**/*.test.js\"",
+    "test": "npm run build:server && npm run typecheck && npm run lint && npm run format:check && node --test \"packages/server/dist/**/*.test.js\"",
     "dev": "npm run build:server && node --no-warnings packages/server/dist/index.js",
     "dev:ui": "npm -w @bonsai/ui run dev",
     "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"

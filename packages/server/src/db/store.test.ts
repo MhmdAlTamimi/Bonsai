@@ -112,7 +112,10 @@ describe('store, against real SQL', () => {
 
   test('delete cascades to descendants', () => {
     store.deleteNode(byName.get('argparse')!.id);
-    const names = store.treeView(projectId).map((n) => n.displayName).sort();
+    const names = store
+      .treeView(projectId)
+      .map((n) => n.displayName)
+      .sort();
     assert.deepEqual(names, ['click', 'master']);
   });
 

@@ -30,7 +30,12 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
   });
 
   const project = async () =>
-    createProject(store, { name: 'p', description: 'd', model: null, permissionMode: 'acceptEdits' });
+    createProject(store, {
+      name: 'p',
+      description: 'd',
+      model: null,
+      permissionMode: 'acceptEdits',
+    });
 
   const commit = async (nodeId: string, files: Record<string, string>): Promise<void> => {
     const node = store.getNode(nodeId)!;
@@ -119,7 +124,10 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     const { projectId, masterNodeId } = await project();
     await commit(masterNodeId, { 'a.py': '1\n' });
     const { nodeId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'n', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'n',
+      description: 'd',
     });
     const node = store.getNode(nodeId)!;
     await writeFile(join(node.worktree_path, 'wip.py'), 'partial\n', 'utf8');
@@ -138,7 +146,10 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     const { projectId, masterNodeId } = await project();
     await commit(masterNodeId, { 'base.py': 'x\n' });
     const { nodeId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'work', description: 'add a feature',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'work',
+      description: 'add a feature',
     });
 
     // A run starts, writes something, and the process dies before committing.
@@ -167,7 +178,10 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     const { projectId, masterNodeId } = await project();
     await commit(masterNodeId, { 'base.py': 'x\n' });
     const { nodeId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'work', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'work',
+      description: 'd',
     });
     const node = store.getNode(nodeId)!;
 

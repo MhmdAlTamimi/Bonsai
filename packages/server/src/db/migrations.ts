@@ -88,8 +88,7 @@ export class DatabaseTooNewError extends Error {
 
 export function currentVersion(db: DatabaseSync): number {
   const row = db.prepare(`SELECT value FROM meta WHERE key = 'schema_version'`).get() as unknown as
-    | { value: string }
-    | undefined;
+    { value: string } | undefined;
   const parsed = Number(row?.value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }

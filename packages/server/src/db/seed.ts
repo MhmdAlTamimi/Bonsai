@@ -29,11 +29,9 @@ export function seedDemoProject(db: DatabaseSync, reposRoot: string): string {
   });
 
   const commit = (row: { id: string }, sha: string, branch: string): void => {
-    db.prepare(`UPDATE node SET head_commit = ?, branch_name = ?, status = 'ready' WHERE id = ?`).run(
-      sha,
-      branch,
-      row.id,
-    );
+    db.prepare(
+      `UPDATE node SET head_commit = ?, branch_name = ?, status = 'ready' WHERE id = ?`,
+    ).run(sha, branch, row.id);
   };
   const ready = (row: { id: string }): void => store.setNodeStatus(row.id, 'ready');
 

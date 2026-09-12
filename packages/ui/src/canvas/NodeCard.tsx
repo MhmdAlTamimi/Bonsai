@@ -41,7 +41,7 @@ function lodFor(zoom: number): Lod {
 
 /** Why the padlock is there. The two reasons lead to different next steps. */
 const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
-  child_committed: 'Frozen — a child has committed, so this node\'s code cannot change.',
+  child_committed: "Frozen — a child has committed, so this node's code cannot change.",
   your_folder:
     'Your own folder. Bonsai reads it but never writes or commits there; drag out a child to make changes.',
 };
@@ -82,7 +82,10 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
       <Handle type="target" position={RANK_DIR === 'TB' ? Position.Top : Position.Left} />
 
       {lod === 'dot' ? (
-        <span className="dot-only" aria-label={`${data.displayName}: ${STATUS_LABEL[data.status]}`} />
+        <span
+          className="dot-only"
+          aria-label={`${data.displayName}: ${STATUS_LABEL[data.status]}`}
+        />
       ) : (
         <>
           <div className="card-head">
@@ -95,7 +98,10 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               </span>
             )}
             {!data.writable && (
-              <span className="glyph" title={FROZEN_TOOLTIP[data.frozenReason ?? 'child_committed']}>
+              <span
+                className="glyph"
+                title={FROZEN_TOOLTIP[data.frozenReason ?? 'child_committed']}
+              >
                 &#128274;
               </span>
             )}

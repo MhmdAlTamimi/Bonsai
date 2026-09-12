@@ -86,8 +86,8 @@ export function NewChildDialog({
         </div>
 
         <p className="hint">
-          It forks this node's whole conversation, and branches from the nearest ancestor that has
-          a commit.
+          It forks this node's whole conversation, and branches from the nearest ancestor that has a
+          commit.
         </p>
       </div>
     </div>

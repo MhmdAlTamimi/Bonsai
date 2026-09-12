@@ -186,8 +186,7 @@ export class RunJobs {
         // Node override, then the project's default, then the app setting.
         model: node.model ?? project.default_model ?? this.settings?.model() ?? null,
         effort: project.default_effort ?? this.settings?.effort() ?? null,
-        permissionMode:
-          node.permission_mode ?? project.default_permission_mode ?? 'acceptEdits',
+        permissionMode: node.permission_mode ?? project.default_permission_mode ?? 'acceptEdits',
         agentEnv: this.settings?.agentEnv() ?? null,
         signal: controller.signal,
       })) {
@@ -250,8 +249,14 @@ export class RunJobs {
       }
 
       if (controller.signal.aborted) {
-          this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
-          cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model, apiKeySource,
+        this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
+          cost,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+          model,
+          apiKeySource,
         });
         return;
       }
@@ -320,7 +325,13 @@ export class RunJobs {
        */
       if (controller.signal.aborted) {
         this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
-          cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model, apiKeySource,
+          cost,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+          model,
+          apiKeySource,
         });
         return;
       }
@@ -329,7 +340,13 @@ export class RunJobs {
       // D31: a failed run is an `interrupted` node plus an error, not a sixth
       // state. The worktree is left dirty on purpose so M4 can resume it.
       this.finishRun(runId, nodeId, 'failed', message, {
-        cost, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model, apiKeySource,
+        cost,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+        model,
+        apiKeySource,
       });
       this.bus.publish(node.project_id, { type: 'run.error', nodeId, runId, error: message });
     }

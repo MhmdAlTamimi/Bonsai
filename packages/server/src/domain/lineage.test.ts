@@ -43,7 +43,7 @@ describe('resolveBaseCommit (pinned, one hop)', () => {
     assert.equal(resolveBaseCommit(t('A')!), 'c2');
   });
 
-  test('a child of a commitless node forwards that node\'s pin, skipping it', () => {
+  test("a child of a commitless node forwards that node's pin, skipping it", () => {
     const t = lookupFrom(demoTree());
     // This is the demo's step 5: F branches from A's commit, not from E.
     assert.equal(resolveBaseCommit(t('E')!), 'c2');

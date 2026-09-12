@@ -20,7 +20,8 @@ export function useSelection(): Selection {
 
   const select = useCallback((id: string) => setIds([id]), []);
   const toggle = useCallback(
-    (id: string) => setIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])),
+    (id: string) =>
+      setIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id])),
     [],
   );
   const clear = useCallback(() => setIds([]), []);

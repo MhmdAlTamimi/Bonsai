@@ -39,7 +39,12 @@ const connection = new Connection(settings);
  * gate stops runs before they start when it cannot reach Claude.
  */
 const useStandIn = process.env['BONSAI_FAKE_AGENT'] === '1';
-const jobs = new RunJobs(store, bus, useStandIn ? new FakeRunner() : new ClaudeSdkRunner(), settings);
+const jobs = new RunJobs(
+  store,
+  bus,
+  useStandIn ? new FakeRunner() : new ClaudeSdkRunner(),
+  settings,
+);
 if (useStandIn) {
   process.stdout.write('[bonsai] agent: STAND-IN (BONSAI_FAKE_AGENT=1) — output is fake\n');
 }

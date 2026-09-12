@@ -46,10 +46,17 @@ export function SettingsDialog({
 
   return (
     <div className="dialog-backdrop" onClick={onClose}>
-      <div className="dialog wide" role="dialog" aria-label="Settings" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="dialog wide"
+        role="dialog"
+        aria-label="Settings"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header>
           <h3>Settings</h3>
-          <button className="dialog-close" onClick={onClose} aria-label="close">×</button>
+          <button className="dialog-close" onClick={onClose} aria-label="close">
+            ×
+          </button>
         </header>
 
         <section>
@@ -63,10 +70,17 @@ export function SettingsDialog({
             </span>
             <button
               disabled={busy}
-              onClick={() => void (async () => {
-                setBusy(true);
-                try { await api.checkConnection(); onChanged(); } finally { setBusy(false); }
-              })()}
+              onClick={() =>
+                void (async () => {
+                  setBusy(true);
+                  try {
+                    await api.checkConnection();
+                    onChanged();
+                  } finally {
+                    setBusy(false);
+                  }
+                })()
+              }
             >
               Recheck
             </button>
@@ -89,14 +103,18 @@ export function SettingsDialog({
             <div className="row">
               <button
                 disabled={busy}
-                onClick={() => void (async () => {
-                  setBusy(true);
-                  try {
-                    const r = await api.login();
-                    setNote(r.output);
-                    onChanged();
-                  } finally { setBusy(false); }
-                })()}
+                onClick={() =>
+                  void (async () => {
+                    setBusy(true);
+                    try {
+                      const r = await api.login();
+                      setNote(r.output);
+                      onChanged();
+                    } finally {
+                      setBusy(false);
+                    }
+                  })()
+                }
               >
                 Sign in
               </button>
@@ -108,15 +126,22 @@ export function SettingsDialog({
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={settings.hasStoredApiKey ? 'a key is stored — type to replace' : 'sk-ant-...'}
+                placeholder={
+                  settings.hasStoredApiKey ? 'a key is stored — type to replace' : 'sk-ant-...'
+                }
                 aria-label="API key"
               />
               <div className="row">
-                <button disabled={busy || apiKey.trim() === ''} onClick={() => void save({ apiKey: apiKey.trim() }).then(() => setApiKey(''))}>
+                <button
+                  disabled={busy || apiKey.trim() === ''}
+                  onClick={() => void save({ apiKey: apiKey.trim() }).then(() => setApiKey(''))}
+                >
                   Save key
                 </button>
                 {settings.hasStoredApiKey && (
-                  <button disabled={busy} onClick={() => void save({ apiKey: '' })}>Remove key</button>
+                  <button disabled={busy} onClick={() => void save({ apiKey: '' })}>
+                    Remove key
+                  </button>
                 )}
               </div>
               <p className="hint">Stored on this machine only, in a file readable just by you.</p>
@@ -134,7 +159,11 @@ export function SettingsDialog({
               disabled={busy}
               onChange={(e) => void save({ model: e.target.value === '' ? null : e.target.value })}
             >
-              {MODELS.map((m) => <option key={m.label} value={m.id ?? ''}>{m.label}</option>)}
+              {MODELS.map((m) => (
+                <option key={m.label} value={m.id ?? ''}>
+                  {m.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -145,7 +174,11 @@ export function SettingsDialog({
               onChange={(e) => void save({ effort: e.target.value === '' ? null : e.target.value })}
             >
               <option value="">default</option>
-              {EFFORTS.map((x) => <option key={x} value={x}>{x}</option>)}
+              {EFFORTS.map((x) => (
+                <option key={x} value={x}>
+                  {x}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -153,9 +186,15 @@ export function SettingsDialog({
             <select
               value={settings.permissionMode}
               disabled={busy}
-              onChange={(e) => void save({ permissionMode: e.target.value as SettingsView['permissionMode'] })}
+              onChange={(e) =>
+                void save({ permissionMode: e.target.value as SettingsView['permissionMode'] })
+              }
             >
-              {PERMISSION_MODES.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {PERMISSION_MODES.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
             </select>
           </label>
           <p className="hint">
@@ -169,11 +208,20 @@ export function SettingsDialog({
           <label className="stacked">
             Projects folder
             <div className="row">
-              <input value={reposRoot} onChange={(e) => setReposRoot(e.target.value)} aria-label="projects folder" />
-              <button disabled={busy || reposRoot === settings.reposRoot} onClick={() => void save({ reposRoot })}>
+              <input
+                value={reposRoot}
+                onChange={(e) => setReposRoot(e.target.value)}
+                aria-label="projects folder"
+              />
+              <button
+                disabled={busy || reposRoot === settings.reposRoot}
+                onClick={() => void save({ reposRoot })}
+              >
                 Save
               </button>
-              <button disabled={busy} onClick={() => void api.reveal(settings.reposRoot)}>Reveal</button>
+              <button disabled={busy} onClick={() => void api.reveal(settings.reposRoot)}>
+                Reveal
+              </button>
             </div>
           </label>
           <p className="hint">
@@ -185,7 +233,9 @@ export function SettingsDialog({
             Data folder
             <div className="row">
               <input value={settings.dataDir} readOnly aria-label="data folder" />
-              <button disabled={busy} onClick={() => void api.reveal(settings.dataDir)}>Reveal</button>
+              <button disabled={busy} onClick={() => void api.reveal(settings.dataDir)}>
+                Reveal
+              </button>
             </div>
           </label>
         </section>

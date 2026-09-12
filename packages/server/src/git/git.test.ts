@@ -165,7 +165,10 @@ describe('git layer', () => {
     // Second run answers a question: CONTEXT.md is now tracked, so the revert
     // path is `restore`, not `clean`. This is D31's untracked trap in reverse.
     assert.equal(await run(nodeId, { 'CONTEXT.md': '# scratch\n' }), false);
-    assert.equal(await readFile(join(node.worktree_path, 'CONTEXT.md'), 'utf8'), '# committed notes\n');
+    assert.equal(
+      await readFile(join(node.worktree_path, 'CONTEXT.md'), 'utf8'),
+      '# committed notes\n',
+    );
   });
 
   test('a node may hold several commits while it is a leaf (D29)', async () => {
@@ -243,7 +246,10 @@ describe('git layer', () => {
   test('CHECKPOINT: the walk survives chained commitless nodes', async () => {
     const { projectId, masterNodeId } = await newProject();
     const { nodeId: aId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     await run(aId, { 'cli.py': 'x\n' });
     const aCommit = store.getNode(aId)!.head_commit!;
@@ -251,7 +257,10 @@ describe('git layer', () => {
     let parentId = aId;
     for (const name of ['q1', 'q2', 'q3']) {
       const { nodeId } = await createChildNode(store, {
-        projectId, parentId, displayName: name, description: 'a question',
+        projectId,
+        parentId,
+        displayName: name,
+        description: 'a question',
       });
       await run(nodeId, { 'CONTEXT.md': `# ${name}\n` });
       assert.equal(store.getNode(nodeId)!.head_commit, null);
@@ -259,7 +268,10 @@ describe('git layer', () => {
     }
 
     const { baseCommit } = await createChildNode(store, {
-      projectId, parentId, displayName: 'finally', description: 'do the work',
+      projectId,
+      parentId,
+      displayName: 'finally',
+      description: 'do the work',
     });
     assert.equal(baseCommit, aCommit, 'three hops up, still A');
   });
@@ -267,13 +279,19 @@ describe('git layer', () => {
   test('an ancestor committing later does not move an existing subtree', async () => {
     const { projectId, masterNodeId } = await newProject();
     const { nodeId: aId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     await run(aId, { 'one.txt': '1' });
     const firstCommit = store.getNode(aId)!.head_commit!;
 
     const { nodeId: eId } = await createChildNode(store, {
-      projectId, parentId: aId, displayName: 'q', description: 'a question',
+      projectId,
+      parentId: aId,
+      displayName: 'q',
+      description: 'a question',
     });
     await run(eId, { 'CONTEXT.md': '# q\n' });
 
@@ -284,7 +302,10 @@ describe('git layer', () => {
     // The pin holds. E's child lands where E was born, so its code and its
     // inherited conversation still describe the same tree.
     const { baseCommit } = await createChildNode(store, {
-      projectId, parentId: eId, displayName: 'child', description: 'd',
+      projectId,
+      parentId: eId,
+      displayName: 'child',
+      description: 'd',
     });
     assert.equal(baseCommit, firstCommit);
     assert.equal(store.baseDiverges(store.getNode(eId)!), true, 'and it is reported');
@@ -293,7 +314,10 @@ describe('git layer', () => {
   test('diff is measured against the pinned base, not the parent', async () => {
     const { projectId, masterNodeId } = await newProject();
     const { nodeId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     await run(nodeId, { 'cli.py': 'print(1)\n', 'CONTEXT.md': '# notes\n' });
     const node = store.getNode(nodeId)!;
@@ -309,11 +333,17 @@ describe('git layer', () => {
   test('deleting a node cascades, removing worktrees and branches', async () => {
     const { projectId, masterNodeId } = await newProject();
     const { nodeId: aId } = await createChildNode(store, {
-      projectId, parentId: masterNodeId, displayName: 'a', description: 'd',
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'a',
+      description: 'd',
     });
     await run(aId, { 'a.txt': 'a' });
     const { nodeId: bId } = await createChildNode(store, {
-      projectId, parentId: aId, displayName: 'b', description: 'd',
+      projectId,
+      parentId: aId,
+      displayName: 'b',
+      description: 'd',
     });
     await run(bId, { 'b.txt': 'b' });
 

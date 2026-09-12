@@ -181,11 +181,11 @@ export function Panel({
 
       {isYourFolder && (
         <p className="note">
-          This node is your own folder{project?.sourcePath == null ? '' : ` (${project.sourcePath})`}
-          . Bonsai reads it and answers questions about it, but never writes or commits there — to
-          change anything, drag out a child node. Children get their own worktree on a{' '}
-          <code>node/…</code> branch inside this same repository, so you can check them out with
-          git whenever you like.
+          This node is your own folder
+          {project?.sourcePath == null ? '' : ` (${project.sourcePath})`}. Bonsai reads it and
+          answers questions about it, but never writes or commits there — to change anything, drag
+          out a child node. Children get their own worktree on a <code>node/…</code> branch inside
+          this same repository, so you can check them out with git whenever you like.
         </p>
       )}
 
@@ -218,8 +218,8 @@ export function Panel({
 
       {detail?.baseIsPinnedBehindLiveWalk === true && (
         <p className="note">
-          An ancestor has committed since this node was created. Its base stays pinned where it
-          was, so its code and its inherited conversation still describe the same tree.
+          An ancestor has committed since this node was created. Its base stays pinned where it was,
+          so its code and its inherited conversation still describe the same tree.
         </p>
       )}
 
@@ -278,8 +278,8 @@ export function Panel({
           Create and run
         </button>
         <p className="hint">
-          A child forks this node's whole conversation, and branches from the nearest ancestor
-          that has a commit — which is not this node if it changed no files.
+          A child forks this node's whole conversation, and branches from the nearest ancestor that
+          has a commit — which is not this node if it changed no files.
         </p>
       </details>
     </aside>
@@ -300,7 +300,10 @@ function Cost({
     cacheReadTokens: number;
   }>;
 }): JSX.Element {
-  const model = runs.map((r) => r.model).filter((m): m is string => m !== null).at(-1);
+  const model = runs
+    .map((r) => r.model)
+    .filter((m): m is string => m !== null)
+    .at(-1);
   // 'none' is a claude.ai subscription login: nothing is charged per token.
   const subscription = runs.some((r) => r.apiKeySource === 'none');
   const input = runs.reduce((n, r) => n + r.inputTokens, 0);
