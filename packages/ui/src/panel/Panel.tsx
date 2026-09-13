@@ -3,6 +3,7 @@ import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import { ExperimentChanges } from './node/ExperimentChanges.tsx';
 import { Checks } from './node/Checks.tsx';
 import { RenameDialog } from './node/RenameDialog.tsx';
 import { Checkout } from './node/Checkout.tsx';
@@ -77,6 +78,12 @@ function NodePanel({
   startError: string | null;
   onRunStarted: () => void;
 }): JSX.Element {
+  const [view, setView] = useState<'conversation' | 'results'>('conversation');
+  const [resultsSeen, setResultsSeen] = useState(false);
+  const changeView = (next: 'conversation' | 'results'): void => {
+    setView(next);
+    if (next === 'results') setResultsSeen(true);
+  };
   const [renaming, setRenaming] = useState(false);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -148,7 +155,11 @@ function NodePanel({
               ■ Stop
             </button>
           )}
-          <StatusChip status={node.status} queuePosition={node.queuePosition} />
+          <StatusChip
+            status={node.status}
+            queuePosition={node.queuePosition}
+            lastRunStatus={node.lastRunStatus}
+          />
           <OverflowMenu
             busy={actions.busy}
             onRename={() => setRenaming(true)}
@@ -194,7 +205,44 @@ function NodePanel({
        * composer is pinned, because a reply box you have to scroll to find is a
        * reply box you stop using.
        */}
-      <div className="panel-body" ref={chat.scrollRef}>
+      <div className="panel-tabs" role="tablist" aria-label="Experiment view">
+        {(['conversation', 'results'] as const).map((tab, index) => (
+          <button
+            key={tab}
+            role="tab"
+            id={`tab-${node.id}-${tab}`}
+            aria-controls={`view-${node.id}-${tab}`}
+            aria-selected={view === tab}
+            tabIndex={view === tab ? 0 : -1}
+            onClick={() => changeView(tab)}
+            onKeyDown={(e) => {
+              if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                e.preventDefault();
+                const next =
+                  e.key === 'Home'
+                    ? 'conversation'
+                    : e.key === 'End'
+                      ? 'results'
+                      : index === 0
+                        ? 'results'
+                        : 'conversation';
+                changeView(next);
+                document.getElementById(`tab-${node.id}-${next}`)?.focus();
+              }
+            }}
+          >
+            {tab === 'conversation' ? 'Conversation' : 'Results & changes'}
+          </button>
+        ))}
+      </div>
+      <div
+        className="panel-body"
+        ref={chat.scrollRef}
+        hidden={view !== 'conversation'}
+        role="tabpanel"
+        id={`view-${node.id}-conversation`}
+        aria-labelledby={`tab-${node.id}-conversation`}
+      >
         {node.status === 'new' && (
           <section className="start">
             <h3>Ready for the first run</h3>
@@ -213,9 +261,14 @@ function NodePanel({
               {detailError} <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
             </p>
           ))}
-        <Checks node={node} detail={detail} />
-
-        {detail !== null && <Lineage lineage={detail.lineage} />}
+        {runs.at(-1)?.status === 'done' && (
+          <p className="result-peek">
+            Run finished.{' '}
+            <button className="linkish" onClick={() => changeView('results')}>
+              Review goal, checks and changes
+            </button>
+          </p>
+        )}
 
         {/* Frozen: the action first, the conversation second. The composer knows
             to collapse itself, so the chat below costs one line until asked for. */}
@@ -241,15 +294,60 @@ function NodePanel({
         )}
 
         {error !== null && <p className="error">{error}</p>}
+      </div>
 
-        <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
+      <div
+        className="panel-body results-panel"
+        hidden={view !== 'results'}
+        role="tabpanel"
+        id={`view-${node.id}-results`}
+        aria-labelledby={`tab-${node.id}-results`}
+      >
+        {resultsSeen && (
+          <>
+            {detail === null ? (
+              detailError === null ? (
+                <p role="status">Loading results…</p>
+              ) : (
+                <p className="error" role="alert">
+                  {detailError}{' '}
+                  <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
+                </p>
+              )
+            ) : (
+              <>
+                <section className="result-outcome">
+                  <h3>Latest run</h3>
+                  <p>
+                    {runs.length === 0
+                      ? 'No runs recorded yet.'
+                      : runs.at(-1)?.status === 'done'
+                        ? `Finished — ${runs.at(-1)?.commitSha === null ? 'answered without file changes' : 'files changed'}.`
+                        : runs.at(-1)?.status === 'cancelled'
+                          ? 'Cancelled — review any partial work.'
+                          : runs.at(-1)?.status === 'failed'
+                            ? 'Failed — review the conversation and partial work.'
+                            : 'In progress — no completed result yet.'}
+                  </p>
+                </section>
+                <Checks node={node} detail={detail} />
+                <Lineage lineage={detail.lineage} />
+              </>
+            )}
+            <ExperimentChanges
+              node={node}
+              revision={`${revision}:${runs.at(-1)?.id ?? ''}:${runs.at(-1)?.status ?? ''}`}
+            />
+            <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
 
-        {detail?.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
-          <Checkout
-            command={detail.checkoutCommand}
-            hint={detail.checkoutHint}
-            onError={setError}
-          />
+            {detail?.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
+              <Checkout
+                command={detail.checkoutCommand}
+                hint={detail.checkoutHint}
+                onError={setError}
+              />
+            )}
+          </>
         )}
       </div>
 

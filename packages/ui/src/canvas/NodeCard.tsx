@@ -99,7 +99,12 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
             )}
             {/* At compact zoom the word is gone, so the glyph carries it. */}
             {lod === 'compact' && (
-              <StatusChip status={data.status} queuePosition={data.queuePosition} compact />
+              <StatusChip
+                status={data.status}
+                queuePosition={data.queuePosition}
+                lastRunStatus={data.lastRunStatus}
+                compact
+              />
             )}
           </div>
           {lod === 'full' && (
@@ -111,7 +116,12 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 {/* On the card as well as in the panel: with several nodes in
                     flight, the one you want to stop is rarely the one selected,
                     and stopping it should not cost a click to select it first. */}
-                {data.status === 'running' && data.queuePosition === null ? (
+                <StatusChip
+                  status={data.status}
+                  queuePosition={data.queuePosition}
+                  lastRunStatus={data.lastRunStatus}
+                />
+                {data.status === 'running' && data.queuePosition === null && (
                   // On the card as well as in the panel: with several nodes in
                   // flight, the one you want to stop is rarely the one
                   // selected, and stopping it should not cost a click first.
@@ -127,8 +137,6 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                   >
                     ■ stop
                   </button>
-                ) : (
-                  <StatusChip status={data.status} queuePosition={data.queuePosition} />
                 )}
                 {/*
                  * The most informative fact available about a node, and the

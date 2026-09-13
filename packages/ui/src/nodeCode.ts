@@ -19,8 +19,8 @@ export function codeState(node: NodeView): CodeState {
 }
 
 export const CODE_LABEL: Record<CodeState, string> = {
-  'has-commits': 'has commits',
-  none: 'no commits — conversation only',
+  'has-commits': 'Committed code snapshot',
+  none: 'Answered without file changes',
   unknown: 'not run yet — unknown',
 };
 

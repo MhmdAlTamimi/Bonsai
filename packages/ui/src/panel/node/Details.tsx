@@ -39,24 +39,6 @@ export function Details({
                 : 'frozen — a child committed'}
           </dd>
         </div>
-        {/* The two lineages again, spelled out. The block above the chat says
-            it in a sentence; this is the version you check a fact against. */}
-        {detail?.lineage.conversationFrom != null && (
-          <>
-            <div>
-              <dt>conversation</dt>
-              <dd>forked from {detail.lineage.conversationFrom.displayName}</dd>
-            </div>
-            <div>
-              <dt>code</dt>
-              <dd>
-                {detail.lineage.codeFrom === null
-                  ? 'no committing ancestor yet'
-                  : `branched from ${detail.lineage.codeFrom.displayName}`}
-              </dd>
-            </div>
-          </>
-        )}
         <div>
           <dt>created</dt>
           <dd title={exactTime(node.createdAt)}>{relativeTime(node.createdAt)}</dd>
