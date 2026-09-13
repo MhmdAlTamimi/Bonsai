@@ -35,7 +35,7 @@ export async function readWorktreeState(worktreePath: string): Promise<WorktreeS
       .filter((e) => e.untracked)
       .map((e) => e.path)
       .sort(),
-    patch: await git(['diff'], worktreePath),
+    patch: await git(['diff', 'HEAD'], worktreePath),
   };
 }
 
@@ -108,7 +108,7 @@ export async function discardWorktreeChanges(worktreePath: string): Promise<void
 
   const tracked = entries.filter((e) => !e.untracked);
   if (tracked.length > 0) {
-    await git(['checkout', '--', '.'], worktreePath);
+    await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', '.'], worktreePath);
   }
   if (entries.some((e) => e.untracked)) {
     await git(['clean', '-fd'], worktreePath);

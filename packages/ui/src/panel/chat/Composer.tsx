@@ -58,7 +58,6 @@ export function Composer({
             setOpen(true);
             setTimeout(() => ref.current?.focus(), 0);
           }}
-          disabled={busy}
         >
           Ask a question&hellip;
         </button>
@@ -86,7 +85,6 @@ export function Composer({
         }}
         placeholder={placeholder(node, busy)}
         rows={3}
-        disabled={busy}
         aria-label="message"
       />
       <div className="composer-row">

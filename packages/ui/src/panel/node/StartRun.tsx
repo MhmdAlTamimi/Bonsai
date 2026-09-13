@@ -1,4 +1,5 @@
-import { type JSX, useState } from 'react';
+import { type JSX } from 'react';
+import { useDraft } from '../chat/useDraft.ts';
 import type { NodeView } from '@bonsai/shared';
 
 /**
@@ -23,7 +24,7 @@ export function StartRun({
   busy: boolean;
   onStart: (prompt: string) => void;
 }): JSX.Element {
-  const [prompt, setPrompt] = useState(node.summaryLine);
+  const { prompt, setPrompt } = useDraft(node.projectId, node.id, 'start', node.summaryLine);
 
   return (
     <section className="start">

@@ -357,6 +357,15 @@ export interface NodeDetail {
    * normal for a conversation-only node, since it changed nothing to test.
    */
   testingNotes: string | null;
+  testingSource: {
+    nodeId: string;
+    nodeName: string;
+    runId: string;
+    recordedAt: string;
+    inherited: boolean;
+    predatesLatestRun: boolean;
+  } | null;
+  partialWork: { changed: string[]; untracked: string[]; patch: string } | null;
   /** D22: a human-readable record shown in the panel. Null until a run commits one. */
   contextMd: string | null;
   /**
@@ -385,6 +394,7 @@ export interface CreateProjectRequest {
    * Bonsai's own data directory.
    */
   location?: string;
+  expectedPath?: string;
 }
 
 export interface AdoptProjectRequest {

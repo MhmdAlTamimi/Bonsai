@@ -3,6 +3,8 @@ import type { MessageView, NodeView } from '@bonsai/shared';
 
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
+import { clearSubmittedDraft, setSending, isSending } from './drafts.ts';
+import { useDraft } from './useDraft.ts';
 import { pendingDeltas, type Delta } from './liveMerge.ts';
 
 /**
@@ -26,6 +28,9 @@ export function useChat(
   onError: (message: string | null) => void,
 ): {
   messages: MessageView[];
+  loading: boolean;
+  error: string | null;
+  retry: () => void;
   /** Live deltas the persisted transcript has not caught up with. */
   pending: Delta[];
   prompt: string;
@@ -38,20 +43,34 @@ export function useChat(
   scrollRef: RefObject<HTMLDivElement | null>;
 } {
   const [messages, setMessages] = useState<MessageView[]>([]);
-  const [prompt, setPrompt] = useState('');
-  const [sending, setSending] = useState(false);
+  const { key, prompt, setPrompt, sending } = useDraft(node.projectId, node.id, 'reply');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let alive = true;
+    setLoading(true);
+    setError(null);
     void api
       .messages(node.id)
-      .then((m) => alive && setMessages(m))
-      .catch(() => undefined);
+      .then((m) => {
+        if (alive) {
+          setMessages(m);
+          setLoading(false);
+        }
+      })
+      .catch((e: unknown) => {
+        if (alive) {
+          setError(describeError(e));
+          setLoading(false);
+        }
+      });
     return () => {
       alive = false;
     };
-  }, [node.id, node.status]);
+  }, [node.id, node.status, revision]);
 
   /**
    * Follow the tail, but only when the reader is already at it.
@@ -78,21 +97,25 @@ export function useChat(
 
   const send = (): void => {
     const text = prompt.trim();
-    if (text === '' || busy || sending) return;
-    setSending(true);
+    if (text === '' || busy || isSending(key)) return;
+    setSending(key, true);
     onError(null);
     void api
       .startRun(node.id, text)
       .then(() => {
-        setPrompt('');
+        clearSubmittedDraft(key, prompt);
+        setRevision((n) => n + 1);
         onChanged();
       })
       .catch((e: unknown) => onError(describeError(e)))
-      .finally(() => setSending(false));
+      .finally(() => setSending(key, false));
   };
 
   return {
     messages,
+    loading,
+    error,
+    retry: () => setRevision((n) => n + 1),
     pending: running ? pendingDeltas(live, messages) : [],
     prompt,
     setPrompt,

@@ -37,13 +37,42 @@ export function NewProject({
   const [location, setLocation] = useState('');
   const [folder, setFolder] = useState('');
   const [includeUncommitted, setIncludeUncommitted] = useState(false);
+  const [choosingLocation, setChoosingLocation] = useState(false);
+  const [preview, setPreview] = useState<{ key: string; path: string } | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [inspectionError, setInspectionError] = useState<string | null>(null);
+  const [inspectedFolder, setInspectedFolder] = useState('');
+  const [inspectionRetry, setInspectionRetry] = useState(0);
   const [inspection, setInspection] = useState<DirectoryInspectionView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const previewKey = JSON.stringify([location, name.trim() || 'untitled']);
+  useEffect(() => {
+    let alive = true;
+    setPreview(null);
+    setPreviewError(null);
+    if (location === '' || mode !== 'new') return;
+    void api
+      .previewProject(location, name.trim() || 'untitled')
+      .then(({ path }) => {
+        if (alive) setPreview({ key: previewKey, path });
+      })
+      .catch((e: unknown) => {
+        if (alive) setPreviewError(describeError(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [location, name, mode, previewKey, inspectionRetry]);
+
   // Look before adopting: whether it is a repo, what branch it is on and how
   // much is uncommitted all change what the user is agreeing to.
   useEffect(() => {
+    setInspection(null);
+    setInspectedFolder('');
+    setInspectionError(null);
+    setIncludeUncommitted(false);
     if (mode !== 'existing' || folder === '') {
       setInspection(null);
       return;
@@ -51,14 +80,22 @@ export function NewProject({
     let alive = true;
     void api
       .inspect(folder)
-      .then((i) => alive && setInspection(i))
-      .catch(() => alive && setInspection(null));
+      .then((i) => {
+        if (alive) {
+          setInspection(i);
+          setInspectedFolder(folder);
+        }
+      })
+      .catch((e: unknown) => {
+        if (alive) setInspectionError(describeError(e));
+      });
     return () => {
       alive = false;
     };
-  }, [mode, folder]);
+  }, [mode, folder, inspectionRetry]);
 
   const submit = async (): Promise<void> => {
+    if (busy || blocked) return;
     setBusy(true);
     setError(null);
     try {
@@ -66,7 +103,8 @@ export function NewProject({
         const { projectId } = await api.createProject({
           name: name.trim() || 'untitled',
           description,
-          ...(location === '' ? {} : { location }),
+          location,
+          expectedPath: preview!.path,
         });
         onCreated(projectId);
       } else {
@@ -85,7 +123,13 @@ export function NewProject({
     }
   };
 
-  const blocked = mode === 'existing' && (folder === '' || inspection?.blockedReason != null);
+  const currentInspection = inspectedFolder === folder ? inspection : null;
+  const blocked =
+    mode === 'new'
+      ? location === '' || preview?.key !== previewKey || choosingLocation
+      : folder === '' ||
+        currentInspection?.blockedReason !== null ||
+        currentInspection.knownTo !== null;
 
   return (
     <div className="new-project">
@@ -121,14 +165,38 @@ export function NewProject({
             aria-label="project description"
             rows={4}
           />
-          <label className="stacked">
-            <span>Where to put it</span>
-            <DirectoryPicker value={location} onChange={setLocation} />
-            <span className="hint">
-              A new folder named after the project is created here. Leave it and Bonsai keeps the
-              project in its own data directory.
-            </span>
-          </label>
+          <div className="stacked">
+            <span>Project location</span>
+            <p className="hint">
+              {location === ''
+                ? 'Choose a parent folder. Bonsai will create a new project subfolder inside it.'
+                : `Parent folder: ${location}`}
+            </p>
+            <button type="button" onClick={() => setChoosingLocation((v) => !v)}>
+              {choosingLocation ? 'Close folder browser' : 'Change folder…'}
+            </button>
+            {choosingLocation && (
+              <DirectoryPicker
+                value={location}
+                onChange={(path) => {
+                  setLocation(path);
+                  if (path !== '') setChoosingLocation(false);
+                }}
+              />
+            )}
+            {preview?.key === previewKey && (
+              <p className="note">New project folder: {preview.path}</p>
+            )}
+            {location !== '' && preview === null && previewError === null && (
+              <p role="status">Checking destination…</p>
+            )}
+            {previewError !== null && (
+              <p className="error" role="alert">
+                {previewError}{' '}
+                <button onClick={() => setInspectionRetry((n) => n + 1)}>Retry</button>
+              </p>
+            )}
+          </div>
         </>
       ) : (
         <>
@@ -137,9 +205,18 @@ export function NewProject({
             Your existing branches are left alone and do not become nodes.
           </p>
           <DirectoryPicker value={folder} onChange={setFolder} markRepos />
-          <Inspected inspection={inspection} onOpenExisting={onOpenExisting} />
+          {folder !== '' && currentInspection === null && inspectionError === null && (
+            <p role="status">Inspecting selected folder…</p>
+          )}
+          {inspectionError !== null && (
+            <p className="error" role="alert">
+              {inspectionError}{' '}
+              <button onClick={() => setInspectionRetry((n) => n + 1)}>Retry inspection</button>
+            </p>
+          )}
+          <Inspected inspection={currentInspection} onOpenExisting={onOpenExisting} />
 
-          {inspection !== null && inspection.dirtyFiles > 0 && (
+          {currentInspection !== null && currentInspection.dirtyFiles > 0 && (
             <label>
               <input
                 type="checkbox"
@@ -147,9 +224,9 @@ export function NewProject({
                 onChange={(e) => setIncludeUncommitted(e.target.checked)}
               />
               <span>
-                Start nodes from your uncommitted work too ({inspection.dirtyFiles} file
-                {inspection.dirtyFiles === 1 ? '' : 's'}). Bonsai takes a snapshot commit that
-                belongs to no branch; your working folder is not touched either way.
+                Start nodes from your uncommitted work too ({currentInspection.dirtyFiles} file
+                {currentInspection.dirtyFiles === 1 ? '' : 's'}). Bonsai takes a snapshot commit
+                that belongs to no branch; your working folder is not touched either way.
               </span>
             </label>
           )}
@@ -158,7 +235,9 @@ export function NewProject({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={
-              inspection?.path == null ? 'project name (optional)' : basename(inspection.path)
+              currentInspection?.path == null
+                ? 'project name (optional)'
+                : basename(currentInspection.path)
             }
             aria-label="project name"
           />

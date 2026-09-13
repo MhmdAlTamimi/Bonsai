@@ -457,6 +457,21 @@ export class Store {
       );
   }
 
+  testingSource(
+    commit: string,
+  ): { nodeId: string; nodeName: string; runId: string; recordedAt: string } | null {
+    return (
+      (this.db
+        .prepare(
+          `SELECT n.id AS nodeId, n.display_name AS nodeName,
+      r.id AS runId, r.ended_at AS recordedAt FROM run r JOIN node n ON n.id = r.node_id
+      WHERE r.commit_sha = ? LIMIT 1`,
+        )
+        .get(commit) as
+        { nodeId: string; nodeName: string; runId: string; recordedAt: string } | undefined) ?? null
+    );
+  }
+
   getRun(
     runId: string,
   ): { id: string; node_id: string; status: string; commit_sha: string | null } | undefined {

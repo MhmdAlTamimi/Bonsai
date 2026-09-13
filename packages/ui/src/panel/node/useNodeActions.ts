@@ -57,6 +57,25 @@ export function useNodeActions(
     setError(null);
     setBusy(true);
     try {
+      if (action === 'discard') {
+        const detail = await api.node(node.id);
+        const work = detail.partialWork;
+        if (work === null)
+          throw new Error('Partial changes could not be inspected. Retry before discarding.');
+        const ok = await confirm.ask({
+          title: `Discard partial changes in "${node.displayName}"?`,
+          body: [
+            'This permanently removes uncommitted changes, including new untracked files. Existing commits are kept.',
+            ...work.changed.map(
+              (path) =>
+                `${path}${work.untracked.includes(path) ? ' (new, untracked — will be deleted)' : ' (will be reverted)'}`,
+            ),
+          ],
+          confirmLabel: 'Discard partial changes',
+          danger: true,
+        });
+        if (!ok) return;
+      }
       await api.recover(node.id, action);
       onChanged();
     } catch (e) {

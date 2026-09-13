@@ -102,6 +102,12 @@ export const api = {
 
   listProjects: () => json<Array<{ id: string; name: string }>>('/api/projects'),
 
+  previewProject: (location: string, name: string) =>
+    json<{ path: string }>('/api/projects/preview', {
+      method: 'POST',
+      body: JSON.stringify({ location, name }),
+    }),
+
   createProject: (body: CreateProjectRequest) =>
     json<{ projectId: string; masterNodeId: string; path: string }>('/api/projects', {
       method: 'POST',

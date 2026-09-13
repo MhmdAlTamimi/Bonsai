@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { git } from './exec.js';
 import { CONTEXT_FILE } from './commit.js';
 
 /** D22: CONTEXT.md is a human-readable record shown in the panel, not memory. */
@@ -46,4 +47,30 @@ export function testingSection(contextMd: string | null): string | null {
     .join('\n')
     .trim();
   return body === '' ? null : body;
+}
+
+/** Attribute notes only to a committed section, following unchanged text backwards.
+ * A later CONTEXT edit is not evidence that the testing section was rerun.
+ */
+export async function testingNotesCommit(
+  path: string,
+  notes: string | null,
+): Promise<string | null> {
+  if (notes === null) return null;
+  const commits = (await git(['log', '--format=%H', '--', CONTEXT_FILE], path))
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  let source: string | null = null;
+  for (const sha of commits) {
+    let previous: string | null;
+    try {
+      previous = testingSection(await git(['show', `${sha}:${CONTEXT_FILE}`], path));
+    } catch {
+      break;
+    }
+    if (previous !== notes) break;
+    source = sha;
+  }
+  return source;
 }

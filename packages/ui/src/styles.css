@@ -1833,3 +1833,8 @@ button.destructive:hover:not(:disabled) {
   background: color-mix(in srgb, var(--err) 82%, #fff);
   border-color: color-mix(in srgb, var(--err) 82%, #fff);
 }
+
+/* Recovery stays visible while history scrolls. File review has a bounded viewport. */
+.panel > .recover { flex-shrink: 0; margin: 8px 16px; }
+.partial-review[open] { max-height: 30vh; overflow: auto; }
+.partial-review li { overflow-wrap: anywhere; }
