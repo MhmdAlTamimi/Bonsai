@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useState } from 'react';
 import type { DiffView, MessageView, RunView } from '@bonsai/shared';
 
+import { describeError } from '../../api/describeError.ts';
 import { api } from '../../api/client.ts';
 import { Diff } from './Diff.tsx';
 import { Markdown } from './Markdown.tsx';
@@ -186,16 +187,22 @@ function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
   if (run.status === 'running') return null;
 
   if (run.status === 'failed' || run.status === 'cancelled') {
-    return <footer className="turn-foot failed">{run.error ?? run.status}</footer>;
+    return (
+      <footer className="turn-foot failed">
+        {run.status === 'failed' ? 'Failed' : 'Cancelled'}
+        {run.error !== null ? ` — ${run.error}` : ''}
+      </footer>
+    );
   }
 
   const seconds = run.durationMs === null ? null : (run.durationMs / 1000).toFixed(1);
 
   return (
     <footer className="turn-foot">
+      <span>Finished</span>
       {run.commitSha === null ? (
         <span title="This reply answered without editing files, so it added no commit.">
-          no commit
+          Answered without file changes
         </span>
       ) : (
         <RunDiff runId={run.id} />
@@ -221,25 +228,42 @@ function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
 function RunDiff({ runId }: { runId: string }): JSX.Element {
   const [diff, setDiff] = useState<DiffView | null>(null);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!open) return;
+    setDiff(null);
+    setError(null);
     let alive = true;
     void api
       .runDiff(runId)
       .then((d) => alive && setDiff(d))
-      .catch(() => undefined);
+      .catch((e: unknown) => {
+        if (alive) setError(describeError(e));
+      });
     return () => {
       alive = false;
     };
-  }, [open, runId]);
+  }, [open, runId, retry]);
 
   return (
     <>
       <button className="turn-diff-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <span aria-hidden="true">{open ? '▾' : '▸'}</span>{' '}
-        {diff === null ? 'Changes' : `Changes · ${diff.files.length} file(s)`}
+        {diff === null
+          ? 'Changes from this run'
+          : `Changes from this run · ${diff.files.length} file(s)`}
       </button>
+      {open &&
+        diff === null &&
+        (error === null ? (
+          <p role="status">Loading run changes…</p>
+        ) : (
+          <p className="error" role="alert">
+            {error} <button onClick={() => setRetry((n) => n + 1)}>Retry run changes</button>
+          </p>
+        ))}
       {open && diff !== null && (
         <div className="turn-diff">
           <Diff patch={diff.patch} dirty={diff.dirty} />

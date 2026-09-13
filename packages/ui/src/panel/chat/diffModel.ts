@@ -21,10 +21,14 @@ export interface DiffLine {
   kind: DiffLineKind;
   /** The line without its leading +/-/space marker. */
   text: string;
+  oldLine?: number;
+  newLine?: number;
 }
 
 export interface DiffFile {
   path: string;
+  oldPath?: string;
+  operation?: 'added' | 'deleted' | 'renamed' | 'modified';
   added: number;
   removed: number;
   /** True for a file git reports as binary, which has no lines to show. */
@@ -32,7 +36,18 @@ export interface DiffFile {
   lines: DiffLine[];
 }
 
-const GIT_HEADER = /^diff --git a\/(.+?) b\/(.+)$/;
+const GIT_HEADER = /^diff --git ("(?:[^"\\]|\\.)*"|a\/.*?) ("(?:[^"\\]|\\.)*"|b\/.*)$/;
+function pathName(value: string): string {
+  let path = value;
+  if (value.startsWith('"')) {
+    try {
+      path = JSON.parse(value) as string;
+    } catch {
+      /* retain escaped name */
+    }
+  }
+  return path.replace(/^[ab]\//, '');
+}
 
 /**
  * Split a patch into files.
@@ -48,6 +63,8 @@ export function parsePatch(patch: string): DiffFile[] {
 
   const files: DiffFile[] = [];
   let current: DiffFile | null = null;
+  let oldLine: number | undefined;
+  let newLine: number | undefined;
 
   const open = (path: string): DiffFile => {
     const file: DiffFile = { path, added: 0, removed: 0, binary: false, lines: [] };
@@ -60,7 +77,11 @@ export function parsePatch(patch: string): DiffFile[] {
     if (header !== null) {
       // Prefer the b/ side: for a rename it is where the file ended up, which
       // is the name the user is looking for.
-      current = open(header[2] ?? header[1]!);
+      current = open(pathName(header[2]!));
+      current.oldPath = pathName(header[1]!);
+      current.operation = 'modified';
+      oldLine = undefined;
+      newLine = undefined;
       continue;
     }
 
@@ -71,10 +92,19 @@ export function parsePatch(patch: string): DiffFile[] {
       continue;
     }
 
+    if (line.startsWith('new file mode')) current.operation = 'added';
+    if (line.startsWith('deleted file mode')) current.operation = 'deleted';
+    if (line.startsWith('rename from')) current.operation = 'renamed';
+
     // `---`/`+++` are headers, not content, and must be counted as neither.
     // Checked before the +/- branches below, which is the whole reason they
     // are listed first: `+++ b/x` starts with `+`.
-    if (line.startsWith('+++') || line.startsWith('---')) continue;
+    if (
+      oldLine === undefined &&
+      newLine === undefined &&
+      (line.startsWith('+++ ') || line.startsWith('--- '))
+    )
+      continue;
     if (
       line.startsWith('index ') ||
       line.startsWith('new file mode') ||
@@ -89,17 +119,22 @@ export function parsePatch(patch: string): DiffFile[] {
     }
 
     if (line.startsWith('@@')) {
+      const ranges = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+      oldLine = ranges === null ? undefined : Number(ranges[1]);
+      newLine = ranges === null ? undefined : Number(ranges[2]);
       current.lines.push({ kind: 'hunk', text: line });
       continue;
     }
     if (line.startsWith('+')) {
       current.added += 1;
-      current.lines.push({ kind: 'add', text: line.slice(1) });
+      current.lines.push({ kind: 'add', text: line.slice(1), newLine });
+      if (newLine !== undefined) newLine += 1;
       continue;
     }
     if (line.startsWith('-')) {
       current.removed += 1;
-      current.lines.push({ kind: 'del', text: line.slice(1) });
+      current.lines.push({ kind: 'del', text: line.slice(1), oldLine });
+      if (oldLine !== undefined) oldLine += 1;
       continue;
     }
     if (line.startsWith('\\')) {
@@ -109,7 +144,14 @@ export function parsePatch(patch: string): DiffFile[] {
     }
     // A trailing empty string from the final newline is not a context line.
     if (line === '') continue;
-    current.lines.push({ kind: 'context', text: line.startsWith(' ') ? line.slice(1) : line });
+    current.lines.push({
+      kind: 'context',
+      text: line.startsWith(' ') ? line.slice(1) : line,
+      oldLine,
+      newLine,
+    });
+    if (oldLine !== undefined) oldLine += 1;
+    if (newLine !== undefined) newLine += 1;
   }
 
   return files;
