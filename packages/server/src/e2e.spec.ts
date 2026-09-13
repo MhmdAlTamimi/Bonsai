@@ -56,7 +56,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
           BONSAI_DATA_DIR: dataDir,
           BONSAI_PORT: String(PORT),
           BONSAI_FAKE_AGENT: '1',
-          BONSAI_FAKE_DELAY_MS: '10',
+          BONSAI_FAKE_DELAY_MS: '700',
         },
         stdio: 'ignore',
       },
@@ -81,6 +81,26 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       });
       await session.type('.new-project input[aria-label="project name"]', 'e2e');
       await session.type('.new-project textarea', 'a project made by the end-to-end test');
+      assert.equal(
+        await session.eval("document.querySelector('.new-project .row button').disabled"),
+        true,
+      );
+      await session.eval(
+        "Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Change folder…').click()",
+      );
+      await session.waitFor("!!document.querySelector('.picker-list button')");
+      assert.equal(
+        await session.eval("document.querySelector('.new-project .row button').disabled"),
+        true,
+        'browsing home does not choose it',
+      );
+      await session.type('.picker input', dataDir);
+      await session.click('.picker-bar button:nth-of-type(2)');
+      await session.waitFor(
+        `document.querySelector('.picker input').value === ${JSON.stringify(dataDir)} && !document.querySelector('.picker > button').disabled`,
+      );
+      await session.click('.picker > button');
+      await session.waitFor("!document.querySelector('.new-project .row button').disabled");
       await session.click('.new-project .row button');
 
       // One card: master.
@@ -168,6 +188,152 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       t.diagnostic(`page: ${JSON.stringify(await session.eval(WHAT_IS_ON_SCREEN))}`);
       throw err;
     }
+  });
+  test('draft ownership and failed node loads survive selection and delayed acknowledgments', async () => {
+    await session.eval(`(async () => {
+      const p = (await (await fetch('/api/projects')).json())[0];
+      window.__nodes = (await (await fetch('/api/projects/' + p.id + '/tree')).json()).nodes;
+      window.__root = window.__nodes.find(n => n.parentId === null).id;
+      window.__child = window.__nodes.find(n => n.parentId !== null).id;
+      return true;
+    })()`);
+    const select = async (which: string): Promise<void> => {
+      await session.eval(`document.querySelector('[data-id="' + window.__${which} + '"]').click()`);
+      await session.waitFor(
+        `document.querySelector('.panel h2')?.textContent === window.__nodes.find(n => n.id === window.__${which}).displayName`,
+      );
+      await session.eval("document.querySelector('.composer-open')?.click()");
+    };
+    await select('root');
+    await session.type('.composer textarea', 'draft for root');
+    await select('child');
+    await session.type('.composer textarea', 'draft for child');
+    await select('root');
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'draft for root',
+    );
+    await session.eval(`(() => {
+      window.__fetch = window.fetch;
+      window.fetch = (url, init) => {
+        if (String(url).endsWith('/runs') && init?.method === 'POST') {
+          return new Promise(resolve => { window.__ack = () => resolve(new Response(JSON.stringify({runId: 'delayed'}))); });
+        }
+        return window.__fetch(url, init);
+      };
+    })()`);
+    await session.click('.composer-row button');
+    await session.waitFor('!!window.__ack');
+    await select('child');
+    await session.type('.composer textarea', 'newer child draft');
+    await session.eval('window.__ack()');
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'newer child draft',
+    );
+    await select('root');
+    assert.equal(await session.eval("document.querySelector('.composer textarea').value"), '');
+    await session.eval(`(() => {
+      window.fetch = (url, init) => {
+        if (String(url).startsWith('/api/nodes/' + window.__child) && !init?.method) {
+          return new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({error: 'fixture load failed'}), {status: 503})), 500));
+        }
+        return window.__fetch(url, init);
+      };
+    })()`);
+    await select('child');
+    assert.equal(
+      await session.eval("!!document.querySelector('.checkout, .checks pre, .transcript')"),
+      false,
+    );
+    await session.waitFor(
+      "document.querySelector('.panel').textContent.includes('Retry conversation') && document.querySelector('.panel').textContent.includes('Retry details')",
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.panel').textContent.includes('No conversation yet')",
+      ),
+      false,
+    );
+    await session.eval('window.fetch = window.__fetch');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.panel button')).filter(b => b.textContent.startsWith('Retry')).forEach(b => b.click())",
+    );
+    await session.waitFor(
+      "!document.querySelector('.panel').textContent.includes('Retry conversation') && !document.querySelector('.panel').textContent.includes('Loading conversation')",
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'newer child draft',
+    );
+  });
+  test('partial work remains visible after Keep and Discard requires confirmation', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'recovery',
+          description: 'recovery fixture',
+          location: dataDir,
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'partial fixture' }),
+    });
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).partialWork?.untracked.length > 0)()`,
+    );
+    const cancelled = await fetch(`${nodeUrl}/cancel`, { method: 'POST' });
+    assert.equal(cancelled.ok, true);
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.panel > .recover .partial-review')");
+    await session.click('.partial-review summary');
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.partial-review').textContent.includes('untracked')",
+      ),
+      true,
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent.trim() === 'Keep partial work').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.recover')?.textContent.includes('Partial work kept — not committed')",
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-partial-work.png'));
+    const before = (await (await fetch(nodeUrl)).json()) as { partialWork: { changed: string[] } };
+    assert.ok(before.partialWork.changed.length > 0);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent.includes('Discard')).click()",
+    );
+    await session.waitFor("!!document.querySelector('.dialog.confirm')");
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.dialog.confirm').textContent.includes('master') && document.querySelector('.dialog.confirm').textContent.includes('untracked')",
+      ),
+      true,
+    );
+    await session.click('.dialog.confirm .dialog-actions button');
+    assert.deepEqual(
+      ((await (await fetch(nodeUrl)).json()) as typeof before).partialWork.changed,
+      before.partialWork.changed,
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent.includes('Discard')).click()",
+    );
+    await session.waitFor("!!document.querySelector('.dialog.confirm')");
+    await session.click('.dialog.confirm button.destructive');
+    await session.waitFor("!document.querySelector('.recover')");
+    assert.deepEqual(
+      ((await (await fetch(nodeUrl)).json()) as typeof before).partialWork.changed,
+      [],
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-review.png'));
   });
 });
 
