@@ -25,10 +25,20 @@ export function Checks({
 
   return (
     <section className="checks">
-      <h3>Did it work?</h3>
+      <h3>Testing notes</h3>
       {detail.successCriteria != null && <p className="hint">Goal: {detail.successCriteria}</p>}
       {detail.testingNotes != null ? (
-        <pre className="stream">{detail.testingNotes}</pre>
+        <>
+          <p className="hint">
+            {detail.testingSource === null
+              ? 'Existing testing notes — source not recorded. These are not verification of this run.'
+              : `${detail.testingSource.inherited ? 'Inherited from' : 'Recorded by'} ${detail.testingSource.nodeName}, run ${detail.testingSource.runId.slice(0, 8)} (${detail.testingSource.recordedAt}).${detail.testingSource.predatesLatestRun ? ' These notes predate the latest run; no new checks are recorded here.' : ' Agent-reported evidence; not an independent verdict.'}`}
+          </p>
+          {(detail.partialWork?.changed.length ?? 0) > 0 && (
+            <p className="hint">Uncommitted changes are not covered by these notes.</p>
+          )}
+          <pre className="stream">{detail.testingNotes}</pre>
+        </>
       ) : (
         <p className="hint">
           {node.status === 'running'

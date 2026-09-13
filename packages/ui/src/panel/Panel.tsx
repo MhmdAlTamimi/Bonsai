@@ -60,10 +60,10 @@ export function Panel({
       </aside>
     );
   }
-  // Deliberately NOT keyed on node.id. Keying would remount on every node
-  // switch and clear a half-typed message.
+  // Loaded data and actions remount with their owner; drafts live in a session map.
   return (
     <NodePanel
+      key={`${project?.id}:${node.id}`}
       project={project}
       node={node}
       stream={stream}
@@ -87,24 +87,39 @@ function NodePanel({
   onCreateChild: (node: NodeView) => void;
 }): JSX.Element {
   const [detail, setDetail] = useState<NodeDetail | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  const changed = (): void => {
+    if (!mounted.current) return;
+    setRevision((n) => n + 1);
+    onChanged();
+  };
   const [error, setError] = useState<string | null>(null);
-  const actions = useNodeActions(node, onChanged, setError);
-  const chat = useChat(node, stream, onChanged, setError);
+  const actions = useNodeActions(node, changed, setError);
+  const chat = useChat(node, stream, changed, setError);
 
   useEffect(() => {
-    setError(null);
+    setDetail(null);
+    setDetailError(null);
     let alive = true;
     void api
       .node(node.id)
       .then((d) => alive && setDetail(d))
-      .catch((e: unknown) => alive && setError(describeError(e)));
+      .catch((e: unknown) => alive && setDetailError(describeError(e)));
     return () => {
       alive = false;
     };
     // Deliberately not `[node]`. A refetch hands back a new object every time,
     // so depending on it would refetch the detail in a loop; the id and the
     // status are the only parts this effect actually reads.
-  }, [node.id, node.status]);
+  }, [node.id, node.status, revision]);
 
   const runs = detail?.runs ?? [];
 
@@ -156,6 +171,19 @@ function NodePanel({
         </p>
       )}
 
+      {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
+        node.status !== 'running' &&
+        node.status !== 'needs_you' && (
+          <Recover
+            runs={runs}
+            isYourFolder={isYourFolder}
+            busy={actions.busy}
+            partialWork={detail?.partialWork ?? null}
+            interrupted={node.status === 'interrupted'}
+            onRecover={(action) => void actions.recover(action)}
+          />
+        )}
+
       {/*
        * The one scrolling region. The transcript used to scroll inside this,
        * which scrolled inside the panel, so the wheel did different things two
@@ -164,19 +192,18 @@ function NodePanel({
        * reply box you stop using.
        */}
       <div className="panel-body" ref={chat.scrollRef}>
-        {node.status === 'interrupted' && (
-          <Recover
-            runs={runs}
-            isYourFolder={isYourFolder}
-            busy={actions.busy}
-            onRecover={(action) => void actions.recover(action)}
-          />
-        )}
-
         {node.status === 'new' && (
           <StartRun node={node} busy={actions.busy} onStart={(p) => void actions.start(p)} />
         )}
 
+        {detail === null &&
+          (detailError === null ? (
+            <p role="status">Loading experiment details…</p>
+          ) : (
+            <p className="error" role="alert">
+              {detailError} <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
+            </p>
+          ))}
         <Checks node={node} detail={detail} />
 
         {detail !== null && <Lineage lineage={detail.lineage} />}
@@ -185,7 +212,13 @@ function NodePanel({
             to collapse itself, so the chat below costs one line until asked for. */}
         {frozen && branchButton}
 
-        {chat.messages.length === 0 && chat.pending.length === 0 && !chat.running ? (
+        {chat.loading ? (
+          <p role="status">Loading conversation…</p>
+        ) : chat.error !== null ? (
+          <p className="error" role="alert">
+            {chat.error} <button onClick={chat.retry}>Retry conversation</button>
+          </p>
+        ) : chat.messages.length === 0 && chat.pending.length === 0 && !chat.running ? (
           <p className="muted chat-empty">
             No conversation yet. Ask for a change, or ask a question — a question that changes no
             files leaves this node conversation-only.
