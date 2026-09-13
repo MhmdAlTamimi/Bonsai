@@ -201,7 +201,11 @@ function gate(spec: RunSpec): CanUseTool {
       return Promise.resolve({ behavior: 'deny' as const, message: 'the run was stopped' });
     }
     return spec
-      .ask({ toolName, detail: describeToolInput(input) })
+      .ask({
+        toolName,
+        detail: describeToolInput(input, false),
+        details: JSON.stringify(input, null, 2),
+      })
       .then((decision) =>
         decision.allow ? allow : { behavior: 'deny' as const, message: decision.reason },
       );
@@ -307,13 +311,13 @@ function usageEvent(message: {
 }
 
 /** A one-line summary of a tool call, for the canvas and the transcript. */
-function describeToolInput(input: unknown): string {
+function describeToolInput(input: unknown, truncate = true): string {
   if (input === null || typeof input !== 'object') return '';
   const o = input as Record<string, unknown>;
   for (const key of ['file_path', 'path', 'pattern', 'command', 'url', 'query']) {
     const value = o[key];
     if (typeof value === 'string') {
-      return value.length > 120 ? `${value.slice(0, 117)}...` : value;
+      return truncate && value.length > 120 ? `${value.slice(0, 117)}...` : value;
     }
   }
   return '';

@@ -639,10 +639,25 @@ export class Store {
    * Written before the node's status changes, so there is never a moment where
    * a card says `needs_you` and the panel has no question to show.
    */
-  askQuestion(input: { id: string; runId: string; nodeId: string; text: string }): void {
+  askQuestion(input: {
+    id: string;
+    runId: string;
+    nodeId: string;
+    text: string;
+    request?: NonNullable<NodeView['pendingQuestion']>['request'];
+  }): void {
     this.db
-      .prepare(`INSERT INTO question (id, run_id, node_id, text, asked_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(input.id, input.runId, input.nodeId, input.text, now());
+      .prepare(
+        `INSERT INTO question (id, run_id, node_id, text, asked_at, request_json) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.id,
+        input.runId,
+        input.nodeId,
+        input.text,
+        now(),
+        input.request ? JSON.stringify(input.request) : null,
+      );
   }
 
   /**
@@ -673,15 +688,27 @@ export class Store {
       | undefined;
   }
 
-  pendingQuestion(nodeId: string): { id: string; text: string } | null {
+  pendingQuestion(nodeId: string): NodeView['pendingQuestion'] {
     const row = this.db
       .prepare(
-        `SELECT id, text FROM question
+        `SELECT id, text, request_json FROM question
          WHERE node_id = ? AND answered_at IS NULL
          ORDER BY asked_at DESC LIMIT 1`,
       )
-      .get(nodeId) as unknown as { id: string; text: string } | undefined;
-    return row ?? null;
+      .get(nodeId) as unknown as
+      { id: string; text: string; request_json: string | null } | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      text: row.text,
+      ...(row.request_json === null
+        ? {}
+        : {
+            request: JSON.parse(row.request_json) as NonNullable<
+              NodeView['pendingQuestion']
+            >['request'],
+          }),
+    };
   }
 
   // -- views ---------------------------------------------------------------

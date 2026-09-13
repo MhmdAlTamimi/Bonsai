@@ -63,6 +63,8 @@ export interface RunSpec {
 /** A tool call the agent wants to make, held until someone decides. */
 export interface PermissionRequest {
   toolName: string;
+  /** Full action input, recorded for reviewing this specific permission request. */
+  details?: string;
   /** The same one-line summary the transcript shows for a tool call. */
   detail: string;
 }
