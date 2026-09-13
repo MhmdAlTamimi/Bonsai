@@ -394,6 +394,7 @@ export interface CreateProjectRequest {
    * Bonsai's own data directory.
    */
   location?: string;
+  expectedPath?: string;
 }
 
 export interface AdoptProjectRequest {

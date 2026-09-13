@@ -1,5 +1,6 @@
-import { type JSX, useCallback, useEffect, useState } from 'react';
+import { type JSX, useCallback, useEffect, useState, useRef } from 'react';
 import type { DirectoryListingView } from '@bonsai/shared';
+import { describeError } from '../api/describeError.ts';
 import { api } from '../api/client.ts';
 
 /**
@@ -25,6 +26,8 @@ export function DirectoryPicker({
   markRepos?: boolean;
 }): JSX.Element {
   const [listing, setListing] = useState<DirectoryListingView | null>(null);
+  const request = useRef(0);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   // What is in the text box, which is not the same as the chosen path: it is
   // being typed, and half a path should not send the list somewhere else.
@@ -32,18 +35,23 @@ export function DirectoryPicker({
 
   const load = useCallback(
     async (path?: string): Promise<void> => {
+      const id = ++request.current;
       setLoading(true);
+      setError(null);
+      onChange('');
       try {
         const next = await api.browse(path);
+        if (id !== request.current) return;
         setListing(next);
         setTyped(next.path);
-        onChange(next.path);
+      } catch (e) {
+        if (id === request.current) {
+          setListing(null);
+          setError(describeError(e));
+        }
       } finally {
-        setLoading(false);
+        if (id === request.current) setLoading(false);
       }
-      // onChange is called on every navigation on purpose: browsing to a folder
-      // *is* choosing it, and requiring a second click to confirm the folder you
-      // are looking at is the kind of step people miss.
     },
     [onChange],
   );
@@ -52,6 +60,9 @@ export function DirectoryPicker({
     void load(value === '' ? undefined : value).catch(() => {
       /* an unreadable path just leaves the list where it was */
     });
+    return () => {
+      request.current += 1;
+    };
     // Deliberately once: afterwards the picker drives itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -71,14 +82,18 @@ export function DirectoryPicker({
           value={typed}
           spellCheck={false}
           aria-label="folder path"
-          onChange={(e) => setTyped(e.target.value)}
+          onChange={(e) => {
+            request.current += 1;
+            setLoading(false);
+            setTyped(e.target.value);
+            onChange('');
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
               void load(typed);
             }
           }}
-          onBlur={() => onChange(typed)}
         />
         <button type="button" onClick={() => void load(typed)}>
           Go
@@ -90,6 +105,25 @@ export function DirectoryPicker({
         )}
       </div>
 
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}{' '}
+          <button type="button" onClick={() => void load(typed)}>
+            Retry
+          </button>
+        </p>
+      )}
+      <p className="hint">Browsing: {listing?.path ?? 'No folder loaded'}</p>
+      <button
+        type="button"
+        disabled={loading || typed !== listing?.path || error !== null}
+        onClick={() => {
+          if (listing !== null) onChange(listing.path);
+        }}
+      >
+        Select this folder
+      </button>
+      {value !== '' && <p className="hint">Selected: {value}</p>}
       <div className="picker-list">
         {loading && listing === null ? (
           <p className="muted">Loading…</p>

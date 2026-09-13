@@ -1,5 +1,4 @@
-import { mkdir, readdir, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 import type { PermissionMode } from '@bonsai/shared';
@@ -47,18 +46,18 @@ export async function createProject(
      * which works but leaves the code at a path nobody would find by hand.
      */
     location?: string | null;
+    expectedPath?: string;
   },
 ): Promise<{ projectId: string; masterNodeId: string; path: string }> {
-  const project = store.createProject(input);
-
   // Resolved before anything is created so a bad location fails cleanly, with
   // no repository left behind. The bare repo always stays in Bonsai's own
   // directory; only the checkout is placed where the user asked.
   const chosen =
     input.location === undefined || input.location === null || input.location.trim() === ''
       ? null
-      : await prepareNewDirectory(input.location, input.name);
+      : await prepareNewDirectory(input.location, input.name, input.expectedPath);
 
+  const project = store.createProject(input);
   const { rootCommit } = await createRepo(project.repo_path);
 
   // D24: master is a real branch and the only node that starts attached to one.
@@ -90,9 +89,9 @@ export async function createProject(
  * into: the alternative is a delete that takes the user's unrelated files with
  * it, and no amount of confirmation text makes that acceptable.
  */
-async function prepareNewDirectory(location: string, name: string): Promise<string> {
+export async function previewNewDirectory(location: string, name: string): Promise<string> {
   const parent = resolve(location);
-  if (!existsSync(parent)) throw new Error(`That folder does not exist: ${parent}`);
+  if (!(await stat(parent)).isDirectory()) throw new Error(`Not a folder: ${parent}`);
 
   const base = slugify(name);
   let target = join(parent, base);
@@ -101,6 +100,19 @@ async function prepareNewDirectory(location: string, name: string): Promise<stri
     target = join(parent, `${base}-${n}`);
   }
 
+  return target;
+}
+
+async function prepareNewDirectory(
+  location: string,
+  name: string,
+  expectedPath?: string,
+): Promise<string> {
+  const target = await previewNewDirectory(location, name);
+  if (expectedPath !== undefined && target !== expectedPath)
+    throw new Error(
+      'The destination changed. Review the folder again before creating the project.',
+    );
   await mkdir(target, { recursive: true });
   return target;
 }

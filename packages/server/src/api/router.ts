@@ -26,6 +26,7 @@ import {
   adoptProject,
   createChildNode,
   createProject,
+  previewNewDirectory,
   deleteNodeTree,
   deleteProjectTree,
   projectDeletionImpact,
@@ -276,6 +277,16 @@ route('GET', '/api/projects', (_req, res, _p, { store }) => {
   );
 });
 
+route('POST', '/api/projects/preview', async (req, res) => {
+  const body = await readJson<{ location: string; name: string }>(req);
+  sendJson(res, 200, {
+    path: await previewNewDirectory(
+      requireString(body.location, 'location'),
+      requireString(body.name, 'name'),
+    ),
+  });
+});
+
 route('POST', '/api/projects', async (req, res, _p, { store, bus, settings, connection }) => {
   requireConnection(connection);
   const body = await readJson<CreateProjectRequest>(req);
@@ -286,6 +297,7 @@ route('POST', '/api/projects', async (req, res, _p, { store, bus, settings, conn
     permissionMode: body.permissionMode ?? settings.permissionMode(),
     effort: settings.effort(),
     location: body.location ?? null,
+    expectedPath: body.expectedPath,
   });
   bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
   // D21 has the agent scaffold master from the description; that run starts in

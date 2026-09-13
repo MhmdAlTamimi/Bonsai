@@ -30,14 +30,7 @@ export async function listDirectory(path?: string): Promise<DirectoryListing> {
   const target = resolve(path === undefined || path.trim() === '' ? homedir() : path);
   const parent = dirname(target);
 
-  let names: string[] = [];
-  try {
-    names = await readdir(target);
-  } catch {
-    // An unreadable directory lists as empty rather than failing the request;
-    // the picker stays usable and the user can navigate back out.
-    names = [];
-  }
+  const names = await readdir(target);
 
   const entries: DirectoryEntry[] = [];
   for (const name of names) {
