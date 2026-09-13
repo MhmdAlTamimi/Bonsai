@@ -36,7 +36,10 @@ export function Recover({
           <p role="status">Loading partial changes…</p>
         ) : (
           <details className="partial-review">
-            <summary>Review partial changes ({partialWork.changed.length} files)</summary>
+            <summary>
+              Review partial changes ({partialWork.changed.length} file
+              {partialWork.changed.length === 1 ? '' : 's'})
+            </summary>
             {partialWork.changed.length === 0 && <p>No uncommitted files remain.</p>}
             <ul>
               {partialWork.changed.map((path) => (
