@@ -3,6 +3,7 @@ import type { TreeResponse } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import type { ConfirmRequest } from '../ConfirmDialog.tsx';
 import { deletionMessage } from './deletionMessage.ts';
 
 /**
@@ -27,6 +28,8 @@ export interface ProjectSummary {
  */
 export function useProjectTree(
   onError: (message: string) => void,
+  /** Asks the user to confirm something destructive. See ConfirmDialog. */
+  confirm: (request: ConfirmRequest) => Promise<boolean>,
   /** Preferred on first load, usually from the URL. Ignored if it is unknown. */
   preferredId?: string | null,
 ): {
@@ -162,7 +165,20 @@ export function useProjectTree(
       onError('Could not work out what deleting this would remove, so nothing was deleted.');
       return;
     }
-    if (!window.confirm(deletionMessage(tree.project.name, impact))) return;
+    /**
+     * Typing the name, deliberately. Deleting a project cascades to every node,
+     * destroys runs that cost money and cannot be reproduced, and -- for a
+     * project Bonsai created -- removes a directory from disk. A button you can
+     * hit by reflex is not consent to that.
+     */
+    const ok = await confirm({
+      title: `Delete "${tree.project.name}"?`,
+      body: deletionMessage(impact),
+      confirmLabel: 'Delete project',
+      danger: true,
+      requireText: tree.project.name,
+    });
+    if (!ok) return;
 
     await api.deleteProject(projectId);
     const remaining = await api.listProjects();
@@ -175,7 +191,7 @@ export function useProjectTree(
     } else {
       open(next.id);
     }
-  }, [tree, projectId, open, onError]);
+  }, [tree, projectId, open, onError, confirm]);
 
   const close = useCallback((): void => {
     setNoProjects(false);

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join, resolve, sep } from 'node:path';
 import type {
   MessageView,
+  NodeLineageView,
   NodeStatus,
   NodeView,
   PermissionMode,
@@ -12,6 +13,7 @@ import type {
 import { deriveFlags } from '../domain/flags.js';
 import {
   type LineageNode,
+  ancestors,
   lookupFrom,
   resolveBaseCommit,
   divergesFromLiveWalk,
@@ -849,6 +851,40 @@ export class Store {
   baseDiverges(row: NodeRow): boolean {
     const lookup = lookupFrom(this.listNodes(row.project_id).map(toLineage));
     return divergesFromLiveWalk(toLineage(row), lookup);
+  }
+
+  /**
+   * Which node this one took its conversation from, and which it took its code
+   * from (PRD §4). The same walk `domain/lineage.ts` already defines -- reused
+   * rather than re-derived, because a second implementation of the
+   * nearest-committing-ancestor rule is precisely the thing that would drift.
+   */
+  lineageOf(row: NodeRow): NodeLineageView {
+    if (row.parent_id === null) {
+      // Master has no parent, so neither lineage has anywhere to come from.
+      return { conversationFrom: null, codeFrom: null, diverged: false };
+    }
+
+    const rows = this.listNodes(row.project_id);
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const named = (id: string): { id: string; displayName: string } | null => {
+      const found = byId.get(id);
+      return found === undefined ? null : { id: found.id, displayName: found.display_name };
+    };
+
+    const chain = ancestors(row.id, lookupFrom(rows.map(toLineage)));
+    // The first ancestor with a commit of its own. A node that ran and wrote
+    // nothing is passed straight through -- that clause IS the rule.
+    const committing = chain.find((a) => a.headCommit !== null);
+
+    const conversationFrom = named(row.parent_id);
+    const codeFrom = committing === undefined ? null : named(committing.id);
+    return {
+      conversationFrom,
+      codeFrom,
+      diverged:
+        conversationFrom !== null && codeFrom !== null && conversationFrom.id !== codeFrom.id,
+    };
   }
 }
 

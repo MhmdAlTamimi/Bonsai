@@ -304,9 +304,34 @@ export interface MessageView {
   createdAt: string;
 }
 
+/**
+ * The two things a node inherits, named rather than left to be inferred.
+ *
+ * PRD §4: a node forks its parent's CONVERSATION, but its CODE branches from
+ * the nearest ancestor that actually has a commit -- which is not the parent
+ * whenever the parent changed no files. The decision log calls that divergence
+ * the single easiest thing in the design to get subtly wrong, and the panel
+ * showing a node it happens to never said a word about it.
+ *
+ * Resolved server-side because the walk is the server's to do (PRD §9
+ * constraint 3, and `domain/lineage.ts` is where the rule lives). The interface
+ * could reach the same answer from the tree it already holds, and that second
+ * implementation is exactly what would eventually disagree with the first.
+ * Names, never commits: nothing git-shaped crosses into the UI.
+ */
+export interface NodeLineageView {
+  /** The node whose conversation this one forked. Null for master. */
+  conversationFrom: { id: string; displayName: string } | null;
+  /** The nearest ancestor with commits: where this node's code starts. */
+  codeFrom: { id: string; displayName: string } | null;
+  /** True when those are two different nodes. The divergence, as a flag. */
+  diverged: boolean;
+}
+
 export interface NodeDetail {
   node: NodeView;
   runs: RunView[];
+  lineage: NodeLineageView;
   /**
    * A shell command that puts this node's branch in front of the user, ready
    * to copy. Null for a node that has committed nothing, since there is no
