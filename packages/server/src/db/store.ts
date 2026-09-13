@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { dirname, join, resolve, sep } from 'node:path';
 import type {
   MessageView,
@@ -13,7 +13,6 @@ import type {
 import { deriveFlags } from '../domain/flags.js';
 import {
   type LineageNode,
-  ancestors,
   lookupFrom,
   resolveBaseCommit,
   divergesFromLiveWalk,
@@ -874,31 +873,44 @@ export class Store {
    * rather than re-derived, because a second implementation of the
    * nearest-committing-ancestor rule is precisely the thing that would drift.
    */
-  lineageOf(row: NodeRow): NodeLineageView {
-    if (row.parent_id === null) {
-      // Master has no parent, so neither lineage has anywhere to come from.
-      return { conversationFrom: null, codeFrom: null, diverged: false };
+  /** Resolve the owner of a pinned snapshot, including an ancestor's older run. */
+  private snapshotSource(parent: NodeRow, base: string | null): NodeRow {
+    let source: NodeRow | undefined = parent;
+    let root = parent;
+    while (source !== undefined) {
+      root = source;
+      if (source.head_commit === base || this.listRuns(source.id).some((r) => r.commitSha === base))
+        return source;
+      source = source.parent_id === null ? undefined : this.getNode(source.parent_id);
     }
+    // The initial repository snapshot has no agent run; it belongs to the root.
+    return root;
+  }
 
-    const rows = this.listNodes(row.project_id);
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    const named = (id: string): { id: string; displayName: string } | null => {
-      const found = byId.get(id);
-      return found === undefined ? null : { id: found.id, displayName: found.display_name };
-    };
+  childSourceVersion(parent: NodeRow): string {
+    return createHash('sha256')
+      .update(JSON.stringify([parent.id, parent.head_commit ?? parent.base_commit]))
+      .digest('hex');
+  }
 
-    const chain = ancestors(row.id, lookupFrom(rows.map(toLineage)));
-    // The first ancestor with a commit of its own. A node that ran and wrote
-    // nothing is passed straight through -- that clause IS the rule.
-    const committing = chain.find((a) => a.headCommit !== null);
+  childLineageOf(parent: NodeRow): NodeLineageView {
+    return this.namedLineage(
+      parent,
+      this.snapshotSource(parent, parent.head_commit ?? parent.base_commit),
+    );
+  }
 
-    const conversationFrom = named(row.parent_id);
-    const codeFrom = committing === undefined ? null : named(committing.id);
+  lineageOf(row: NodeRow): NodeLineageView {
+    const parent = row.parent_id === null ? undefined : this.getNode(row.parent_id);
+    if (parent === undefined) return { conversationFrom: null, codeFrom: null, diverged: false };
+    return this.namedLineage(parent, this.snapshotSource(parent, row.base_commit));
+  }
+
+  private namedLineage(parent: NodeRow, source: NodeRow): NodeLineageView {
     return {
-      conversationFrom,
-      codeFrom,
-      diverged:
-        conversationFrom !== null && codeFrom !== null && conversationFrom.id !== codeFrom.id,
+      conversationFrom: { id: parent.id, displayName: parent.display_name },
+      codeFrom: { id: source.id, displayName: source.display_name },
+      diverged: parent.id !== source.id,
     };
   }
 }

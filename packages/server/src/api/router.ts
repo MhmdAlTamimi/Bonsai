@@ -400,6 +400,13 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   if (parent === undefined) throw new HttpError(404, 'no such parent node');
   if (parent.project_id !== projectId) throw new HttpError(400, 'parent is in another project');
 
+  if (body.sourceVersion !== undefined && body.sourceVersion !== store.childSourceVersion(parent)) {
+    throw new HttpError(
+      412,
+      'The source code changed while this dialog was open. Review the refreshed sources, then create the experiment again.',
+    );
+  }
+
   // Note there is no writability check here. Creating a child of a frozen node
   // is legal and normal -- freezing constrains what the *parent* may do next,
   // and it is checked at run start rather than continuously.
@@ -441,6 +448,19 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   // own; `new` is the brief window the state was kept for.
   sendJson(res, 201, {
     node: withQueue(jobs, store.treeView(projectId)).find((n) => n.id === created.nodeId),
+  });
+});
+
+route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs }) => {
+  const parent = store.getNode(params['id']!);
+  if (parent === undefined) throw new HttpError(404, 'no such parent experiment');
+  sendJson(res, 200, {
+    lineage: store.childLineageOf(parent),
+    sourceVersion: store.childSourceVersion(parent),
+    parentActive: jobs.isRunning(parent.id),
+    codeNote: 'Starts from this committed code snapshot. Uncommitted partial work is excluded.',
+    conversationNote:
+      'The conversation is copied when the new experiment’s first run starts. Later replies stay with their original experiment.',
   });
 });
 

@@ -1,5 +1,6 @@
 import type {
   AdoptProjectRequest,
+  ChildPreviewView,
   AnswerQuestionRequest,
   ConnectionStatus,
   CreateProjectRequest,
@@ -166,6 +167,8 @@ export const api = {
 
   tree: (projectId: string) => json<TreeResponse>(`/api/projects/${projectId}/tree`),
 
+  childPreview: (nodeId: string) => json<ChildPreviewView>(`/api/nodes/${nodeId}/child-preview`),
+
   node: (nodeId: string) => json<NodeDetail>(`/api/nodes/${nodeId}`),
 
   messages: (nodeId: string, afterSeq = 0) =>
@@ -175,6 +178,7 @@ export const api = {
     projectId: string,
     body: {
       parentId: string;
+      sourceVersion?: string;
       displayName?: string;
       description: string;
       successCriteria?: string;
