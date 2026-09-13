@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useState } from 'react';
 import type { MessageView, NodeView } from '@bonsai/shared';
 
 import { api } from '../../api/client.ts';
@@ -7,28 +7,17 @@ import { clearSubmittedDraft, setSending, isSending } from './drafts.ts';
 import { useDraft } from './useDraft.ts';
 import { pendingDeltas, type Delta } from './liveMerge.ts';
 
-/**
- * The conversation's state, separated from where it is drawn.
- *
- * A hook rather than a component because the panel needs its two halves in two
- * different places: the transcript scrolls with the rest of the panel, and the
- * composer is pinned to the bottom where it is always reachable. Those cannot
- * be one element, and threading the prompt through props would put chat state
- * in a component that has no other business with it.
- *
- * Fixing the scroll trap is the point. The log used to be `max-height: 48vh;
- * overflow-y: auto` INSIDE a panel that also scrolled, so the wheel did
- * different things twenty pixels apart and a long transcript was read through a
- * letterbox. There is one scrolling region now.
- */
+/** Node-scoped history and drafts, shared by the transcript and fixed composer. */
 export function useChat(
   node: NodeView,
   live: readonly Delta[],
+  streamRevision: number,
   onChanged: () => void,
   onError: (message: string | null) => void,
 ): {
   messages: MessageView[];
   loading: boolean;
+  loaded: boolean;
   error: string | null;
   retry: () => void;
   /** Live deltas the persisted transcript has not caught up with. */
@@ -39,8 +28,6 @@ export function useChat(
   busy: boolean;
   running: boolean;
   send: () => void;
-  /** Attach to the scrolling region so new output follows the tail. */
-  scrollRef: RefObject<HTMLDivElement | null>;
 } {
   const [messages, setMessages] = useState<MessageView[]>([]);
   const { key, prompt, setPrompt, sending } = useDraft(
@@ -52,17 +39,19 @@ export function useChat(
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
     void api
-      .messages(node.id)
+      .messages(node.id, 0, controller.signal)
       .then((m) => {
         if (alive) {
           setMessages(m);
+          setLoaded(true);
           setLoading(false);
         }
       })
@@ -74,23 +63,9 @@ export function useChat(
       });
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [node.id, node.status, revision]);
-
-  /**
-   * Follow the tail, but only when the reader is already at it.
-   *
-   * Scrolling to the bottom unconditionally yanks the view away from someone
-   * reading back through an earlier run while the agent is still working --
-   * which, with several nodes in flight, is exactly when they are most likely
-   * to be doing it.
-   */
-  useEffect(() => {
-    const region = scrollRef.current;
-    if (region === null) return;
-    const distance = region.scrollHeight - region.scrollTop - region.clientHeight;
-    if (distance < 160) region.scrollTop = region.scrollHeight;
-  }, [messages.length, live.length, node.status]);
+  }, [node.id, node.status, revision, streamRevision]);
 
   const running = node.status === 'running';
   /**
@@ -119,15 +94,15 @@ export function useChat(
   return {
     messages,
     loading,
+    loaded,
     error,
     retry: () => setRevision((n) => n + 1),
-    pending: running ? pendingDeltas(live, messages) : [],
+    pending: busy ? pendingDeltas(live, messages) : [],
     prompt,
     setPrompt,
     sending,
     busy,
     running,
     send,
-    scrollRef,
   };
 }

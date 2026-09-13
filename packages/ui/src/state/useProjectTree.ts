@@ -30,7 +30,7 @@ export function useProjectTree(
   onError: (message: string) => void,
   /** Asks the user to confirm something destructive. See ConfirmDialog. */
   confirm: (request: ConfirmRequest) => Promise<boolean>,
-  /** Preferred on first load, usually from the URL. Ignored if it is unknown. */
+  /** Preferred on first load, usually from the URL. Missing projects are reported explicitly. */
   preferredId?: string | null,
 ): {
   projects: ProjectSummary[];
@@ -38,6 +38,9 @@ export function useProjectTree(
   tree: TreeResponse | null;
   /** True once the first load has finished and found nothing. */
   noProjects: boolean;
+  loading: boolean;
+  error: string | null;
+  retry: () => void;
   open: (id: string) => void;
   refresh: () => void;
   /** After creating or adopting: switch to it and pick up the new list. */
@@ -51,16 +54,25 @@ export function useProjectTree(
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [noProjects, setNoProjects] = useState(false);
 
-  const load = useCallback(
-    async (id: string): Promise<void> => {
-      try {
-        setTree(await api.tree(id));
-      } catch (e) {
-        onError(describeError(e));
-      }
-    },
-    [onError],
-  );
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const current = useRef<string | null>(null);
+  const request = useRef(0);
+
+  const load = useCallback(async (id: string): Promise<void> => {
+    if (id !== current.current) return;
+    const ticket = ++request.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const value = await api.tree(id);
+      if (ticket === request.current && id === current.current) setTree(value);
+    } catch (e) {
+      if (ticket === request.current && id === current.current) setError(describeError(e));
+    } finally {
+      if (ticket === request.current && id === current.current) setLoading(false);
+    }
+  }, []);
 
   /**
    * Coalesces refetches that arrive together.
@@ -108,6 +120,10 @@ export function useProjectTree(
 
   const open = useCallback(
     (id: string): void => {
+      current.current = id;
+      request.current += 1;
+      setTree(null);
+      pending.current = null;
       setProjectId(id);
       setNoProjects(false);
       void load(id);
@@ -115,30 +131,37 @@ export function useProjectTree(
     [load],
   );
 
-  useEffect(() => {
+  const loadProjects = useCallback((): void => {
+    const ticket = ++request.current;
+    setLoading(true);
+    setError(null);
     void api
       .listProjects()
       .then((ps) => {
+        if (ticket !== request.current) return;
         setProjects(ps);
-        if (ps.length === 0) {
-          setNoProjects(true);
+        if (preferredId != null && !ps.some((p) => p.id === preferredId)) {
+          setError('This project is unavailable. Choose a project from the Project menu.');
+          setLoading(false);
           return;
         }
-        // A project id from the URL wins, but only if it still exists. A
-        // stale bookmark opens the newest project rather than an error page:
-        // the id may have been deleted, and there is nothing useful to say
-        // about that which is better than showing them their work.
-        const wanted = ps.find((p) => p.id === preferredId);
-        const chosen = wanted ?? ps[0]!;
-        setProjectId(chosen.id);
-        return load(chosen.id);
+        if (ps.length === 0) {
+          setNoProjects(true);
+          setLoading(false);
+          return;
+        }
+        open(preferredId ?? ps[0]!.id);
       })
-      .catch((e: unknown) => onError(describeError(e)));
-    // Once, on mount. `open` is deliberately not a dependency: this decides
-    // which project to start on, and re-running it would yank the user back to
-    // the first one every time the callback identity changed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      .catch((e: unknown) => {
+        if (ticket === request.current) {
+          setError(describeError(e));
+          setLoading(false);
+        }
+      });
+  }, [open, preferredId]);
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
 
   const refresh = useCallback((): void => {
     if (projectId !== null) loadSoon(projectId);
@@ -147,9 +170,12 @@ export function useProjectTree(
   const adopted = useCallback(
     (id: string): void => {
       open(id);
-      void api.listProjects().then(setProjects);
+      void api
+        .listProjects()
+        .then(setProjects)
+        .catch((e: unknown) => onError(describeError(e)));
     },
-    [open],
+    [open, onError],
   );
 
   /**
@@ -186,6 +212,8 @@ export function useProjectTree(
     const next = remaining[0];
     if (next === undefined) {
       setTree(null);
+      current.current = null;
+      request.current += 1;
       setProjectId(null);
       setNoProjects(true);
     } else {
@@ -197,5 +225,18 @@ export function useProjectTree(
     setNoProjects(false);
   }, []);
 
-  return { projects, projectId, tree, noProjects, open, refresh, adopted, deleteCurrent, close };
+  return {
+    projects,
+    projectId,
+    tree,
+    noProjects,
+    loading,
+    error,
+    retry: () => (current.current === null ? loadProjects() : void load(current.current)),
+    open,
+    refresh,
+    adopted,
+    deleteCurrent,
+    close,
+  };
 }

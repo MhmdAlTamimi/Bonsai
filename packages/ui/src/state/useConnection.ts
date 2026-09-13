@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ConnectionStatus, SettingsView } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 
 const UNKNOWN: ConnectionStatus = {
   state: 'unknown',
@@ -20,6 +21,8 @@ const UNKNOWN: ConnectionStatus = {
  */
 export function useConnection(): {
   connection: ConnectionStatus;
+  error: string | null;
+  checking: boolean;
   settings: SettingsView | null;
   setSettings: (settings: SettingsView) => void;
   /** Re-reads both. Called after anything that could have changed either. */
@@ -28,31 +31,47 @@ export function useConnection(): {
   const [connection, setConnection] = useState<ConnectionStatus>(UNKNOWN);
   const [settings, setSettings] = useState<SettingsView | null>(null);
 
-  const load = useCallback(async (): Promise<ConnectionStatus> => {
-    const [status, s] = await Promise.all([api.connection(), api.settings()]);
-    setConnection(status);
-    setSettings(s);
-    return status;
-  }, []);
-
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
-    void load().then((status) => {
-      // The startup probe may still be running; poll until it settles rather
-      // than showing "unknown" forever.
-      if (status.state !== 'unknown') return;
-      const timer = setInterval(() => {
-        void load().then((next) => {
-          if (next.state !== 'unknown') clearInterval(timer);
-        });
-      }, 1500);
-      setTimeout(() => clearInterval(timer), 90_000);
-    });
-  }, [load]);
-
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = Date.now() + 90_000;
+    const load = async (): Promise<void> => {
+      setChecking(true);
+      setError(null);
+      try {
+        const [status, s] = await Promise.all([api.connection(), api.settings()]);
+        if (!alive) return;
+        setConnection(status);
+        setSettings(s);
+        if (status.state === 'unknown' && Date.now() < deadline)
+          timer = setTimeout(() => void load(), 1500);
+        else {
+          setChecking(false);
+          if (status.state === 'unknown')
+            setError('Connection check timed out. Retry to check again.');
+        }
+      } catch (e) {
+        if (alive) {
+          setError(describeError(e));
+          setChecking(false);
+        }
+      }
+    };
+    void load();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [revision]);
   return {
     connection,
     settings,
     setSettings,
-    reload: useCallback(() => void load(), [load]),
+    error,
+    checking,
+    reload: useCallback(() => setRevision((n) => n + 1), []),
   };
 }

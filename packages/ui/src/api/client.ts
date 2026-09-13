@@ -34,9 +34,22 @@ export { ApiCallError };
  */
 
 async function json<T>(input: string, init?: RequestInit): Promise<T> {
+  const timeout =
+    init?.method === undefined || init.method === 'GET' ? AbortSignal.timeout(20_000) : null;
+  const signal =
+    timeout === null
+      ? init?.signal
+      : init?.signal
+        ? AbortSignal.any([init.signal, timeout])
+        : timeout;
   const res = await fetch(input, {
     ...init,
+    ...(signal ? { signal } : {}),
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+  }).catch((e: unknown) => {
+    if (timeout?.aborted)
+      throw new Error('Bonsai did not respond in time. Retry when the server is available.');
+    throw e;
   });
   const body: unknown = await res.json().catch(() => ({ error: res.statusText }));
   if (!res.ok) {
@@ -170,10 +183,14 @@ export const api = {
 
   childPreview: (nodeId: string) => json<ChildPreviewView>(`/api/nodes/${nodeId}/child-preview`),
 
-  node: (nodeId: string) => json<NodeDetail>(`/api/nodes/${nodeId}`),
+  node: (nodeId: string, signal?: AbortSignal) =>
+    json<NodeDetail>(`/api/nodes/${nodeId}`, signal ? { signal } : undefined),
 
-  messages: (nodeId: string, afterSeq = 0) =>
-    json<MessageView[]>(`/api/nodes/${nodeId}/messages?afterSeq=${afterSeq}`),
+  messages: (nodeId: string, afterSeq = 0, signal?: AbortSignal) =>
+    json<MessageView[]>(
+      `/api/nodes/${nodeId}/messages?afterSeq=${afterSeq}`,
+      signal ? { signal } : undefined,
+    ),
 
   createNode: (
     projectId: string,
@@ -210,8 +227,11 @@ export const api = {
 };
 
 /** Subscribes to the project's event stream. Returns an unsubscribe function. */
-export function subscribe(projectId: string, onEvent: (e: ServerEvent) => void): () => void {
-  const source = new EventSource(`/api/events?projectId=${encodeURIComponent(projectId)}`);
+export function subscribe(
+  projectId: string,
+  onEvent: (e: ServerEvent) => void,
+  onState?: (state: 'live' | 'reconnecting') => void,
+): () => void {
   const handle = (e: MessageEvent<string>): void => {
     try {
       onEvent(JSON.parse(e.data) as ServerEvent);
@@ -219,17 +239,55 @@ export function subscribe(projectId: string, onEvent: (e: ServerEvent) => void):
       /* a malformed frame is not worth tearing the stream down for */
     }
   };
-  for (const type of [
-    'hello',
-    'tree.updated',
-    'node.status',
-    'run.started',
-    'run.delta',
-    'run.question',
-    'run.finished',
-    'run.error',
-  ]) {
-    source.addEventListener(type, handle as EventListener);
-  }
-  return () => source.close();
+  const connect = (): EventSource => {
+    const source = new EventSource(`/api/events?projectId=${encodeURIComponent(projectId)}`);
+    source.onopen = () => onState?.('live');
+    source.onerror = () => onState?.('reconnecting');
+    for (const type of [
+      'hello',
+      'tree.updated',
+      'node.status',
+      'run.started',
+      'run.delta',
+      'run.question',
+      'run.finished',
+      'run.error',
+    ])
+      source.addEventListener(type, handle as EventListener);
+    return source;
+  };
+  let source = connect();
+  const close = (): void => {
+    source.onopen = null;
+    source.onerror = null;
+    source.close();
+  };
+  const offline = (): void => {
+    close();
+    onState?.('reconnecting');
+  };
+  const online = (): void => {
+    close();
+    onState?.('reconnecting');
+    source = connect();
+  };
+  // A document in the back/forward cache can retain its React tree. Release
+  // its stream on navigation, then reconcile if that document is restored.
+  const resume = (event: PageTransitionEvent): void => {
+    if (event.persisted) {
+      if (navigator.onLine) online();
+      else offline();
+    }
+  };
+  window.addEventListener('pagehide', close);
+  window.addEventListener('pageshow', resume);
+  window.addEventListener('offline', offline);
+  window.addEventListener('online', online);
+  return () => {
+    close();
+    window.removeEventListener('pagehide', close);
+    window.removeEventListener('pageshow', resume);
+    window.removeEventListener('offline', offline);
+    window.removeEventListener('online', online);
+  };
 }

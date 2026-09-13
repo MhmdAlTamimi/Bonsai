@@ -3,7 +3,7 @@ import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
 import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
-import { api } from '../api/client.ts';
+import { StopButton } from '../state/RunControls.tsx';
 import { STATUS_LABEL, StatusChip } from '../nodeStatus.tsx';
 
 /**
@@ -121,23 +121,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                   queuePosition={data.queuePosition}
                   lastRunStatus={data.lastRunStatus}
                 />
-                {data.status === 'running' && data.queuePosition === null && (
-                  // On the card as well as in the panel: with several nodes in
-                  // flight, the one you want to stop is rarely the one
-                  // selected, and stopping it should not cost a click first.
-                  <button
-                    className="stop"
-                    title="Stop this run"
-                    onClick={(e) => {
-                      // The card is a canvas node; without this the click
-                      // selects it and React Flow starts a drag.
-                      e.stopPropagation();
-                      void api.cancelNode(data.id);
-                    }}
-                  >
-                    ■ stop
-                  </button>
-                )}
+                <StopButton node={data} />
                 {/*
                  * The most informative fact available about a node, and the
                  * card did not show it. Nothing at all for a node that
