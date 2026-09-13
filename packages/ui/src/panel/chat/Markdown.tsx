@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 
 import { parseMarkdown, type Block, type Inline } from './markdown.ts';
 
@@ -43,29 +43,57 @@ function BlockView({ block }: { block: Block }): JSX.Element {
       );
     }
     case 'code':
+      return <CodeBlock text={block.text} lang={block.lang} />;
+    case 'table':
       return (
-        <pre className="md-code" data-lang={block.lang ?? undefined}>
-          <code>{block.text}</code>
-        </pre>
+        <div className="md-table" tabIndex={0} role="region" aria-label="Table">
+          <table>
+            <thead>
+              <tr>
+                {block.header.map((cell, i) => (
+                  <th key={i}>
+                    <InlineList content={cell} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, i) => (
+                <tr key={i}>
+                  {row.map((cell, j) => (
+                    <td key={j}>
+                      <InlineList content={cell} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
-    case 'list':
-      return block.ordered ? (
-        <ol>
+    case 'list': {
+      const Tag = block.ordered ? 'ol' : 'ul';
+      return (
+        <Tag>
           {block.items.map((item, i) => (
-            <li key={i}>
-              <InlineList content={item} />
+            <li key={i} className={item.checked === null ? undefined : 'md-task'}>
+              {item.checked !== null && (
+                <input
+                  type="checkbox"
+                  checked={item.checked}
+                  disabled
+                  aria-label={item.checked ? 'Checked' : 'Unchecked'}
+                />
+              )}
+              <InlineList content={item.content} />
+              {item.children.map((child, j) => (
+                <BlockView key={j} block={child} />
+              ))}
             </li>
           ))}
-        </ol>
-      ) : (
-        <ul>
-          {block.items.map((item, i) => (
-            <li key={i}>
-              <InlineList content={item} />
-            </li>
-          ))}
-        </ul>
+        </Tag>
       );
+    }
     case 'quote':
       return (
         <blockquote>
@@ -112,4 +140,29 @@ function InlineView({ node }: { node: Inline }): JSX.Element {
         </a>
       );
   }
+}
+
+function CodeBlock({ text, lang }: { text: string; lang: string | null }): JSX.Element {
+  const [feedback, setFeedback] = useState<string | null>(null);
+  return (
+    <div className="md-code-block">
+      <div className="code-actions">
+        <span>{lang ?? 'Code'}</span>
+        <button
+          onClick={() => {
+            void navigator.clipboard
+              .writeText(text)
+              .then(() => setFeedback('Copied'))
+              .catch(() => setFeedback('Copy failed. Select the code to copy manually.'));
+          }}
+        >
+          Copy code
+        </button>
+        <span role="status">{feedback}</span>
+      </div>
+      <pre className="md-code" data-lang={lang ?? undefined}>
+        <code>{text}</code>
+      </pre>
+    </div>
+  );
 }

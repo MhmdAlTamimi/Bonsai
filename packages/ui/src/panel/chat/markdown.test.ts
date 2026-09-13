@@ -177,3 +177,34 @@ test('a realistic reply parses into the blocks it looks like', () => {
     'paragraph',
   ]);
 });
+
+test('tables keep escaped pipes, code, missing cells and safe inline links', () => {
+  const [table] = parseMarkdown(
+    '| Check | Result |\n| --- | :---: |\n| `a|b` | pass |\n| escaped \\| pipe | [unsafe](javascript:x) |\n| short |',
+  );
+  assert.equal(table?.kind, 'table');
+  if (table?.kind !== 'table') return;
+  assert.equal(plain(table.rows[0]![0]!), 'a|b');
+  assert.equal(plain(table.rows[1]![0]!), 'escaped | pipe');
+  assert.equal(
+    table.rows[1]![1]!.some((v) => v.kind === 'link'),
+    false,
+  );
+  assert.deepEqual(table.rows[2]![1], []);
+});
+
+test('nested lists and task checks retain hierarchy and trailing prose', () => {
+  const blocks = parseMarkdown('- [x] parent\n  1. child\n     - grandchild\n- [ ] next\n\nAfter');
+  const list = blocks[0];
+  assert.equal(list?.kind, 'list');
+  if (list?.kind !== 'list') return;
+  assert.equal(list.items[0]?.checked, true);
+  assert.equal(list.items[1]?.checked, false);
+  const nested = list.items[0].children[0];
+  assert.equal(nested?.kind, 'list');
+  if (nested?.kind === 'list') {
+    assert.equal(nested.ordered, true);
+    assert.equal(nested.items[0]?.children[0]?.kind, 'list');
+  }
+  assert.equal(blocks[1]?.kind, 'paragraph');
+});
