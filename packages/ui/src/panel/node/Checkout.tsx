@@ -20,8 +20,9 @@ export function Checkout({
   const [copied, setCopied] = useState(false);
 
   return (
-    <section>
-      <h3>Get this branch</h3>
+    <details className="disclosure checkout-section">
+      <summary>Use this code outside Bonsai</summary>
+      <p className="hint">Optional: open the committed result in your own editor or terminal.</p>
       <div className="row">
         <code className="checkout">{command}</code>
         <button
@@ -33,10 +34,10 @@ export function Checkout({
               .catch(() => onError('Could not copy — select the command instead.'));
           }}
         >
-          {copied ? 'copied' : 'copy'}
+          {copied ? 'Copied' : 'Copy command'}
         </button>
       </div>
       {hint != null && <p className="hint">{hint}</p>}
-    </section>
+    </details>
   );
 }
