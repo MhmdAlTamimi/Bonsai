@@ -9,6 +9,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { createChildNode, createProject } from '../projects.js';
+import { git, gitLine } from './exec.js';
+import { testingNotesCommit } from './context.js';
 import { commitMessageFor, commitRunOutput } from './commit.js';
 import { branchNameFor } from './repo.js';
 import { discardWorktreeChanges, isDirty, readWorktreeState, resumePrompt } from './recovery.js';
@@ -51,6 +53,56 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     });
     if (outcome.committed) store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
   };
+
+  test('testing notes retain their source through exploration and later unrelated changes', async () => {
+    const { projectId, masterNodeId } = await project();
+    const parent = store.getNode(masterNodeId)!;
+    await commit(masterNodeId, {
+      'code.py': 'print(1)',
+      'CONTEXT.md': '# Context\n## Testing\nChecked parent\n',
+    });
+    const source = await gitLine(['rev-parse', 'HEAD'], parent.worktree_path);
+    const question = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'question',
+      description: 'why?',
+    });
+    const child = await createChildNode(store, {
+      projectId,
+      parentId: question.nodeId,
+      displayName: 'later',
+      description: 'change',
+    });
+    const path = store.getNode(child.nodeId)!.worktree_path;
+    assert.equal(await testingNotesCommit(path, 'Checked parent'), source);
+    await commit(child.nodeId, {
+      'code.py': 'print(2)',
+      'CONTEXT.md': '# New context\n## Testing\nChecked parent\n',
+    });
+    assert.equal(
+      await testingNotesCommit(path, 'Checked parent'),
+      source,
+      'editing other context must not refresh checks',
+    );
+    await writeFile(join(path, 'CONTEXT.md'), '## Testing\nUncommitted claim\n');
+    assert.equal(await testingNotesCommit(path, 'Uncommitted claim'), null);
+  });
+
+  test('staged edits and nested untracked files are visible and discarded', async () => {
+    const { masterNodeId } = await project();
+    await commit(masterNodeId, { 'code.py': 'before' });
+    const path = store.getNode(masterNodeId)!.worktree_path;
+    await writeFile(join(path, 'code.py'), 'after');
+    await writeFile(join(path, 'staged.py'), 'new');
+    await git(['add', '-A'], path);
+    const state = await readWorktreeState(path);
+    assert.deepEqual(state.changed, ['code.py', 'staged.py']);
+    assert.match(state.patch, /after/);
+    await discardWorktreeChanges(path);
+    assert.equal(await isDirty(path), false);
+    assert.equal(existsSync(join(path, 'staged.py')), false);
+  });
 
   test('an untracked file left by a killed run is visible', async () => {
     const { masterNodeId } = await project();

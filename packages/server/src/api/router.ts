@@ -35,10 +35,10 @@ import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
 import { rejectPath } from '../git/seedWorktree.js';
 import { checkoutFor } from './checkout.js';
-import { discardWorktreeChanges } from '../git/recovery.js';
+import { discardWorktreeChanges, readWorktreeState } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection, revealInFileManager } from './connectionGate.js';
-import { readContextFile, testingSection } from '../git/context.js';
+import { readContextFile, testingSection, testingNotesCommit } from '../git/context.js';
 import { HttpError, readJson, requireString, sendError, sendJson } from './http.js';
 import { FileLogger, type Logger } from '../log.js';
 
@@ -439,15 +439,30 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   const contextMd = await readContextFile(row.worktree_path);
   const project = store.getProject(row.project_id);
   const checkout = checkoutFor(project, row);
+  const notes = testingSection(contextMd);
+  const sourceCommit = await testingNotesCommit(row.worktree_path, notes);
+  const source = sourceCommit === null ? null : store.testingSource(sourceCommit);
+  const runs = store.listRuns(row.id);
+  const ownFolder = isUsersOwnCheckout(project, row);
+  const partialWork = ownFolder ? null : await readWorktreeState(row.worktree_path);
   const body: NodeDetail = {
     node: view,
-    runs: store.listRuns(row.id),
+    runs,
     lineage: store.lineageOf(row),
     checkoutCommand: checkout?.command ?? null,
     checkoutHint: checkout?.hint ?? null,
     successCriteria: row.success_criteria,
     verificationHint: row.verification_hint,
-    testingNotes: testingSection(contextMd),
+    testingNotes: notes,
+    testingSource:
+      source === null
+        ? null
+        : {
+            ...source,
+            inherited: source.nodeId !== row.id,
+            predatesLatestRun: source.runId !== runs.at(-1)?.id,
+          },
+    partialWork,
     contextMd,
     baseIsPinnedBehindLiveWalk: store.baseDiverges(row),
   };
@@ -612,9 +627,11 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
   const { store, bus, jobs } = ctx;
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  if (row.status === 'running') throw new HttpError(409, 'this node is still running');
+  if (row.status === 'running' || row.status === 'needs_you')
+    throw new HttpError(409, 'this node is still running');
 
   const body = await readJson<RecoverRequest>(req);
+  if (jobs.isRunning(row.id)) throw new HttpError(409, 'this node is still running');
   switch (body.action) {
     case 'resume':
       requireConnection(ctx.connection);

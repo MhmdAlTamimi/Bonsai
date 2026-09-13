@@ -76,7 +76,7 @@ export interface StatusEntry {
  * that bites on spaces and non-ASCII names.
  */
 export async function status(worktreePath: string): Promise<StatusEntry[]> {
-  const raw = await git(['status', '--porcelain', '-z'], worktreePath);
+  const raw = await git(['status', '--porcelain', '-z', '--untracked-files=all'], worktreePath);
   const parts = raw.split('\0');
   const out: StatusEntry[] = [];
 
