@@ -31,7 +31,7 @@ import {
   deleteProjectTree,
   projectDeletionImpact,
 } from '../projects.js';
-import { nodeDiff, runDiff } from '../git/diff.js';
+import { nodeDiff, runDiff, parentSnapshot } from '../git/diff.js';
 import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
 import { rejectPath } from '../git/seedWorktree.js';
@@ -558,18 +558,27 @@ route('GET', '/api/nodes/:id/messages', (req, res, params, { store }) => {
 route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  if (row.base_commit === null && row.head_commit === null) {
-    throw new HttpError(400, 'master has no base to diff against');
-  }
-  sendJson(
-    res,
-    200,
-    await nodeDiff(
-      row.worktree_path,
-      row.base_commit ?? row.head_commit!,
-      row.head_commit !== null,
-    ),
+  const first = store.listRuns(row.id).find((run) => run.commitSha !== null);
+  const base =
+    row.base_commit ??
+    (first?.commitSha != null
+      ? await parentSnapshot(row.worktree_path, first.commitSha)
+      : row.head_commit);
+  if (base === null) throw new HttpError(400, 'No starting code snapshot is available.');
+  const diff = await nodeDiff(
+    row.worktree_path,
+    base,
+    row.parent_id === null ? first !== undefined : row.head_commit !== null,
+    row.head_commit ?? base,
   );
+  const source = store.lineageOf(row).codeFrom;
+  sendJson(res, 200, {
+    ...diff,
+    baseLabel:
+      row.parent_id === null
+        ? 'The code before this experiment’s first modifying run'
+        : `The inherited code snapshot from ${source?.displayName ?? 'its source experiment'}`,
+  });
 });
 
 // -- runs --------------------------------------------------------------------
@@ -708,8 +717,7 @@ route('GET', '/api/runs/:id/diff', async (_req, res, params, { store }) => {
   const node = store.getNode(run.node_id);
   if (node === undefined) throw new HttpError(404, 'no such node');
 
-  const base = store.runDiffBase(run.id);
-  if (base === null) throw new HttpError(400, 'no base to diff against');
+  const base = await parentSnapshot(node.worktree_path, run.commit_sha);
   sendJson(res, 200, await runDiff(node.worktree_path, base, run.commit_sha));
 });
 

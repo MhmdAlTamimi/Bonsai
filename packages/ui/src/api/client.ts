@@ -47,6 +47,7 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export interface NodeDiffView {
+  baseLabel: string;
   files: string[];
   patch: string;
   dirty: string[];

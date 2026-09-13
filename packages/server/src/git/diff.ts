@@ -1,3 +1,4 @@
+import { EMPTY_TREE_SHA } from './repo.js';
 import { git, status } from './exec.js';
 
 export interface NodeDiff {
@@ -19,6 +20,7 @@ export async function nodeDiff(
   worktreePath: string,
   baseCommit: string,
   hasCommits: boolean,
+  headCommit = 'HEAD',
 ): Promise<NodeDiff> {
   const dirty = (await status(worktreePath)).map((e) => e.path).sort();
 
@@ -26,12 +28,11 @@ export async function nodeDiff(
     return { files: [], patch: '', dirty };
   }
 
-  const names = await git(['diff', '--name-only', `${baseCommit}..HEAD`], worktreePath);
-  const patch = await git(['diff', `${baseCommit}..HEAD`], worktreePath);
+  const compared = await runDiff(worktreePath, baseCommit, headCommit);
 
   return {
-    files: names.split('\n').filter((l) => l !== ''),
-    patch,
+    files: compared.files,
+    patch: compared.patch,
     dirty,
   };
 }
@@ -48,11 +49,29 @@ export async function runDiff(
   baseCommit: string,
   headCommit: string,
 ): Promise<NodeDiff> {
-  const range = `${baseCommit}..${headCommit}`;
-  const names = await git(['diff', '--name-only', range], worktreePath);
+  const options = [
+    '-c',
+    'core.quotepath=false',
+    'diff',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--find-renames',
+  ];
+  const names = await git(
+    [...options, '--name-only', '-z', baseCommit, headCommit, '--'],
+    worktreePath,
+  );
   return {
-    files: names.split('\n').filter((l) => l !== ''),
-    patch: await git(['diff', range], worktreePath),
+    files: names.split('\0').filter(Boolean),
+    patch: await git([...options, baseCommit, headCommit, '--'], worktreePath),
     dirty: [],
   };
+}
+
+/** Git history is authoritative even for the first root run or equal timestamps. */
+export async function parentSnapshot(path: string, commit: string): Promise<string> {
+  const history = (await git(['rev-list', '--parents', '-n', '1', commit], path))
+    .trim()
+    .split(/\s+/);
+  return history[1] ?? EMPTY_TREE_SHA;
 }
