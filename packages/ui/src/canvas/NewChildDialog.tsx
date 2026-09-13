@@ -1,133 +1,189 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { useEscape } from '../useEscape.ts';
-import { deriveNodeName } from '@bonsai/shared';
+import type { ChildPreviewView } from '@bonsai/shared';
+import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 
-/**
- * One question, asked where you dropped the node.
- *
- * It used to ask four: a name, a description, and — after phase 2 — what
- * success looks like and how to check it. Four fields between an idea and a
- * run is how a tool stops being used for the small experiments it exists for,
- * and the name was the worst of them: a decision with no payoff, made before
- * you know what the node will turn out to be.
- *
- * So there is one field. The name is derived from what you type and shown as
- * you type it, editable in one click for the times the guess is poor. Display
- * names are metadata and change freely (D3 constrains a node's code, not its
- * label), so a slightly-wrong derived name costs a rename while a required one
- * costs a decision every time.
- *
- * The two success questions stay behind a disclosure, closed. They are the
- * point of the product but they are not the point of THIS moment.
- */
+/** Name the experiment and disclose its two sources before creation. */
 export function NewChildDialog({
   parentName,
+  parentId,
+  onSelectSource,
   onCancel,
   onCreate,
 }: {
   parentName: string;
+  parentId: string;
+  onSelectSource: (id: string) => void;
   onCancel: () => void;
   onCreate: (
     name: string,
     description: string,
     successCriteria: string,
     verificationHint: string,
+    sourceVersion: string,
   ) => Promise<void>;
 }): JSX.Element {
   const [description, setDescription] = useState('');
-  const [name, setName] = useState<string | null>(null);
+  const [name, setName] = useState('');
   const [successCriteria, setSuccessCriteria] = useState('');
   const [verificationHint, setVerificationHint] = useState('');
   const [busy, setBusy] = useState(false);
-  const descRef = useRef<HTMLTextAreaElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<ChildPreviewView | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const submitting = useRef(false);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    descRef.current?.focus();
+    nameRef.current?.focus();
   }, []);
-  useEscape(onCancel);
-
-  // Shown live, so the derived name is a visible consequence of typing rather
-  // than something that appears on the canvas afterwards and surprises you.
-  const derived = deriveNodeName(description, '');
-  const effective = name ?? derived;
+  useEffect(() => {
+    let alive = true;
+    setPreview(null);
+    setPreviewError(null);
+    void api
+      .childPreview(parentId)
+      .then((value) => {
+        if (alive) setPreview(value);
+      })
+      .catch((e: unknown) => {
+        if (alive) setPreviewError(describeError(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [parentId, retry]);
+  const cancel = (): void => {
+    if (!submitting.current) onCancel();
+  };
+  useEscape(cancel);
 
   const submit = async (): Promise<void> => {
-    if (busy || description.trim() === '') return;
+    if (submitting.current || name.trim() === '' || description.trim() === '' || preview === null)
+      return;
+    submitting.current = true;
     setBusy(true);
+    setError(null);
     try {
       await onCreate(
-        effective,
+        name.trim(),
         description.trim(),
         successCriteria.trim(),
         verificationHint.trim(),
+        preview.sourceVersion,
       );
+    } catch (e) {
+      setError(describeError(e));
+      setRetry((n) => n + 1);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   };
 
   return (
     // Clicking the backdrop cancels; clicks inside must not fall through to it.
-    <div className="dialog-backdrop" onClick={onCancel}>
+    <div className="dialog-backdrop" onClick={cancel}>
       <div
         className="dialog"
         role="dialog"
-        aria-label="Create a child node"
+        aria-label="Branch experiment"
+        aria-modal="true"
         onClick={(e) => e.stopPropagation()}
       >
         <header>
-          <h3>New child of {parentName}</h3>
-          <button className="dialog-close" onClick={onCancel} aria-label="close">
+          <h3>Branch experiment from {parentName}</h3>
+          <button className="dialog-close" onClick={cancel} aria-label="close">
             ×
           </button>
         </header>
 
-        <textarea
-          ref={descRef}
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="What should change? Start with ? to just ask."
-          aria-label="what should change"
-          rows={3}
-          onKeyDown={(e) => {
-            // Enter creates. A description is one line more often than not, and
-            // reaching for the mouse to start a run is the friction this whole
-            // change is about. Shift+Enter still adds a line.
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void submit();
-            }
-          }}
-        />
-
-        <div className="named-as">
-          {name === null ? (
-            <>
-              <span className="hint">
-                Name: <strong>{derived === '' ? '—' : derived}</strong>
-              </span>
-              <button
-                className="linkish"
-                disabled={description.trim() === ''}
-                onClick={() => {
-                  setName(derived);
-                  setTimeout(() => nameRef.current?.select(), 0);
-                }}
-              >
-                rename
-              </button>
-            </>
+        <label className="stacked">
+          Experiment name
+          <input
+            ref={nameRef}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="experiment name"
+            placeholder="For example: Argparse approach"
+            disabled={busy}
+          />
+        </label>
+        <label className="stacked">
+          Request
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe an experiment or ask a question."
+            disabled={busy}
+            aria-label="what should change"
+            rows={3}
+            onKeyDown={(e) => {
+              // Enter creates. A description is one line more often than not, and
+              // reaching for the mouse to start a run is the friction this whole
+              // change is about. Shift+Enter still adds a line.
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+          />
+        </label>
+        <p className="hint">
+          Bonsai records whether files changed after the run. A question does not enforce read-only
+          access.
+        </p>
+        <section className="creation-sources" aria-label="Experiment sources">
+          <h4>Starts from</h4>
+          {preview === null ? (
+            previewError === null ? (
+              <p role="status">Loading code and conversation sources…</p>
+            ) : (
+              <p className="error" role="alert">
+                {previewError} <button onClick={() => setRetry((n) => n + 1)}>Retry sources</button>
+              </p>
+            )
           ) : (
-            <input
-              ref={nameRef}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              aria-label="node name"
-              placeholder={derived}
-            />
+            <>
+              <p>
+                Conversation:{' '}
+                <button
+                  className="linkish"
+                  disabled={busy}
+                  onClick={() => {
+                    onCancel();
+                    onSelectSource(preview.lineage.conversationFrom!.id);
+                  }}
+                >
+                  {preview.lineage.conversationFrom?.displayName}
+                </button>
+              </p>
+              <p>
+                Code snapshot:{' '}
+                <button
+                  className="linkish"
+                  disabled={busy}
+                  onClick={() => {
+                    onCancel();
+                    onSelectSource(preview.lineage.codeFrom!.id);
+                  }}
+                >
+                  {preview.lineage.codeFrom?.displayName}
+                </button>
+              </p>
+              <p className="hint">{preview.codeNote}</p>
+              <p className="hint">{preview.conversationNote}</p>
+              {preview.parentActive && (
+                <p className="note">
+                  The source experiment is still active. A new commit before creation can change the
+                  code snapshot; conversation can grow until the first run starts.
+                </p>
+              )}
+            </>
           )}
-        </div>
+        </section>
 
         <details className="disclosure">
           <summary>What would make this a success? (optional)</summary>
@@ -154,15 +210,20 @@ export function NewChildDialog({
           <p className="hint">The agent runs the check and records what happened.</p>
         </details>
 
+        {error !== null && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
         <div className="dialog-actions">
           <span className="hint">Esc to cancel</span>
-          <button onClick={onCancel} disabled={busy}>
+          <button onClick={cancel} disabled={busy}>
             Cancel
           </button>
           <button
             className="primary"
             onClick={() => void submit()}
-            disabled={busy || description.trim() === ''}
+            disabled={busy || name.trim() === '' || description.trim() === '' || preview === null}
           >
             {busy ? 'Creating…' : 'Create and run'}
           </button>

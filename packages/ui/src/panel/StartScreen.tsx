@@ -33,9 +33,10 @@ export function StartScreen({
     <div className="app single">
       <NewProject
         initialMode={mode}
-        onCreated={(id) => {
+        onCreated={(id, nodeId) => {
           onDone();
           onCreated(id);
+          onSelectNode(nodeId);
         }}
         onOpenExisting={(id, nodeId) => {
           onDone();

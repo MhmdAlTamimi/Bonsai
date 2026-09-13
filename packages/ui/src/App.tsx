@@ -159,6 +159,8 @@ export function App(): JSX.Element {
       {child.pending !== null && (
         <NewChildDialog
           parentName={child.pending.parentName}
+          parentId={child.pending.parentId}
+          onSelectSource={selection.select}
           onCancel={child.cancel}
           onCreate={child.create}
         />
@@ -182,6 +184,12 @@ export function App(): JSX.Element {
       <Panel
         project={tree?.project ?? null}
         node={selected}
+        startError={
+          child.failedStart?.nodeId === selected?.id ? (child.failedStart?.message ?? null) : null
+        }
+        onRunStarted={() => {
+          if (selected !== null) child.clearStartError(selected.id);
+        }}
         stream={selected === null ? [] : (streams[selected.id] ?? [])}
         onChanged={projectTree.refresh}
         /* The panel does not own a second, weaker version of this form any

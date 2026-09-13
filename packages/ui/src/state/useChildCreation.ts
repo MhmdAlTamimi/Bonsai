@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 
 import { api } from '../api/client.ts';
+import { draftKey, setSending } from '../panel/chat/drafts.ts';
 import { describeError } from '../api/describeError.ts';
 
 /**
@@ -30,6 +31,8 @@ export function useChildCreation(opts: {
 }): {
   /** Non-null while the dialog is open. */
   pending: ChildTarget | null;
+  failedStart: { nodeId: string; message: string } | null;
+  clearStartError: (nodeId: string) => void;
   begin: (target: ChildTarget) => void;
   cancel: () => void;
   create: (
@@ -37,8 +40,10 @@ export function useChildCreation(opts: {
     description: string,
     successCriteria: string,
     verificationHint: string,
+    sourceVersion: string,
   ) => Promise<void>;
 } {
+  const [failedStart, setFailedStart] = useState<{ nodeId: string; message: string } | null>(null);
   const [pending, setPending] = useState<ChildTarget | null>(null);
   const { projectId, onCreated, onError, refresh } = opts;
 
@@ -48,37 +53,52 @@ export function useChildCreation(opts: {
       description: string,
       successCriteria: string,
       verificationHint: string,
+      sourceVersion: string,
     ): Promise<void> => {
       if (pending === null || projectId === null) return;
-      try {
-        const { node } = await api.createNode(projectId, {
-          parentId: pending.parentId,
-          displayName: name,
-          description,
-          successCriteria,
-          verificationHint,
-        });
-        // Pin it where it was dropped, so the gesture places the node.
-        if (pending.position !== null) {
+      const { node } = await api.createNode(projectId, {
+        parentId: pending.parentId,
+        displayName: name,
+        description,
+        successCriteria,
+        verificationHint,
+        sourceVersion,
+      });
+      const draft = draftKey(projectId, node.id, 'reply');
+      setSending(draft, true);
+      // Creation is confirmed. A later placement/start error must not lose the node.
+      setPending(null);
+      onCreated(node.id);
+      refresh();
+      if (pending.position !== null) {
+        try {
           await api.updateNode(node.id, {
             positionX: pending.position.x,
             positionY: pending.position.y,
           });
+        } catch (e) {
+          onError(`Experiment created; could not save its position. ${describeError(e)}`);
         }
-        await api.startRun(node.id, description || name);
-        setPending(null);
-        onCreated(node.id);
-        refresh();
-      } catch (e) {
-        onError(describeError(e));
-        setPending(null);
       }
+      try {
+        await api.startRun(node.id, description);
+      } catch (e) {
+        setFailedStart({
+          nodeId: node.id,
+          message: `"${name}" was created, but its run did not start. Use Start first run to retry. ${describeError(e)}`,
+        });
+      }
+      setSending(draft, false);
+      refresh();
     },
     [pending, projectId, onCreated, onError, refresh],
   );
 
   return {
     pending,
+    failedStart,
+    clearStartError: (nodeId: string) =>
+      setFailedStart((value) => (value?.nodeId === nodeId ? null : value)),
     begin: useCallback((target: ChildTarget) => setPending(target), []),
     cancel: useCallback(() => setPending(null), []),
     create,

@@ -35,6 +35,53 @@ describe('building a tree', () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  test('creation preview and existing lineage name the pinned source after ancestors advance', async () => {
+    const created = await createProject(store, {
+      name: 'lineage',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const code = store.createNode({
+      projectId: created.projectId,
+      parentId: created.masterNodeId,
+      displayName: 'Code',
+      description: '',
+    });
+    store.recordCommit(code.id, `node/${code.id}`, 'code-snapshot-1');
+    store.createRun('source-run', code.id);
+    db.prepare('UPDATE run SET commit_sha = ? WHERE id = ?').run('code-snapshot-1', 'source-run');
+    const question = store.createNode({
+      projectId: created.projectId,
+      parentId: code.id,
+      displayName: 'Discussion',
+      description: '',
+    });
+    const leaf = store.createNode({
+      projectId: created.projectId,
+      parentId: question.id,
+      displayName: 'Next',
+      description: '',
+    });
+    const preview = store.childLineageOf(question);
+    const version = store.childSourceVersion(question);
+    assert.equal(preview.conversationFrom?.id, question.id);
+    assert.equal(preview.codeFrom?.id, code.id);
+    store.recordCommit(code.id, `node/${code.id}`, 'code-snapshot-2');
+    store.recordCommit(question.id, `node/${question.id}`, 'discussion-snapshot-1');
+    assert.deepEqual(
+      store.lineageOf(leaf),
+      preview,
+      'later commits do not relabel the inherited code',
+    );
+    assert.notEqual(store.childSourceVersion(store.getNode(question.id)!), version);
+    assert.equal(
+      store.childLineageOf(store.getNode(question.id)!).codeFrom?.id,
+      question.id,
+      'a future child uses the new snapshot',
+    );
+  });
+
   /** Counts prepare() calls, which is one per query issued. */
   function countQueries<T>(work: () => T): { result: T; queries: number } {
     const original = db.prepare.bind(db);

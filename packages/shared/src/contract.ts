@@ -328,6 +328,14 @@ export interface NodeLineageView {
   diverged: boolean;
 }
 
+export interface ChildPreviewView {
+  sourceVersion: string;
+  lineage: NodeLineageView;
+  parentActive: boolean;
+  conversationNote: string;
+  codeNote: string;
+}
+
 export interface NodeDetail {
   node: NodeView;
   runs: RunView[];
@@ -455,6 +463,7 @@ export interface DirectoryListingView {
 }
 
 export interface CreateNodeRequest {
+  sourceVersion?: string;
   parentId: string;
   /**
    * Optional. Left out, it is derived from the description.

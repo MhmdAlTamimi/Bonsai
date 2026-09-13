@@ -816,8 +816,10 @@ body.resizing .panel-resizer {
 }
 .panel h2 {
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  max-height: 7em;
+  overflow-y: auto;
 }
 .panel h3 {
   margin-bottom: var(--s2);
@@ -1838,3 +1840,11 @@ button.destructive:hover:not(:disabled) {
 .panel > .recover { flex-shrink: 0; margin: 8px 16px; }
 .partial-review[open] { max-height: 30vh; overflow: auto; }
 .partial-review li { overflow-wrap: anywhere; }
+
+/* The primary branch action has the same location in every experiment state. */
+.panel-actions { flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.creation-sources { padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
+.creation-sources h4 { margin: 0 0 8px; }
+.creation-sources p { margin: 6px 0; }
+.checkout-section > .row { margin-top: 12px; }
+.checkout-section .checkout { white-space: pre-wrap; overflow-wrap: anywhere; }

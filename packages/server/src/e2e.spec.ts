@@ -109,6 +109,19 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         timeoutMs: 30000,
       });
 
+      await session.waitFor("document.querySelector('.panel h2')?.textContent === 'master'");
+      assert.equal(await session.eval("document.querySelectorAll('.panel textarea').length"), 1);
+      assert.equal(
+        await session.eval("document.querySelector('.composer textarea').value"),
+        'a project made by the end-to-end test',
+      );
+      assert.equal(await session.eval("!!document.querySelector('.checkout-section')"), false);
+      await session.click('.composer-row button');
+      await session.waitFor(
+        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row button')?.textContent === 'Send'",
+        { timeoutMs: 10000 },
+      );
+
       // A child, dragged out of master's handle onto empty canvas -- the real
       // gesture, through the real input pipeline, not a synthetic event.
       await session.dragTo('.react-flow__node .react-flow__handle-bottom', {
@@ -118,7 +131,8 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.waitFor('!!document.querySelector(\'[aria-label="what should change"]\')', {
         label: 'the new-child dialog',
       });
-      // One field now (4.10): the name is derived from what you type here.
+      await session.type('[aria-label="experiment name"]', 'Named approach');
+      await session.waitFor("!!document.querySelector('.creation-sources button')");
       await session.type('[aria-label="what should change"]', 'do a thing');
       // `.primary`, not the first button in the row -- that one is Cancel, and
       // clicking it closes the dialog while every later wait times out saying
@@ -267,6 +281,107 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       'newer child draft',
     );
   });
+  test('rename changes metadata and branching discloses divergent sources', async () => {
+    const p = (await (await fetch(`${BASE}/api/projects`)).json()) as Array<{ id: string }>;
+    const projectId = p[0]!.id;
+    const tree = (await (await fetch(`${BASE}/api/projects/${projectId}/tree`)).json()) as {
+      nodes: Array<{ id: string; parentId: string | null }>;
+    };
+    const rootId = tree.nodes.find((n) => n.parentId === null)!.id;
+    const codeId = tree.nodes.find((n) => n.parentId !== null)!.id;
+    const before = (await (await fetch(`${BASE}/api/nodes/${rootId}`)).json()) as {
+      runs: unknown[];
+    };
+    await session.goto(`${BASE}/?project=${projectId}&node=${rootId}`);
+    await session.waitFor("!!document.querySelector('.panel .overflow')");
+    await session.click('.panel .overflow');
+    await session.eval(
+      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b => b.textContent.includes('Rename')).click()",
+    );
+    await session.type('.dialog input[aria-label="experiment name"]', 'Starting code');
+    await session.click('.dialog .primary');
+    await session.waitFor("document.querySelector('.panel h2')?.textContent === 'Starting code'");
+    assert.deepEqual(
+      ((await (await fetch(`${BASE}/api/nodes/${rootId}`)).json()) as typeof before).runs,
+      before.runs,
+    );
+    const rejected = await fetch(`${BASE}/api/projects/${projectId}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        parentId: codeId,
+        displayName: 'Stale preview',
+        description: 'stale',
+        sourceVersion: 'outdated-preview',
+      }),
+    });
+    assert.equal(rejected.status, 412, 'a stale source preview cannot create an experiment');
+    const question = (await (
+      await fetch(`${BASE}/api/projects/${projectId}/nodes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          parentId: codeId,
+          displayName: 'Discussion',
+          description: 'Why this approach?',
+        }),
+      })
+    ).json()) as { node: { id: string } };
+    await fetch(`${BASE}/api/nodes/${question.node.id}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '?Why this approach?' }),
+    });
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${question.node.id}')).json()).node.status === 'ready')()`,
+    );
+    await session.goto(`${BASE}/?project=${projectId}&node=${question.node.id}`);
+    await session.waitFor("!!document.querySelector('.panel-actions .branch-child')");
+    await session.click('.panel-actions .branch-child');
+    await session.waitFor(
+      "document.querySelector('.creation-sources')?.textContent.includes('Named approach')",
+    );
+    const sources = (await session.eval(
+      "document.querySelector('.creation-sources').textContent",
+    )) as string;
+    assert.match(sources, /Discussion/);
+    assert.match(sources, /Named approach/);
+    assert.equal(
+      await session.eval("document.querySelector('.dialog textarea').placeholder.includes('?')"),
+      false,
+    );
+    await session.type('[aria-label="experiment name"]', 'Next approach');
+    await session.type('[aria-label="what should change"]', 'Improve the approach');
+    await session.eval(`(() => {
+      window.__savedFetch = window.fetch;
+      window.fetch = (url, init) => String(url).endsWith('/runs') && init?.method === 'POST'
+        ? Promise.resolve(new Response(JSON.stringify({error: 'fixture start failure'}), {status: 503}))
+        : window.__savedFetch(url, init);
+    })()`);
+    await session.click('.dialog-actions .primary');
+    await session.waitFor(
+      "document.querySelector('.panel h2')?.textContent === 'Next approach' && document.querySelector('.start-error')?.textContent.includes('did not start')",
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'Improve the approach',
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.composer-row button').textContent"),
+      'Start first run',
+    );
+    await session.eval('window.fetch = window.__savedFetch');
+    await session.click('.composer-row button');
+    await session.waitFor(
+      "document.querySelector('.composer-row button').textContent === 'Send' && !document.querySelector('.panel button.stop')",
+    );
+    const after = (await (
+      await fetch(`${BASE}/api/projects/${projectId}/tree`)
+    ).json()) as typeof tree;
+    assert.equal(after.nodes.length, 4, 'retry starts the existing experiment, not a duplicate');
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-2-panel.png'));
+  });
+
   test('partial work remains visible after Keep and Discard requires confirmation', async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {

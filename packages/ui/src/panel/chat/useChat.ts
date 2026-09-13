@@ -43,7 +43,12 @@ export function useChat(
   scrollRef: RefObject<HTMLDivElement | null>;
 } {
   const [messages, setMessages] = useState<MessageView[]>([]);
-  const { key, prompt, setPrompt, sending } = useDraft(node.projectId, node.id, 'reply');
+  const { key, prompt, setPrompt, sending } = useDraft(
+    node.projectId,
+    node.id,
+    'reply',
+    node.status === 'new' ? node.summaryLine : '',
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);

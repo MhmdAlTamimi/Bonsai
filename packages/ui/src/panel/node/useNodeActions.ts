@@ -22,7 +22,6 @@ export function useNodeActions(
   onError: (message: string | null) => void,
 ): {
   busy: boolean;
-  start: (prompt: string) => Promise<void>;
   recover: (action: RecoverAction) => Promise<void>;
   remove: () => Promise<void>;
   cancel: () => Promise<void>;
@@ -32,26 +31,6 @@ export function useNodeActions(
   const [busy, setBusy] = useState(false);
   const confirm = useConfirm();
   const setError = onError;
-
-  /**
-   * PRD §5: a `new` node's panel offers name, description and START. The start
-   * was missing entirely, so a node that had never run -- master, on every
-   * freshly created project -- had no way forward except noticing the chat box.
-   */
-  const start = async (prompt: string): Promise<void> => {
-    const text = prompt.trim();
-    if (text === '') return;
-    setError(null);
-    setBusy(true);
-    try {
-      await api.startRun(node.id, text);
-      onChanged();
-    } catch (e) {
-      setError(describeError(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const recover = async (action: RecoverAction): Promise<void> => {
     setError(null);
@@ -136,5 +115,5 @@ export function useNodeActions(
     }
   };
 
-  return { busy, start, recover, remove, cancel, confirmDialog: confirm.dialog };
+  return { busy, recover, remove, cancel, confirmDialog: confirm.dialog };
 }

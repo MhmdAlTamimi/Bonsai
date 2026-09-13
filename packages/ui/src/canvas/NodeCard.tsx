@@ -104,7 +104,9 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
           </div>
           {lod === 'full' && (
             <>
-              <div className="card-summary">{data.summaryLine || <em>no description</em>}</div>
+              {data.summaryLine.trim() !== data.displayName.trim() && (
+                <div className="card-summary">{data.summaryLine || <em>No description</em>}</div>
+              )}
               <div className="card-foot">
                 {/* On the card as well as in the panel: with several nodes in
                     flight, the one you want to stop is rarely the one selected,

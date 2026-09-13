@@ -31,13 +31,13 @@ export function checkoutFor(
      */
     return {
       command: `git switch -c ${suggestBranchName(node.display_name)} ${node.branch_name}`,
-      hint: `Run it in ${project.source_path ?? 'your project folder'}.`,
+      hint: `Run this in ${project.source_path ?? 'your project folder'} after saving or committing any work in that checkout. It creates and switches to a new branch from this experiment’s committed code; choose a different new branch name if the suggested name already exists. This does not publish or sync changes, and excludes the experiment’s uncommitted partial work.`,
     };
   }
 
   return {
     command: `git clone --branch ${node.branch_name} ${shellQuote(project.repo_path)} ${shellQuote(node.display_name.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'node')}`,
-    hint: "This project's repository lives in Bonsai's own folder.",
+    hint: `In a terminal, go to the folder where you want the copy, then run this command. It creates a new subfolder named "${node.display_name.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'node'}" containing this experiment's committed code. Choose a location where that subfolder does not already exist. This is a local copy, not a publish or sync; uncommitted partial work is excluded.`,
   };
 }
 
