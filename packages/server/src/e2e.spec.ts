@@ -1,4 +1,4 @@
-import { test, describe, before, after } from 'node:test';
+import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -65,6 +65,15 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await waitForServer();
     session = await launchBrowser();
     await session.goto(BASE);
+  });
+
+  afterEach(async (t) => {
+    if ('diagnostic' in t) {
+      await session.screenshot(
+        join(repoRoot, 'test-results', `failure-${t.name.slice(0, 24).replaceAll(' ', '-')}.png`),
+      );
+      t.diagnostic(JSON.stringify(await session.eval(WHAT_IS_ON_SCREEN)));
+    }
   });
 
   after(async () => {
@@ -438,6 +447,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         ? new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({error: 'fixture diff unavailable'}), {status: 503})), 250))
         : window.__originalFetch(url, init);
     })()`);
+    await session.eval(
+      "document.querySelector('.turn-diff-toggle').scrollIntoView({ block: 'center' })",
+    );
     await session.click('.turn-diff-toggle');
     await session.waitFor(
       "document.querySelector('.turn-diff-toggle').parentElement.textContent.includes('Loading run changes')",
@@ -586,6 +598,317 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-review.png'));
   });
+  test('keeps reading position, reconciles missed history and renders readable output', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'reading', description: '', location: dataDir }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const prompt =
+      '? Reading fixture\n\n' +
+      Array.from(
+        { length: 45 },
+        (_, i) => `Paragraph ${i}: Keep this reading position while new output arrives.`,
+      ).join('\n\n') +
+      '\n\n| Check | Result |\n| --- | --- |\n| Example | Passed |\n\n- [x] first\n  - nested\n\n```python\nprint("test")\n```';
+    const started = await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt }),
+    });
+    assert.equal(started.status, 202, await started.text());
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor(
+      "!!document.querySelector('.turn-foot') && !!document.querySelector('.md-table')",
+    );
+    await session.waitFor("document.querySelector('.panel-body').scrollTop > 100");
+    await session.eval(
+      "const region = document.querySelector('.panel-body'); region.scrollTop = 240; region.dispatchEvent(new Event('scroll'));",
+    );
+    await session.waitFor("!!document.querySelector('.jump-latest')");
+    await session.eval(
+      `window.__originalFetch = window.fetch; window.__failMessages = false; window.fetch = (url, init) => window.__failMessages && String(url).includes('/messages?') ? Promise.reject(new TypeError('offline fixture')) : window.__originalFetch(url, init);`,
+    );
+    // A node update refetches both details and history without replacing the transcript.
+    await session.eval('window.__failMessages = true');
+    await fetch(nodeUrl, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Reading fixture' }),
+    });
+    await session.waitFor(
+      "document.querySelector('.panel').textContent.includes('Showing previously loaded conversation')",
+    );
+    assert.equal(await session.eval("!!document.querySelector('.md-table')"), true);
+    await session.eval('window.__failMessages = false');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.panel button')).find(b => b.textContent === 'Retry conversation').click()",
+    );
+    await session.waitFor(
+      "!document.querySelector('.panel').textContent.includes('Retry conversation')",
+    );
+    assert.ok(
+      Math.abs(
+        Number(await session.eval("document.querySelector('.panel-body').scrollTop")) - 240,
+      ) < 5,
+    );
+    // Switch away and back through real canvas selection.
+    const child = (await (
+      await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          parentId: created.masterNodeId,
+          displayName: 'Other reading',
+          description: '?',
+        }),
+      })
+    ).json()) as { node: { id: string } };
+    await session.waitFor(`!!document.querySelector('[data-id="${child.node.id}"]')`);
+    await session.click(`[data-id="${child.node.id}"] .card`);
+    await session.waitFor("document.querySelector('.panel h2')?.textContent === 'Other reading'");
+    await session.click(`[data-id="${created.masterNodeId}"] .card`);
+    await session.waitFor(
+      "!!document.querySelector('.md-table') && document.querySelector('.panel-body').scrollTop > 100",
+    );
+    assert.ok(
+      Math.abs(
+        Number(await session.eval("document.querySelector('.panel-body').scrollTop")) - 240,
+      ) < 5,
+    );
+    // Capture a subsequent native subscription; drop event delivery to simulate a transport gap.
+    await session.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: `window.__sources = []; const Native = window.EventSource; window.EventSource = class extends Native { constructor(url) { super(url); window.__sources.push(this); } addEventListener(type, listener, options) { super.addEventListener(type, (event) => { if (!window.__dropEvents) listener(event); }, options); } };`,
+    });
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor(
+      "!!document.querySelector('.health-live') && !!document.querySelector('.md-table')",
+    );
+    await session.eval(
+      "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.__dropEvents = true; window.__sources.at(-1).dispatchEvent(new Event('error'));",
+    );
+    await session.waitFor("!!document.querySelector('.health-reconnecting')");
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '? Message written during transport gap' }),
+    });
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+    );
+    await session.eval(
+      "window.__dropEvents = false; window.__sources.at(-1).dispatchEvent(new Event('open'));",
+    );
+    await session.waitFor(
+      "document.querySelector('.transcript')?.textContent.includes('Message written during transport gap')",
+    );
+    assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 2);
+    assert.ok(
+      Math.abs(
+        Number(await session.eval("document.querySelector('.panel-body').scrollTop")) - 240,
+      ) < 5,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-4-reading.png'));
+    await session.click('.jump-latest');
+    await session.waitFor(
+      "document.querySelector('.panel-body').scrollHeight - document.querySelector('.panel-body').scrollTop - document.querySelector('.panel-body').clientHeight < 5",
+    );
+    await session.eval(
+      "Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.reject(new Error('clipboard fixture')) } }); document.querySelector('.code-actions button').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.code-actions').textContent.includes('Copy failed')",
+    );
+    await session.eval('delete navigator.clipboard');
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-4-topbar.png'));
+    // Chromium's real offline mode drops the SSE connection and HTTP requests.
+    await session.send('Network.enable', {});
+    try {
+      await session.send('Network.emulateNetworkConditions', {
+        offline: true,
+        latency: 0,
+        downloadThroughput: -1,
+        uploadThroughput: -1,
+      });
+      await session.waitFor("!!document.querySelector('.health-reconnecting')");
+      assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 2);
+      await fetch(`${nodeUrl}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: '? Written while browser offline' }),
+      });
+      for (let i = 0; i < 100; i += 1) {
+        const current = (await (await fetch(nodeUrl)).json()) as { node: { status: string } };
+        if (current.node.status === 'ready') break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } finally {
+      await session.send('Network.emulateNetworkConditions', {
+        offline: false,
+        latency: 0,
+        downloadThroughput: -1,
+        uploadThroughput: -1,
+      });
+    }
+    await session.waitFor(
+      "!!document.querySelector('.health-live') && document.querySelectorAll('.turn').length === 3",
+    );
+  });
+
+  test('queued and permission jobs share stop controls and question drafts stay scoped', async () => {
+    await fetch(`${BASE}/api/settings`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxConcurrentRuns: 1 }),
+    });
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'permissions',
+          description: '',
+          location: dataDir,
+          permissionMode: 'default',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const queued = (await (
+      await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          parentId: created.masterNodeId,
+          displayName: 'Queued experiment',
+          description: 'queued request',
+        }),
+      })
+    ).json()) as { node: { id: string } };
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'permission fixture' }),
+    });
+    await fetch(`${BASE}/api/nodes/${queued.node.id}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'queued fixture' }),
+    });
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor(
+      "!!document.querySelector('.ask input') && document.querySelector('.stop-all')?.textContent.includes('2 runs')",
+    );
+    assert.equal(await session.eval("!!document.querySelector('.composer-row')"), false);
+    assert.equal(
+      await session.eval(`!!document.querySelector('[data-id="${queued.node.id}"] .stop')`),
+      true,
+    );
+    await session.type('.ask input', 'This reason belongs only to the first question');
+    await session.eval(
+      "window.__originalFetch = window.fetch; window.fetch = (url, init) => String(url).endsWith('/cancel') ? Promise.resolve(new Response(JSON.stringify({ error: 'Stop failed fixture' }), { status: 503 })) : window.__originalFetch(url, init);",
+    );
+    await session.click('.panel .stop');
+    await session.waitFor(
+      "document.querySelector('.panel .stop-error')?.textContent.includes('Stop failed fixture')",
+    );
+    assert.equal(await session.eval("document.querySelector('.panel .stop').disabled"), false);
+    await session.eval('window.fetch = window.__originalFetch');
+    await session.click(`[data-id="${queued.node.id}"] .stop`);
+    await session.waitFor(`!document.querySelector('[data-id="${queued.node.id}"] .stop')`);
+    // Freeze the browser's tree snapshot while another window answers the same question.
+    const tree = (await (await fetch(`${BASE}/api/projects/${created.projectId}/tree`)).json()) as {
+      nodes: Array<{ id: string; pendingQuestion: { id: string } | null }>;
+    };
+    const questionId = tree.nodes.find((n) => n.id === created.masterNodeId)!.pendingQuestion!.id;
+    await session.eval(
+      `window.fetch = (url, init) => String(url).endsWith('/tree') ? Promise.resolve(new Response(${JSON.stringify(JSON.stringify(tree))})) : window.__originalFetch(url, init);`,
+    );
+    await fetch(`${BASE}/api/questions/${questionId}/answer`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ allow: false, message: 'Answered elsewhere' }),
+    });
+    await session.click('.ask-actions button:first-child');
+    await session.waitFor(
+      "document.querySelector('.panel-foot')?.textContent.includes('already answered')",
+    );
+    await session.eval('window.fetch = window.__originalFetch');
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+    );
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'second permission' }),
+    });
+    await session.waitFor(
+      "!!document.querySelector('.ask input') && document.querySelector('.ask input').value === ''",
+    );
+    await session.waitFor("!document.querySelector('.panel .stop-error')");
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-4-permission.png'));
+    await fetch(`${BASE}/api/nodes/${queued.node.id}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'queued again' }),
+    });
+    await session.waitFor("document.querySelector('.stop-all')?.textContent.includes('2 runs')");
+    await session.eval(
+      "window.fetch = (url, init) => String(url).endsWith('/cancel') ? new Promise(resolve => setTimeout(() => resolve(window.__originalFetch(url, init)), 250)) : window.__originalFetch(url, init);",
+    );
+    await session.click('.stop-all');
+    assert.equal(await session.eval("document.querySelector('.stop-all').disabled"), true);
+    await session.waitFor(
+      "!document.querySelector('.ask') && !document.querySelector('.panel .stop') && !document.querySelector('.stop-all')",
+    );
+    await session.eval('window.fetch = window.__originalFetch');
+    const queuedDetail = (await (await fetch(`${BASE}/api/nodes/${queued.node.id}`)).json()) as {
+      runs: Array<{ status: string }>;
+    };
+    assert.equal(queuedDetail.runs.at(-1)?.status, 'cancelled');
+    const detail = (await (await fetch(nodeUrl)).json()) as { runs: Array<{ status: string }> };
+    assert.equal(detail.runs.at(-1)?.status, 'cancelled');
+  });
+  test('initial connection and project failures offer retry instead of an empty canvas', async () => {
+    await session.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: `window.__failConnection = true; window.__failProjects = true; const nativeFetch = window.fetch; window.fetch = (url, init) => (window.__failConnection && String(url) === '/api/connection') || (window.__failProjects && String(url) === '/api/projects') ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable fixture' }), { status: 503 })) : nativeFetch(url, init);`,
+    });
+    await session.goto(BASE);
+    await session.waitFor(
+      "document.querySelector('.connect')?.textContent.includes('Unavailable fixture')",
+    );
+    assert.equal(await session.eval("!!document.querySelector('.react-flow')"), false);
+    await session.eval(
+      "window.__failConnection = false; document.querySelector('.connect button').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.tree-notice')?.textContent.includes('Unavailable fixture')",
+    );
+    await session.eval(
+      "window.__failProjects = false; document.querySelector('.tree-notice button').click()",
+    );
+    await session.waitFor(
+      "!!document.querySelector('.card') && !document.querySelector('.tree-notice')",
+    );
+    // A narrow canvas still keeps its project menu, server health and settings available.
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 1100,
+      height: 780,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    assert.equal(
+      await session.eval(
+        "(() => { const bar = document.querySelector('.menubar').getBoundingClientRect(); return ['.project-picker', '.server-health', '.settings-button'].every(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return r.width > 0 && r.left >= bar.left && r.right <= bar.right; }); })()",
+      ),
+      true,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-4-narrow-topbar.png'));
+    await session.send('Emulation.clearDeviceMetricsOverride', {});
+  });
 });
 
 /**
@@ -628,6 +951,7 @@ async function waitForServer(): Promise<void> {
 /** Loaded at run time so the harness stays a plain script with no build step. */
 async function launchBrowser(): Promise<{
   goto(url: string): Promise<void>;
+  send(method: string, params: Record<string, unknown>): Promise<unknown>;
   eval(expression: string): Promise<unknown>;
   waitFor(
     expression: string,
