@@ -12,8 +12,8 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | Milestone | Branch | Findings | State |
 | --- | --- | --- | --- |
 | 1. Protect users’ work | `codex/milestone-1-protect-work` | F01–F05 | Accepted by owner; merged and pushed |
-| 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Validated; F10 freeze-rule decision pending |
-| 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Pending |
+| 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Accepted and merged/pushed; F10 decision remains deferred |
+| 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Ready for owner review |
 | 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Pending |
 | 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Pending |
 | 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Pending |
@@ -79,3 +79,27 @@ that decision. Broader offline-access and settings policy decisions remain in th
 
 Milestone 2 validation: `npm test` and all four browser integration scenarios pass. Browser tests use temporary
 projects and the fake agent. Source previews reject stale code snapshots before creating a node.
+
+
+## Milestone 3 review
+
+Branch: `codex/milestone-3-judge-results`. Milestone 2 was merged and pushed before this branch started.
+F10 remains an open policy decision; this milestone does not change freeze behavior.
+
+- Open an experiment and switch between **Conversation** and **Results & changes**. Branch experiment stays
+  reachable, and the composer retains the experiment's draft. Arrow keys, Home and End navigate the two tabs.
+- Create an experiment: **Success looks like…** is visible and optional. Verification instructions remain
+  optional. The creation action stays reachable in a scrolling dialog.
+- Read Results: the latest run's outcome, goal, attributed testing notes, and missing evidence are stated
+  separately. **Finished** means the run ended, not that it passed tests. Cancelled and failed runs are named.
+- Inspect the first root run's **Changes from this run**. Then make several changes in one writable experiment
+  and compare each run with **All changes in this experiment**. The aggregate uses the original code snapshot;
+  a later question does not erase earlier changes.
+- Use **Expand changes** for wider reading. File labels distinguish additions, deletions, renames and binary
+  files. Text hunks show old/new line numbers. Uncommitted file names remain visible even with an empty patch.
+- A failed diff load says it failed and offers Retry. A failed Copy patch action gives visible feedback.
+
+Technical validation: `npm test` passes, including real-Git root/multi-run comparisons, untracked-only work,
+file operations, quoted names, line numbers and repeated +/- content. All five browser scenarios pass using
+isolated temporary projects and the fake agent; the results scenario also exercises failed fetches, clipboard
+failure, aggregate changes after three modifying runs plus a question, and the expanded viewer.

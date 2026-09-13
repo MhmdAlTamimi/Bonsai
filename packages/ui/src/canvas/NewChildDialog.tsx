@@ -135,6 +135,15 @@ export function NewChildDialog({
           Bonsai records whether files changed after the run. A question does not enforce read-only
           access.
         </p>
+        <label className="stacked">
+          Success looks like… (optional)
+          <input
+            value={successCriteria}
+            onChange={(e) => setSuccessCriteria(e.target.value)}
+            placeholder="the /search endpoint answers in under 100ms"
+            aria-label="success criteria"
+          />
+        </label>
         <section className="creation-sources" aria-label="Experiment sources">
           <h4>Starts from</h4>
           {preview === null ? (
@@ -186,19 +195,9 @@ export function NewChildDialog({
         </section>
 
         <details className="disclosure">
-          <summary>What would make this a success? (optional)</summary>
+          <summary>How should the agent check it? (optional)</summary>
           <label className="stacked">
-            What should be true when this works?
-            <textarea
-              value={successCriteria}
-              onChange={(e) => setSuccessCriteria(e.target.value)}
-              placeholder="the /search endpoint answers in under 100ms"
-              aria-label="success criteria"
-              rows={2}
-            />
-          </label>
-          <label className="stacked">
-            How should the agent check it?
+            Verification instructions
             <textarea
               value={verificationHint}
               onChange={(e) => setVerificationHint(e.target.value)}

@@ -11,7 +11,7 @@ import { Store } from '../db/store.js';
 import { createChildNode, createProject, deleteNodeTree } from '../projects.js';
 import { commitMessageFor, commitRunOutput, currentBranch } from './commit.js';
 import { branchNameFor } from './repo.js';
-import { nodeDiff } from './diff.js';
+import { nodeDiff, runDiff, parentSnapshot } from './diff.js';
 import { gitLine } from './exec.js';
 
 /**
@@ -62,6 +62,38 @@ describe('git layer', () => {
       permissionMode: 'acceptEdits',
     });
   }
+
+  test('root runs and the aggregate compare against their original snapshots', async () => {
+    const created = await createProject(store, {
+      name: 'review',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const initial = store.getNode(created.masterNodeId)!;
+    await run(initial.id, { 'first file.txt': 'one\n' });
+    const first = store.getNode(initial.id)!.head_commit!;
+    await run(initial.id, { 'second.txt': 'two\n' });
+    const second = store.getNode(initial.id)!.head_commit!;
+    assert.equal(await parentSnapshot(initial.worktree_path, first), initial.head_commit);
+    assert.equal(await parentSnapshot(initial.worktree_path, second), first);
+    assert.ok(
+      (await runDiff(initial.worktree_path, initial.head_commit!, first)).files.includes(
+        'first file.txt',
+      ),
+    );
+    const later = await runDiff(initial.worktree_path, first, second);
+    assert.ok(later.files.includes('second.txt'));
+    assert.ok(!later.files.includes('first file.txt'));
+    await writeFile(join(initial.worktree_path, 'untracked.txt'), 'partial');
+    const aggregate = await nodeDiff(initial.worktree_path, initial.head_commit!, true, second);
+    assert.ok(aggregate.files.includes('first file.txt'));
+    assert.ok(aggregate.files.includes('second.txt'));
+    assert.deepEqual(aggregate.dirty, ['untracked.txt']);
+    const unchanged = await nodeDiff(initial.worktree_path, second, true, second);
+    assert.equal(unchanged.patch, '');
+    assert.deepEqual(unchanged.dirty, ['untracked.txt']);
+  });
 
   test('project creation writes a root commit before master has a worktree', async () => {
     const { projectId, masterNodeId } = await newProject();

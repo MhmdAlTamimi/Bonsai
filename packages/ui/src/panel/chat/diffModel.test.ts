@@ -148,3 +148,44 @@ test('small early files open; long ones and later ones stay collapsed', () => {
   assert.equal(shouldExpand(fileOf(20), 9), false);
   assert.equal(shouldExpand(fileOf(0, true), 0), false);
 });
+
+test('file operations and line numbers describe additions, deletions and renames', () => {
+  const [modified] = parsePatch(TWO_FILES);
+  assert.equal(modified?.lines.find((line) => line.kind === 'context')?.oldLine, 1);
+  assert.equal(modified?.lines.find((line) => line.kind === 'context')?.newLine, 1);
+  assert.equal(modified?.lines.find((line) => line.kind === 'add')?.newLine, 2);
+  assert.equal(modified?.lines.find((line) => line.kind === 'del')?.oldLine, 3);
+  const [added] = parsePatch('diff --git a/new b/new\nnew file mode 100644\n@@ -0,0 +1 @@\n+new\n');
+  assert.equal(added?.operation, 'added');
+  assert.equal(added?.lines[1]?.newLine, 1);
+  assert.equal(added?.lines[1]?.oldLine, undefined);
+  const [deleted] = parsePatch(
+    'diff --git a/gone b/gone\ndeleted file mode 100644\n@@ -1 +0,0 @@\n-old\n',
+  );
+  assert.equal(deleted?.operation, 'deleted');
+  assert.equal(deleted?.lines[1]?.oldLine, 1);
+  assert.equal(deleted?.lines[1]?.newLine, undefined);
+  const [renamed] = parsePatch(
+    'diff --git a/old name b/new name\nsimilarity index 100%\nrename from old name\nrename to new name\n',
+  );
+  assert.equal(renamed?.operation, 'renamed');
+  assert.equal(renamed?.oldPath, 'old name');
+  assert.equal(renamed?.path, 'new name');
+});
+
+test('quoted path headers do not collapse several files into an unnamed diff', () => {
+  const files = parsePatch(
+    'diff --git "a/has\\tTab" "b/has\\tTab"\nnew file mode 100644\n@@ -0,0 +1 @@\n+x\ndiff --git a/plain b/plain\nnew file mode 100644\n',
+  );
+  assert.deepEqual(
+    files.map((file) => file.path),
+    ['has\tTab', 'plain'],
+  );
+});
+
+test('content starting with repeated plus or minus signs is not mistaken for a file header', () => {
+  const [file] = parsePatch('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n---old\n+++new\n');
+  assert.equal(file?.removed, 1);
+  assert.equal(file?.added, 1);
+  assert.equal(file?.lines.at(-1)?.text, '++new');
+});

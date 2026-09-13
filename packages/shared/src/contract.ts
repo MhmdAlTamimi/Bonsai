@@ -218,6 +218,7 @@ export interface NodeView {
   /** The change description, or the agent's question when status is needs_you. */
   summaryLine: string;
   status: NodeStatus;
+  lastRunStatus?: RunStatus | null;
   createsBranch: boolean;
   writable: boolean;
   frozenReason: FrozenReason | null;

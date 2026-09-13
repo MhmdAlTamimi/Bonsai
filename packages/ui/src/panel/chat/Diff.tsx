@@ -1,112 +1,174 @@
-import { type JSX, useState } from 'react';
-
+import { type JSX, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { parsePatch, patchTotals, shouldExpand, type DiffFile } from './diffModel.ts';
 
-/**
- * The diff, grouped by file and coloured by line.
- *
- * This is the artefact the node exists to produce, and it used to be one
- * undifferentiated `<pre>` capped at 260px: no colour, no file boundaries, no
- * counts, and horizontal scrolling through the lot. `git diff` in a terminal
- * was strictly better, which is not a comparison an interface should lose.
- *
- * Per-file collapse matters more than it sounds. A node's cumulative diff can
- * be thousands of lines, and the question being asked of it is usually "which
- * files did this touch" long before "what exactly changed in this one".
- */
+/** One patch, with file operations, line references, and a wider reading view. */
 export function Diff({
   patch,
   dirty = [],
+  allowExpand = true,
 }: {
   patch: string;
   dirty?: readonly string[];
+  allowExpand?: boolean;
 }): JSX.Element {
   const files = parsePatch(patch);
   const totals = patchTotals(files);
-
-  if (files.length === 0) {
-    return <p className="hint">No textual changes.</p>;
-  }
-
+  const [expanded, setExpanded] = useState(false);
   return (
     <div className="diff">
-      <div className="diff-summary">
-        <span>
-          {totals.files} file{totals.files === 1 ? '' : 's'}
-        </span>
-        <span className="added">+{totals.added}</span>
-        <span className="removed">&minus;{totals.removed}</span>
-        <CopyPatch patch={patch} />
-      </div>
-      {files.map((file, i) => (
-        <FileBlock key={`${file.path}-${i}`} file={file} startOpen={shouldExpand(file, i)} />
-      ))}
       {dirty.length > 0 && (
-        <p className="hint">Uncommitted in this node&rsquo;s folder: {dirty.join(', ')}</p>
+        <section className="diff-dirty" aria-label="Uncommitted files">
+          <h4>Uncommitted work — excluded from this patch</h4>
+          <ul>
+            {dirty.map((path) => (
+              <li key={path}>{path}</li>
+            ))}
+          </ul>
+          <p className="hint">
+            Includes new, untracked files. Review partial changes in the recovery notice when a run
+            is stopped.
+          </p>
+        </section>
       )}
+      {files.length === 0 ? (
+        <p className="hint">No committed changes in this comparison.</p>
+      ) : (
+        <>
+          <div className="diff-summary">
+            <span>
+              {totals.files} file{totals.files === 1 ? '' : 's'}
+            </span>
+            <span className="added">+{totals.added}</span>
+            <span className="removed">−{totals.removed}</span>
+            <CopyPatch patch={patch} />
+            {allowExpand && (
+              <button className="linkish" onClick={() => setExpanded(true)}>
+                Expand changes
+              </button>
+            )}
+          </div>
+          {files.map((file, i) => (
+            <FileBlock key={`${file.path}-${i}`} file={file} startOpen={shouldExpand(file, i)} />
+          ))}
+        </>
+      )}
+      {expanded &&
+        createPortal(
+          <ExpandedDiff patch={patch} dirty={dirty} onClose={() => setExpanded(false)} />,
+          document.body,
+        )}
     </div>
+  );
+}
+
+function ExpandedDiff({
+  patch,
+  dirty,
+  onClose,
+}: {
+  patch: string;
+  dirty: readonly string[];
+  onClose: () => void;
+}): JSX.Element {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const el = dialog.current;
+    el?.showModal();
+    return () => el?.close();
+  }, []);
+  return (
+    <dialog ref={dialog} className="diff-dialog" onCancel={onClose} onClose={onClose}>
+      <header>
+        <h2>Changes</h2>
+        <button autoFocus onClick={onClose}>
+          Close changes
+        </button>
+      </header>
+      <Diff patch={patch} dirty={dirty} allowExpand={false} />
+    </dialog>
   );
 }
 
 function FileBlock({ file, startOpen }: { file: DiffFile; startOpen: boolean }): JSX.Element {
   const [open, setOpen] = useState(startOpen);
-
+  const operation = file.operation ?? 'modified';
   return (
     <div className="diff-file">
-      <button
-        className="diff-file-head"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        title={file.path}
-      >
+      <button className="diff-file-head" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <span className="diff-caret" aria-hidden="true">
           {open ? '▾' : '▸'}
         </span>
-        <span className="diff-path">{file.path}</span>
-        {file.binary ? (
-          <span className="hint">binary</span>
-        ) : (
+        <span className="diff-path">
+          {file.operation === 'renamed' && <>{file.oldPath} → </>}
+          {file.path}
+        </span>
+        <span className="diff-operation">
+          {operation[0]!.toUpperCase() + operation.slice(1)}
+          {file.binary ? ' · Binary' : ''}
+        </span>
+        {!file.binary && (
           <span className="diff-counts">
             <span className="added">+{file.added}</span>{' '}
-            <span className="removed">&minus;{file.removed}</span>
+            <span className="removed">−{file.removed}</span>
           </span>
         )}
       </button>
-      {open && !file.binary && (
-        <div className="diff-body">
-          {file.lines.map((line, i) => (
-            <div key={i} className={`dl dl-${line.kind}`}>
-              {/*
-               * The marker is its own cell rather than part of the text, so a
-               * copy of the visible lines does not pick up "+" and "-" -- and
-               * so the gutter stays aligned when a line wraps.
-               */}
-              <span className="dl-mark" aria-hidden="true">
-                {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}
-              </span>
-              <span className="dl-text">{line.text === '' ? ' ' : line.text}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {open &&
+        (file.binary ? (
+          <p className="hint">Binary file changed. No text preview is available.</p>
+        ) : file.lines.length === 0 ? (
+          <p className="hint">File metadata changed; there are no changed text lines.</p>
+        ) : (
+          <div className="diff-body" tabIndex={0} aria-label={`Changes in ${file.path}`}>
+            {file.lines.map((line, i) => (
+              <div key={i} className={`dl dl-${line.kind}`}>
+                <span
+                  className="dl-number"
+                  aria-label={line.oldLine === undefined ? undefined : `Old line ${line.oldLine}`}
+                >
+                  {line.oldLine ?? ''}
+                </span>
+                <span
+                  className="dl-number"
+                  aria-label={line.newLine === undefined ? undefined : `New line ${line.newLine}`}
+                >
+                  {line.newLine ?? ''}
+                </span>
+                <span className="dl-mark" aria-hidden="true">
+                  {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}
+                </span>
+                <span className="dl-text">{line.text === '' ? ' ' : line.text}</span>
+              </div>
+            ))}
+          </div>
+        ))}
     </div>
   );
 }
 
 function CopyPatch({ patch }: { patch: string }): JSX.Element {
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState(false);
   return (
-    <button
-      className="linkish diff-copy"
-      onClick={() => {
-        void navigator.clipboard
-          .writeText(patch)
-          .then(() => setCopied(true))
-          .catch(() => undefined);
-      }}
-      title="Copy the whole patch, ready for git apply"
-    >
-      {copied ? 'copied' : 'copy patch'}
-    </button>
+    <>
+      <button
+        className="linkish diff-copy"
+        onClick={() => {
+          setError(false);
+          void navigator.clipboard
+            .writeText(patch)
+            .then(() => setCopied(true))
+            .catch(() => setError(true));
+        }}
+      >
+        {copied ? 'Copied' : 'Copy patch'}
+      </button>
+      {error && (
+        <span role="alert" className="error">
+          Could not copy the patch. Retry or select the visible text.
+        </span>
+      )}
+    </>
   );
 }

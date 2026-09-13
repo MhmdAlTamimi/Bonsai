@@ -1,18 +1,8 @@
 import type { JSX } from 'react';
 import type { NodeDetail, NodeView } from '@bonsai/shared';
+import { Markdown } from '../chat/Markdown.tsx';
 
-/**
- * "Did it work?"
- *
- * Above the conversation, because it is the answer to the question the whole
- * node exists to settle, and the point of the product is the moment you
- * compare two of them.
- *
- * Deliberately the agent's own words, with no verdict extracted from them.
- * Whether "3 of 14 tests fail" counts as working is a judgement about your
- * project, and a green tick derived from prose would be a confident guess
- * dressed as a fact. Anything unclear is a chat away.
- */
+/** Goals and attributed evidence, without inventing a pass/fail verdict. */
 export function Checks({
   node,
   detail,
@@ -21,31 +11,54 @@ export function Checks({
   detail: NodeDetail | null;
 }): JSX.Element | null {
   if (detail === null) return null;
-  if (detail.successCriteria == null && detail.testingNotes == null) return null;
-
+  const latest = detail.runs.at(-1);
+  const source = detail.testingSource;
+  const current = source !== null && !source.inherited && !source.predatesLatestRun;
   return (
-    <section className="checks">
-      <h3>Testing notes</h3>
-      {detail.successCriteria != null && <p className="hint">Goal: {detail.successCriteria}</p>}
-      {detail.testingNotes != null ? (
-        <>
-          <p className="hint">
-            {detail.testingSource === null
-              ? 'Existing testing notes — source not recorded. These are not verification of this run.'
-              : `${detail.testingSource.inherited ? 'Inherited from' : 'Recorded by'} ${detail.testingSource.nodeName}, run ${detail.testingSource.runId.slice(0, 8)} (${detail.testingSource.recordedAt}).${detail.testingSource.predatesLatestRun ? ' These notes predate the latest run; no new checks are recorded here.' : ' Agent-reported evidence; not an independent verdict.'}`}
-          </p>
-          {(detail.partialWork?.changed.length ?? 0) > 0 && (
-            <p className="hint">Uncommitted changes are not covered by these notes.</p>
-          )}
-          <pre className="stream">{detail.testingNotes}</pre>
-        </>
-      ) : (
+    <section className="checks results-checks" aria-label="Goal and recorded checks">
+      <h3>Goal</h3>
+      <p>{detail.successCriteria ?? 'No success criteria were provided.'}</p>
+      {detail.verificationHint !== null && (
+        <details className="disclosure">
+          <summary>Requested verification</summary>
+          <p>{detail.verificationHint}</p>
+        </details>
+      )}
+      <h3>Recorded checks</h3>
+      {!current && (
         <p className="hint">
-          {node.status === 'running'
-            ? 'The run is still going.'
-            : node.hasCommits
-              ? 'No notes from the agent — ask it what it checked.'
-              : 'Nothing committed here yet.'}
+          {node.status === 'running' || node.status === 'needs_you'
+            ? 'The run is still in progress. No completed checks recorded for this run.'
+            : 'No checks recorded for the latest run.'}
+        </p>
+      )}
+      {detail.testingNotes !== null && (
+        <>
+          <p className="evidence-source">
+            {source === null
+              ? 'Existing testing notes — source not recorded.'
+              : `${source.inherited ? 'Inherited from' : 'Recorded by'} ${source.nodeName}, run ${source.runId.slice(0, 8)} (${source.recordedAt}).`}
+          </p>
+          {source?.predatesLatestRun === true && (
+            <p className="hint">These notes predate the latest run.</p>
+          )}
+          <div className="testing-notes">
+            <Markdown source={detail.testingNotes} />
+          </div>
+        </>
+      )}
+      <p className="hint">
+        {detail.testingNotes === null
+          ? 'There is no recorded testing evidence here. A finished run does not establish that the experiment worked.'
+          : 'These are recorded notes, not an independent verification or a pass/fail verdict.'}
+      </p>
+      {(detail.partialWork?.changed.length ?? 0) > 0 && (
+        <p className="note">Uncommitted changes are not covered by these notes.</p>
+      )}
+      {latest?.status === 'failed' && (
+        <p className="note">
+          The latest run failed. Inspect its conversation and partial work before judging the
+          result.
         </p>
       )}
     </section>

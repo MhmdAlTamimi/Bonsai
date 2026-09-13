@@ -9,6 +9,7 @@ import type {
   PermissionMode,
   ProjectView,
   RunView,
+  RunStatus,
 } from '@bonsai/shared';
 import { deriveFlags } from '../domain/flags.js';
 import {
@@ -480,27 +481,6 @@ export class Store {
       { id: string; node_id: string; status: string; commit_sha: string | null } | undefined;
   }
 
-  /**
-   * The commit a run should be diffed against: whatever the node was sitting on
-   * before it. That is the previous run's commit, or the node's pinned base if
-   * this was its first.
-   */
-  runDiffBase(runId: string): string | null {
-    const row = this.db
-      .prepare(
-        `SELECT (
-           SELECT commit_sha FROM run prev
-           WHERE prev.node_id = r.node_id AND prev.commit_sha IS NOT NULL
-             AND prev.started_at < r.started_at
-           ORDER BY prev.started_at DESC LIMIT 1
-         ) AS previous,
-         (SELECT base_commit FROM node WHERE id = r.node_id) AS base
-         FROM run r WHERE r.id = ?`,
-      )
-      .get(runId) as unknown as { previous: string | null; base: string | null } | undefined;
-    return row?.previous ?? row?.base ?? null;
-  }
-
   /** Row counts, for the diagnostics report. One query, not three lists. */
   counts(): { projects: number; nodes: number; runs: number; running: number } {
     const one = (sql: string): number => {
@@ -531,7 +511,7 @@ export class Store {
 
   listRuns(nodeId: string): RunView[] {
     const rows = this.db
-      .prepare(`SELECT * FROM run WHERE node_id = ? ORDER BY started_at ASC`)
+      .prepare(`SELECT * FROM run WHERE node_id = ? ORDER BY started_at ASC, rowid ASC`)
       .all(nodeId) as unknown as Array<Record<string, unknown>>;
     return rows.map((r) => ({
       id: r['id'] as string,
@@ -755,6 +735,13 @@ export class Store {
     const stats = this.diffStats(projectId);
     const costs = this.nodeCosts(projectId);
     const rows = this.listNodes(projectId);
+    const latest = this.db
+      .prepare(
+        `SELECT n.id, (SELECT r.status FROM run r WHERE r.node_id = n.id
+      ORDER BY r.started_at DESC, r.rowid DESC LIMIT 1) AS status FROM node n WHERE n.project_id = ?`,
+      )
+      .all(projectId) as unknown as Array<{ id: string; status: RunStatus | null }>;
+    const lastRuns = new Map(latest.map((r) => [r.id, r.status]));
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
       if (row.parent_id === null) continue;
@@ -779,6 +766,7 @@ export class Store {
         // is what makes the canvas triageable at a glance.
         summaryLine: question?.text ?? row.description,
         status: row.status,
+        lastRunStatus: lastRuns.get(row.id) ?? null,
         ...flags,
         // An adopted project's master worktree IS the user's own folder, on
         // their own branch. Nothing Bonsai does may write there, so master is
