@@ -131,10 +131,6 @@ export function NewChildDialog({
             }}
           />
         </label>
-        <p className="hint">
-          Bonsai records whether files changed after the run. A question does not enforce read-only
-          access.
-        </p>
         <label className="stacked">
           Success looks like… (optional)
           <input
@@ -156,40 +152,40 @@ export function NewChildDialog({
             )
           ) : (
             <>
-              <p>
-                Conversation:{' '}
-                <button
-                  className="linkish"
-                  disabled={busy}
-                  onClick={() => {
-                    onCancel();
-                    onSelectSource(preview.lineage.conversationFrom!.id);
-                  }}
-                >
-                  {preview.lineage.conversationFrom?.displayName}
-                </button>
-              </p>
-              <p>
-                Code snapshot:{' '}
-                <button
-                  className="linkish"
-                  disabled={busy}
-                  onClick={() => {
-                    onCancel();
-                    onSelectSource(preview.lineage.codeFrom!.id);
-                  }}
-                >
-                  {preview.lineage.codeFrom?.displayName}
-                </button>
-              </p>
-              <p className="hint">{preview.codeNote}</p>
-              <p className="hint">{preview.conversationNote}</p>
-              {preview.parentActive && (
-                <p className="note">
-                  The source experiment is still active. A new commit before creation can change the
-                  code snapshot; conversation can grow until the first run starts.
-                </p>
-              )}
+              <div className="source-pair">
+                {[
+                  {
+                    label: 'Conversation',
+                    source: preview.lineage.conversationFrom,
+                    badge: 'At first run',
+                  },
+                  { label: 'Code', source: preview.lineage.codeFrom, badge: 'Committed' },
+                ].map(({ label, source, badge }) => (
+                  <div className="source-row" key={label}>
+                    <span className="source-kind">{label}</span>
+                    <button
+                      className="linkish source-name"
+                      disabled={busy || source === null}
+                      title={source?.displayName}
+                      onClick={() => {
+                        if (source) {
+                          onCancel();
+                          onSelectSource(source.id);
+                        }
+                      }}
+                    >
+                      {source?.displayName ?? 'Unavailable'}
+                    </button>
+                    <span className="source-badge">{badge}</span>
+                  </div>
+                ))}
+              </div>
+              {preview.parentActive && <p className="note">Source still running · may change</p>}
+              <details className="source-details">
+                <summary>Source details</summary>
+                <p>{preview.codeNote}</p>
+                <p>{preview.conversationNote}</p>
+              </details>
             </>
           )}
         </section>
