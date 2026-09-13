@@ -4,11 +4,11 @@ import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { Checks } from './node/Checks.tsx';
+import { RenameDialog } from './node/RenameDialog.tsx';
 import { Checkout } from './node/Checkout.tsx';
 import { Details } from './node/Details.tsx';
 import { Lineage } from './node/Lineage.tsx';
 import { Recover } from './node/Recover.tsx';
-import { StartRun } from './node/StartRun.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
 import { StatusChip } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
@@ -17,32 +17,15 @@ import { Transcript } from './chat/Transcript.tsx';
 import { useChat } from './chat/useChat.ts';
 import type { Delta } from './chat/liveMerge.ts';
 
-/**
- * The side panel, ordered by what the node can actually do.
- *
- * It used to run header, notes, checks, chat, "Get this branch", details,
- * create-a-child -- an order that follows how the thing was built rather than
- * what anyone does with it. Two consequences, both bad:
- *
- *   A node freezes as soon as a child commits, so MOST nodes in a tree are
- *   frozen. On a frozen node the top of the panel was a three-row textarea,
- *   disabled, explaining that it was disabled -- while the one action available
- *   (branch a child off it) sat last, collapsed, below the fold.
- *
- *   "Get this branch" is what you do once, at the end, when you have picked a
- *   winner. It outranked the thing you do constantly.
- *
- * So the layout is now a function of state: `new` leads with Start (PRD §5,
- * which was never implemented), `interrupted` leads with recovery, frozen nodes
- * lead with the branch action and collapse the composer to one line, and a
- * writable leaf leads with the conversation.
- */
+/** One selected experiment: fixed identity/actions, reading area, and composer. */
 export function Panel({
   project,
   node,
   stream,
   onChanged,
   onCreateChild,
+  startError,
+  onRunStarted,
 }: {
   /** Needed only to explain why an adopted project's master cannot be written. */
   project: ProjectView | null;
@@ -51,6 +34,8 @@ export function Panel({
   onChanged: () => void;
   /** Opens the one create-a-child dialog. See NewChildDialog. */
   onCreateChild: (node: NodeView) => void;
+  startError: string | null;
+  onRunStarted: () => void;
 }): JSX.Element {
   if (node === null) {
     return (
@@ -69,6 +54,8 @@ export function Panel({
       stream={stream}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
+      startError={startError}
+      onRunStarted={onRunStarted}
     />
   );
 }
@@ -79,13 +66,18 @@ function NodePanel({
   stream,
   onChanged,
   onCreateChild,
+  startError,
+  onRunStarted,
 }: {
   project: ProjectView | null;
   node: NodeView;
   stream: readonly Delta[];
   onChanged: () => void;
   onCreateChild: (node: NodeView) => void;
+  startError: string | null;
+  onRunStarted: () => void;
 }): JSX.Element {
+  const [renaming, setRenaming] = useState(false);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -103,7 +95,15 @@ function NodePanel({
   };
   const [error, setError] = useState<string | null>(null);
   const actions = useNodeActions(node, changed, setError);
-  const chat = useChat(node, stream, changed, setError);
+  const chat = useChat(
+    node,
+    stream,
+    () => {
+      changed();
+      onRunStarted();
+    },
+    setError,
+  );
 
   useEffect(() => {
     setDetail(null);
@@ -129,11 +129,10 @@ function NodePanel({
    * read-only from the start rather than after a child commits.
    */
   const isYourFolder = node.frozenReason === 'your_folder';
-  const frozen = !node.writable;
 
   const branchButton = (
     <button className="branch-child" onClick={() => onCreateChild(node)}>
-      <span aria-hidden="true">+</span> Branch a child from this node
+      <span aria-hidden="true">+</span> Branch experiment
     </button>
   );
 
@@ -150,11 +149,15 @@ function NodePanel({
             </button>
           )}
           <StatusChip status={node.status} queuePosition={node.queuePosition} />
-          {node.parentId !== null && (
-            <OverflowMenu busy={actions.busy} onDelete={() => void actions.remove()} />
-          )}
+          <OverflowMenu
+            busy={actions.busy}
+            onRename={() => setRenaming(true)}
+            onDelete={node.parentId === null ? undefined : () => void actions.remove()}
+          />
         </div>
       </header>
+
+      <div className="panel-actions">{branchButton}</div>
 
       {isYourFolder && (
         <p className="note" title={project?.sourcePath ?? undefined}>
@@ -193,7 +196,13 @@ function NodePanel({
        */}
       <div className="panel-body" ref={chat.scrollRef}>
         {node.status === 'new' && (
-          <StartRun node={node} busy={actions.busy} onStart={(p) => void actions.start(p)} />
+          <section className="start">
+            <h3>Ready for the first run</h3>
+            <p className="hint">
+              Creating this experiment has not run the agent. Edit the request below, then choose
+              Start first run.
+            </p>
+          </section>
         )}
 
         {detail === null &&
@@ -210,7 +219,6 @@ function NodePanel({
 
         {/* Frozen: the action first, the conversation second. The composer knows
             to collapse itself, so the chat below costs one line until asked for. */}
-        {frozen && branchButton}
 
         {chat.loading ? (
           <p role="status">Loading conversation…</p>
@@ -234,11 +242,9 @@ function NodePanel({
 
         {error !== null && <p className="error">{error}</p>}
 
-        {!frozen && branchButton}
-
         <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
 
-        {detail?.checkoutCommand != null && (
+        {detail?.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
           <Checkout
             command={detail.checkoutCommand}
             hint={detail.checkoutHint}
@@ -248,18 +254,26 @@ function NodePanel({
       </div>
 
       <div className="panel-foot">
+        {startError !== null && (
+          <p className="error start-error" role="alert">
+            {startError}
+          </p>
+        )}
         <AskBox node={node} onAnswered={onChanged} onError={setError} />
         <Composer
           node={node}
           busy={chat.busy}
           sending={chat.sending}
-          emphasised={node.status !== 'new'}
+          emphasised
           value={chat.prompt}
           onChange={chat.setPrompt}
           onSend={chat.send}
         />
       </div>
 
+      {renaming && (
+        <RenameDialog node={node} onClose={() => setRenaming(false)} onChanged={changed} />
+      )}
       {actions.confirmDialog}
     </aside>
   );
@@ -273,7 +287,15 @@ function NodePanel({
  * the header -- so the confirmation existed to catch a misclick the layout was
  * inviting. Behind a menu it takes a deliberate second action to reach.
  */
-function OverflowMenu({ busy, onDelete }: { busy: boolean; onDelete: () => void }): JSX.Element {
+function OverflowMenu({
+  busy,
+  onDelete,
+  onRename,
+}: {
+  busy: boolean;
+  onDelete?: () => void;
+  onRename: () => void;
+}): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -307,16 +329,28 @@ function OverflowMenu({ busy, onDelete }: { busy: boolean; onDelete: () => void 
       {open && (
         <div className="menu-panel right" role="menu">
           <button
-            className="danger"
             role="menuitem"
             disabled={busy}
             onClick={() => {
               setOpen(false);
-              onDelete();
+              onRename();
             }}
           >
-            Delete this node…
+            Rename experiment…
           </button>
+          {onDelete !== undefined && (
+            <button
+              className="danger"
+              role="menuitem"
+              disabled={busy}
+              onClick={() => {
+                setOpen(false);
+                onDelete();
+              }}
+            >
+              Delete this node…
+            </button>
+          )}
         </div>
       )}
     </div>

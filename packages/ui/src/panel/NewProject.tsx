@@ -24,7 +24,7 @@ export function NewProject({
   onOpenExisting,
   initialMode = 'new',
 }: {
-  onCreated: (id: string) => void;
+  onCreated: (id: string, nodeId: string) => void;
   /** Only offered when there is a project to go back to. */
   onCancel?: () => void;
   /** Jump to a folder that turns out to already be in Bonsai. */
@@ -100,21 +100,21 @@ export function NewProject({
     setError(null);
     try {
       if (mode === 'new') {
-        const { projectId } = await api.createProject({
+        const { projectId, masterNodeId } = await api.createProject({
           name: name.trim() || 'untitled',
           description,
           location,
           expectedPath: preview!.path,
         });
-        onCreated(projectId);
+        onCreated(projectId, masterNodeId);
       } else {
-        const { projectId } = await api.adoptProject({
+        const { projectId, masterNodeId } = await api.adoptProject({
           path: folder,
           ...(name.trim() === '' ? {} : { name: name.trim() }),
           description,
           includeUncommitted,
         });
-        onCreated(projectId);
+        onCreated(projectId, masterNodeId);
       }
     } catch (e) {
       setError(describeError(e));

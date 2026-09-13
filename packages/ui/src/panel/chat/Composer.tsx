@@ -1,20 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import type { NodeView } from '@bonsai/shared';
 
-/**
- * The box you type in, sized to how much it is actually wanted.
- *
- * A node is writable only while it is a leaf, so most nodes in a tree are
- * frozen most of the time -- and on a frozen node the composer used to be the
- * largest thing in the panel: a three-row textarea, disabled, whose placeholder
- * explained that it was disabled. That is the worst possible use of the space
- * above the fold, and it pushed the one action actually available (branch a
- * child off this node) below it.
- *
- * So on a frozen node this collapses to a single line. The node is still
- * conversational -- you can ask it anything, it just cannot write -- and one
- * click opens the box for that. Nothing is removed; it stops claiming the room.
- */
+/** One submission surface, with a compact question entry for read-only experiments. */
 export function Composer({
   node,
   busy,
@@ -28,17 +15,12 @@ export function Composer({
   /** A run is in flight, or the node is parked on a question. */
   busy: boolean;
   sending: boolean;
-  /**
-   * Whether Send is THE action here. False when the panel is already showing a
-   * primary above it -- a `new` node's Start button -- because the stylesheet's
-   * first rule is that two accent buttons on one screen means one of them is
-   * wrong, and here the wrong one is Send.
-   */
   emphasised: boolean;
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
 }): JSX.Element {
+  const initial = node.status === 'new';
   const frozen = !node.writable;
   const [open, setOpen] = useState(!frozen);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -49,7 +31,7 @@ export function Composer({
     setOpen(!frozen);
   }, [node.id, frozen]);
 
-  if (frozen && !open) {
+  if (frozen && !open && !initial) {
     return (
       <div className="composer collapsed">
         <button
@@ -78,12 +60,12 @@ export function Composer({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           // Enter sends; Shift+Enter is a newline, as in any chat box.
-          if (e.key === 'Enter' && !e.shiftKey) {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             onSend();
           }
         }}
-        placeholder={placeholder(node, busy)}
+        placeholder={initial ? 'Describe what the first run should do…' : placeholder(node, busy)}
         rows={3}
         aria-label="message"
       />
@@ -100,7 +82,7 @@ export function Composer({
           onClick={onSend}
           disabled={busy || sending || value.trim() === ''}
         >
-          {sending ? 'Sending…' : 'Send'}
+          {sending ? (initial ? 'Starting…' : 'Sending…') : initial ? 'Start first run' : 'Send'}
         </button>
       </div>
     </div>
