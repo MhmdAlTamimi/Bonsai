@@ -873,41 +873,263 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(detail.runs.at(-1)?.status, 'cancelled');
   });
   test('initial connection and project failures offer retry instead of an empty canvas', async () => {
-    await session.send('Page.addScriptToEvaluateOnNewDocument', {
+    const script = (await session.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `window.__failConnection = true; window.__failProjects = true; const nativeFetch = window.fetch; window.fetch = (url, init) => (window.__failConnection && String(url) === '/api/connection') || (window.__failProjects && String(url) === '/api/projects') ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable fixture' }), { status: 503 })) : nativeFetch(url, init);`,
+    })) as { result: { identifier: string } };
+    try {
+      await session.goto(BASE);
+      await session.waitFor(
+        "document.querySelector('.connect')?.textContent.includes('Unavailable fixture')",
+      );
+      assert.equal(await session.eval("!!document.querySelector('.react-flow')"), false);
+      await session.eval(
+        "window.__failConnection = false; document.querySelector('.connect button').click()",
+      );
+      await session.waitFor(
+        "document.querySelector('.tree-notice')?.textContent.includes('Unavailable fixture')",
+      );
+      await session.eval(
+        "window.__failProjects = false; document.querySelector('.tree-notice button').click()",
+      );
+      await session.waitFor(
+        "!!document.querySelector('.card') && !document.querySelector('.tree-notice')",
+      );
+      // A narrow canvas still keeps its project menu, server health and settings available.
+      await session.send('Emulation.setDeviceMetricsOverride', {
+        width: 1100,
+        height: 780,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      assert.equal(
+        await session.eval(
+          "(() => { const bar = document.querySelector('.menubar').getBoundingClientRect(); return ['.project-picker', '.server-health', '.settings-button'].every(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return r.width > 0 && r.left >= bar.left && r.right <= bar.right; }); })()",
+        ),
+        true,
+      );
+      await session.screenshot(join(repoRoot, 'test-results', 'milestone-4-narrow-topbar.png'));
+    } finally {
+      await session.send('Emulation.clearDeviceMetricsOverride', {});
+      await session.send('Page.removeScriptToEvaluateOnNewDocument', {
+        identifier: script.result.identifier,
+      });
+    }
+  });
+  test('settings save by scope, diagnostics preview and usage stay reviewable without agent access', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'controls',
+          description: 'settings review',
+          location: dataDir,
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const projectUrl = `${BASE}/api/projects/${created.projectId}`;
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const rejected = await fetch(projectUrl, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'should-not-save', copyFiles: ['../outside'] }),
     });
-    await session.goto(BASE);
-    await session.waitFor(
-      "document.querySelector('.connect')?.textContent.includes('Unavailable fixture')",
-    );
-    assert.equal(await session.eval("!!document.querySelector('.react-flow')"), false);
+    assert.equal(rejected.status, 400);
+    const untouched = (await (await fetch(`${projectUrl}/tree`)).json()) as {
+      project: { defaultModel: string | null; setup: { copyFiles: string[] } };
+    };
+    assert.notEqual(untouched.project.defaultModel, 'should-not-save');
+    assert.deepEqual(untouched.project.setup.copyFiles, []);
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.composer textarea')");
+    await session.click('.settings-button');
+    await session.waitFor("!!document.querySelector('dialog.settings-dialog[open]')");
+    await session.click('.settings-tabs button:nth-child(2)');
     await session.eval(
-      "window.__failConnection = false; document.querySelector('.connect button').click()",
-    );
-    await session.waitFor(
-      "document.querySelector('.tree-notice')?.textContent.includes('Unavailable fixture')",
+      "window.__originalFetch = window.fetch; window.__failSave = true; window.fetch = (url, init) => window.__failSave && init?.method === 'PATCH' ? Promise.reject(new TypeError('save fixture offline')) : window.__originalFetch(url, init)",
     );
     await session.eval(
-      "window.__failProjects = false; document.querySelector('.tree-notice button').click()",
+      "const effort = document.querySelector('.project-agent select[aria-label=Effort]'); effort.value = 'low'; effort.dispatchEvent(new Event('change', {bubbles: true}));",
     );
+    await session.click('.project-agent button');
     await session.waitFor(
-      "!!document.querySelector('.card') && !document.querySelector('.tree-notice')",
+      "document.querySelector('.project-agent').textContent.includes('Could not confirm save')",
     );
-    // A narrow canvas still keeps its project menu, server health and settings available.
-    await session.send('Emulation.setDeviceMetricsOverride', {
-      width: 1100,
-      height: 780,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
     assert.equal(
       await session.eval(
-        "(() => { const bar = document.querySelector('.menubar').getBoundingClientRect(); return ['.project-picker', '.server-health', '.settings-button'].every(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return r.width > 0 && r.left >= bar.left && r.right <= bar.right; }); })()",
+        "document.querySelector('.project-agent select[aria-label=Effort]').value",
+      ),
+      'low',
+    );
+    await session.eval('window.__failSave = false');
+    await session.click('.project-agent button');
+    await session.waitFor(
+      "document.querySelector('.project-agent .save-feedback').textContent === 'Saved'",
+    );
+    const detail = (await (await fetch(nodeUrl)).json()) as {
+      nextRunSettings: { effort: string; effortSource: string };
+    };
+    assert.equal(detail.nextRunSettings.effort, 'low');
+    assert.equal(detail.nextRunSettings.effortSource, 'project');
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-5-project-settings.png'));
+    await session.click('.settings-tabs button:nth-child(3)');
+    await session.eval(
+      'window.__copiedReport = null; navigator.clipboard.writeText = async (text) => { window.__copiedReport = text; }',
+    );
+    await session.click('.diagnostics > button');
+    await session.waitFor(
+      '!!document.querySelector(\'textarea[aria-label="Diagnostics preview"]\')',
+    );
+    assert.equal(
+      await session.eval('window.__copiedReport'),
+      null,
+      'generate never writes clipboard',
+    );
+    await session.eval(
+      "document.querySelector('.diagnostics .save-row button').scrollIntoView({block:'center'})",
+    );
+    await session.click('.diagnostics .save-row button');
+    await session.waitFor(
+      "window.__copiedReport === document.querySelector('.diagnostics textarea').value",
+    );
+    const report = JSON.parse(String(await session.eval('window.__copiedReport'))) as {
+      node: { displayName: string };
+    };
+    assert.equal(report.node.displayName, '[omitted]');
+    await session.eval(
+      "navigator.clipboard.writeText = async () => { throw new Error('clipboard fixture'); }",
+    );
+    await session.click('.diagnostics .save-row button');
+    await session.waitFor(
+      "document.querySelector('.diagnostics').textContent.includes('Copy failed')",
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.diagnostics textarea').value"),
+      JSON.stringify(report, null, 2),
+    );
+
+    await session.eval('document.querySelector(\'[aria-label="Close settings"]\').click()');
+    await session.waitFor("!document.querySelector('dialog.settings-dialog')");
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '? saved history for offline review' }),
+    });
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).runs.at(-1)?.status === 'done')()`,
+    );
+    await session.click('.usage-button');
+    await session.waitFor("!!document.querySelector('.usage-totals')");
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.usage-totals > div:nth-child(2) strong').textContent",
+      ),
+      '1',
+    );
+    assert.equal(
+      await session.eval("document.querySelectorAll('.card .cost, .project-cost').length"),
+      0,
+    );
+    await session.click('.usage-experiment summary');
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-5-usage.png'));
+    await session.click('[aria-label="Close usage"]');
+    // On reload, the server still serves saved data but reports an expired credential.
+    const script = (await session.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: `window.__offlineAgent = true; const nativeFetch = window.fetch; window.fetch = (url, init) => window.__offlineAgent && String(url).endsWith('/connection') ? Promise.resolve(new Response(JSON.stringify({state:'no_credential', model:null, apiKeySource:null, message:'Expired credential fixture'}), {headers:{'content-type':'application/json'}})) : nativeFetch(url, init);`,
+    })) as { result: { identifier: string } };
+    try {
+      await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+      await session.waitFor(
+        "document.querySelectorAll('.turn').length === 1 && document.body.textContent.includes('Agent unavailable')",
+      );
+      await session.type('.composer textarea', 'keep this draft');
+      assert.equal(
+        await session.eval("document.querySelector('.composer-row button').disabled"),
+        true,
+      );
+      await session.click('.usage-button');
+      await session.waitFor("!!document.querySelector('.usage-totals')");
+      await session.click('[aria-label="Close usage"]');
+      await session.click('.settings-button');
+      await session.waitFor("document.querySelector('.connection-settings')?.open === true");
+      await session.eval('window.__offlineAgent = false');
+      await session.eval(
+        "Array.from(document.querySelectorAll('.connection-settings button')).find(b => b.textContent === 'Recheck').click()",
+      );
+      await session.waitFor("!document.body.textContent.includes('Agent unavailable')");
+      await session.click('[aria-label="Close settings"]');
+      assert.equal(
+        await session.eval("document.querySelector('.composer textarea').value"),
+        'keep this draft',
+      );
+      assert.equal(
+        await session.eval("document.querySelector('.composer-row button').disabled"),
+        false,
+      );
+    } finally {
+      await session.send('Page.removeScriptToEvaluateOnNewDocument', {
+        identifier: script.result.identifier,
+      });
+    }
+    await session.click('.project-picker');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.menu-panel button')).find(b => b.textContent.includes('Delete this project')).click()",
+    );
+    await session.waitFor("!!document.querySelector('dialog.confirm[open]')");
+    assert.equal(await session.eval('document.activeElement.textContent'), 'Cancel');
+    assert.equal(
+      await session.eval(
+        "document.querySelector('dialog.confirm').textContent.includes('deleted from disk')",
       ),
       true,
     );
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-4-narrow-topbar.png'));
-    await session.send('Emulation.clearDeviceMetricsOverride', {});
+    assert.equal(
+      await session.eval("document.querySelector('dialog.confirm button.destructive').disabled"),
+      true,
+    );
+    for (let i = 0; i < 5; i += 1) {
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      assert.equal(
+        await session.eval(
+          "document.querySelector('dialog.confirm').contains(document.activeElement)",
+        ),
+        true,
+      );
+    }
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-5-confirm.png'));
+    await session.click('dialog.confirm .dialog-actions button:first-child');
+    assert.equal((await fetch(`${projectUrl}/tree`)).status, 200, 'Cancel keeps the project');
+    const storageRoot = join(dataDir, 'future-storage');
+    const saved = await fetch(`${BASE}/api/settings`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reposRoot: storageRoot }),
+    });
+    assert.equal(saved.status, 200);
+    const future = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'future-location', description: '', location: dataDir }),
+      })
+    ).json()) as { projectId: string };
+    assert.equal(existsSync(join(storageRoot, future.projectId, 'repo.git')), true);
+    const priorImpact = (await (await fetch(`${projectUrl}/deletion-impact`)).json()) as {
+      removesDirectories: string[];
+    };
+    assert.ok(priorImpact.removesDirectories.includes(join(dataDir, 'repos', created.projectId)));
+    assert.ok(!priorImpact.removesDirectories.some((path) => path.startsWith(storageRoot)));
   });
 });
 

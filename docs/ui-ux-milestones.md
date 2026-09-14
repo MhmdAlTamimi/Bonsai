@@ -14,8 +14,8 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | 1. Protect users’ work | `codex/milestone-1-protect-work` | F01–F05 | Accepted by owner; merged and pushed |
 | 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Accepted and merged/pushed; F10 decision remains deferred |
 | 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Accepted by owner; merged and pushed |
-| 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Ready for owner review |
-| 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Pending |
+| 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Accepted by owner; merged and pushed |
+| 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Ready for owner review |
 | 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Pending |
 
 ## Milestone 1 review
@@ -144,3 +144,49 @@ permission-card corrections were rechecked separately. No new dependencies were 
 
 Restart the running app with `npm start` before reviewing so the backend and the built interface both use this
 milestone. Merge and push this branch after the owner's review.
+
+
+## Milestone 5 review
+
+Branch: `codex/milestone-5-controls-settings`. Milestone 4 was accepted, merged and pushed as `af8c1fc`.
+The owner approved keeping saved history accessible when credentials expire or the agent is rate-limited.
+The experiment-folder button remains deferred at the owner's request. Text-size controls remain in milestone 6.
+
+- **Settings:** open the gear, then switch between **App settings**, **Project settings**, and **Diagnostics**.
+  Each editable group has an explicit Save and local Saving/Saved/error feedback. Close and reopen to verify
+  persistence. A failed save keeps the entered values and does not claim success. Project changes are atomic;
+  a failed app settings write leaves the prior file and effective values intact.
+- **Scope:** App defaults seed future projects. Existing projects can explicitly follow the app's model/effort
+  defaults. Project agent settings apply when the next run begins, including queued work; an active agent keeps
+  its configuration. Expand **Next run** by the composer or in creation to inspect the server-resolved model,
+  effort and permissions with their source. No new experiment-specific overrides were added.
+- **Setup:** new projects start with no extra files to copy. Creation previews configured setup, and setup
+  messages are grouped under **Experiment setup** with a link to project settings. Deliberately listed missing
+  files still produce an actionable warning. Existing projects retain their saved lists: remove an unwanted
+  `.env` entry in Project settings once; legacy automatic and deliberate entries cannot be distinguished safely.
+- **Usage:** open **Usage** in the top bar for this project's recorded estimates, tokens and experiment/run
+  breakdowns. Price labels no longer repeat on cards, in the bar, or in conversation footers. Estimates are
+  explicitly API-equivalent, not account balances or subscription bills. Missing historical model/source data
+  is marked as unrecorded; active run usage appears when recorded.
+- **Agent access:** saved experiments remain reviewable with an unavailable agent. A persistent notice leads to
+  connection settings. Send, Resume and Create and run require reconnecting; reconnecting never sends a draft.
+  Authentication/rate failures reported during runs update the gate for subsequent starts. Login instructions
+  appear before the action. No automatic fake-agent fallback was added.
+- **Deletion:** confirmations name the project or experiment, describe deleted and retained disk content, and
+  list affected experiment names for subtrees. Project deletion still requires its name. Native modal focus
+  containment is used for these dialogs, with **Cancel** focused by default.
+- **Diagnostics:** Generate report shows the exact JSON before Copy report can write the clipboard. Reports omit
+  experiment names, connection/run error text and free-form log content; known credential strings and common key
+  patterns are redacted from remaining metadata. Local paths and run metadata remain visible for review.
+  Gathering errors and clipboard errors are separate; a copy failure keeps the report available.
+- **Folders:** managed repositories, app data, and the project's main folder have distinct labels. Folder-opening
+  failures are reported. Checkout remains a secondary disclosure; Copied belongs to the exact current command.
+
+Validation: `npm test` passes, including type checking, lint, formatting, backend and UI/shared tests.
+All nine browser scenarios pass. The new scenario covers failed/successful scoped saves, exact diagnostics
+preview/copy and clipboard failure, Usage, credential expiry/reconnect with draft preservation, destructive
+focus containment and cancellation, and future repository locations with existing deletion paths preserved.
+Tests use temporary projects and the fake agent; no real credentials, personal projects or paid calls.
+No new dependencies. Schema 12 pins each project’s storage path; existing files are not moved. F10's previously deferred freeze-timing decision is unchanged.
+
+Restart with `npm start`, review these flows, then request any edits before this branch is merged and pushed.
