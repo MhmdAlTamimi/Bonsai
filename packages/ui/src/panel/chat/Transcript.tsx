@@ -31,7 +31,9 @@ export function Transcript({
   runs,
   pending,
   running,
+  onProjectSettings,
 }: {
+  onProjectSettings?: () => void;
   messages: readonly MessageView[];
   runs: readonly RunView[];
   /** Live deltas the persisted transcript has not caught up with. */
@@ -51,18 +53,33 @@ export function Transcript({
 
   return (
     <div className="transcript">
-      {groups.map((group) => (
-        <Turn
-          key={group.runId ?? 'unattached'}
-          group={group}
-          run={group.runId === null ? undefined : runsById.get(group.runId)}
-          pending={group.runId === pendingRunId ? pending : []}
-          running={
-            running &&
-            (group.runId === pendingRunId || runsById.get(group.runId ?? '')?.status === 'running')
-          }
-        />
-      ))}
+      {groups.map((group) =>
+        group.runId === null ? (
+          <details className="setup-activity" key="setup">
+            <summary>Experiment setup</summary>
+            {group.messages.map((message) => (
+              <Said key={message.id} message={message} />
+            ))}
+            {onProjectSettings && (
+              <button className="linkish" onClick={onProjectSettings}>
+                Project setup settings
+              </button>
+            )}
+          </details>
+        ) : (
+          <Turn
+            key={group.runId ?? 'unattached'}
+            group={group}
+            run={group.runId === null ? undefined : runsById.get(group.runId)}
+            pending={group.runId === pendingRunId ? pending : []}
+            running={
+              running &&
+              (group.runId === pendingRunId ||
+                runsById.get(group.runId ?? '')?.status === 'running')
+            }
+          />
+        ),
+      )}
     </div>
   );
 }
@@ -228,11 +245,6 @@ function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
         {run.toolCalls > 0 && (
           <span title={run.toolsOffered?.join(', ') ?? 'Tools offered were not recorded.'}>
             {run.toolCalls} tool{run.toolCalls === 1 ? '' : 's'}
-          </span>
-        )}
-        {run.costUsd > 0 && (
-          <span title="Estimated from token counts at list prices. Not a bill.">
-            ${run.costUsd.toFixed(3)}
           </span>
         )}
         {run.model !== null && <span className="turn-model">{run.model}</span>}

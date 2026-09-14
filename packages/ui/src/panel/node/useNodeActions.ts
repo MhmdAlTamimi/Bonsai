@@ -73,17 +73,18 @@ export function useNodeActions(
     try {
       const impact = await api.deletionImpact(node.id);
       const others = impact.nodes - 1;
-      const spent = impact.costUsd > 0 ? `, about $${impact.costUsd.toFixed(2)} of agent runs` : '';
+
       const descendants = others > 0 ? ` and ${others} descendant${others === 1 ? '' : 's'}` : '';
       const ok = await confirm.ask({
-        title: `Delete "${node.displayName}"${descendants}?`,
+        title: `Delete experiment "${node.displayName}"${descendants}?`,
         body: [
-          `This permanently removes ${impact.nodes} node${impact.nodes === 1 ? '' : 's'}${spent}, ` +
-            `${impact.commits} commit-bearing branch${impact.commits === 1 ? '' : 'es'}, and their ` +
-            'worktrees on disk.',
-          'It cannot be undone.',
+          `This permanently removes ${impact.nodes} experiment${impact.nodes === 1 ? '' : 's'}, their conversations and run history, ` +
+            'saved code, and their ' +
+            'experiment folders on disk, including uncommitted files.',
+          ...(others > 0 ? [`Affected experiments: ${impact.names.join(', ')}`] : []),
+          'Other experiments and the project’s main folder are kept. This cannot be undone.',
         ],
-        confirmLabel: 'Delete',
+        confirmLabel: others > 0 ? 'Delete experiment and descendants' : 'Delete experiment',
         danger: true,
       });
       if (!ok) return;

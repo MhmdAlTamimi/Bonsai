@@ -1,4 +1,12 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  rmSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import {
   CONCURRENCY,
@@ -72,8 +80,14 @@ export class Settings {
     }
   }
 
-  private write(): void {
-    writeFileSync(this.file, JSON.stringify(this.current, null, 2), { mode: 0o600 });
+  private write(next: StoredSettings): void {
+    const temporary = `${this.file}.tmp`;
+    try {
+      writeFileSync(temporary, JSON.stringify(next, null, 2), { mode: 0o600 });
+      renameSync(temporary, this.file);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
     try {
       chmodSync(this.file, 0o600);
     } catch {
@@ -132,25 +146,27 @@ export class Settings {
   }
 
   update(patch: UpdateSettingsRequest): SettingsView {
-    if (patch.authMode !== undefined) this.current.authMode = patch.authMode;
+    const next = { ...this.current };
+    if (patch.authMode !== undefined) next.authMode = patch.authMode;
     if (patch.apiKey !== undefined) {
-      this.current.apiKey = patch.apiKey.trim() === '' ? null : patch.apiKey.trim();
+      next.apiKey = patch.apiKey.trim() === '' ? null : patch.apiKey.trim();
     }
-    if (patch.model !== undefined) this.current.model = patch.model;
-    if (patch.permissionMode !== undefined) this.current.permissionMode = patch.permissionMode;
-    if (patch.effort !== undefined) this.current.effort = patch.effort;
-    if (patch.panelWidth !== undefined) this.current.panelWidth = clampPanel(patch.panelWidth);
+    if (patch.model !== undefined) next.model = patch.model;
+    if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode;
+    if (patch.effort !== undefined) next.effort = patch.effort;
+    if (patch.panelWidth !== undefined) next.panelWidth = clampPanel(patch.panelWidth);
     if (patch.maxConcurrentRuns !== undefined) {
-      this.current.maxConcurrentRuns = clampConcurrency(patch.maxConcurrentRuns);
+      next.maxConcurrentRuns = clampConcurrency(patch.maxConcurrentRuns);
     }
     if (patch.reposRoot !== undefined) {
       // Only affects projects created from now on. Moving an existing root
       // would break every worktree: git stores absolute paths in its worktree
       // administration, so a move needs `git worktree repair`, which is a
       // separate job and not one to do silently behind a settings field.
-      this.current.reposRoot = patch.reposRoot.trim() === '' ? null : patch.reposRoot.trim();
+      next.reposRoot = patch.reposRoot.trim() === '' ? null : patch.reposRoot.trim();
     }
-    this.write();
+    this.write(next);
+    this.current = next;
     return this.view();
   }
 }

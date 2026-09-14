@@ -17,9 +17,8 @@ import type { DeletionImpactView } from '@bonsai/shared';
  * code that says it.
  */
 export function deletionMessage(impact: DeletionImpactView): string[] {
-  const spent = impact.costUsd > 0 ? ` and about $${impact.costUsd.toFixed(2)} of agent runs` : '';
   const paragraphs = [
-    `This permanently removes ${impact.nodes} node${impact.nodes === 1 ? '' : 's'}${spent}. ` +
+    `This permanently removes ${impact.nodes} experiment${impact.nodes === 1 ? '' : 's'}, their conversations and run history. ` +
       'It cannot be undone.',
   ];
 
@@ -27,11 +26,12 @@ export function deletionMessage(impact: DeletionImpactView): string[] {
     paragraphs.push(
       `Your folder is left alone: ${impact.keepsDirectory}`,
       `Its files, its history and its branch are untouched. Only the ${impact.branches} ` +
-        `branch${impact.branches === 1 ? '' : 'es'} Bonsai created there, and the worktrees ` +
+        `branch${impact.branches === 1 ? '' : 'es'} Bonsai created there, and the experiment folders ` +
         'for them, are removed.',
     );
-  } else if (impact.removesDirectory !== null) {
-    paragraphs.push(`This folder is deleted from disk: ${impact.removesDirectory}`);
+  }
+  for (const path of impact.removesDirectories) {
+    paragraphs.push(`This folder and its contents are deleted from disk: ${path}`);
   }
 
   return paragraphs;

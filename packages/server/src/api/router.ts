@@ -1,3 +1,5 @@
+import { diagnosticReport } from './diagnosticPrivacy.js';
+import { resolveRunSettings } from '../jobs/runSettings.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   AnswerQuestionRequest,
@@ -244,20 +246,55 @@ route('GET', '/api/diagnostics', (req, res, _p, { store, settings, connection, j
             runs: store.listRuns(view.id),
           },
   };
-  sendJson(res, 200, body);
+  sendJson(
+    res,
+    200,
+    diagnosticReport(
+      body,
+      Object.values(settings.agentEnv() ?? {}).filter((value) => value !== ''),
+    ),
+  );
 });
 
 route('GET', '/api/settings', (_req, res, _p, { settings }) => {
   sendJson(res, 200, settings.view());
 });
 
-route('PATCH', '/api/settings', async (req, res, _p, { settings, connection }) => {
+route('PATCH', '/api/settings', async (req, res, _p, { settings, connection, store, bus }) => {
   const body = await readJson<UpdateSettingsRequest>(req);
+  if (body.authMode !== undefined && !['cli', 'api_key'].includes(body.authMode))
+    throw new HttpError(400, 'Choose a sign-in method.');
+  for (const field of ['apiKey', 'model', 'effort', 'reposRoot'] as const) {
+    if (body[field] !== undefined && body[field] !== null && typeof body[field] !== 'string')
+      throw new HttpError(400, `${field} must be text.`);
+  }
+  if (body.apiKey === null || body.reposRoot === null)
+    throw new HttpError(400, 'Key and folder must be text.');
+  if (
+    body.permissionMode !== undefined &&
+    !['default', 'acceptEdits', 'bypassPermissions', 'plan'].includes(body.permissionMode)
+  )
+    throw new HttpError(400, 'Choose a supported permission mode.');
+  if (
+    body.effort !== undefined &&
+    body.effort !== null &&
+    !['low', 'medium', 'high', 'xhigh', 'max'].includes(body.effort)
+  )
+    throw new HttpError(400, 'Choose a supported effort.');
+  for (const field of ['panelWidth', 'maxConcurrentRuns'] as const) {
+    if (
+      body[field] !== undefined &&
+      (typeof body[field] !== 'number' || !Number.isFinite(body[field]))
+    )
+      throw new HttpError(400, `${field} must be a number.`);
+  }
   const view = settings.update(body);
   // Auth-affecting changes invalidate what we know, so re-check immediately.
   if (body.authMode !== undefined || body.apiKey !== undefined || body.model !== undefined) {
     await connection.check();
   }
+  for (const project of store.listProjects())
+    bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
   sendJson(res, 200, view);
 });
 
@@ -332,16 +369,73 @@ route('GET', '/api/projects/:id/tree', (_req, res, params, { store, jobs }) => {
   sendJson(res, 200, body);
 });
 
+route('GET', '/api/projects/:id/usage', (_req, res, params, { store }) => {
+  const project = store.getProject(params['id']!);
+  if (!project) throw new HttpError(404, 'no such project');
+  sendJson(res, 200, {
+    projectId: project.id,
+    experiments: store.listNodes(project.id).map((node) => ({
+      id: node.id,
+      name: node.display_name,
+      runs: store
+        .listRuns(node.id)
+        .map(
+          ({
+            id,
+            status,
+            startedAt,
+            model,
+            apiKeySource,
+            costUsd,
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheCreationTokens,
+          }) => ({
+            id,
+            status,
+            startedAt,
+            model,
+            apiKeySource,
+            costUsd,
+            inputTokens,
+            outputTokens,
+            cacheReadTokens,
+            cacheCreationTokens,
+          }),
+        ),
+    })),
+  });
+});
+
 route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => {
   const project = store.getProject(params['id']!);
   if (project === undefined) throw new HttpError(404, 'no such project');
   const body = await readJson<UpdateProjectRequest>(req);
-  // D32: settings, not node state. D3's immutability is about nodes.
-  store.updateProjectSettings(project.id, {
-    ...(body.model !== undefined ? { model: body.model } : {}),
-    ...(body.effort !== undefined ? { effort: body.effort } : {}),
-  });
-
+  if (body.model !== undefined && body.model !== null && typeof body.model !== 'string')
+    throw new HttpError(400, 'Model must be a name or App default.');
+  if (
+    body.effort !== undefined &&
+    body.effort !== null &&
+    !['low', 'medium', 'high', 'xhigh', 'max'].includes(body.effort)
+  )
+    throw new HttpError(400, 'Choose a supported effort.');
+  if (
+    body.permissionMode !== undefined &&
+    !['default', 'acceptEdits', 'bypassPermissions', 'plan'].includes(body.permissionMode)
+  )
+    throw new HttpError(400, 'Choose a supported permission mode.');
+  if (
+    body.setupCommand !== undefined &&
+    body.setupCommand !== null &&
+    typeof body.setupCommand !== 'string'
+  )
+    throw new HttpError(400, 'Setup command must be text.');
+  if (
+    body.copyFiles !== undefined &&
+    (!Array.isArray(body.copyFiles) || !body.copyFiles.every((path) => typeof path === 'string'))
+  )
+    throw new HttpError(400, 'Files to copy must be a list of paths.');
   if (body.copyFiles !== undefined) {
     /**
      * Refused here rather than at node creation.
@@ -361,13 +455,13 @@ route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => 
     if (bad.length > 0) {
       throw new HttpError(400, bad.map((b) => `${b.path}: ${b.reason}`).join('; '));
     }
-    store.updateProjectSetup(project.id, {
-      copyFiles: body.copyFiles.map((p) => p.trim()).filter((p) => p !== ''),
-    });
   }
-  if (body.setupCommand !== undefined) {
-    store.updateProjectSetup(project.id, { setupCommand: body.setupCommand });
-  }
+  store.saveProjectConfiguration(project.id, {
+    ...body,
+    ...(body.copyFiles !== undefined
+      ? { copyFiles: body.copyFiles.map((p) => p.trim()).filter(Boolean) }
+      : {}),
+  });
   bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
   sendJson(res, 200, store.projectView(store.getProject(project.id)!));
 });
@@ -451,10 +545,16 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   });
 });
 
-route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs }) => {
+route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs, settings }) => {
   const parent = store.getNode(params['id']!);
   if (parent === undefined) throw new HttpError(404, 'no such parent experiment');
   sendJson(res, 200, {
+    nextRunSettings: resolveRunSettings(
+      { model: null, permission_mode: null },
+      store.getProject(parent.project_id)!,
+      settings,
+    ),
+    setup: store.projectView(store.getProject(parent.project_id)!).setup,
     lineage: store.childLineageOf(parent),
     sourceVersion: store.childSourceVersion(parent),
     parentActive: jobs.isRunning(parent.id),
@@ -464,7 +564,7 @@ route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs }
   });
 });
 
-route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
+route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const view = withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
@@ -478,6 +578,7 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs }) => {
   const ownFolder = isUsersOwnCheckout(project, row);
   const partialWork = ownFolder ? null : await readWorktreeState(row.worktree_path);
   const body: NodeDetail = {
+    nextRunSettings: resolveRunSettings(row, project!, settings),
     node: view,
     runs,
     lineage: store.lineageOf(row),
@@ -529,6 +630,7 @@ route('GET', '/api/nodes/:id/deletion-impact', (_req, res, params, { store }) =>
   const doomed = store.descendantsOf(row.id);
   sendJson(res, 200, {
     nodes: doomed.length,
+    names: doomed.map((node) => node.display_name),
     costUsd: doomed.reduce((sum, n) => sum + store.nodeCost(n.id), 0),
     commits: doomed.filter((n) => n.head_commit !== null).length,
   });

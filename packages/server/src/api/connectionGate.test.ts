@@ -52,6 +52,17 @@ describe('the connection gate', () => {
     assert.equal(status.model, 'stand-in');
   });
 
+  test('authentication and rate failures block further runs without confusing task errors with auth', () => {
+    const connection = new Connection(settings, false);
+    connection.recordFailure('401 unauthorized');
+    assert.equal(connection.current().state, 'no_credential');
+    assert.equal(connection.isConnected(), false);
+    connection.recordFailure('429 rate limit exceeded');
+    assert.equal(connection.current().state, 'rate_limited');
+    connection.recordFailure('test assertion failed');
+    assert.equal(connection.current().state, 'rate_limited');
+  });
+
   test('without the stand-in, a machine with no CLI and no key is not connected', async () => {
     // The behaviour the gate exists for, asserted next to the exception so the
     // exception cannot quietly widen into a bypass. PATH is emptied so the

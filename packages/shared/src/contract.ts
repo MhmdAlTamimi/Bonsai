@@ -131,7 +131,7 @@ export interface DiagnosticsView {
   };
   connection: ConnectionStatus;
   counts: { projects: number; nodes: number; runs: number; running: number };
-  /** The most recent log lines, oldest first, exactly as written. */
+  /** Filtered log events, oldest first. Free-form text fields are omitted. */
   log: string[];
   /** The selected node's runs, when one was named. */
   node: {
@@ -173,6 +173,7 @@ export interface ProjectView {
 }
 
 export interface UpdateProjectRequest {
+  permissionMode?: PermissionMode;
   model?: string | null;
   effort?: string | null;
   /** Paths relative to the project folder. Validated; see the response. */
@@ -333,7 +334,41 @@ export interface NodeLineageView {
   diverged: boolean;
 }
 
+export interface NextRunSettings {
+  model: string | null;
+  effort: string | null;
+  permissionMode: PermissionMode;
+  modelSource: 'experiment' | 'project' | 'app';
+  effortSource: 'project' | 'app';
+  permissionSource: 'experiment' | 'project';
+}
+
+export interface ProjectUsageView {
+  projectId: string;
+  experiments: Array<{
+    id: string;
+    name: string;
+    runs: Array<
+      Pick<
+        RunView,
+        | 'id'
+        | 'status'
+        | 'startedAt'
+        | 'model'
+        | 'apiKeySource'
+        | 'costUsd'
+        | 'inputTokens'
+        | 'outputTokens'
+        | 'cacheReadTokens'
+        | 'cacheCreationTokens'
+      >
+    >;
+  }>;
+}
+
 export interface ChildPreviewView {
+  nextRunSettings: NextRunSettings;
+  setup: ProjectSetupView;
   sourceVersion: string;
   lineage: NodeLineageView;
   parentActive: boolean;
@@ -342,6 +377,7 @@ export interface ChildPreviewView {
 }
 
 export interface NodeDetail {
+  nextRunSettings: NextRunSettings;
   node: NodeView;
   runs: RunView[];
   lineage: NodeLineageView;
@@ -454,6 +490,8 @@ export interface DeletionImpactView {
   commits: number;
   /** A directory that will be removed from disk, or null when none is. */
   removesDirectory: string | null;
+  /** All app-owned directories removed, including separate managed storage. */
+  removesDirectories: string[];
   /** The user's own directory, left exactly as it was. Adopted projects only. */
   keepsDirectory: string | null;
   /** Branches Bonsai created inside the user's repository and will remove. */

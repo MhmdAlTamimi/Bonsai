@@ -40,6 +40,19 @@ export class Connection {
     return this.status.state === 'connected';
   }
 
+  /** Confirmed authentication/rate failures stop subsequent starts without hiding history. */
+  recordFailure(message: string): void {
+    if (this.standIn) return;
+    const state = /\b429\b|rate.?limit|usage limit|quota/i.test(message)
+      ? 'rate_limited'
+      : /\b401\b|unauthorized|authentication failed|invalid api key|credential.*expired|not logged in/i.test(
+            message,
+          )
+        ? 'no_credential'
+        : null;
+    if (state !== null) this.status = { ...this.status, state, message };
+  }
+
   /** Re-checks, collapsing concurrent callers onto one probe. */
   async check(): Promise<ConnectionStatus> {
     if (this.inFlight !== null) return this.inFlight;
@@ -202,7 +215,6 @@ export async function revealInFileManager(path: string): Promise<void> {
   try {
     await run(command, [path], { timeout: 10_000 });
   } catch {
-    // `explorer` exits non-zero even on success, and a headless Linux box has
-    // no file manager at all. Neither is worth failing the request over.
+    throw new Error('Could not open this folder. Copy its path and open it in your file manager.');
   }
 }

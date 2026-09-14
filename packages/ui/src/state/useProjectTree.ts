@@ -198,7 +198,7 @@ export function useProjectTree(
      * hit by reflex is not consent to that.
      */
     const ok = await confirm({
-      title: `Delete "${tree.project.name}"?`,
+      title: `Delete project "${tree.project.name}"?`,
       body: deletionMessage(impact),
       confirmLabel: 'Delete project',
       danger: true,

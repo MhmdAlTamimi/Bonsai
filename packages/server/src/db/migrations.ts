@@ -110,6 +110,13 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'question', 'request_json', 'TEXT');
     },
   },
+  {
+    version: 12,
+    name: 'project: stable managed storage location',
+    up: (db) => {
+      addColumn(db, 'project', 'scratch_path', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

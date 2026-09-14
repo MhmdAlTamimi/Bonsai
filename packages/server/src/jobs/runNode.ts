@@ -1,3 +1,4 @@
+import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
 import { CONCURRENCY, type NodeStatus } from '@bonsai/shared';
 
@@ -107,6 +108,7 @@ export class RunJobs {
     private readonly runner: AgentRunner,
     private readonly settings?: SettingsSource,
     private readonly log: Logger = silentLogger,
+    private readonly connection?: { recordFailure(message: string): void },
   ) {}
 
   isRunning(nodeId: string): boolean {
@@ -507,8 +509,8 @@ export class RunJobs {
     try {
       const inheritance = this.resolveInheritance(node);
       // Node override, then the project's default, then the app's.
-      const permissionMode =
-        node.permission_mode ?? project.default_permission_mode ?? 'acceptEdits';
+      const effective = resolveRunSettings(node, project, this.settings);
+      const permissionMode = effective.permissionMode;
 
       for await (const event of this.runner.run({
         runId,
@@ -521,8 +523,8 @@ export class RunJobs {
         successCriteria: node.success_criteria,
         verificationHint: node.verification_hint,
         // Node override, then the project's default, then the app setting.
-        model: node.model ?? project.default_model ?? this.settings?.model() ?? null,
-        effort: project.default_effort ?? this.settings?.effort() ?? null,
+        model: effective.model,
+        effort: effective.effort,
         permissionMode,
         agentEnv: this.settings?.agentEnv() ?? null,
         /**
@@ -676,7 +678,7 @@ export class RunJobs {
         nodeId,
         projectId: node.project_id,
         model,
-        effort: project.default_effort ?? this.settings?.effort() ?? null,
+        effort: effective.effort,
         apiKeySource,
         readOnly,
         durationMs: Date.now() - startedAt,
@@ -734,6 +736,7 @@ export class RunJobs {
       }
 
       const message = err instanceof Error ? err.message : String(err);
+      this.connection?.recordFailure(message);
       this.log.error('run.failed', {
         runId,
         nodeId,

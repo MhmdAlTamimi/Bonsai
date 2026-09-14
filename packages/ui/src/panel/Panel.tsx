@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
 
+import { NextRunInfo } from './NextRunInfo.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { ExperimentChanges } from './node/ExperimentChanges.tsx';
@@ -26,6 +27,7 @@ export function Panel({
   node,
   stream,
   streamRevision,
+  onProjectSettings,
   onChanged,
   onCreateChild,
   startError,
@@ -36,6 +38,7 @@ export function Panel({
   node: NodeView | null;
   stream: readonly Delta[];
   streamRevision: number;
+  onProjectSettings: () => void;
   onChanged: () => void;
   /** Opens the one create-a-child dialog. See NewChildDialog. */
   onCreateChild: (node: NodeView) => void;
@@ -58,6 +61,7 @@ export function Panel({
       node={node}
       stream={stream}
       streamRevision={streamRevision}
+      onProjectSettings={onProjectSettings}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
       startError={startError}
@@ -71,6 +75,7 @@ function NodePanel({
   node,
   stream,
   streamRevision,
+  onProjectSettings,
   onChanged,
   onCreateChild,
   startError,
@@ -80,6 +85,7 @@ function NodePanel({
   node: NodeView;
   stream: readonly Delta[];
   streamRevision: number;
+  onProjectSettings: () => void;
   onChanged: () => void;
   onCreateChild: (node: NodeView) => void;
   startError: string | null;
@@ -297,6 +303,7 @@ function NodePanel({
               runs={runs}
               pending={chat.pending}
               running={chat.running}
+              onProjectSettings={onProjectSettings}
             />
           )}
         </div>
@@ -364,6 +371,9 @@ function NodePanel({
       </div>
 
       <div className="panel-foot">
+        {!chat.busy && detail?.nextRunSettings && (
+          <NextRunInfo value={detail.nextRunSettings} onSettings={onProjectSettings} />
+        )}
         {view === 'conversation' && reading.away && (
           <button className="jump-latest" onClick={reading.jump}>
             {reading.unread ? 'New output · Jump to latest ↓' : 'Jump to latest ↓'}
@@ -482,7 +492,7 @@ function OverflowMenu({
                 onDelete();
               }}
             >
-              Delete this node…
+              Delete this experiment…
             </button>
           )}
         </div>

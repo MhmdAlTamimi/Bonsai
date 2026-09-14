@@ -137,7 +137,6 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                     <span className="removed">−{data.diffStat.removed}</span>
                   </span>
                 )}
-                {data.costUsd > 0 && <span className="cost">${data.costUsd.toFixed(3)}</span>}
               </div>
             </>
           )}
