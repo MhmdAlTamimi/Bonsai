@@ -1,6 +1,6 @@
 import { type JSX, useCallback, useState } from 'react';
 
-import { useEscape } from './useEscape.ts';
+import { Dialog } from './Dialog.tsx';
 
 /**
  * Confirmation, in the app rather than in the browser chrome.
@@ -76,57 +76,56 @@ function Confirm({
   onAnswer: (ok: boolean) => void;
 }): JSX.Element {
   const [typed, setTyped] = useState('');
-  const cancel = useCallback(() => onAnswer(false), [onAnswer]);
-  useEscape(cancel);
+  const cancel = useCallback(() => {
+    onAnswer(false);
+    requestAnimationFrame(() =>
+      document
+        .querySelector<HTMLElement>(
+          request.requireText === undefined ? '[aria-label="More actions"]' : '.project-picker',
+        )
+        ?.focus(),
+    );
+  }, [onAnswer, request.requireText]);
 
   const locked = request.requireText !== undefined && typed.trim() !== request.requireText;
 
   return (
-    <div className="dialog-backdrop" onClick={cancel}>
-      <div
-        className="dialog confirm"
-        role="dialog"
-        aria-modal="true"
-        aria-label={request.title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header>
-          <h3>{request.title}</h3>
-        </header>
-        {request.body.map((paragraph, i) => (
-          <p key={i} className="confirm-body">
-            {paragraph}
-          </p>
-        ))}
-        {request.requireText !== undefined && (
-          <label className="stacked">
-            <span>
-              Type <strong>{request.requireText}</strong> to confirm
-            </span>
-            <input
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              aria-label="confirmation"
-              spellCheck={false}
-              autoFocus
-            />
-          </label>
-        )}
-        <div className="dialog-actions">
-          {/* Cancel is focused first and sits where the eye lands. The
+    <Dialog title={request.title} className="confirm" onClose={cancel}>
+      <header>
+        <h3>{request.title}</h3>
+      </header>
+      {request.body.map((paragraph, i) => (
+        <p key={i} className="confirm-body">
+          {paragraph}
+        </p>
+      ))}
+      {request.requireText !== undefined && (
+        <label className="stacked">
+          <span>
+            Type <strong>{request.requireText}</strong> to confirm
+          </span>
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            aria-label="confirmation"
+            spellCheck={false}
+          />
+        </label>
+      )}
+      <div className="dialog-actions">
+        {/* Cancel is focused first and sits where the eye lands. The
               destructive button should never be the one a stray Enter hits. */}
-          <button onClick={cancel} autoFocus={request.requireText === undefined}>
-            Cancel
-          </button>
-          <button
-            className={request.danger === true ? 'destructive' : 'primary'}
-            disabled={locked}
-            onClick={() => onAnswer(true)}
-          >
-            {request.confirmLabel}
-          </button>
-        </div>
+        <button onClick={cancel} data-dialog-focus>
+          Cancel
+        </button>
+        <button
+          className={request.danger === true ? 'destructive' : 'primary'}
+          disabled={locked}
+          onClick={() => onAnswer(true)}
+        >
+          {request.confirmLabel}
+        </button>
       </div>
-    </div>
+    </Dialog>
   );
 }

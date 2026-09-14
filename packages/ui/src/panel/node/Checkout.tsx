@@ -17,7 +17,7 @@ export function Checkout({
   hint: string | null;
   onError: (message: string) => void;
 }): JSX.Element {
-  const [copied, setCopied] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
 
   return (
     <details className="disclosure checkout-section">
@@ -30,11 +30,11 @@ export function Checkout({
           onClick={() => {
             void navigator.clipboard
               .writeText(command)
-              .then(() => setCopied(true))
+              .then(() => setCopiedCommand(command))
               .catch(() => onError('Could not copy — select the command instead.'));
           }}
         >
-          {copied ? 'Copied' : 'Copy command'}
+          {copiedCommand === command ? 'Copied' : 'Copy command'}
         </button>
       </div>
       {hint != null && <p className="hint">{hint}</p>}
