@@ -1931,3 +1931,49 @@ button.destructive:hover:not(:disabled) {
 .ask .permission-details { margin: 2px 0; }
 .panel > header { flex-wrap: wrap; }
 .panel .header-right { max-width: 100%; min-width: 0; flex-wrap: wrap; }
+
+/* Focused settings and usage tasks use native modal focus containment. */
+dialog.dialog { color: var(--text); margin: auto; }
+dialog.dialog:not([open]) { display: none; }
+dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px); }
+.dialog.settings-dialog, .dialog.usage-dialog { width: min(760px, 94vw); }
+.settings-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 12px; flex-wrap: wrap; }
+.settings-tabs button[aria-pressed='true'] { background: var(--surface-3); border-color: var(--line-strong); color: var(--text); }
+.settings-dialog form { display: flex; flex-direction: column; gap: 16px; }
+.settings-dialog [hidden] { display: none; }
+.settings-dialog section + section { padding-top: 24px; }
+.settings-dialog .save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.save-feedback { overflow-wrap: anywhere; }
+.diagnostics textarea { width: 100%; min-height: 260px; font: 12px/1.6 var(--mono); resize: vertical; }
+.next-run { font-size: 12px; padding: 10px 0; color: var(--muted); }
+.next-run summary { cursor: pointer; }
+.next-run dl > div { display: contents; }
+.next-run dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 14px 0; }
+.next-run dd { margin: 0; color: var(--text); }
+.next-run small { display: block; color: var(--muted); }
+.usage-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.usage-totals > div { border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.usage-totals span { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.usage-totals strong { font-size: 22px; font-weight: 550; }
+.usage-experiment { border-top: 1px solid var(--line); padding-top: 14px; }
+.usage-experiment summary { display: flex; justify-content: space-between; gap: 16px; cursor: pointer; }
+.usage-experiment summary span:first-child { overflow-wrap: anywhere; }
+.usage-experiment summary span:last-child { color: var(--muted); white-space: nowrap; }
+.usage-experiment > button { margin: 12px 0; }
+.usage-table { overflow-x: auto; }
+.usage-table table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.usage-table td, .usage-table th { padding: 12px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.usage-table small { display: block; color: var(--muted); margin-top: 5px; }
+@media (max-width: 600px) {
+  .usage-totals { grid-template-columns: repeat(2, 1fr); }
+  .settings-dialog label { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+}
+
+.connection-settings { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.connection-settings[open] > :not(summary) { margin-top: 16px; }
+
+.agent-fields { display: flex; flex-direction: column; gap: 12px; }
+.settings-tabs button[aria-pressed="true"] { box-shadow: inset 0 -2px var(--accent); }
+.settings-sections > h4 { margin-bottom: 18px; }
+.setup-activity { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 12px 0; }
+.setup-activity summary { cursor: pointer; color: var(--text-dim); }

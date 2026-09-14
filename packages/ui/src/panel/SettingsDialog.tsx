@@ -1,36 +1,18 @@
-import { type JSX, useState } from 'react';
+import { useState, type JSX } from 'react';
 import {
   CONCURRENCY,
-  EFFORTS,
   type ConnectionStatus,
   type ProjectView,
   type SettingsView,
 } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { Dialog } from '../Dialog.tsx';
 import { NewNodeSetup } from './NewNodeSetup.tsx';
 import { Diagnostics } from './Diagnostics.tsx';
-import { useEscape } from '../useEscape.ts';
+import { AgentFields, type AgentValues } from './AgentFields.tsx';
+import { useSave } from './useSave.ts';
+import { SaveFeedback } from './SaveFeedback.tsx';
 
-const MODELS: Array<{ id: string | null; label: string }> = [
-  { id: null, label: 'Claude Code default' },
-  { id: 'claude-opus-5', label: 'Opus 5 — most capable' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5 — cheapest' },
-];
-
-/**
- * `default` is here now that it does something. It used to be omitted because
- * a run had no way to ask anything: choosing it would have stopped the agent
- * on a question nobody could ever answer.
- */
-const PERMISSION_MODES = [
-  { id: 'acceptEdits', label: 'Accept edits (recommended)' },
-  { id: 'default', label: 'Ask before each change' },
-  { id: 'bypassPermissions', label: 'Bypass all permission checks' },
-  { id: 'plan', label: 'Plan only — never edits' },
-] as const;
-
-/** Agent settings and locations. D32 makes model and permission mode settings. */
 export function SettingsDialog({
   settings,
   connection,
@@ -38,241 +20,367 @@ export function SettingsDialog({
   selectedNodeId,
   onClose,
   onChanged,
+  initialTab = 'app',
 }: {
   settings: SettingsView;
   connection: ConnectionStatus;
-  /** The open project, for the settings that belong to a project rather than the app. */
   project: ProjectView | null;
-  /** Included in the diagnostics report, when there is one. */
   selectedNodeId: string | null;
   onClose: () => void;
   onChanged: () => void;
+  initialTab?: 'app' | 'project';
 }): JSX.Element {
-  const [busy, setBusy] = useState(false);
-  const [apiKey, setApiKey] = useState('');
-  const [reposRoot, setReposRoot] = useState(settings.reposRoot);
-  const [note, setNote] = useState<string | null>(null);
-  useEscape(onClose);
-
-  const save = async (patch: Parameters<typeof api.updateSettings>[0]): Promise<void> => {
-    setBusy(true);
-    try {
-      await api.updateSettings(patch);
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  const [tab, setTab] = useState<'app' | 'project' | 'diagnostics'>(initialTab);
   return (
-    <div className="dialog-backdrop" onClick={onClose}>
-      <div
-        className="dialog wide"
-        role="dialog"
-        aria-label="Settings"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header>
-          <h3>Settings</h3>
-          <button className="dialog-close" onClick={onClose} aria-label="close">
-            ×
+    <Dialog title="Settings" className="wide settings-dialog" onClose={onClose}>
+      <header>
+        <h3>Settings</h3>
+        <button onClick={onClose} className="dialog-close" aria-label="Close settings">
+          ×
+        </button>
+      </header>
+      <nav className="settings-tabs" aria-label="Settings scope">
+        {(['app', 'project', 'diagnostics'] as const).map((scope) => (
+          <button key={scope} aria-pressed={tab === scope} onClick={() => setTab(scope)}>
+            {scope === 'app'
+              ? 'App settings'
+              : scope === 'project'
+                ? 'Project settings'
+                : 'Diagnostics'}
           </button>
-        </header>
-
-        <section>
-          <h4>Connection</h4>
-          <div className={`conn-row conn-${connection.state}`}>
-            <span className="conn-dot" />
-            <span>
-              {connection.state === 'connected'
-                ? `Connected · ${connection.apiKeySource === 'none' ? 'Claude subscription' : 'API key'} · ${connection.model ?? ''}`
-                : connection.state.replace('_', ' ')}
-            </span>
-            <button
-              disabled={busy}
-              onClick={() =>
-                void (async () => {
-                  setBusy(true);
-                  try {
-                    await api.checkConnection();
-                    onChanged();
-                  } finally {
-                    setBusy(false);
-                  }
-                })()
-              }
-            >
-              Recheck
-            </button>
-          </div>
-          {connection.message !== null && <pre className="stream">{connection.message}</pre>}
-
-          <label>
-            Sign in with
-            <select
-              value={settings.authMode}
-              disabled={busy}
-              onChange={(e) => void save({ authMode: e.target.value as 'cli' | 'api_key' })}
-            >
-              <option value="cli">Claude subscription (claude auth login)</option>
-              <option value="api_key">API key</option>
-            </select>
-          </label>
-
-          {settings.authMode === 'cli' ? (
-            <div className="row">
-              <button
-                disabled={busy}
-                onClick={() =>
-                  void (async () => {
-                    setBusy(true);
-                    try {
-                      const r = await api.login();
-                      setNote(r.output);
-                      onChanged();
-                    } finally {
-                      setBusy(false);
-                    }
-                  })()
-                }
-              >
-                Sign in
-              </button>
-              <span className="hint">Never stored by Bonsai.</span>
-            </div>
-          ) : (
-            <>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={
-                  settings.hasStoredApiKey ? 'a key is stored — type to replace' : 'sk-ant-...'
-                }
-                aria-label="API key"
-              />
-              <div className="row">
-                <button
-                  disabled={busy || apiKey.trim() === ''}
-                  onClick={() => void save({ apiKey: apiKey.trim() }).then(() => setApiKey(''))}
-                >
-                  Save key
-                </button>
-                {settings.hasStoredApiKey && (
-                  <button disabled={busy} onClick={() => void save({ apiKey: '' })}>
-                    Remove key
-                  </button>
-                )}
-              </div>
-              <p className="hint">Stored on this machine, readable only by you.</p>
-            </>
-          )}
-          {note !== null && <pre className="stream">{note}</pre>}
-        </section>
-
-        <section>
-          <h4>Agent</h4>
-          <label>
-            Model
-            <select
-              value={settings.model ?? ''}
-              disabled={busy}
-              onChange={(e) => void save({ model: e.target.value === '' ? null : e.target.value })}
-            >
-              {MODELS.map((m) => (
-                <option key={m.label} value={m.id ?? ''}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Effort
-            <select
-              value={settings.effort ?? ''}
-              disabled={busy}
-              onChange={(e) => void save({ effort: e.target.value === '' ? null : e.target.value })}
-            >
-              <option value="">default</option>
-              {EFFORTS.map((x) => (
-                <option key={x} value={x}>
-                  {x}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Permission mode
-            <select
-              value={settings.permissionMode}
-              disabled={busy}
-              onChange={(e) =>
-                void save({ permissionMode: e.target.value as SettingsView['permissionMode'] })
-              }
-            >
-              {PERMISSION_MODES.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Run at most
-            <select
-              value={settings.maxConcurrentRuns}
-              disabled={busy}
-              onChange={(e) => void save({ maxConcurrentRuns: Number(e.target.value) })}
-            >
-              {Array.from({ length: CONCURRENCY.max - CONCURRENCY.min + 1 }, (_, i) => (
-                <option key={i + CONCURRENCY.min} value={i + CONCURRENCY.min}>
-                  {i + CONCURRENCY.min} at once
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="hint">
-            Model, effort and mode apply to new projects. The limit applies now.
-          </p>
-        </section>
-
-        <section>
-          <h4>Locations</h4>
-          <label className="stacked">
-            Projects folder
-            <div className="row">
-              <input
-                value={reposRoot}
-                onChange={(e) => setReposRoot(e.target.value)}
-                aria-label="projects folder"
-              />
-              <button
-                disabled={busy || reposRoot === settings.reposRoot}
-                onClick={() => void save({ reposRoot })}
-              >
-                Save
-              </button>
-              <button disabled={busy} onClick={() => void api.reveal(settings.reposRoot)}>
-                Reveal
-              </button>
-            </div>
-          </label>
-          <p className="hint">New projects only — git records absolute worktree paths.</p>
-          <label className="stacked">
-            Data folder
-            <div className="row">
-              <input value={settings.dataDir} readOnly aria-label="data folder" />
-              <button disabled={busy} onClick={() => void api.reveal(settings.dataDir)}>
-                Reveal
-              </button>
-            </div>
-          </label>
-        </section>
-
-        {project !== null && <NewNodeSetup project={project} onChanged={onChanged} />}
-
-        <Diagnostics nodeId={selectedNodeId} />
+        ))}
+      </nav>
+      <div hidden={tab !== 'app'} className="settings-sections">
+        <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
+        <AppDefaults settings={settings} onChanged={onChanged} />
+        <Locations settings={settings} onChanged={onChanged} />
       </div>
-    </div>
+      <div hidden={tab !== 'project'} className="settings-sections">
+        {project ? (
+          <>
+            <h4>Project settings — {project.name}</h4>
+            <ProjectAgent key={`agent-${project.id}`} project={project} onChanged={onChanged} />
+            <NewNodeSetup key={`setup-${project.id}`} project={project} onChanged={onChanged} />
+          </>
+        ) : (
+          <p className="muted">Open a project to change its settings.</p>
+        )}
+      </div>
+      <div hidden={tab !== 'diagnostics'}>
+        <Diagnostics key={selectedNodeId} nodeId={selectedNodeId} />
+      </div>
+    </Dialog>
+  );
+}
+
+function AppDefaults({
+  settings,
+  onChanged,
+}: {
+  settings: SettingsView;
+  onChanged: () => void;
+}): JSX.Element {
+  const [value, setValue] = useState<AgentValues>({
+    model: settings.model,
+    effort: settings.effort,
+    permissionMode: settings.permissionMode,
+  });
+  const [limit, setLimit] = useState(settings.maxConcurrentRuns);
+  const save = useSave();
+  return (
+    <section className="app-defaults">
+      <h4>Agent defaults</h4>
+      <p className="hint">
+        New projects start with these values. Projects using App default follow later model and
+        effort changes.
+      </p>
+      <AgentFields
+        value={value}
+        disabled={save.busy}
+        onChange={(next) => {
+          setValue(next);
+          save.reset();
+        }}
+      />
+      <label>
+        Concurrent runs
+        <select
+          aria-label="Concurrent runs"
+          value={limit}
+          disabled={save.busy}
+          onChange={(e) => {
+            setLimit(Number(e.target.value));
+            save.reset();
+          }}
+        >
+          {Array.from({ length: CONCURRENCY.max }, (_, i) => (
+            <option value={i + 1} key={i}>
+              {i + 1}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="hint">
+        Applies to scheduling across all projects. Active runs finish normally.
+      </p>
+      <div className="save-row">
+        <button
+          disabled={save.busy}
+          onClick={() =>
+            void save.run(async () => {
+              await api.updateSettings({ ...value, maxConcurrentRuns: limit });
+              onChanged();
+            })
+          }
+        >
+          Save app defaults
+        </button>
+        <SaveFeedback {...save} />
+      </div>
+    </section>
+  );
+}
+function ProjectAgent({
+  project,
+  onChanged,
+}: {
+  project: ProjectView;
+  onChanged: () => void;
+}): JSX.Element {
+  const [value, setValue] = useState<AgentValues>({
+    model: project.defaultModel,
+    effort: project.defaultEffort,
+    permissionMode: project.defaultPermissionMode,
+  });
+  const save = useSave();
+  return (
+    <section className="project-agent">
+      <h4>Agent for this project</h4>
+      <p className="hint">
+        Applies when a run begins, including queued runs. Already running agents keep their
+        settings.
+      </p>
+      <AgentFields
+        inherited
+        value={value}
+        disabled={save.busy}
+        onChange={(next) => {
+          setValue(next);
+          save.reset();
+        }}
+      />
+      <div className="save-row">
+        <button
+          disabled={save.busy}
+          onClick={() =>
+            void save.run(async () => {
+              await api.updateProject(project.id, value);
+              onChanged();
+            })
+          }
+        >
+          Save project agent
+        </button>
+        <SaveFeedback {...save} />
+      </div>
+    </section>
+  );
+}
+function Locations({
+  settings,
+  onChanged,
+}: {
+  settings: SettingsView;
+  onChanged: () => void;
+}): JSX.Element {
+  const [root, setRoot] = useState(settings.reposRoot);
+  const save = useSave();
+  const reveal = useSave();
+  return (
+    <section className="settings-locations">
+      <h4>Locations</h4>
+      <label className="stacked">
+        Managed repositories folder
+        <input
+          aria-label="Managed repositories folder"
+          value={root}
+          disabled={save.busy}
+          onChange={(e) => {
+            setRoot(e.target.value);
+            save.reset();
+          }}
+        />
+      </label>
+      <p className="hint">
+        Storage for future managed repositories. Existing folders stay in place.
+      </p>
+      <div className="save-row">
+        <button
+          disabled={save.busy}
+          onClick={() =>
+            void save.run(async () => {
+              await api.updateSettings({ reposRoot: root });
+              onChanged();
+            })
+          }
+        >
+          Save location
+        </button>
+        <button
+          onClick={() =>
+            void reveal.run(async () => {
+              await api.reveal(settings.reposRoot);
+            })
+          }
+        >
+          Open saved location
+        </button>
+        <SaveFeedback {...save} />
+      </div>
+      <label className="stacked">
+        App data folder<code>{settings.dataDir}</code>
+      </label>
+      <button
+        onClick={() =>
+          void reveal.run(async () => {
+            await api.reveal(settings.dataDir);
+          })
+        }
+      >
+        Open app data folder
+      </button>
+      {reveal.error && (
+        <p className="error" role="alert">
+          {reveal.error}
+        </p>
+      )}
+    </section>
+  );
+}
+function ConnectionSettings({
+  settings,
+  connection,
+  onChanged,
+}: {
+  settings: SettingsView;
+  connection: ConnectionStatus;
+  onChanged: () => void;
+}): JSX.Element {
+  const [mode, setMode] = useState(settings.authMode);
+  const [key, setKey] = useState('');
+  const [output, setOutput] = useState<string | null>(null);
+  const save = useSave();
+  const action = useSave();
+  return (
+    <details className="connection-settings" open={connection.state !== 'connected' || undefined}>
+      <summary>
+        Agent connection ·{' '}
+        {connection.state === 'connected' ? 'Connected' : connection.state.replaceAll('_', ' ')}
+      </summary>
+      {connection.message && <pre className="stream">{connection.message}</pre>}
+      <label>
+        Sign in with
+        <select
+          aria-label="Sign in with"
+          value={mode}
+          disabled={save.busy}
+          onChange={(e) => {
+            setMode(e.target.value as 'cli' | 'api_key');
+            save.reset();
+          }}
+        >
+          <option value="cli">Claude subscription</option>
+          <option value="api_key">API key</option>
+        </select>
+      </label>
+      {mode === 'api_key' && (
+        <label className="stacked">
+          API key
+          <input
+            type="password"
+            aria-label="API key"
+            value={key}
+            disabled={save.busy}
+            placeholder={
+              settings.hasStoredApiKey ? 'Leave blank to keep the stored key' : 'Enter API key'
+            }
+            onChange={(e) => {
+              setKey(e.target.value);
+              save.reset();
+            }}
+          />
+        </label>
+      )}
+      <div className="save-row">
+        <button
+          disabled={save.busy}
+          onClick={() =>
+            void save.run(async () => {
+              await api.updateSettings({
+                authMode: mode,
+                ...(key.trim() ? { apiKey: key.trim() } : {}),
+              });
+              setKey('');
+              onChanged();
+            })
+          }
+        >
+          Save connection
+        </button>
+        <SaveFeedback {...save} />
+      </div>
+      {mode === 'cli' && (
+        <>
+          <p className="hint">
+            Sign-in may open a browser. If a terminal is needed, run{' '}
+            <code>claude auth login --claudeai</code>, then Recheck.
+          </p>
+          <button
+            disabled={action.busy}
+            onClick={() =>
+              void action.run(async () => {
+                const result = await api.login();
+                setOutput(result.output);
+                onChanged();
+              })
+            }
+          >
+            Sign in
+          </button>
+        </>
+      )}
+      <div className="row">
+        <button
+          disabled={action.busy}
+          onClick={() =>
+            void action.run(async () => {
+              await api.checkConnection();
+              onChanged();
+            })
+          }
+        >
+          {action.busy ? 'Checking…' : 'Recheck'}
+        </button>
+        {settings.hasStoredApiKey && (
+          <button
+            disabled={save.busy}
+            onClick={() =>
+              void save.run(async () => {
+                await api.updateSettings({ apiKey: '' });
+                onChanged();
+              })
+            }
+          >
+            Remove stored key
+          </button>
+        )}
+      </div>
+      {action.error && (
+        <p className="error" role="alert">
+          {action.error}
+        </p>
+      )}
+      {output && <pre className="stream">{output}</pre>}
+    </details>
   );
 }

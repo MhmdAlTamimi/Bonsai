@@ -14,6 +14,7 @@ import type {
   SettingsView,
   UpdateSettingsRequest,
   ProjectView,
+  ProjectUsageView,
   UpdateProjectRequest,
   NodeDetail,
   NodeView,
@@ -67,6 +68,7 @@ export interface NodeDiffView {
 }
 
 export const api = {
+  usage: (projectId: string) => json<ProjectUsageView>(`/api/projects/${projectId}/usage`),
   connection: () => json<ConnectionStatus>('/api/connection'),
   checkConnection: () => json<ConnectionStatus>('/api/connection/check', { method: 'POST' }),
   login: () =>
@@ -221,7 +223,7 @@ export const api = {
     }),
 
   deletionImpact: (nodeId: string) =>
-    json<{ nodes: number; costUsd: number; commits: number }>(
+    json<{ nodes: number; names: string[]; costUsd: number; commits: number }>(
       `/api/nodes/${nodeId}/deletion-impact`,
     ),
 };
