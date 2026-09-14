@@ -15,6 +15,8 @@ import { StatusChip } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
 import { Composer } from './chat/Composer.tsx';
 import { Transcript } from './chat/Transcript.tsx';
+import { StopButton } from '../state/RunControls.tsx';
+import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
 import type { Delta } from './chat/liveMerge.ts';
 
@@ -23,6 +25,7 @@ export function Panel({
   project,
   node,
   stream,
+  streamRevision,
   onChanged,
   onCreateChild,
   startError,
@@ -32,6 +35,7 @@ export function Panel({
   project: ProjectView | null;
   node: NodeView | null;
   stream: readonly Delta[];
+  streamRevision: number;
   onChanged: () => void;
   /** Opens the one create-a-child dialog. See NewChildDialog. */
   onCreateChild: (node: NodeView) => void;
@@ -53,6 +57,7 @@ export function Panel({
       project={project}
       node={node}
       stream={stream}
+      streamRevision={streamRevision}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
       startError={startError}
@@ -65,6 +70,7 @@ function NodePanel({
   project,
   node,
   stream,
+  streamRevision,
   onChanged,
   onCreateChild,
   startError,
@@ -73,6 +79,7 @@ function NodePanel({
   project: ProjectView | null;
   node: NodeView;
   stream: readonly Delta[];
+  streamRevision: number;
   onChanged: () => void;
   onCreateChild: (node: NodeView) => void;
   startError: string | null;
@@ -105,6 +112,7 @@ function NodePanel({
   const chat = useChat(
     node,
     stream,
+    streamRevision,
     () => {
       changed();
       onRunStarted();
@@ -113,22 +121,29 @@ function NodePanel({
   );
 
   useEffect(() => {
-    setDetail(null);
     setDetailError(null);
     let alive = true;
+    const controller = new AbortController();
     void api
-      .node(node.id)
+      .node(node.id, controller.signal)
       .then((d) => alive && setDetail(d))
       .catch((e: unknown) => alive && setDetailError(describeError(e)));
     return () => {
       alive = false;
+      controller.abort();
     };
     // Deliberately not `[node]`. A refetch hands back a new object every time,
     // so depending on it would refetch the detail in a loop; the id and the
     // status are the only parts this effect actually reads.
-  }, [node.id, node.status, revision]);
+  }, [node.id, node.status, revision, streamRevision]);
 
   const runs = detail?.runs ?? [];
+  const reading = useReadingPosition(
+    `${node.projectId}:${node.id}`,
+    chat.loaded && detail !== null,
+    view === 'conversation',
+    `${chat.messages.length}:${chat.pending.length}:${streamRevision}`,
+  );
 
   /**
    * Master of an adopted project: its worktree is the user's own folder, on the
@@ -150,11 +165,7 @@ function NodePanel({
         <div className="header-right">
           {/* A node parked on a question is still holding an agent and a
               concurrency slot, so it needs the same way out as a running one. */}
-          {(node.status === 'running' || node.status === 'needs_you') && (
-            <button className="stop" onClick={() => void actions.cancel()}>
-              ■ Stop
-            </button>
-          )}
+          <StopButton node={node} />
           <StatusChip
             status={node.status}
             queuePosition={node.queuePosition}
@@ -237,63 +248,58 @@ function NodePanel({
       </div>
       <div
         className="panel-body"
-        ref={chat.scrollRef}
+        ref={reading.scrollRef}
+        onScroll={reading.onScroll}
         hidden={view !== 'conversation'}
         role="tabpanel"
         id={`view-${node.id}-conversation`}
         aria-labelledby={`tab-${node.id}-conversation`}
       >
-        {node.status === 'new' && (
-          <section className="start">
-            <h3>Ready for the first run</h3>
-            <p className="hint">
-              Creating this experiment has not run the agent. Edit the request below, then choose
-              Start first run.
-            </p>
-          </section>
-        )}
+        <div ref={reading.contentRef} className="conversation-content">
+          {node.status === 'new' && (
+            <section className="start">
+              <h3>Ready for the first run</h3>
+              <p className="hint">
+                Creating this experiment has not run the agent. Edit the request below, then choose
+                Start first run.
+              </p>
+            </section>
+          )}
 
-        {detail === null &&
-          (detailError === null ? (
-            <p role="status">Loading experiment details…</p>
-          ) : (
+          {(detail === null || detailError !== null) &&
+            (detailError === null ? (
+              <p role="status">Loading experiment details…</p>
+            ) : (
+              <p className="error" role="alert">
+                {detailError}{' '}
+                <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
+              </p>
+            ))}
+          {chat.loading && !chat.loaded && <p role="status">Loading conversation…</p>}
+          {chat.error !== null && (
             <p className="error" role="alert">
-              {detailError} <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
+              {chat.loaded && 'Showing previously loaded conversation. '}
+              {chat.error} <button onClick={chat.retry}>Retry conversation</button>
             </p>
-          ))}
-        {runs.at(-1)?.status === 'done' && (
-          <p className="result-peek">
-            Run finished.{' '}
-            <button className="linkish" onClick={() => changeView('results')}>
-              Review goal, checks and changes
-            </button>
-          </p>
-        )}
-
-        {/* Frozen: the action first, the conversation second. The composer knows
-            to collapse itself, so the chat below costs one line until asked for. */}
-
-        {chat.loading ? (
-          <p role="status">Loading conversation…</p>
-        ) : chat.error !== null ? (
-          <p className="error" role="alert">
-            {chat.error} <button onClick={chat.retry}>Retry conversation</button>
-          </p>
-        ) : chat.messages.length === 0 && chat.pending.length === 0 && !chat.running ? (
-          <p className="muted chat-empty">
-            No conversation yet. Ask for a change, or ask a question — a question that changes no
-            files leaves this node conversation-only.
-          </p>
-        ) : (
-          <Transcript
-            messages={chat.messages}
-            runs={runs}
-            pending={chat.pending}
-            running={chat.running}
-          />
-        )}
-
-        {error !== null && <p className="error">{error}</p>}
+          )}
+          {chat.loaded &&
+            chat.error === null &&
+            chat.messages.length === 0 &&
+            chat.pending.length === 0 &&
+            !chat.busy && (
+              <p className="muted chat-empty">
+                No conversation yet. Ask for a change, or ask a question.
+              </p>
+            )}
+          {(chat.messages.length > 0 || chat.pending.length > 0) && (
+            <Transcript
+              messages={chat.messages}
+              runs={runs}
+              pending={chat.pending}
+              running={chat.running}
+            />
+          )}
+        </div>
       </div>
 
       <div
@@ -305,6 +311,12 @@ function NodePanel({
       >
         {resultsSeen && (
           <>
+            {detailError !== null && detail !== null && (
+              <p className="error" role="alert">
+                Results may be out of date. {detailError}{' '}
+                <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
+              </p>
+            )}
             {detail === null ? (
               detailError === null ? (
                 <p role="status">Loading results…</p>
@@ -352,21 +364,45 @@ function NodePanel({
       </div>
 
       <div className="panel-foot">
+        {view === 'conversation' && reading.away && (
+          <button className="jump-latest" onClick={reading.jump}>
+            {reading.unread ? 'New output · Jump to latest ↓' : 'Jump to latest ↓'}
+          </button>
+        )}
+        {error !== null && (
+          <p className="error" role="alert">
+            {error} <button onClick={() => setError(null)}>Dismiss</button>
+          </p>
+        )}
+        {node.status === 'running' && (
+          <p className="activity" role="status">
+            {node.queuePosition !== null
+              ? `Queued · position ${node.queuePosition}`
+              : 'Agent working…'}
+          </p>
+        )}
         {startError !== null && (
           <p className="error start-error" role="alert">
             {startError}
           </p>
         )}
-        <AskBox node={node} onAnswered={onChanged} onError={setError} />
-        <Composer
+        <AskBox
+          key={node.pendingQuestion?.id}
           node={node}
-          busy={chat.busy}
-          sending={chat.sending}
-          emphasised
-          value={chat.prompt}
-          onChange={chat.setPrompt}
-          onSend={chat.send}
+          onAnswered={onChanged}
+          onError={setError}
         />
+        {node.pendingQuestion === null && (
+          <Composer
+            node={node}
+            busy={chat.busy}
+            sending={chat.sending}
+            emphasised
+            value={chat.prompt}
+            onChange={chat.setPrompt}
+            onSend={chat.send}
+          />
+        )}
       </div>
 
       {renaming && (

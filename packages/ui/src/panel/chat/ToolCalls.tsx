@@ -15,10 +15,7 @@ import type { MessageView } from '@bonsai/shared';
  * agent says what it is about to do, does it, then says what it found, and that
  * order is the readable part.
  *
- * Open while the run is live -- watching it work is the point of streaming --
- * and closed once it is done, when re-reading the log is rarely what you want.
- * A click pins it either way, because a rule that keeps reopening something you
- * closed is worse than no rule.
+ * Technical details stay collapsed until opened by the reader.
  */
 export function ToolCalls({
   calls,
@@ -29,7 +26,7 @@ export function ToolCalls({
   live: boolean;
 }): JSX.Element {
   const [pinned, setPinned] = useState<boolean | null>(null);
-  const open = pinned ?? live;
+  const open = pinned ?? false;
 
   return (
     <div className={`tools ${open ? 'open' : ''}`}>
@@ -43,6 +40,7 @@ export function ToolCalls({
           {open ? '▾' : '▸'}
         </span>
         <span>
+          {live ? 'Activity · ' : ''}
           {calls.length} tool call{calls.length === 1 ? '' : 's'}
         </span>
         {!open && <span className="tools-names">{summarise(calls)}</span>}

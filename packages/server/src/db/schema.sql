@@ -200,7 +200,8 @@ CREATE TABLE IF NOT EXISTS question (
   text        TEXT NOT NULL,
   answer      TEXT,
   asked_at    TEXT NOT NULL,
-  answered_at TEXT
+  answered_at TEXT,
+  request_json TEXT
 );
 
 CREATE INDEX IF NOT EXISTS question_node_idx ON question(node_id);

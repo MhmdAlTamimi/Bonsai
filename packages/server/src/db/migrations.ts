@@ -103,6 +103,13 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'run', 'stat_deletions', 'INTEGER');
     },
   },
+  {
+    version: 11,
+    name: 'question: recorded action and input',
+    up: (db) => {
+      addColumn(db, 'question', 'request_json', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

@@ -76,6 +76,11 @@ describe('schema migrations', () => {
       assert.ok(columns.includes(added), `missing ${added}`);
     }
 
+    const questionColumns = db.prepare('PRAGMA table_info(question)').all() as unknown as Array<{
+      name: string;
+    }>;
+    assert.ok(questionColumns.some((column) => column.name === 'request_json'));
+
     // The row survived, and there is something to go back to.
     const row = db.prepare(`SELECT cost FROM run WHERE id = 'r1'`).get() as unknown as {
       cost: number;

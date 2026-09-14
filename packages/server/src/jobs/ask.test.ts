@@ -57,7 +57,14 @@ class AskingRunner implements AgentRunner {
       return;
     }
 
-    const pending = spec.ask({ toolName: 'Bash', detail: 'rm -rf build' });
+    const pending = spec.ask({
+      toolName: 'Bash',
+      detail: 'rm -rf build',
+      details: JSON.stringify({
+        command: 'rm -rf build',
+        description: 'Remove generated build files',
+      }),
+    });
     this.announceAsked();
     const decision = await pending;
     this.decisions.push(decision);
@@ -128,6 +135,14 @@ describe('a run that asks the user', () => {
     assert.notEqual(view.pendingQuestion, null);
     assert.match(view.pendingQuestion!.text, /Bash/);
     assert.match(view.pendingQuestion!.text, /rm -rf build/);
+    assert.deepEqual(view.pendingQuestion!.request, {
+      action: 'Bash',
+      target: 'rm -rf build',
+      details: JSON.stringify({
+        command: 'rm -rf build',
+        description: 'Remove generated build files',
+      }),
+    });
     // The card shows the question in place of the description (PRD §7).
     assert.equal(view.summaryLine, view.pendingQuestion!.text);
 

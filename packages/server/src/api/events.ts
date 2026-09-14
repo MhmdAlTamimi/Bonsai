@@ -6,7 +6,7 @@ import type { ServerEvent } from '@bonsai/shared';
  * streams, cancellation exists. This is the streaming half.
  *
  * SSE rather than a websocket: every server->client message here is one-way
- * progress, and Last-Event-ID gives reconnect-after-sleep for free. The one
+ * progress. Clients reconcile persisted state after reconnect; events are not replayed. The one
  * client->server message (answering a needs_you question) is a normal POST.
  */
 export class EventBus {

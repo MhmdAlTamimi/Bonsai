@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
 import type { ConnectionStatus, ProjectView, SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
 
 /**
@@ -15,6 +16,8 @@ export function MenuBar({
   projects,
   settings,
   connection,
+  health,
+  onError,
   onOpenProject,
   onStart,
   onOpenSettings,
@@ -24,6 +27,8 @@ export function MenuBar({
   projects: Array<{ id: string; name: string }>;
   settings: SettingsView | null;
   connection: ConnectionStatus;
+  health: 'connecting' | 'live' | 'reconnecting';
+  onError: (message: string) => void;
   onOpenProject: (id: string) => void;
   /** Opens the start screen on one of its two halves. */
   onStart: (mode: 'new' | 'existing') => void;
@@ -40,7 +45,10 @@ export function MenuBar({
       if (!barRef.current?.contains(e.target as Node)) setOpen(null);
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(null);
+      if (e.key === 'Escape') {
+        setOpen(null);
+        barRef.current?.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
+      }
     };
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
@@ -55,19 +63,58 @@ export function MenuBar({
   return (
     <div className="menubar" ref={barRef}>
       <span className="brand">
-        <Logo size={20} />
+        <Logo size={36} />
+        <span>Bonsai</span>
       </span>
 
-      <div className="menu">
+      <div className="menu project-menu">
         <button
-          className="menu-title"
+          className="menu-title project-picker"
+          aria-label="Project"
+          aria-haspopup="menu"
+          aria-expanded={open === 'project'}
+          title={project?.sourcePath ?? project?.name}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setOpen('project');
+              requestAnimationFrame(() =>
+                barRef.current
+                  ?.querySelector<HTMLButtonElement>('[role="menu"] button:not(:disabled)')
+                  ?.focus(),
+              );
+            }
+          }}
           onClick={() => setOpen(open === 'project' ? null : 'project')}
         >
-          Project
+          <span className="project-picker-label">Project</span>
+          <span className="project-picker-name">{project?.name ?? 'Choose project'}</span>
+          <span aria-hidden="true">⌄</span>
         </button>
         {open === 'project' && (
-          <div className="menu-panel" role="menu">
+          <div
+            className="menu-panel"
+            role="menu"
+            onKeyDown={(e) => {
+              const items = Array.from(
+                e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+              );
+              const i = items.indexOf(document.activeElement as HTMLButtonElement);
+              if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+                e.preventDefault();
+                items[
+                  e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? items.length - 1
+                      : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+                ]?.focus();
+              }
+              if (e.key === 'Tab') setOpen(null);
+            }}
+          >
             <button
+              role="menuitem"
               onClick={() => {
                 setOpen(null);
                 onStart('new');
@@ -76,6 +123,7 @@ export function MenuBar({
               New project…
             </button>
             <button
+              role="menuitem"
               onClick={() => {
                 setOpen(null);
                 onStart('existing');
@@ -89,23 +137,31 @@ export function MenuBar({
                 was never the folder anyone meant. It opens THIS project's
                 folder now -- master's checkout, wherever it happens to live. */}
             <button
+              role="menuitem"
               disabled={project?.sourcePath == null}
               title={project?.sourcePath ?? 'This project predates folder tracking.'}
               onClick={() => {
                 setOpen(null);
-                if (project?.sourcePath != null) void api.reveal(project.sourcePath);
+                if (project?.sourcePath != null)
+                  void api
+                    .reveal(project.sourcePath)
+                    .catch((e: unknown) => onError(describeError(e)));
               }}
             >
               Reveal this project in file manager
             </button>
             <button
+              role="menuitem"
               disabled={settings === null}
               onClick={() => {
                 setOpen(null);
-                if (settings !== null) void api.reveal(settings.reposRoot);
+                if (settings !== null)
+                  void api
+                    .reveal(settings.reposRoot)
+                    .catch((e: unknown) => onError(describeError(e)));
               }}
             >
-              Open Bonsai's data folder
+              Open managed repositories folder
             </button>
 
             <div className="menu-sep" />
@@ -115,6 +171,7 @@ export function MenuBar({
             ) : (
               recent.map((p) => (
                 <button
+                  role="menuitem"
                   key={p.id}
                   onClick={() => {
                     setOpen(null);
@@ -128,6 +185,7 @@ export function MenuBar({
 
             <div className="menu-sep" />
             <button
+              role="menuitem"
               className="danger"
               disabled={project === null}
               onClick={() => {
@@ -141,32 +199,41 @@ export function MenuBar({
         )}
       </div>
 
-      <button className="menu-title" onClick={onOpenSettings}>
-        Settings
-      </button>
-
-      {project !== null && (
-        <span className="menubar-project" title={project.sourcePath ?? project.name}>
-          {project.name}
-          {project.sourceKind === 'adopted' && (
-            <span className="chip tiny" title="Your own folder, used in place.">
-              your folder
-            </span>
-          )}
-        </span>
-      )}
-
       <span className="menubar-spacer" />
-
-      {/* Connection is worth a permanent indicator: it is the one thing that
-          stops everything else working. */}
-      <button className={`conn conn-${connection.state}`} onClick={onOpenSettings}>
+      <span
+        className={`server-health health-${health}`}
+        role="status"
+        title="Connection to the local Bonsai server"
+      >
         <span className="conn-dot" />
-        {connection.state === 'connected'
-          ? (connection.model ?? 'connected')
-          : connection.state.replace('_', ' ')}
+        {health === 'live' ? 'Live' : health === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
+      </span>
+      <button
+        className={`conn conn-${connection.state}`}
+        onClick={onOpenSettings}
+        title={`Agent connection: ${connection.state}. Open settings.`}
+      >
+        {connection.model ?? connection.state.replace('_', ' ')}
       </button>
-
+      <button
+        className="menu-title settings-button"
+        aria-label="Settings"
+        title="Settings"
+        onClick={onOpenSettings}
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          aria-hidden="true"
+        >
+          <path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      </button>
       {project !== null && project.costUsd > 0 && (
         <span
           className="menubar-cost"

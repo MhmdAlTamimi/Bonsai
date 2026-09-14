@@ -57,7 +57,10 @@ export function Transcript({
           group={group}
           run={group.runId === null ? undefined : runsById.get(group.runId)}
           pending={group.runId === pendingRunId ? pending : []}
-          running={running && group.runId === pendingRunId}
+          running={
+            running &&
+            (group.runId === pendingRunId || runsById.get(group.runId ?? '')?.status === 'running')
+          }
         />
       ))}
     </div>
@@ -92,14 +95,33 @@ function Turn({
   running: boolean;
 }): JSX.Element {
   const prompt = group.messages.find((m) => m.role === 'user');
-  const body = group.messages.filter((m) => m !== prompt);
+  const body: MessageView[] = [
+    ...group.messages.filter((m) => m !== prompt),
+    ...pending.map((delta, index): MessageView => ({
+      id: `live-${delta.runId}-${delta.seq}-${index}`,
+      nodeId: '',
+      runId: delta.runId,
+      seq: delta.seq,
+      role: delta.seq === 0 ? 'system' : 'assistant',
+      kind: delta.tool ? 'tool_use' : 'text',
+      content: delta.tool ?? delta.text,
+      createdAt: '',
+    })),
+  ];
+  const [collapsed, setCollapsed] = useState(false);
   const when = prompt?.createdAt ?? run?.startedAt ?? null;
 
   return (
     <article className={`turn ${running ? 'live' : ''}`}>
       {prompt !== undefined && (
         <header className="turn-head">
-          <span className="turn-who">You</span>
+          <button
+            className="turn-collapse"
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((v) => !v)}
+          >
+            {collapsed ? '▸' : '▾'} You
+          </button>
           {when !== null && (
             <time className="turn-when" title={exactTime(when)}>
               {relativeTime(when)}
@@ -109,7 +131,7 @@ function Turn({
       )}
       {prompt !== undefined && <div className="turn-prompt">{asText(prompt.content)}</div>}
 
-      <div className="turn-reply">
+      <div className="turn-reply" hidden={collapsed}>
         {segment(body).map((part, i) =>
           part.kind === 'tools' ? (
             <ToolCalls key={i} calls={part.messages} live={running} />
@@ -117,12 +139,6 @@ function Turn({
             part.messages.map((m) => <Said key={m.id} message={m} />)
           ),
         )}
-
-        {pending.map((delta, i) => (
-          <div key={`live-${i}`} className={delta.seq === 0 ? 'said system' : 'said streaming'}>
-            {delta.seq === 0 ? <pre>{delta.text}</pre> : <Markdown source={delta.text} />}
-          </div>
-        ))}
 
         {running && (
           <div className="working" aria-live="polite">
@@ -132,7 +148,7 @@ function Turn({
         )}
       </div>
 
-      {!running && run !== undefined && <TurnFoot run={run} />}
+      {!collapsed && !running && run !== undefined && <TurnFoot run={run} />}
     </article>
   );
 }

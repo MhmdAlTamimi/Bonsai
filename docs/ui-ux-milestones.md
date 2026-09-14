@@ -13,8 +13,8 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | --- | --- | --- | --- |
 | 1. Protect users’ work | `codex/milestone-1-protect-work` | F01–F05 | Accepted by owner; merged and pushed |
 | 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Accepted and merged/pushed; F10 decision remains deferred |
-| 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Ready for owner review |
-| 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Pending |
+| 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Accepted by owner; merged and pushed |
+| 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Ready for owner review |
 | 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Pending |
 | 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Pending |
 
@@ -55,7 +55,7 @@ specific policy conflicts with the owner before a later milestone needs to alter
   subscription estimates are extra bills or pretend to know account-wide usage.
 - **M6 — Reading size:** raise the default reading size and add an app-wide text-size preference in Settings,
   persisted by the backend. Check enlarged text, narrow windows, and the panel layout together.
-- **M6 — Branding:** replace the existing mark with the supplied SVG and derive the favicon from the same artwork.
+- **M4 — Branding (brought forward at owner request):** replace the existing mark with the supplied SVG and derive the favicon from the same artwork.
   The source is preserved in [design/bonsai-mark.svg](design/bonsai-mark.svg). It contains transparent vector
   paths and renders correctly; use a theme-aware treatment so the black artwork remains visible on dark surfaces.
 
@@ -103,3 +103,44 @@ Technical validation: `npm test` passes, including real-Git root/multi-run compa
 file operations, quoted names, line numbers and repeated +/- content. All five browser scenarios pass using
 isolated temporary projects and the fake agent; the results scenario also exercises failed fetches, clipboard
 failure, aggregate changes after three modifying runs plus a question, and the expanded viewer.
+
+
+## Milestone 4 review
+
+Branch: `codex/milestone-4-dependable-runs`. Milestone 3 was merged and pushed before this branch started.
+
+- **Reading:** scroll up during a run, select text, switch experiments, and return. Each conversation keeps its
+  position for this app session. **Jump to latest** resumes following output. Refreshes keep loaded history;
+  failed updates label it as previously loaded and offer Retry. Individual run replies can be collapsed.
+- **Activity:** live tool calls stay in expandable chronological groups, preserving the reader's choice when
+  persisted history replaces streamed output. Agent activity and queued position remain visible by the composer.
+  Replies now render tables, nested lists and task lists; code blocks have Copy with success/failure feedback.
+- **Connection:** the top bar distinguishes local-server stream health from the agent model/credential. A transport
+  gap shows Reconnecting and keeps the last state visible. Reconnect reloads the tree, details and conversation;
+  it never submits a run. Initial connection/project failures offer Retry; old project responses cannot replace
+  a newly selected project. Stale node/history reads are aborted and read requests time out visibly.
+- **Stop:** cards and the panel cover working, queued and permission-waiting jobs. Their shared **Stopping…** state
+  lasts until server state confirms completion; a failure is shown beside the control. Stop all includes queued
+  and permission-waiting jobs, with affected experiments in its tooltip.
+- **Permission:** the active request replaces the ordinary composer. Its action and target are visible; recorded
+  input is expandable. Refusal text belongs to that question, and an answer from another window gets a specific
+  already-answered response. New permission inputs are stored in schema 11; old records retain their original text.
+- **Top bar and creation:** the supplied SVG is now the app mark and favicon. The project name is the project-menu
+  control; model, local-server health and Settings have distinct places. Test it at laptop widths. Creation shows
+  compact Conversation/Code source rows with timing/snapshot badges and optional details. Success criteria remain
+  visible and the optional testing instructions remain collapsed, as confirmed by the owner.
+
+Usage consolidation stays in milestone 5; app-wide text sizing and the remaining visual work stay in milestone 6.
+F10 freeze timing and F24 offline-auth policy are unchanged. A browser transport outage preserves already-open
+history; this does not change initial credential gating. Creation/start-failure recovery from milestone 2 remains
+covered by the browser suite.
+
+
+Validation: `npm test` passes (142 backend tests and 67 UI/shared tests), along with type checking, lint and
+format checks. All eight browser scenarios pass using temporary projects and the fake agent. These exercise
+reading restoration, failed history updates, missed events, Chromium offline/online reconnection, permission
+answers across windows, queued cancellation, Stop failures, startup Retry, and the narrow top bar. The final
+permission-card corrections were rechecked separately. No new dependencies were added.
+
+Restart the running app with `npm start` before reviewing so the backend and the built interface both use this
+milestone. Merge and push this branch after the owner's review.

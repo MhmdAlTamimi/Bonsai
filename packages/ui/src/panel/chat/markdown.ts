@@ -11,13 +11,7 @@
  * and can be tested without a bundler or a browser (see markdown.test.ts).
  * Markdown.tsx turns these blocks into elements.
  *
- * Deliberately small. Fenced code, headings, lists, quotes and four inline
- * forms cover almost everything an agent writes; tables, nested lists,
- * reference links and HTML do not appear often enough to justify either the
- * parser or a dependency (the project's rule is to ask before adding one).
- * Anything unrecognised falls through as text rather than disappearing, which
- * is the property that matters: an unsupported construct should look plain,
- * never empty.
+ * A safe subset for agent replies: no raw HTML or executable links.
  */
 
 export type Inline =
@@ -31,13 +25,17 @@ export type Block =
   | { kind: 'paragraph'; content: Inline[] }
   | { kind: 'heading'; level: 1 | 2 | 3; content: Inline[] }
   | { kind: 'code'; lang: string | null; text: string }
-  | { kind: 'list'; ordered: boolean; items: Inline[][] }
+  | {
+      kind: 'list';
+      ordered: boolean;
+      items: Array<{ content: Inline[]; children: Block[]; checked: boolean | null }>;
+    }
+  | { kind: 'table'; header: Inline[][]; rows: Inline[][][] }
   | { kind: 'quote'; content: Inline[] };
 
 const FENCE = /^\s*```\s*([\w+-]*)\s*$/;
 const HEADING = /^(#{1,3})\s+(.*)$/;
-const BULLET = /^\s{0,3}[-*+]\s+(.*)$/;
-const ORDERED = /^\s{0,3}\d{1,9}[.)]\s+(.*)$/;
+const LIST = /^( *)([-*+]|\d{1,9}[.)])\s+(.*)$/;
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
 
 export function parseMarkdown(source: string): Block[] {
@@ -106,20 +104,61 @@ export function parseMarkdown(source: string): Block[] {
       continue;
     }
 
-    const bullet = BULLET.exec(line);
-    const ordered = bullet === null ? ORDERED.exec(line) : null;
-    if (bullet !== null || ordered !== null) {
+    const list = LIST.exec(line);
+    if (list !== null) {
       flush();
-      const isOrdered = bullet === null;
-      const items: Inline[][] = [parseInline((bullet ?? ordered)![1]!)];
-      while (i + 1 < lines.length) {
-        const nextLine = lines[i + 1]!;
-        const next = isOrdered ? ORDERED.exec(nextLine) : BULLET.exec(nextLine);
-        if (next === null) break;
-        items.push(parseInline(next[1]!));
+      const indent = list[1]!.length;
+      const isOrdered = /^\d/.test(list[2]!);
+      const items: Extract<Block, { kind: 'list' }>['items'] = [];
+      while (i < lines.length) {
+        const item = LIST.exec(lines[i]!);
+        if (item?.[1]?.length !== indent || /^\d/.test(item[2]!) !== isOrdered) break;
+        const task = /^\[([ xX])\]\s+(.*)$/.exec(item[3]!);
+        const nested: string[] = [];
+        let next = i + 1;
+        const contentIndent = item[0].length - item[3]!.length;
+        while (
+          next < lines.length &&
+          lines[next]!.trim() !== '' &&
+          (/^ */.exec(lines[next]!)?.[0].length ?? 0) > indent
+        ) {
+          nested.push(
+            lines[next]!.slice(Math.min(contentIndent, /^ */.exec(lines[next]!)![0].length)),
+          );
+          next += 1;
+        }
+        items.push({
+          content: parseInline(task?.[2] ?? item[3]!),
+          checked: task ? task[1]!.toLowerCase() === 'x' : null,
+          children: parseMarkdown(nested.join('\n')),
+        });
+        i = next;
+      }
+      i -= 1;
+      blocks.push({ kind: 'list', ordered: isOrdered, items });
+      continue;
+    }
+
+    const divider = lines[i + 1];
+    if (
+      line.includes('|') &&
+      divider !== undefined &&
+      tableCells(divider).every((cell) => /^:?-{3,}:?$/.test(cell)) &&
+      tableCells(divider).length === tableCells(line).length
+    ) {
+      flush();
+      const header = tableCells(line).map(parseInline);
+      const rows: Inline[][][] = [];
+      i += 2;
+      while (i < lines.length && lines[i]!.includes('|') && lines[i]!.trim() !== '') {
+        const cells = tableCells(lines[i]!);
+        // Preserve extra cells instead of silently losing generated content.
+        if (cells.length > header.length) break;
+        rows.push(header.map((_, index) => parseInline(cells[index] ?? '')));
         i += 1;
       }
-      blocks.push({ kind: 'list', ordered: isOrdered, items });
+      i -= 1;
+      blocks.push({ kind: 'table', header, rows });
       continue;
     }
 
@@ -229,4 +268,30 @@ function coalesce(nodes: Inline[]): Inline[] {
 function safeHref(href: string): string | null {
   const trimmed = href.trim();
   return /^(https?:\/\/|mailto:)/i.test(trimmed) ? trimmed : null;
+}
+
+/** Pipes inside inline code and escaped pipes belong to their cell. */
+function tableCells(line: string): string[] {
+  const input = line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/(?<!\\)\|$/, '');
+  const cells: string[] = [];
+  let cell = '';
+  let code = false;
+  for (let i = 0; i < input.length; i += 1) {
+    const char = input[i]!;
+    if (char === '\\' && input[i + 1] === '|') {
+      cell += '|';
+      i += 1;
+    } else if (char === '`') {
+      code = !code;
+      cell += char;
+    } else if (char === '|' && !code) {
+      cells.push(cell.trim());
+      cell = '';
+    } else cell += char;
+  }
+  cells.push(cell.trim());
+  return cells;
 }

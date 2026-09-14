@@ -18,7 +18,11 @@ import type { Delta } from '../panel/chat/liveMerge.ts';
 export function useRunStream(
   projectId: string | null,
   onTreeChanged: () => void,
-): Record<string, Delta[]> {
+): {
+  streams: Record<string, Delta[]>;
+  health: 'connecting' | 'live' | 'reconnecting';
+  revision: number;
+} {
   // Live run output, keyed by node. Cleared when a run starts so a second run
   // does not read as a continuation of the first.
   const [streams, setStreams] = useState<Record<string, Delta[]>>({});
@@ -30,45 +34,70 @@ export function useRunStream(
    * the EventSource down and open a new one -- losing whatever was streaming
    * at that moment, several times a second while an agent is working.
    */
+  const [health, setHealth] = useState<'connecting' | 'live' | 'reconnecting'>('connecting');
+  const [revision, setRevision] = useState(0);
   const notify = useRef(onTreeChanged);
   notify.current = onTreeChanged;
 
   useEffect(() => {
+    setStreams({});
+    setHealth('connecting');
     if (projectId === null) return;
     const append = (nodeId: string, delta: Delta): void => {
-      setStreams((prev) => ({ ...prev, [nodeId]: [...(prev[nodeId] ?? []), delta] }));
+      setStreams((prev) => {
+        const existing = prev[nodeId] ?? [];
+        if (delta.seq > 0 && existing.some((d) => d.runId === delta.runId && d.seq === delta.seq))
+          return prev;
+        return { ...prev, [nodeId]: [...existing, delta] };
+      });
     };
 
-    return subscribe(projectId, (event) => {
-      switch (event.type) {
-        case 'run.started':
-          setStreams((prev) => ({ ...prev, [event.nodeId]: [] }));
-          break;
-        case 'run.delta':
-          append(event.nodeId, { runId: event.runId, seq: event.seq, text: event.text });
-          break;
-        case 'run.error':
-          // seq 0 marks output that is published but never persisted, so the
-          // transcript keeps showing it rather than waiting for a row that is
-          // not coming.
-          append(event.nodeId, { runId: event.runId, seq: 0, text: event.error });
+    return subscribe(
+      projectId,
+      (event) => {
+        switch (event.type) {
+          case 'run.started':
+            setStreams((prev) => ({ ...prev, [event.nodeId]: [] }));
+            break;
+          case 'run.delta':
+            append(event.nodeId, {
+              runId: event.runId,
+              seq: event.seq,
+              text: event.text,
+              ...(event.tool ? { tool: event.tool } : {}),
+            });
+            break;
+          case 'run.error':
+            // seq 0 marks output that is published but never persisted, so the
+            // transcript keeps showing it rather than waiting for a row that is
+            // not coming.
+            append(event.nodeId, { runId: event.runId, seq: 0, text: event.error });
+            notify.current();
+            break;
+          // run.question is here rather than in a case of its own because the
+          // tree already carries the question (NodeView.pendingQuestion) -- this
+          // only has to say "look again". It has to say it promptly, though: the
+          // agent is stopped until someone answers.
+          case 'tree.updated':
+          case 'node.status':
+          case 'run.question':
+          case 'run.finished':
+            setRevision((n) => n + 1);
+            notify.current();
+            break;
+          default:
+            break;
+        }
+      },
+      (state) => {
+        setHealth(state);
+        if (state === 'live') {
+          setRevision((n) => n + 1);
           notify.current();
-          break;
-        // run.question is here rather than in a case of its own because the
-        // tree already carries the question (NodeView.pendingQuestion) -- this
-        // only has to say "look again". It has to say it promptly, though: the
-        // agent is stopped until someone answers.
-        case 'tree.updated':
-        case 'node.status':
-        case 'run.question':
-        case 'run.finished':
-          notify.current();
-          break;
-        default:
-          break;
-      }
-    });
+        }
+      },
+    );
   }, [projectId]);
 
-  return streams;
+  return { streams, health, revision };
 }

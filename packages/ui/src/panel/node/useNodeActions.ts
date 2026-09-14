@@ -24,7 +24,6 @@ export function useNodeActions(
   busy: boolean;
   recover: (action: RecoverAction) => Promise<void>;
   remove: () => Promise<void>;
-  cancel: () => Promise<void>;
   /** Render this in the panel; null unless something is being confirmed. */
   confirmDialog: JSX.Element | null;
 } {
@@ -98,22 +97,5 @@ export function useNodeActions(
     }
   };
 
-  /**
-   * Stop the node, not a run.
-   *
-   * This used to hunt for the running run inside `detail` and return silently
-   * when it had not arrived yet -- so pressing stop early did nothing at all,
-   * with no error, while the agent kept spending. Cancelling by node id needs
-   * nothing fetched, so there is no window in which the button is a no-op.
-   */
-  const cancel = async (): Promise<void> => {
-    try {
-      await api.cancelNode(node.id);
-      onChanged();
-    } catch (e) {
-      setError(describeError(e));
-    }
-  };
-
-  return { busy, recover, remove, cancel, confirmDialog: confirm.dialog };
+  return { busy, recover, remove, confirmDialog: confirm.dialog };
 }

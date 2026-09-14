@@ -225,7 +225,11 @@ export interface NodeView {
   /** Rendering hint only. Deliberately not part of the `writable` derivation. */
   isLeaf: boolean;
   hasCommits: boolean;
-  pendingQuestion: { id: string; text: string } | null;
+  pendingQuestion: {
+    id: string;
+    text: string;
+    request?: { action: string; target: string; details: string };
+  } | null;
   positionX: number | null;
   positionY: number | null;
   /**
@@ -522,7 +526,14 @@ export type ServerEvent =
   | { type: 'tree.updated'; projectId: string }
   | { type: 'node.status'; nodeId: string; status: NodeStatus }
   | { type: 'run.started'; nodeId: string; runId: string }
-  | { type: 'run.delta'; nodeId: string; runId: string; seq: number; text: string }
+  | {
+      type: 'run.delta';
+      nodeId: string;
+      runId: string;
+      seq: number;
+      text: string;
+      tool?: { name: string; detail: string };
+    }
   | { type: 'run.question'; nodeId: string; runId: string; questionId: string; text: string }
   | {
       type: 'run.finished';

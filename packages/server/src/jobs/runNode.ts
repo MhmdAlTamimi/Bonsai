@@ -578,6 +578,7 @@ export class RunJobs {
               runId,
               seq,
               text: `${event.name}: ${event.detail}`,
+              tool: { name: event.name, detail: event.detail },
             });
             break;
           case 'model':
@@ -785,13 +786,23 @@ export class RunJobs {
 
     const questionId = randomUUID();
     const text = questionText(request);
-    this.store.askQuestion({ id: questionId, runId, nodeId: node.id, text });
+    this.store.askQuestion({
+      id: questionId,
+      runId,
+      nodeId: node.id,
+      text,
+      request: {
+        action: request.toolName,
+        target: request.detail,
+        details: request.details ?? request.detail,
+      },
+    });
     this.store.appendMessage({
       nodeId: node.id,
       runId,
       role: 'system',
       kind: 'text',
-      content: text,
+      content: request.details ? `${text}\n\n${request.details}` : text,
     });
     this.log.info('run.asked', {
       runId,

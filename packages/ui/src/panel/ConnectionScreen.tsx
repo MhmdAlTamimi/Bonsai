@@ -1,6 +1,7 @@
 import { type JSX, useState } from 'react';
 import type { ConnectionStatus, SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
 
 /**
@@ -23,12 +24,16 @@ export function ConnectionScreen({
 }): JSX.Element {
   const [busy, setBusy] = useState<null | 'check' | 'login' | 'key'>(null);
   const [apiKey, setApiKey] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [loginOutput, setLoginOutput] = useState<string | null>(null);
 
   const act = async (kind: 'check' | 'login' | 'key', fn: () => Promise<void>): Promise<void> => {
     setBusy(kind);
+    setError(null);
     try {
       await fn();
+    } catch (e) {
+      setError(describeError(e));
     } finally {
       setBusy(null);
     }
@@ -40,6 +45,11 @@ export function ConnectionScreen({
         <Logo size={26} /> Connect Bonsai to Claude
       </h1>
       <Explanation status={status} />
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       <section>
         <h2>Sign in with the Claude CLI</h2>

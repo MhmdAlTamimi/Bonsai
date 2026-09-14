@@ -39,6 +39,7 @@ export interface Delta {
   /** 1-based within its run; 0 for output that is never persisted. */
   seq: number;
   text: string;
+  tool?: { name: string; detail: string };
 }
 
 /** The fields of a persisted message this needs, and no more. */
