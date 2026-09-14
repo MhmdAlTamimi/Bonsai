@@ -4,15 +4,7 @@ import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
 
-/**
- * Shown instead of the app whenever Bonsai cannot reach Claude.
- *
- * It blocks rather than degrading. Bonsai used to fall back to a stand-in
- * agent that wrote placeholder files, which was fine for someone reviewing the
- * code and actively misleading for someone using it: the app looked like it
- * worked and quietly did something else. There is no way to get past this
- * screen except by fixing the connection.
- */
+/** Connection setup for first use and creating projects. Saved history remains accessible. */
 export function ConnectionScreen({
   status,
   settings,
@@ -55,6 +47,10 @@ export function ConnectionScreen({
         <h2>Sign in with the Claude CLI</h2>
         <p className="muted">
           Uses your Claude subscription. Bonsai never sees or stores the credential.
+        </p>
+        <p className="hint">
+          Sign-in may open a browser or require a terminal. You can run{' '}
+          <code>claude auth login --claudeai</code> in a terminal, then choose Recheck.
         </p>
         <div className="row">
           <button

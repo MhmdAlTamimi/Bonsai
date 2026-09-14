@@ -1,6 +1,8 @@
+import { useCanRun } from '../state/RunAvailability.ts';
 import { type JSX, useEffect, useRef, useState } from 'react';
 import { useEscape } from '../useEscape.ts';
 import type { ChildPreviewView } from '@bonsai/shared';
+import { NextRunInfo } from '../panel/NextRunInfo.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 
@@ -28,6 +30,7 @@ export function NewChildDialog({
   const [name, setName] = useState('');
   const [successCriteria, setSuccessCriteria] = useState('');
   const [verificationHint, setVerificationHint] = useState('');
+  const canRun = useCanRun();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChildPreviewView | null>(null);
@@ -61,7 +64,13 @@ export function NewChildDialog({
   useEscape(cancel);
 
   const submit = async (): Promise<void> => {
-    if (submitting.current || name.trim() === '' || description.trim() === '' || preview === null)
+    if (
+      !canRun ||
+      submitting.current ||
+      name.trim() === '' ||
+      description.trim() === '' ||
+      preview === null
+    )
       return;
     submitting.current = true;
     setBusy(true);
@@ -190,6 +199,16 @@ export function NewChildDialog({
           )}
         </section>
 
+        {preview?.nextRunSettings && <NextRunInfo value={preview.nextRunSettings} />}
+        {preview?.setup && (preview.setup.copyFiles.length > 0 || preview.setup.setupCommand) && (
+          <details className="creation-setup">
+            <summary>Experiment setup</summary>
+            {preview.setup.copyFiles.length > 0 && (
+              <p>Copy: {preview.setup.copyFiles.join(', ')}</p>
+            )}
+            {preview.setup.setupCommand && <pre>{preview.setup.setupCommand}</pre>}
+          </details>
+        )}
         <details className="disclosure">
           <summary>How should the agent check it? (optional)</summary>
           <label className="stacked">
@@ -218,9 +237,11 @@ export function NewChildDialog({
           <button
             className="primary"
             onClick={() => void submit()}
-            disabled={busy || name.trim() === '' || description.trim() === '' || preview === null}
+            disabled={
+              !canRun || busy || name.trim() === '' || description.trim() === '' || preview === null
+            }
           >
-            {busy ? 'Creating…' : 'Create and run'}
+            {busy ? 'Creating…' : canRun ? 'Create and run' : 'Reconnect agent to create'}
           </button>
         </div>
       </div>

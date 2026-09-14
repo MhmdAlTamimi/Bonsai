@@ -1,3 +1,4 @@
+import { useCanRun } from '../../state/RunAvailability.ts';
 import type { JSX } from 'react';
 import type { NodeDetail, RecoverAction, RunView } from '@bonsai/shared';
 
@@ -19,6 +20,7 @@ export function Recover({
   busy: boolean;
   onRecover: (action: RecoverAction) => void;
 }): JSX.Element {
+  const canRun = useCanRun();
   return (
     <div className="recover">
       <p className="error">
@@ -53,7 +55,7 @@ export function Recover({
           </details>
         ))}
       <div className="row">
-        <button className="primary" disabled={busy} onClick={() => onRecover('resume')}>
+        <button className="primary" disabled={busy || !canRun} onClick={() => onRecover('resume')}>
           Resume run
         </button>
         {/* Not offered for the user's own folder: discard is a hard reset plus

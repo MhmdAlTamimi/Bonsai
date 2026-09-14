@@ -69,7 +69,6 @@ export function Details({
             </div>
           </>
         )}
-        <Cost node={node} runs={runs} />
         {/* Last, and monospace: nobody reads this until they are reporting a
             problem, and then it is the first thing asked for. */}
         <div>
@@ -86,61 +85,5 @@ export function Details({
         </>
       )}
     </details>
-  );
-}
-
-function Cost({
-  node,
-  runs,
-}: {
-  node: NodeView;
-  runs: ReadonlyArray<{
-    costUsd: number;
-    model: string | null;
-    apiKeySource: string | null;
-    inputTokens: number;
-    outputTokens: number;
-    cacheReadTokens: number;
-  }>;
-}): JSX.Element {
-  const model = runs
-    .map((r) => r.model)
-    .filter((m): m is string => m !== null)
-    .at(-1);
-  // 'none' is a claude.ai subscription login: nothing is charged per token.
-  const subscription = runs.some((r) => r.apiKeySource === 'none');
-  const input = runs.reduce((n, r) => n + r.inputTokens, 0);
-  const output = runs.reduce((n, r) => n + r.outputTokens, 0);
-  const cacheRead = runs.reduce((n, r) => n + r.cacheReadTokens, 0);
-
-  return (
-    <>
-      <div>
-        <dt>{subscription ? 'tokens ≈' : 'est. cost'}</dt>
-        <dd title="Computed by the SDK from token counts and list prices. Not a bill.">
-          {node.costUsd > 0 ? `$${node.costUsd.toFixed(4)}` : '—'}
-          {subscription && node.costUsd > 0 && (
-            <span className="hint"> API-equivalent; your subscription is billed monthly.</span>
-          )}
-        </dd>
-      </div>
-      {model !== undefined && (
-        <div>
-          <dt>model</dt>
-          <dd>
-            <code>{model}</code>
-          </dd>
-        </div>
-      )}
-      {(input > 0 || output > 0) && (
-        <div>
-          <dt>tokens</dt>
-          <dd title="Cached input is replayed ancestor conversation, and costs a fraction of fresh input.">
-            {input.toLocaleString()} in · {output.toLocaleString()} out
-            {cacheRead > 0 && <> · {cacheRead.toLocaleString()} cached</>}
-          </dd>
-        </div>
-      )}
-    </>
   );
 }

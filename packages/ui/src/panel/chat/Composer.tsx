@@ -1,4 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
+import { useCanRun } from '../../state/RunAvailability.ts';
 import type { NodeView } from '@bonsai/shared';
 
 /** One submission surface, with a compact question entry for read-only experiments. */
@@ -20,6 +21,7 @@ export function Composer({
   onChange: (value: string) => void;
   onSend: () => void;
 }): JSX.Element {
+  const canRun = useCanRun();
   const initial = node.status === 'new';
   const frozen = !node.writable;
   const [open, setOpen] = useState(!frozen);
@@ -62,7 +64,7 @@ export function Composer({
           // Enter sends; Shift+Enter is a newline, as in any chat box.
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
-            onSend();
+            if (canRun && !busy && !sending && value.trim()) onSend();
           }
         }}
         placeholder={initial ? 'Describe what the first run should do…' : placeholder(node, busy)}
@@ -75,12 +77,14 @@ export function Composer({
             ? node.frozenReason === 'your_folder'
               ? 'Read only — questions only'
               : 'Frozen — questions only'
-            : 'Enter to send'}
+            : canRun
+              ? 'Enter to send'
+              : 'Reconnect the agent to send'}
         </span>
         <button
           className={emphasised ? 'primary' : ''}
           onClick={onSend}
-          disabled={busy || sending || value.trim() === ''}
+          disabled={!canRun || busy || sending || value.trim() === ''}
         >
           {sending ? (initial ? 'Starting…' : 'Sending…') : initial ? 'Start first run' : 'Send'}
         </button>

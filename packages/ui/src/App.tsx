@@ -2,6 +2,7 @@ import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
 
+import { RunAvailability } from './state/RunAvailability.ts';
 import { api } from './api/client.ts';
 import { describeError } from './api/describeError.ts';
 import { useSelection } from './state/selection.ts';
@@ -15,6 +16,7 @@ import { Panel } from './panel/Panel.tsx';
 import { StartScreen } from './panel/StartScreen.tsx';
 import { NewChildDialog } from './canvas/NewChildDialog.tsx';
 import { MenuBar } from './canvas/MenuBar.tsx';
+import { UsageDialog } from './panel/UsageDialog.tsx';
 import { SettingsDialog } from './panel/SettingsDialog.tsx';
 import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
 import { PanelResizer } from './PanelResizer.tsx';
@@ -54,6 +56,9 @@ export function App(): JSX.Element {
   const selection = useSelection();
   useAddressBar({ projectId, nodeId: selection.primary });
   const live = useRunStream(projectId, projectTree.refresh);
+  useEffect(() => {
+    reload();
+  }, [live.revision, reload]);
   const child = useChildCreation({
     projectId,
     onCreated: selection.select,
@@ -62,6 +67,16 @@ export function App(): JSX.Element {
   });
 
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'app' | 'project'>('app');
+  const [showUsage, setShowUsage] = useState(false);
+  const openProjectSettings = (): void => {
+    setSettingsTab('project');
+    setShowSettings(true);
+  };
+  const settingsChanged = (): void => {
+    reload();
+    projectTree.refresh();
+  };
   /** Set when the user asked for the start screen, and which half of it. */
   const [startMode, setStartMode] = useState<'new' | 'existing' | null>(null);
 
@@ -82,7 +97,7 @@ export function App(): JSX.Element {
 
   const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
 
-  if (connection.state === 'unknown')
+  if (connection.state === 'unknown' && projects.length === 0)
     return (
       <div className="app single">
         <div className="connect" role="status">
@@ -91,11 +106,13 @@ export function App(): JSX.Element {
         </div>
       </div>
     );
-  // Authentication policy remains unchanged; transport health is separate.
-  if (connection.state !== 'connected') {
+  if (connection.state !== 'connected' && (noProjects || startMode !== null)) {
     return (
       <div className="app single">
         <ConnectionScreen status={connection} settings={settings} onChanged={reload} />
+        {!noProjects && (
+          <button onClick={() => setStartMode(null)}>Back to saved experiments</button>
+        )}
       </div>
     );
   }
@@ -115,126 +132,160 @@ export function App(): JSX.Element {
   }
 
   return (
-    <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
-      <div className="app">
-        <div className="canvas">
-          <MenuBar
-            project={tree?.project ?? null}
-            projects={projects}
-            settings={settings}
-            connection={connection}
-            health={live.health}
-            onError={report}
-            onOpenProject={(id) => {
-              selection.clear();
-              projectTree.open(id);
-            }}
-            onStart={(mode) => setStartMode(mode)}
-            onOpenSettings={() => setShowSettings(true)}
-            onDeleteProject={() =>
-              void projectTree.deleteCurrent().catch((e: unknown) => report(describeError(e)))
-            }
-          />
-          {error !== null && (
-            <div className="banner" role="alert">
-              {error} <button onClick={() => setError(null)}>Dismiss</button>
-            </div>
-          )}
-          {connectionError !== null && (
-            <div className="banner" role="alert">
-              {connectionError} <button onClick={reload}>Retry connection</button>
-            </div>
-          )}
-          {live.health === 'reconnecting' && (
-            <div className="transport-notice" role="status">
-              Reconnecting to Bonsai… Showing last received state.
-            </div>
-          )}
-          {projectTree.error !== null ? (
-            <div className="tree-notice" role="alert">
-              {tree !== null && 'Project updates unavailable. '}
-              {projectTree.error} <button onClick={projectTree.retry}>Retry project</button>
-            </div>
-          ) : projectTree.loading && tree === null ? (
-            <div className="tree-notice" role="status">
-              Loading project…
-            </div>
-          ) : null}
-          <StopAll nodes={tree?.nodes ?? []} />
+    <RunAvailability.Provider value={connection.state === 'connected'}>
+      <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
+        <div className="app">
+          <div className="canvas">
+            <MenuBar
+              project={tree?.project ?? null}
+              projects={projects}
+              settings={settings}
+              connection={connection}
+              health={live.health}
+              onError={report}
+              onOpenProject={(id) => {
+                selection.clear();
+                projectTree.open(id);
+              }}
+              onStart={(mode) => setStartMode(mode)}
+              onOpenSettings={() => {
+                setSettingsTab('app');
+                setShowSettings(true);
+              }}
+              onOpenUsage={() => setShowUsage(true)}
+              onDeleteProject={() =>
+                void projectTree.deleteCurrent().catch((e: unknown) => report(describeError(e)))
+              }
+            />
+            {connection.state !== 'connected' && (
+              <div className="transport-notice" role="status">
+                Agent unavailable · Saved experiments are available.{' '}
+                <button
+                  onClick={() => {
+                    setSettingsTab('app');
+                    setShowSettings(true);
+                  }}
+                >
+                  Reconnect agent
+                </button>
+              </div>
+            )}
+            {error !== null && (
+              <div className="banner" role="alert">
+                {error} <button onClick={() => setError(null)}>Dismiss</button>
+              </div>
+            )}
+            {connectionError !== null && (
+              <div className="banner" role="alert">
+                {connectionError} <button onClick={reload}>Retry connection</button>
+              </div>
+            )}
+            {live.health === 'reconnecting' && (
+              <div className="transport-notice" role="status">
+                Reconnecting to Bonsai… Showing last received state.
+              </div>
+            )}
+            {projectTree.error !== null ? (
+              <div className="tree-notice" role="alert">
+                {tree !== null && 'Project updates unavailable. '}
+                {projectTree.error} <button onClick={projectTree.retry}>Retry project</button>
+              </div>
+            ) : projectTree.loading && tree === null ? (
+              <div className="tree-notice" role="status">
+                Loading project…
+              </div>
+            ) : null}
+            <StopAll nodes={tree?.nodes ?? []} />
 
-          <Canvas
-            nodes={tree?.nodes ?? []}
-            selectedId={selection.primary}
-            onSelect={selection.select}
-            onToggleSelect={selection.toggle}
-            onMoved={(nodeId, position) => {
+            <Canvas
+              nodes={tree?.nodes ?? []}
+              selectedId={selection.primary}
+              onSelect={selection.select}
+              onToggleSelect={selection.toggle}
+              onMoved={(nodeId, position) => {
+                void api
+                  .updateNode(nodeId, { positionX: position.x, positionY: position.y })
+                  .catch((e: unknown) => report(describeError(e)));
+              }}
+              onDropOnPane={child.begin}
+            />
+          </div>
+
+          {showSettings && settings !== null && (
+            <SettingsDialog
+              initialTab={settingsTab}
+              settings={settings}
+              connection={connection}
+              project={tree?.project ?? null}
+              selectedNodeId={selection.primary}
+              onClose={() => setShowSettings(false)}
+              onChanged={settingsChanged}
+            />
+          )}
+
+          {showUsage && tree !== null && (
+            <UsageDialog
+              key={projectId}
+              projectId={tree.project.id}
+              projectName={tree.project.name}
+              revision={live.revision}
+              onClose={() => setShowUsage(false)}
+              onSelect={selection.select}
+            />
+          )}
+
+          {child.pending !== null && (
+            <NewChildDialog
+              parentName={child.pending.parentName}
+              parentId={child.pending.parentId}
+              onSelectSource={selection.select}
+              onCancel={child.cancel}
+              onCreate={child.create}
+            />
+          )}
+
+          <PanelResizer
+            width={settings?.panelWidth ?? PANEL_WIDTH.default}
+            min={PANEL_WIDTH.min}
+            max={PANEL_WIDTH.max}
+            onCommit={(panelWidth) => {
+              // Fire and forget: the width is already applied to the CSS variable,
+              // so a failed save costs this session nothing and the next one a
+              // default. Not worth a banner.
               void api
-                .updateNode(nodeId, { positionX: position.x, positionY: position.y })
-                .catch((e: unknown) => report(describeError(e)));
+                .updateSettings({ panelWidth })
+                .then(setSettings)
+                .catch(() => undefined);
             }}
-            onDropOnPane={child.begin}
           />
-        </div>
 
-        {showSettings && settings !== null && (
-          <SettingsDialog
-            settings={settings}
-            connection={connection}
+          <Panel
             project={tree?.project ?? null}
-            selectedNodeId={selection.primary}
-            onClose={() => setShowSettings(false)}
-            onChanged={reload}
-          />
-        )}
-
-        {child.pending !== null && (
-          <NewChildDialog
-            parentName={child.pending.parentName}
-            parentId={child.pending.parentId}
-            onSelectSource={selection.select}
-            onCancel={child.cancel}
-            onCreate={child.create}
-          />
-        )}
-
-        <PanelResizer
-          width={settings?.panelWidth ?? PANEL_WIDTH.default}
-          min={PANEL_WIDTH.min}
-          max={PANEL_WIDTH.max}
-          onCommit={(panelWidth) => {
-            // Fire and forget: the width is already applied to the CSS variable,
-            // so a failed save costs this session nothing and the next one a
-            // default. Not worth a banner.
-            void api
-              .updateSettings({ panelWidth })
-              .then(setSettings)
-              .catch(() => undefined);
-          }}
-        />
-
-        <Panel
-          project={tree?.project ?? null}
-          node={selected}
-          startError={
-            child.failedStart?.nodeId === selected?.id ? (child.failedStart?.message ?? null) : null
-          }
-          onRunStarted={() => {
-            if (selected !== null) child.clearStartError(selected.id);
-          }}
-          stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
-          streamRevision={live.revision}
-          onChanged={projectTree.refresh}
-          /* The panel does not own a second, weaker version of this form any
+            node={selected}
+            startError={
+              child.failedStart?.nodeId === selected?.id
+                ? (child.failedStart?.message ?? null)
+                : null
+            }
+            onRunStarted={() => {
+              if (selected !== null) child.clearStartError(selected.id);
+            }}
+            stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
+            streamRevision={live.revision}
+            onProjectSettings={openProjectSettings}
+            onChanged={projectTree.refresh}
+            /* The panel does not own a second, weaker version of this form any
            more -- it opens the one dialog, with no position, and dagre places
            the node. */
-          onCreateChild={(parent) =>
-            child.begin({ parentId: parent.id, parentName: parent.displayName, position: null })
-          }
-        />
+            onCreateChild={(parent) =>
+              child.begin({ parentId: parent.id, parentName: parent.displayName, position: null })
+            }
+          />
 
-        {confirm.dialog}
-      </div>
-    </RunControls>
+          {confirm.dialog}
+        </div>
+      </RunControls>
+    </RunAvailability.Provider>
   );
 }
 

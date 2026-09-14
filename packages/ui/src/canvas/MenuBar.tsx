@@ -21,6 +21,7 @@ export function MenuBar({
   onOpenProject,
   onStart,
   onOpenSettings,
+  onOpenUsage,
   onDeleteProject,
 }: {
   project: ProjectView | null;
@@ -33,6 +34,7 @@ export function MenuBar({
   /** Opens the start screen on one of its two halves. */
   onStart: (mode: 'new' | 'existing') => void;
   onOpenSettings: () => void;
+  onOpenUsage: () => void;
   onDeleteProject: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState<null | 'project'>(null);
@@ -200,6 +202,9 @@ export function MenuBar({
       </div>
 
       <span className="menubar-spacer" />
+      <button className="menu-title usage-button" disabled={project === null} onClick={onOpenUsage}>
+        Usage
+      </button>
       <span
         className={`server-health health-${health}`}
         role="status"
@@ -234,14 +239,6 @@ export function MenuBar({
           <circle cx="12" cy="12" r="3" />
         </svg>
       </button>
-      {project !== null && project.costUsd > 0 && (
-        <span
-          className="menubar-cost"
-          title="Estimated from token counts at list prices, across every run in this project. Not a bill."
-        >
-          ~${project.costUsd.toFixed(3)}
-        </span>
-      )}
     </div>
   );
 }
