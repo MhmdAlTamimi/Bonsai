@@ -271,8 +271,7 @@ export async function createChildNode(
  * For a created project that is where the bare repo lives, read off the repo
  * path itself so it stays right even if the repositories root is later moved.
  * For an adopted one the repo path is the USER'S folder, so it says nothing
- * about where Bonsai put the node worktrees and the configured root is the only
- * thing that can answer -- with a paranoid check that the answer is not, by
+ * about where Bonsai put the node worktrees; the project's pinned scratch path answers -- with a paranoid check that the answer is not, by
  * some misconfiguration, inside the user's directory after all.
  */
 function bonsaiDirectoryFor(store: Store, project: ProjectRow): string | null {
@@ -424,6 +423,7 @@ export function projectDeletionImpact(
   costUsd: number;
   commits: number;
   removesDirectory: string | null;
+  removesDirectories: string[];
   keepsDirectory: string | null;
   branches: number;
 } | null {
@@ -443,6 +443,16 @@ export function projectDeletionImpact(
       : project.source_path !== null && !isInside(internal, project.source_path)
         ? project.source_path
         : internal,
+    removesDirectories: adopted
+      ? bonsaiDirectoryFor(store, project) === null
+        ? []
+        : [internal]
+      : [
+          internal,
+          ...(project.source_path !== null && !isInside(internal, project.source_path)
+            ? [project.source_path]
+            : []),
+        ],
     keepsDirectory: adopted ? project.source_path : null,
     branches: adopted ? nodes.filter((n) => ownsBranch(project, n.branch_name)).length : 0,
   };

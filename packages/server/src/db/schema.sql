@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS project (
   description             TEXT NOT NULL DEFAULT '',
   -- D14e: repo path is config, never hardcoded.
   repo_path               TEXT NOT NULL,
+  -- Pinned per project so changing future storage never relocates existing work.
+  scratch_path            TEXT,
   default_model           TEXT,
   -- Non-interactive until the ask-user mechanism lands: with no needs_you
   -- there is nobody to answer a permission prompt, and a run would stall with

@@ -20,10 +20,10 @@ import { FileLogger } from './log.js';
 const config = loadConfig();
 const log = new FileLogger(config.dataDir);
 const db = openDatabase(config.dataDir);
-const store = new Store(db, config.reposRoot);
+const settings = new Settings(config);
+const store = new Store(db, config.reposRoot, () => settings.reposRoot());
 const bus = new EventBus();
 
-const settings = new Settings(config);
 // Declared before the gate because the gate needs to know: a stand-in run has
 // no credential to check, and probing for one on a machine without the CLI
 // would block the app behind a connection screen for no reason.
@@ -50,6 +50,7 @@ const jobs = new RunJobs(
   useStandIn ? new FakeRunner() : new ClaudeSdkRunner(),
   settings,
   log,
+  connection,
 );
 if (useStandIn) {
   process.stdout.write('[bonsai] agent: STAND-IN (BONSAI_FAKE_AGENT=1) — output is fake\n');

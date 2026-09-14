@@ -48,6 +48,7 @@ export interface ProjectRow {
   name: string;
   description: string;
   repo_path: string;
+  scratch_path: string | null;
   default_model: string | null;
   default_permission_mode: PermissionMode;
   default_effort: string | null;
@@ -85,7 +86,41 @@ export class Store {
   constructor(
     private readonly db: DatabaseSync,
     private readonly reposRoot: string,
-  ) {}
+    private readonly futureReposRoot?: () => string,
+  ) {
+    // Old projects used the configured root. Pin that location before accepting a
+    // new preference; created projects already carry their actual repository path.
+    for (const project of this.listProjects()) {
+      if (project.scratch_path !== null) continue;
+      const scratch =
+        project.source_kind === 'created'
+          ? dirname(project.repo_path)
+          : join(reposRoot, project.id);
+      this.db.prepare('UPDATE project SET scratch_path = ? WHERE id = ?').run(scratch, project.id);
+    }
+  }
+
+  /** Apply one settings form as one durable change. No async work inside. */
+  saveProjectConfiguration(
+    id: string,
+    patch: {
+      model?: string | null;
+      effort?: string | null;
+      permissionMode?: PermissionMode;
+      copyFiles?: readonly string[];
+      setupCommand?: string | null;
+    },
+  ): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.updateProjectSettings(id, patch);
+      this.updateProjectSetup(id, patch);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
 
   // -- projects ------------------------------------------------------------
 
@@ -99,20 +134,20 @@ export class Store {
     adopt?: { repoPath: string; sourcePath: string; protectedBranch: string };
   }): ProjectRow {
     const id = randomUUID();
+    const scratch = join(this.futureReposRoot?.() ?? this.reposRoot, id);
     const row: ProjectRow = {
       id,
       name: input.name,
       description: input.description,
-      repo_path: input.adopt?.repoPath ?? join(this.reposRoot, id, 'repo.git'),
+      repo_path: input.adopt?.repoPath ?? join(scratch, 'repo.git'),
+      scratch_path: scratch,
       default_model: input.model,
       default_permission_mode: input.permissionMode,
       default_effort: input.effort ?? null,
       source_kind: input.adopt === undefined ? 'created' : 'adopted',
       source_path: input.adopt?.sourcePath ?? null,
       protected_branch: input.adopt?.protectedBranch ?? null,
-      // `.env` by default because it is the file whose absence breaks a node
-      // most often and most confusingly: the app simply will not start.
-      copy_files: JSON.stringify(['.env']),
+      copy_files: JSON.stringify([]),
       setup_command: null,
       created_at: now(),
     };
@@ -121,8 +156,8 @@ export class Store {
         `INSERT INTO project (id, name, description, repo_path, default_model,
                               default_permission_mode, default_effort, source_kind,
                               source_path, protected_branch, copy_files, setup_command,
-                              created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              created_at, scratch_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -138,6 +173,7 @@ export class Store {
         row.copy_files,
         row.setup_command,
         row.created_at,
+        row.scratch_path,
       );
     return row;
   }
@@ -159,7 +195,7 @@ export class Store {
    * the user's -- which is why deletion can remove it without asking.
    */
   projectScratchDir(projectId: string): string {
-    return join(this.reposRoot, projectId);
+    return this.getProject(projectId)?.scratch_path ?? join(this.reposRoot, projectId);
   }
 
   /**
@@ -198,8 +234,12 @@ export class Store {
    *  node edit -- D3 constrains nodes, not settings. */
   updateProjectSettings(
     id: string,
-    patch: { model?: string | null; effort?: string | null },
+    patch: { model?: string | null; effort?: string | null; permissionMode?: PermissionMode },
   ): void {
+    if (patch.permissionMode !== undefined)
+      this.db
+        .prepare('UPDATE project SET default_permission_mode = ? WHERE id = ?')
+        .run(patch.permissionMode, id);
     if (patch.model !== undefined) {
       this.db.prepare(`UPDATE project SET default_model = ? WHERE id = ?`).run(patch.model, id);
     }
@@ -279,7 +319,8 @@ export class Store {
       branch_name: branchName,
       base_commit: baseCommit,
       head_commit: headCommit,
-      worktree_path: input.worktreePath ?? join(this.reposRoot, input.projectId, 'worktrees', id),
+      worktree_path:
+        input.worktreePath ?? join(this.projectScratchDir(input.projectId), 'worktrees', id),
       status: 'new',
       model: input.model ?? null,
       permission_mode: input.permissionMode ?? null,
