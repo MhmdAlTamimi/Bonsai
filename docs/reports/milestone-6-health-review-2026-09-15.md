@@ -220,6 +220,20 @@ browser suite:
   the panel closed the floating button covered the control bar instead of
   sitting in the top bar. The floating rule is scoped to a min-width query now.
 
+- **"Could not open this folder" for a folder that had opened.** Reported by the
+  owner against a real project. `revealInFileManager` ran the platform opener
+  through `execFile` with a ten-second timeout and treated any non-zero result
+  as failure — but a file manager exits when the user closes its window, not
+  when it has finished opening one. On a desktop where `xdg-open` execs the
+  manager rather than forking away from it (GNOME Files under Hyprland, which
+  is where this was found), the call sat there until the timeout killed it and
+  Bonsai reported a failure ten seconds after the folder appeared on screen.
+  Reproduced on the reporting machine, fixed by launching detached and
+  reporting only what is knowable quickly, and verified end to end: 803ms and
+  a resolve, where it was 10,006ms and a reject. The generic message also threw
+  away the reason, which is why the diagnostics report showed nothing but
+  `status: 500` — failures now carry their cause and the path.
+
 One more was found and left alone deliberately: the stylesheet has accumulated a
 per-milestone appended block since milestone 3, each overriding rules defined
 earlier in the file. Type is no longer part of that problem — every size is a
