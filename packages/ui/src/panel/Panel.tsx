@@ -33,6 +33,8 @@ export function Panel({
   onCreateChild,
   startError,
   onRunStarted,
+  visible,
+  narrow,
 }: {
   /** Needed only to explain why an adopted project's master cannot be written. */
   project: ProjectView | null;
@@ -46,12 +48,21 @@ export function Panel({
   onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
+  /**
+   * Whether the panel is on screen. It stays MOUNTED when it is not, so drafts
+   * and loaded history survive -- but a hidden element has no layout box, and a
+   * scroll position does not survive losing one. The reading position needs to
+   * know to restore itself when the panel comes back.
+   */
+  visible: boolean;
+  /** On a narrow window this is the whole screen, so closing it means "show the map". */
+  narrow: boolean;
 }): JSX.Element {
   if (node === null) {
     return (
       <aside className="panel empty">
-        <p className="muted">Select a node to see its conversation.</p>
-        <p className="hint">Drag out of a node&rsquo;s handle to branch a new one.</p>
+        <p className="muted">Select an experiment to see its conversation.</p>
+        <p className="hint">Drag out of an experiment&rsquo;s handle to branch a new one.</p>
       </aside>
     );
   }
@@ -64,6 +75,8 @@ export function Panel({
       stream={stream}
       streamRevision={streamRevision}
       onHide={onHide}
+      visible={visible}
+      narrow={narrow}
       onProjectSettings={onProjectSettings}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
@@ -84,6 +97,8 @@ function NodePanel({
   onCreateChild,
   startError,
   onRunStarted,
+  visible,
+  narrow,
 }: {
   project: ProjectView | null;
   node: NodeView;
@@ -95,6 +110,8 @@ function NodePanel({
   onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
+  visible: boolean;
+  narrow: boolean;
 }): JSX.Element {
   const [view, setView] = useState<'conversation' | 'results'>('conversation');
   const [resultsSeen, setResultsSeen] = useState(false);
@@ -152,7 +169,9 @@ function NodePanel({
   const reading = useReadingPosition(
     `${node.projectId}:${node.id}`,
     chat.loaded && detail !== null,
-    view === 'conversation',
+    // Both conditions, because both take the layout box away: the other tab is
+    // showing, or the whole panel is off screen behind the map.
+    visible && view === 'conversation',
     `${chat.messages.length}:${chat.pending.length}:${streamRevision}`,
   );
 
@@ -176,8 +195,8 @@ function NodePanel({
         <div className="header-right">
           <button
             className="hide-panel"
-            aria-label="Hide experiment panel"
-            title="Back to map"
+            aria-label={narrow ? 'Back to map' : 'Hide experiment panel'}
+            title={narrow ? 'Back to map' : 'Hide this panel and show the whole map'}
             onClick={onHide}
           >
             ×

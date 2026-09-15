@@ -1999,15 +1999,29 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .app.single { grid-template-columns: 1fr; }
 .app.panel-hidden { grid-template-columns: 1fr; }
 .app.panel-hidden > .panel, .app.panel-hidden > .panel-resizer { display: none; }
+/* Map and Experiment: two controls, not one dressed as two.
+   WIDE -- both views are on screen, so there is nothing to switch; a collapsed
+   panel gets one button that brings it back. The segmented switch used to
+   render here too, leaving Map pressed and inert.
+   NARROW -- the views are alternatives, so it becomes a segmented two-state
+   switch. See state/useWorkspaceView.ts. */
 .view-switch { display: none; }
-.panel-hidden > .view-switch { display: flex; position: fixed; bottom: 20px; right: 20px; z-index: 5; }
+.app.panel-hidden > .view-switch { display: flex; position: fixed; bottom: 20px; right: 20px; z-index: 5; }
 .view-switch button { min-height: 36px; }
+.view-switch .show-panel { box-shadow: var(--shadow); }
 .hide-panel { min-width: 32px; min-height: 32px; }
 .icon { width: 1em; height: 1em; display: inline-block; vertical-align: -.12em; flex: none; }
+/* The one width where the canvas and the panel stop both being useful.
+   Kept in step with NARROW_MAX in state/useWorkspaceView.ts. */
 @media (max-width: 900px) {
   .app:not(.single) { display: flex; flex-direction: column; }
-  .app > .view-switch { display: flex; position: static; padding: 10px 12px; gap: 8px; background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; }
-  .view-switch button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--focus); }
+  .app > .view-switch { display: flex; position: static; padding: 10px 12px; gap: 0; background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .view-switch .segment { flex: 1; justify-content: center; border-radius: 0; border-right-width: 0; }
+  .view-switch .segment:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+  .view-switch .segment:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; border-right-width: 1px; }
+  /* The joined edge has to stay visible over its neighbour's border. */
+  .view-switch .segment[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--focus); color: var(--text); position: relative; z-index: 1; border-right-width: 1px; }
+  .view-switch .segment:disabled { color: var(--muted); }
   .app > .panel-resizer { display: none; }
   .app > .canvas, .app > .panel { flex: 1; min-height: 0; width: 100%; }
   .app:not(.panel-hidden) > .canvas { display: none; }
@@ -2044,41 +2058,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .panel-foot { flex-shrink: 0; max-height: none; overflow: visible; }
 }
 
-/*
- * D41: the two folders a project has, told apart.
- *
- * The repository is the project's identity and the chosen folder is where the
- * agent works. Conflating them is exactly the mistake this feature exists to
- * stop making, so the form shows them as two labelled facts rather than one
- * sentence with two paths in it.
- */
-.note.inspected {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-}
-.note.inspected p {
-  margin: 0;
-}
-.scope {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--s1) var(--s3);
-  margin: 0;
-}
-.scope dt {
-  color: var(--muted);
-  white-space: nowrap;
-}
-.scope dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
+/* D41: the two folders a project has, told apart. The repository is the
+   project's identity and the chosen folder is where the agent works;
+   conflating them is the mistake this feature exists to stop making, so they
+   are two labelled facts rather than one sentence with two paths in it. */
+.note.inspected { display: flex; flex-direction: column; gap: var(--s2); }
+.note.inspected p { margin: 0; }
+.scope { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s1) var(--s3); margin: 0; }
+.scope dt { color: var(--muted); white-space: nowrap; }
+.scope dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
-  .scope {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .scope dd {
-    margin-bottom: var(--s2);
-  }
+  .scope { grid-template-columns: minmax(0, 1fr); }
+  .scope dd { margin-bottom: var(--s2); }
 }

@@ -1252,6 +1252,28 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       zoom,
       'background growth does not refit',
     );
+    // Wide: collapsing the panel must leave a control that DOES something. The
+    // segmented switch used to render here with Map pressed and inert.
+    await session.click('.hide-panel');
+    await session.waitFor(
+      "document.querySelector('.app').classList.contains('panel-hidden') && document.querySelectorAll('.view-switch button').length === 1",
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.view-switch button').textContent"),
+      'Show experiment',
+    );
+    // A collapsed panel stays collapsed when another experiment is chosen: a
+    // collapse that reopens on the next click is not a collapse.
+    await session.click('.react-flow__node:last-child');
+    assert.equal(
+      await session.eval("document.querySelector('.app').classList.contains('panel-hidden')"),
+      true,
+    );
+    await session.click('.view-switch button');
+    await session.waitFor("!document.querySelector('.app').classList.contains('panel-hidden')");
+    // Back to master, whose draft the narrow checks below follow across views.
+    await session.click('.react-flow__node:first-child');
+    await session.waitFor("document.querySelector('.panel h2')?.textContent === 'master'");
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-map-1280.png'));
     const contrast = await session.eval(`(() => {
       const rgb = s => s.match(/[\\d.]+/g).slice(0,3).map(Number);
@@ -1282,6 +1304,25 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "document.querySelector('.appearance-settings .save-feedback').textContent === 'Saved' && parseFloat(getComputedStyle(document.body).fontSize) > 18",
     );
     await session.click('[aria-label="Close settings"]');
+    // A transcript worth scrolling, so the reading-position check below cannot
+    // pass by having nothing to scroll. One turn per run, so two runs.
+    for (const prompt of [
+      'Write a first pass worth scrolling through.',
+      'Now extend it so the conversation is longer than the panel.',
+    ]) {
+      await fetch(`${BASE}/api/nodes/${created.masterNodeId}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      // Started, then finished. Counting turns instead would race: the second
+      // run's POST returns before the interface has heard about it, and the
+      // turn count from the first run already satisfies the target.
+      await session.waitFor("!!document.querySelector('.panel button.stop')", {
+        timeoutMs: 20000,
+      });
+      await session.waitFor("!document.querySelector('.panel button.stop')", { timeoutMs: 20000 });
+    }
     await session.send('Emulation.setDeviceMetricsOverride', {
       width: 800,
       height: 720,
@@ -1297,23 +1338,60 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         await session.eval("document.querySelector('.panel').getBoundingClientRect().width"),
       ) <= 800,
     );
-    assert.ok(
-      Number(
-        await session.eval(
-          "document.querySelector('.composer-row button').getBoundingClientRect().bottom",
-        ),
-      ) <= 720,
+    // Waited for rather than asserted outright: the assertion is about the
+    // settled layout, and a viewport change has not reflowed on the next tick.
+    await session.waitFor(
+      "document.querySelector('.composer-row button').getBoundingClientRect().bottom <= 720",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-800-large.png'));
+    // Narrow: one view at a time, chosen with a two-state segmented switch.
+    assert.equal(await session.eval("document.querySelectorAll('.view-switch button').length"), 2);
     await session.click('.view-switch button:first-child');
     assert.equal(
       await session.eval("getComputedStyle(document.querySelector('.panel')).display"),
       'none',
     );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.view-switch button:first-child').getAttribute('aria-pressed')",
+      ),
+      'true',
+    );
+    /**
+     * The canvas viewport survives the round trip.
+     *
+     * The hidden view stays mounted rather than being unmounted, so switching
+     * away and back must not re-fit the tree or lose where the user had panned
+     * to. React Flow keeps its transform in its own store; this asserts that
+     * losing and regaining a layout box does not disturb it.
+     */
+    const parked = await session.eval(
+      "document.querySelector('.react-flow__viewport').style.transform",
+    );
+    await session.click('.view-switch button:last-child');
+    await session.click('.view-switch button:first-child');
+    assert.equal(
+      await session.eval("document.querySelector('.react-flow__viewport').style.transform"),
+      parked,
+      'switching views preserves the canvas viewport',
+    );
     await session.click('.view-switch button:last-child');
     assert.equal(
       await session.eval("document.querySelector('.composer textarea').value"),
       'Retain this draft across views',
+    );
+    // And the reading position, which a hidden element loses on its own: a
+    // scroll offset does not survive losing a layout box.
+    const scrolled = Number(
+      await session.eval(
+        "const b=document.querySelector('.panel-body:not([hidden])'); b.scrollTop = Math.max(1, b.scrollHeight - b.clientHeight); b.dispatchEvent(new Event('scroll')); b.scrollTop",
+      ),
+    );
+    assert.ok(scrolled > 0, 'the fixture must actually overflow for this to mean anything');
+    await session.click('.view-switch button:first-child');
+    await session.click('.view-switch button:last-child');
+    await session.waitFor(
+      `document.querySelector('.panel-body:not([hidden])').scrollTop === ${scrolled}`,
     );
     for (const width of [640, 480]) {
       await session.send('Emulation.setDeviceMetricsOverride', {

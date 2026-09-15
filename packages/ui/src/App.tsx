@@ -11,6 +11,7 @@ import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
+import { useWorkspaceView } from './state/useWorkspaceView.ts';
 import { Canvas } from './canvas/Canvas.tsx';
 import { Panel } from './panel/Panel.tsx';
 import { StartScreen } from './panel/StartScreen.tsx';
@@ -54,14 +55,18 @@ export function App(): JSX.Element {
   const projectTree = useProjectTree(report, confirm.ask, arrivedAt.projectId);
   const { projects, projectId, tree, noProjects } = projectTree;
   const selection = useSelection();
-  const [panelVisible, setPanelVisible] = useState(true);
+  /**
+   * Map and Experiment, and which of them a window this wide can show.
+   *
+   * Both stay mounted whichever is on screen: switching must not cost the
+   * canvas viewport, a reading position or a half-typed draft, and keeping them
+   * mounted is the only way to guarantee that rather than re-derive it.
+   */
+  const view = useWorkspaceView();
   const selectExperiment = (id: string): void => {
     selection.select(id);
-    setPanelVisible(true);
+    view.selected();
   };
-  useEffect(() => {
-    if (selection.primary !== null) setPanelVisible(true);
-  }, [selection.primary]);
   useEffect(() => {
     document.documentElement.style.setProperty(
       '--text-scale',
@@ -159,18 +164,45 @@ export function App(): JSX.Element {
   return (
     <RunAvailability.Provider value={connection.state === 'connected'}>
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
-        <div className={`app${panelVisible ? '' : ' panel-hidden'}`}>
+        <div className={`app${view.experimentOpen ? '' : ' panel-hidden'}`}>
+          {/*
+           * Two controls, not one dressed as two.
+           *
+           * NARROW: the views are alternatives, so this is a segmented switch
+           * with exactly one of them current. Experiment is unavailable, and
+           * says why, when nothing is selected -- a full-width panel reading
+           * "select an experiment" is worse than the map it replaced.
+           *
+           * WIDE: they are side by side, so there is nothing to switch. A
+           * collapsed panel gets one button that brings it back. The switch
+           * used to render here too, which left Map pressed and doing nothing:
+           * a control whose only state is the state you are already in.
+           */}
           <nav className="view-switch" aria-label="Workspace view">
-            <button aria-pressed={!panelVisible} onClick={() => setPanelVisible(false)}>
-              Map
-            </button>
-            <button
-              aria-pressed={panelVisible}
-              disabled={selected === null}
-              onClick={() => setPanelVisible(true)}
-            >
-              Experiment
-            </button>
+            {view.narrow ? (
+              <>
+                <button
+                  className="segment"
+                  aria-pressed={!view.experimentOpen}
+                  onClick={view.showMap}
+                >
+                  Map
+                </button>
+                <button
+                  className="segment"
+                  aria-pressed={view.experimentOpen}
+                  disabled={selected === null}
+                  title={selected === null ? 'Choose an experiment on the map first.' : undefined}
+                  onClick={view.showExperiment}
+                >
+                  Experiment
+                </button>
+              </>
+            ) : (
+              <button className="show-panel" onClick={view.showExperiment}>
+                Show experiment
+              </button>
+            )}
           </nav>
           <div className="canvas">
             <MenuBar
@@ -316,7 +348,9 @@ export function App(): JSX.Element {
             }}
             stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
             streamRevision={live.revision}
-            onHide={() => setPanelVisible(false)}
+            visible={view.experimentOpen}
+            narrow={view.narrow}
+            onHide={view.showMap}
             onProjectSettings={openProjectSettings}
             onChanged={projectTree.refresh}
             /* The panel does not own a second, weaker version of this form any
