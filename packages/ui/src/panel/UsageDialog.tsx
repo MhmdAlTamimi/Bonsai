@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { ProjectUsageView } from '@bonsai/shared';
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { Dialog } from '../Dialog.tsx';
@@ -58,7 +59,7 @@ export function UsageDialog({
           <p className="hint">{projectName} · this project only</p>
         </div>
         <button className="dialog-close" aria-label="Close usage" onClick={onClose}>
-          ×
+          <Icon name="close" />
         </button>
       </header>
       <p className="hint">

@@ -6,6 +6,7 @@ import {
   type ProjectView,
   type SettingsView,
 } from '@bonsai/shared';
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { Dialog } from '../Dialog.tsx';
 import { NewNodeSetup } from './NewNodeSetup.tsx';
@@ -37,7 +38,7 @@ export function SettingsDialog({
       <header>
         <h3>Settings</h3>
         <button onClick={onClose} className="dialog-close" aria-label="Close settings">
-          ×
+          <Icon name="close" />
         </button>
       </header>
       <nav className="settings-tabs" aria-label="Settings scope">

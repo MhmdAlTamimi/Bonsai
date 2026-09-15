@@ -2,6 +2,7 @@ import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
 
 import { NextRunInfo } from './NextRunInfo.tsx';
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { ExperimentChanges } from './node/ExperimentChanges.tsx';
@@ -185,7 +186,7 @@ function NodePanel({
 
   const branchButton = (
     <button className="branch-child" onClick={() => onCreateChild(node)}>
-      <span aria-hidden="true">+</span> Branch experiment
+      <Icon name="plus" /> Branch experiment
     </button>
   );
 
@@ -200,7 +201,7 @@ function NodePanel({
             title={narrow ? 'Back to map' : 'Hide this panel and show the whole map'}
             onClick={onHide}
           >
-            ×
+            <Icon name="close" />
           </button>
           {/* A node parked on a question is still holding an agent and a
               concurrency slot, so it needs the same way out as a running one. */}
@@ -409,7 +410,8 @@ function NodePanel({
         )}
         {view === 'conversation' && reading.away && (
           <button className="jump-latest" onClick={reading.jump}>
-            {reading.unread ? 'New output · Jump to latest ↓' : 'Jump to latest ↓'}
+            {reading.unread ? 'New output · Jump to latest' : 'Jump to latest'}
+            <Icon name="arrowDown" />
           </button>
         )}
         {error !== null && (
@@ -499,7 +501,7 @@ function OverflowMenu({
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        ⋯
+        <Icon name="more" />
       </button>
       {open && (
         <div

@@ -1,5 +1,6 @@
 import { type JSX, useCallback, useRef, useState } from 'react';
 import type { ConnectionStatus, ProjectView, SettingsView } from '@bonsai/shared';
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
@@ -80,7 +81,7 @@ export function MenuBar({
         >
           <span className="project-picker-label">Project</span>
           <span className="project-picker-name">{project?.name ?? 'Choose project'}</span>
-          <span aria-hidden="true">⌄</span>
+          <Icon name="chevronDown" />
         </button>
         {open === 'project' && (
           <div

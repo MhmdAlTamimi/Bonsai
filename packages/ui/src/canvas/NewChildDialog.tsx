@@ -3,6 +3,7 @@ import { type JSX, useEffect, useRef, useState } from 'react';
 import { Dialog } from '../Dialog.tsx';
 import type { ChildPreviewView } from '@bonsai/shared';
 import { NextRunInfo } from '../panel/NextRunInfo.tsx';
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 
@@ -96,7 +97,7 @@ export function NewChildDialog({
       <header>
         <h3>Branch experiment from {parentName}</h3>
         <button className="dialog-close" onClick={cancel} aria-label="close">
-          ×
+          <Icon name="close" />
         </button>
       </header>
 

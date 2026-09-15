@@ -16,6 +16,14 @@ const paths = {
   zoomOut: 'M5 11h12M20 20l-4.5-4.5',
   fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   automatic: 'M4 8h16M4 16h16M9 4v4M15 16v4',
+  // Navigation and menus. These replaced typographic characters -- x, dots, an
+  // arrow, a house -- which came from the font rather than from this family and
+  // so had their own weight, baseline and size at every place they appeared.
+  chevronDown: 'm6 9 6 6 6-6',
+  arrowUp: 'M12 19V5M6 11l6-6 6 6',
+  arrowDown: 'M12 5v14M6 13l6 6 6-6',
+  home: 'M4 11 12 4l8 7M6 10v9h12v-9',
+  more: 'M6 12h.01M12 12h.01M18 12h.01',
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({ name }: { name: IconName }): JSX.Element {
