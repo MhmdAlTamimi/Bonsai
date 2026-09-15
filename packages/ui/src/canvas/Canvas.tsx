@@ -1,11 +1,12 @@
 import { type JSX, useRef } from 'react';
-import ReactFlow, { Background, Controls, type NodeMouseHandler, useReactFlow } from 'reactflow';
+import ReactFlow, { Background, type NodeMouseHandler, useReactFlow, useStore } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { NodeView } from '@bonsai/shared';
 
 import { Icon } from '../Icon.tsx';
 
 import { CanvasHints } from './CanvasHints.tsx';
+import { MAX_ZOOM, MIN_ZOOM } from './zoom.ts';
 import { NodeCard } from './NodeCard.tsx';
 import { useLaidOutNodes } from './useLaidOutNodes.ts';
 
@@ -41,10 +42,11 @@ export function Canvas({
 }): JSX.Element {
   const selected = nodes.find((node) => node.id === selectedId);
   const { flowNodes, edges, onNodesChange } = useLaidOutNodes(nodes, selectedId);
+  const zoom = useStore((state) => state.transform[2]);
 
   // Behind a ref for the same reason fitView is: useReactFlow() hands back a
   // new identity whenever the viewport moves.
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition, fitView, zoomIn, zoomOut, zoomTo } = useReactFlow();
   const screenToFlowRef = useRef(screenToFlowPosition);
   screenToFlowRef.current = screenToFlowPosition;
 
@@ -95,11 +97,22 @@ export function Canvas({
       nodeTypes={nodeTypes}
       onNodeClick={onNodeClick}
       onNodeDragStop={(_event, node) => onMoved(node.id, node.position)}
+      /**
+       * A click is not a drag, and pinning is a deliberate act.
+       *
+       * React Flow's threshold defaults to 0, so a plain mousedown/mouseup on a
+       * card started and ended a drag -- which fired onNodeDragStop and wrote a
+       * position. Selecting an experiment therefore pinned it, silently: from
+       * then on the layout never moved it again, and "Automatic position"
+       * appeared for a node nobody had dragged. Four pixels of slop is enough
+       * that an ordinary click never crosses it.
+       */
+      nodeDragThreshold={4}
       // Deliberately NOT clearing the selection on a pane click. The panel
       // is the primary workspace (§7), and emptying it because a click
       // landed between two cards loses your place for no gain -- selecting
       // another node replaces it anyway.
-      minZoom={0.25}
+      minZoom={MIN_ZOOM}
       nodesConnectable
       connectOnClick={false}
       onKeyDownCapture={(event) => {
@@ -112,13 +125,57 @@ export function Canvas({
           onSelect(id);
         }
       }}
-      maxZoom={1.8}
+      maxZoom={MAX_ZOOM}
       fitView
       proOptions={{ hideAttribution: true }}
     >
       <Background gap={24} size={1} />
-      <Controls showInteractive={false} showFitView={false} />
-      <div className="canvas-tools">
+      {/*
+       * One control family, replacing React Flow's own Controls.
+       *
+       * Its buttons came with their own size, radius, border and hover, and sat
+       * in a separate stack in the corner -- so the canvas had two toolbars
+       * that looked like they belonged to different applications, and zooming
+       * lived in one while everything else lived in the other. These are the
+       * app's buttons, in the app's sizes, in one bar.
+       */}
+      <div className="canvas-tools" role="toolbar" aria-label="Canvas controls">
+        <div className="tool-group">
+          <button
+            className="canvas-tool icon-only"
+            aria-label="Zoom out"
+            title="Zoom out"
+            disabled={zoom <= MIN_ZOOM + 0.001}
+            onClick={() => zoomOut({ duration: 0 })}
+          >
+            <Icon name="minus" />
+          </button>
+          {/*
+           * The zoom level, and the way back to 100%.
+           *
+           * Worth showing rather than inferring: cards thin to a name and then
+           * to a dot as you zoom out (D35), and "the nodes disappeared" is what
+           * that looks like without a number to explain it. Pressing it is the
+           * reset -- a separate reset button would be a third control for
+           * something this one already names.
+           */}
+          <button
+            className="canvas-tool zoom-level"
+            title="Reset the zoom to 100%"
+            onClick={() => zoomTo(1, { duration: 0 })}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+          <button
+            className="canvas-tool icon-only"
+            aria-label="Zoom in"
+            title="Zoom in"
+            disabled={zoom >= MAX_ZOOM - 0.001}
+            onClick={() => zoomIn({ duration: 0 })}
+          >
+            <Icon name="plus" />
+          </button>
+        </div>
         <button
           className="canvas-tool"
           title="Fit the whole tree on screen"

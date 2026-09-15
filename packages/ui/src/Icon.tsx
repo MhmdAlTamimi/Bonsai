@@ -12,8 +12,7 @@ const paths = {
   finished: 'M5 5h14v14H5ZM9 12h6',
   // Canvas controls. Drawn to the same 24px grid and 1.8 stroke as the rest, so
   // the family reads as one set rather than as icons from three sources.
-  zoomIn: 'M11 5v12M5 11h12M20 20l-4.5-4.5',
-  zoomOut: 'M5 11h12M20 20l-4.5-4.5',
+  minus: 'M5 12h14',
   fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
   automatic: 'M4 8h16M4 16h16M9 4v4M15 16v4',
   // Navigation and menus. These replaced typographic characters -- x, dots, an

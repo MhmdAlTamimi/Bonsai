@@ -1160,6 +1160,24 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.ok(
       Number(await session.eval('parseFloat(getComputedStyle(document.body).fontSize)')) >= 14.5,
     );
+    /**
+     * Selecting an experiment must not pin it.
+     *
+     * React Flow's drag threshold defaults to zero, so a click used to start
+     * and end a drag and write a position -- pinning every card you looked at,
+     * and offering "Automatic position" for a node nobody had dragged.
+     */
+    await session.click('.react-flow__node');
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.positionX === null)()`,
+    );
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.canvas-tools button')).some(b => b.textContent === 'Automatic position')",
+      ),
+      false,
+      'a click does not pin',
+    );
     // Pin and unpin using the existing server-owned positioning API.
     await fetch(nodeUrl, {
       method: 'PATCH',
@@ -1442,6 +1460,30 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         ) <= width,
       );
       await session.screenshot(join(repoRoot, 'test-results', `milestone-6-${width}-large.png`));
+      // And the map at the same width: the canvas controls are one family and
+      // have to stay inside the window, wrapping rather than overflowing it.
+      await session.click('.view-switch button:first-child');
+      await session.waitFor("!!document.querySelector('.canvas-tools')");
+      assert.equal(
+        await session.eval('document.documentElement.scrollWidth <= window.innerWidth'),
+        true,
+      );
+      assert.equal(
+        await session.eval(
+          `Array.from(document.querySelectorAll('.canvas-tools .canvas-tool')).every(b => { const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= ${width} && r.bottom <= window.innerHeight; })`,
+        ),
+        true,
+        'every canvas control stays on screen',
+      );
+      // One family means one height, whatever the label inside it.
+      assert.equal(
+        await session.eval(
+          "new Set(Array.from(document.querySelectorAll('.canvas-tools .canvas-tool')).map(b => Math.round(b.getBoundingClientRect().height))).size",
+        ),
+        1,
+      );
+      await session.screenshot(join(repoRoot, 'test-results', `milestone-6-${width}-map.png`));
+      await session.click('.view-switch button:last-child');
     }
     // 1280×720 at 200% browser zoom has a 640×360 CSS viewport.
     await session.send('Emulation.setDeviceMetricsOverride', {

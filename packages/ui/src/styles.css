@@ -106,6 +106,11 @@
    */
   --fs-code: 0.84375rem; /* 13.5 */
 
+  /* One height for every control in the canvas family, and for the workspace
+     switch that joins it on a narrow window. In rem so it grows with the
+     text-size preference rather than clipping the label inside it. */
+  --control-h: 2.25rem;
+
   --panel-width: 420px;
   font-size: calc(16px * var(--text-scale, 1));
   color-scheme: dark;
@@ -765,23 +770,6 @@ body.resizing .panel-resizer {
 .react-flow__handle.add-child-handle:hover {
   background: var(--accent);
   border-color: var(--accent);
-}
-.react-flow__controls {
-  box-shadow: none;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  overflow: hidden;
-}
-.react-flow__controls-button {
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-  fill: var(--text-dim);
-  width: 26px;
-  height: 26px;
-}
-.react-flow__controls-button:hover {
-  background: var(--surface-2);
-  fill: var(--text);
 }
 
 /* ---- panel --------------------------------------------------------------- */
@@ -2035,8 +2023,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
    NARROW -- the views are alternatives, so it becomes a segmented two-state
    switch. See state/useWorkspaceView.ts. */
 .view-switch { display: none; }
-.app.panel-hidden > .view-switch { display: flex; position: fixed; bottom: 20px; right: 20px; z-index: 5; }
-.view-switch button { min-height: 36px; }
+/* Wide only, and scoped by a media query rather than by a class: the narrow
+   rules below are less specific than `.app.panel-hidden >`, so a floating
+   switch would have won there too and covered the canvas controls. */
+@media (min-width: 901px) {
+  .app.panel-hidden > .view-switch { display: flex; position: fixed; bottom: 20px; right: 20px; z-index: 5; }
+}
+.view-switch button { min-height: var(--control-h); border-radius: var(--r-md); }
 .view-switch .show-panel { box-shadow: var(--shadow); }
 .hide-panel { min-width: 32px; min-height: 32px; }
 /* ONE ICON FAMILY. Every glyph in the app is a 24px-grid stroke of the same
@@ -2082,9 +2075,35 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .react-flow__handle.add-child-handle { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--control-line); background: var(--surface-2); color: var(--text); bottom: -15px; }
 .add-child-handle .icon { width: 16px; height: 16px; pointer-events: none; }
 .card:hover .add-child-handle, .card.selected .add-child-handle { background: var(--accent); color: white; }
-.canvas-tools { position: absolute; bottom: 16px; left: 56px; display: flex; gap: 8px; z-index: 5; flex-wrap: wrap; max-width: calc(100% - 72px); }
-.canvas-tools button { min-height: 32px; background: var(--surface); }
-.canvas-tool { display: inline-flex; align-items: center; gap: var(--s2); }
+/*
+ * THE CANVAS CONTROL FAMILY.
+ *
+ * Zoom, fit, reset, hints and -- on a narrow window -- the Map/Experiment
+ * switch. One height, one radius, one border, one icon weight, one pressed and
+ * one focus state, so they read as a set of things you can do to the canvas
+ * rather than as buttons that happened to land near each other.
+ *
+ * They used to be two toolbars. React Flow's Controls brought its own sizes,
+ * radius, border and hover and sat in its own stack in the corner, which meant
+ * zooming looked like it belonged to a different application from fitting.
+ *
+ * --control-h is the one number. Everything in the family is that tall, and
+ * the icon-only members are that wide too, so nothing in the row is a
+ * different size from its neighbour.
+ */
+.canvas-tools { position: absolute; bottom: 16px; left: 16px; display: flex; align-items: center; gap: var(--s2); z-index: 5; flex-wrap: wrap; max-width: calc(100% - 32px); }
+.canvas-tool { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-height: var(--control-h); padding: 0 var(--s3); background: var(--surface); border: 1px solid var(--control-line); border-radius: var(--r-md); color: var(--text-dim); white-space: nowrap; }
+.canvas-tool:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.canvas-tool:disabled { color: var(--muted); opacity: 1; }
+.canvas-tool[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--focus); color: var(--text); }
+.canvas-tool.icon-only { width: var(--control-h); padding: 0; }
+/* The zoom cluster is one control with three parts, so its parts are joined
+   and only the outer edges are rounded. */
+.tool-group { display: inline-flex; background: var(--surface); border-radius: var(--r-md); }
+.tool-group .canvas-tool { border-radius: 0; border-right-width: 0; }
+.tool-group .canvas-tool:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+.tool-group .canvas-tool:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; border-right-width: 1px; }
+.zoom-level { min-width: 4.25rem; font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
 /* Canvas hints: a reference you read WHILE looking at the map, so a popover
    rather than a dialog, and no "close" button inside it -- the trigger, a click
    away and Escape all already do that. See canvas/CanvasHints.tsx. */
@@ -2095,7 +2114,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .canvas-hints-panel dt { color: var(--text-dim); white-space: nowrap; }
 .canvas-hints-panel dd { margin: 0; color: var(--muted); }
 .canvas-hints-panel .hint .icon { vertical-align: -.16em; }
-.react-flow__controls-button { width: 32px; height: 32px; }
 .react-flow__node:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: 12px; }
 .chip .glyph { display: inline-flex; }
 .dot-only .chip { padding: 0; background: none; font-size: 22px; /* glyph size */ }
