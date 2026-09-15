@@ -94,6 +94,18 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['node:*', '@bonsai/server', '**/server/**'],
+              message:
+                'UI uses the shared contract and API client; filesystem, Git and agent access belong on the server.',
+            },
+          ],
+        },
+      ],
       // An `onClick={() => void save()}` is the codebase's idiom for firing an
       // async handler, and it is correct: the promise is deliberately not
       // awaited by the event system. The rule cannot tell that apart from a
@@ -110,6 +122,7 @@ export default tseslint.config(
     // the strictest rules cost more than they catch here.
     files: ['**/*.test.ts'],
     rules: {
+      'no-restricted-imports': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
     },
@@ -145,6 +158,7 @@ export default tseslint.config(
         console: 'readonly',
         process: 'readonly',
         fetch: 'readonly',
+        performance: 'readonly',
         WebSocket: 'readonly',
         URL: 'readonly',
         Buffer: 'readonly',

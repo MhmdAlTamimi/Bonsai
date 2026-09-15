@@ -1,6 +1,4 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { randomUUID, createHash } from 'node:crypto';
-import { dirname, join, resolve, sep } from 'node:path';
 import type {
   MessageView,
   NodeLineageView,
@@ -9,1012 +7,210 @@ import type {
   PermissionMode,
   ProjectView,
   RunView,
-  RunStatus,
 } from '@bonsai/shared';
-import { deriveFlags } from '../domain/flags.js';
-import {
-  type LineageNode,
-  lookupFrom,
-  resolveBaseCommit,
-  divergesFromLiveWalk,
-} from '../domain/lineage.js';
 
-/** The full node row. Only the server ever sees this shape. */
-export interface NodeRow {
-  id: string;
-  project_id: string;
-  parent_id: string | null;
-  display_name: string;
-  description: string;
-  session_id: string | null;
-  forked_from_message_seq: number | null;
-  branch_name: string | null;
-  base_commit: string | null;
-  head_commit: string | null;
-  worktree_path: string;
-  status: NodeStatus;
-  model: string | null;
-  permission_mode: PermissionMode | null;
-  success_criteria: string | null;
-  verification_hint: string | null;
-  setup_ran_at: string | null;
-  position_x: number | null;
-  position_y: number | null;
-  created_at: string;
-}
+import { CheckStore } from './checkStore.js';
+import { MessageStore } from './messageStore.js';
+import { NodeStore } from './nodeStore.js';
+import { ProjectStore } from './projectStore.js';
+import { RunStore } from './runStore.js';
+import { Views } from './views.js';
+import type { NodeRow, ProjectRow, RunTotals } from './rows.js';
 
-export interface ProjectRow {
-  id: string;
-  name: string;
-  description: string;
-  repo_path: string;
-  scratch_path: string | null;
-  default_model: string | null;
-  default_permission_mode: PermissionMode;
-  default_effort: string | null;
-  source_kind: 'created' | 'adopted';
-  source_path: string | null;
-  protected_branch: string | null;
-  copy_files: string | null;
-  setup_command: string | null;
-  created_at: string;
-}
+export type { NodeRow, ProjectRow, RunTotals };
+export { isUsersOwnCheckout, toLineage } from './rows.js';
+export type { NodeChecks, TestingSource } from './checkStore.js';
 
-const now = (): string => new Date().toISOString();
-
-/** What a finished run reports. Cost is an estimate at list price, not a bill. */
-export interface RunTotals {
-  cost: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens?: number;
-  cacheCreationTokens?: number;
-  model?: string | null;
-  /** 'none' means a subscription login: no per-token charge. */
-  apiKeySource?: string | null;
-  /** The commit this run produced, if it produced one. */
-  commitSha?: string | null;
-  /** The node's cumulative change against its base, as of this run. */
-  stat?: { files: number; insertions: number; deletions: number } | null;
-  /** The tool names the agent was offered. See the schema for why it is kept. */
-  toolsOffered?: readonly string[] | null;
-  toolCalls?: number;
-  durationMs?: number | null;
-}
-
+/**
+ * The database, as one object with five concerns behind it.
+ *
+ * It used to be one class of fifty methods over five tables, and every feature
+ * made it longer: projects, nodes, runs, messages and checks all edited the
+ * same file, so "where does this belong" had one answer and no boundary. The
+ * concerns are now separate modules -- `projectStore`, `nodeStore`, `runStore`,
+ * `messageStore`, `checkStore` -- with `views` assembling what the interface
+ * reads.
+ *
+ * This class stays, deliberately, as a FACADE. It is the only thing the rest of
+ * the server holds, so splitting the implementation cost the callers nothing,
+ * and it is where a change that genuinely spans concerns (deleting a project,
+ * building a tree) is allowed to live. The sub-stores are reachable as
+ * `store.projects`, `store.nodes` and so on for new code that wants to say
+ * which concern it is touching; the flat methods below are the same thing under
+ * the names the codebase already uses.
+ *
+ * WHAT MUST NOT HAPPEN HERE: a sub-store reaching into another sub-store. The
+ * one exception is `views`, which exists precisely to read across them, and it
+ * only reads.
+ */
 export class Store {
-  constructor(
-    private readonly db: DatabaseSync,
-    private readonly reposRoot: string,
-    private readonly futureReposRoot?: () => string,
-  ) {
-    // Old projects used the configured root. Pin that location before accepting a
-    // new preference; created projects already carry their actual repository path.
-    for (const project of this.listProjects()) {
-      if (project.scratch_path !== null) continue;
-      const scratch =
-        project.source_kind === 'created'
-          ? dirname(project.repo_path)
-          : join(reposRoot, project.id);
-      this.db.prepare('UPDATE project SET scratch_path = ? WHERE id = ?').run(scratch, project.id);
-    }
-  }
+  readonly projects: ProjectStore;
+  readonly nodes: NodeStore;
+  readonly runs: RunStore;
+  readonly messages: MessageStore;
+  readonly checks: CheckStore;
+  readonly views: Views;
 
-  /** Apply one settings form as one durable change. No async work inside. */
-  saveProjectConfiguration(
-    id: string,
-    patch: {
-      model?: string | null;
-      effort?: string | null;
-      permissionMode?: PermissionMode;
-      copyFiles?: readonly string[];
-      setupCommand?: string | null;
-    },
-  ): void {
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      this.updateProjectSettings(id, patch);
-      this.updateProjectSetup(id, patch);
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+  constructor(db: DatabaseSync, reposRoot: string, futureReposRoot?: () => string) {
+    this.projects = new ProjectStore(db, reposRoot, futureReposRoot);
+    this.nodes = new NodeStore(db, (projectId) => this.projects.scratchDir(projectId));
+    this.runs = new RunStore(db);
+    this.messages = new MessageStore(db);
+    this.checks = new CheckStore(db);
+    this.views = new Views(this.projects, this.nodes, this.runs, this.messages);
   }
 
   // -- projects ------------------------------------------------------------
 
-  createProject(input: {
-    name: string;
-    description: string;
-    model: string | null;
-    permissionMode: PermissionMode;
-    effort?: string | null;
-    /** Set when adopting a directory the user already had. */
-    adopt?: { repoPath: string; sourcePath: string; protectedBranch: string };
-  }): ProjectRow {
-    const id = randomUUID();
-    const scratch = join(this.futureReposRoot?.() ?? this.reposRoot, id);
-    const row: ProjectRow = {
-      id,
-      name: input.name,
-      description: input.description,
-      repo_path: input.adopt?.repoPath ?? join(scratch, 'repo.git'),
-      scratch_path: scratch,
-      default_model: input.model,
-      default_permission_mode: input.permissionMode,
-      default_effort: input.effort ?? null,
-      source_kind: input.adopt === undefined ? 'created' : 'adopted',
-      source_path: input.adopt?.sourcePath ?? null,
-      protected_branch: input.adopt?.protectedBranch ?? null,
-      copy_files: JSON.stringify([]),
-      setup_command: null,
-      created_at: now(),
-    };
-    this.db
-      .prepare(
-        `INSERT INTO project (id, name, description, repo_path, default_model,
-                              default_permission_mode, default_effort, source_kind,
-                              source_path, protected_branch, copy_files, setup_command,
-                              created_at, scratch_path)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.id,
-        row.name,
-        row.description,
-        row.repo_path,
-        row.default_model,
-        row.default_permission_mode,
-        row.default_effort,
-        row.source_kind,
-        row.source_path,
-        row.protected_branch,
-        row.copy_files,
-        row.setup_command,
-        row.created_at,
-        row.scratch_path,
-      );
-    return row;
+  saveProjectConfiguration(...args: Parameters<ProjectStore['saveConfiguration']>): void {
+    this.projects.saveConfiguration(...args);
   }
-
+  createProject(input: Parameters<ProjectStore['create']>[0]): ProjectRow {
+    return this.projects.create(input);
+  }
   listProjects(): ProjectRow[] {
-    return this.db
-      .prepare(`SELECT * FROM project ORDER BY created_at DESC`)
-      .all() as unknown as ProjectRow[];
+    return this.projects.list();
   }
-
   getProject(id: string): ProjectRow | undefined {
-    return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as unknown as
-      ProjectRow | undefined;
+    return this.projects.get(id);
   }
-
-  /**
-   * The directory Bonsai keeps a project's own files in: the bare repo for a
-   * created project, the node worktrees for either kind. Always Bonsai's, never
-   * the user's -- which is why deletion can remove it without asking.
-   */
   projectScratchDir(projectId: string): string {
-    return this.getProject(projectId)?.scratch_path ?? join(this.reposRoot, projectId);
+    return this.projects.scratchDir(projectId);
   }
-
-  /**
-   * Records the folder that IS this project, as far as the user is concerned:
-   * master's checkout. Set once, just after master exists, because for a
-   * created project the default path contains master's own id.
-   */
   setProjectSourcePath(id: string, path: string): void {
-    this.db.prepare(`UPDATE project SET source_path = ? WHERE id = ?`).run(path, id);
+    this.projects.setSourcePath(id, path);
   }
-
-  /** What a new node's worktree needs before the agent arrives. */
-  updateProjectSetup(
-    id: string,
-    patch: { copyFiles?: readonly string[]; setupCommand?: string | null },
-  ): void {
-    if (patch.copyFiles !== undefined) {
-      this.db
-        .prepare(`UPDATE project SET copy_files = ? WHERE id = ?`)
-        .run(JSON.stringify(patch.copyFiles), id);
-    }
-    if (patch.setupCommand !== undefined) {
-      const value = patch.setupCommand === null ? null : patch.setupCommand.trim();
-      this.db
-        .prepare(`UPDATE project SET setup_command = ? WHERE id = ?`)
-        .run(value === '' ? null : value, id);
-    }
+  updateProjectSetup(...args: Parameters<ProjectStore['updateSetup']>): void {
+    this.projects.updateSetup(...args);
   }
-
-  /** Records that the setup command has run here, so it runs exactly once. */
-  markSetupRan(nodeId: string): void {
-    this.db.prepare(`UPDATE node SET setup_ran_at = ? WHERE id = ?`).run(now(), nodeId);
+  updateProjectSettings(...args: Parameters<ProjectStore['updateSettings']>): void {
+    this.projects.updateSettings(...args);
   }
-
-  /** D32: the model and effort a project's runs use. Changing them is not a
-   *  node edit -- D3 constrains nodes, not settings. */
-  updateProjectSettings(
-    id: string,
-    patch: { model?: string | null; effort?: string | null; permissionMode?: PermissionMode },
-  ): void {
-    if (patch.permissionMode !== undefined)
-      this.db
-        .prepare('UPDATE project SET default_permission_mode = ? WHERE id = ?')
-        .run(patch.permissionMode, id);
-    if (patch.model !== undefined) {
-      this.db.prepare(`UPDATE project SET default_model = ? WHERE id = ?`).run(patch.model, id);
-    }
-    if (patch.effort !== undefined) {
-      this.db.prepare(`UPDATE project SET default_effort = ? WHERE id = ?`).run(patch.effort, id);
-    }
-  }
-
-  /** Every run in the project, so the cost of the whole tree is visible. */
   projectCost(projectId: string): number {
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(r.cost), 0) AS total FROM run r
-         JOIN node n ON n.id = r.node_id WHERE n.project_id = ?`,
-      )
-      .get(projectId) as unknown as { total: number } | undefined;
-    return Number(row?.total ?? 0);
+    return this.runs.projectCost(projectId);
   }
-
   deleteProject(id: string): void {
-    this.db.prepare(`DELETE FROM project WHERE id = ?`).run(id);
+    this.projects.delete(id);
   }
 
   // -- nodes ---------------------------------------------------------------
 
-  /**
-   * Inserts a node, pinning its git base via the lineage rule.
-   *
-   * `baseCommit`/`headCommit` are passed in rather than computed here for
-   * master alone -- the root commit is written by the git layer before the
-   * project's first node exists. Every other node's base comes from
-   * resolveBaseCommit() and is never recomputed afterwards.
-   */
-  createNode(input: {
-    projectId: string;
-    parentId: string | null;
-    displayName: string;
-    description: string;
-    model?: string | null;
-    permissionMode?: PermissionMode | null;
-    /** Master only. Every other node derives its base from its parent. */
-    rootCommit?: string;
-    rootBranchName?: string;
-    /** Master of an adopted project: its worktree IS the user's directory. */
-    worktreePath?: string;
-    /** Optional, and nothing depends on them being set. See the schema. */
-    successCriteria?: string | null;
-    verificationHint?: string | null;
-  }): NodeRow {
-    const id = randomUUID();
-
-    let baseCommit: string | null = null;
-    let headCommit: string | null = null;
-    let branchName: string | null = null;
-
-    if (input.parentId === null) {
-      // Master. The git layer has already written the root empty commit; the
-      // termination invariant depends on head_commit being set here.
-      baseCommit = null;
-      headCommit = input.rootCommit ?? null;
-      branchName = input.rootBranchName ?? (headCommit === null ? null : 'master');
-    } else {
-      const parent = this.getNode(input.parentId);
-      if (parent === undefined) throw new Error(`unknown parent ${input.parentId}`);
-      baseCommit = resolveBaseCommit(toLineage(parent));
-      // Emergent model: no branch and no commit until a run changes files.
-    }
-
-    const row: NodeRow = {
-      id,
-      project_id: input.projectId,
-      parent_id: input.parentId,
-      display_name: input.displayName,
-      description: input.description,
-      session_id: null,
-      forked_from_message_seq: null,
-      branch_name: branchName,
-      base_commit: baseCommit,
-      head_commit: headCommit,
-      worktree_path:
-        input.worktreePath ?? join(this.projectScratchDir(input.projectId), 'worktrees', id),
-      status: 'new',
-      model: input.model ?? null,
-      permission_mode: input.permissionMode ?? null,
-      success_criteria: blankToNull(input.successCriteria),
-      verification_hint: blankToNull(input.verificationHint),
-      setup_ran_at: null,
-      position_x: null,
-      position_y: null,
-      created_at: now(),
-    };
-
-    this.db
-      .prepare(
-        `INSERT INTO node (id, project_id, parent_id, display_name, description,
-                           session_id, forked_from_message_seq, branch_name,
-                           base_commit, head_commit, worktree_path, status, model,
-                           permission_mode, success_criteria, verification_hint,
-                           position_x, position_y, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.id,
-        row.project_id,
-        row.parent_id,
-        row.display_name,
-        row.description,
-        row.session_id,
-        row.forked_from_message_seq,
-        row.branch_name,
-        row.base_commit,
-        row.head_commit,
-        row.worktree_path,
-        row.status,
-        row.model,
-        row.permission_mode,
-        row.success_criteria,
-        row.verification_hint,
-        row.position_x,
-        row.position_y,
-        row.created_at,
-      );
-    return row;
+  createNode(input: Parameters<NodeStore['create']>[0]): NodeRow {
+    return this.nodes.create(input);
   }
-
   getNode(id: string): NodeRow | undefined {
-    return this.db.prepare(`SELECT * FROM node WHERE id = ?`).get(id) as unknown as
-      NodeRow | undefined;
+    return this.nodes.get(id);
   }
-
   listNodes(projectId: string): NodeRow[] {
-    return this.db
-      .prepare(`SELECT * FROM node WHERE project_id = ? ORDER BY created_at ASC`)
-      .all(projectId) as unknown as NodeRow[];
+    return this.nodes.list(projectId);
   }
-
-  /** D33: display name and position only. D3 forbids everything else. */
-  updateNode(
-    id: string,
-    patch: { displayName?: string; positionX?: number | null; positionY?: number | null },
-  ): void {
-    if (patch.displayName !== undefined) {
-      this.db.prepare(`UPDATE node SET display_name = ? WHERE id = ?`).run(patch.displayName, id);
-    }
-    if (patch.positionX !== undefined || patch.positionY !== undefined) {
-      this.db
-        .prepare(`UPDATE node SET position_x = ?, position_y = ? WHERE id = ?`)
-        .run(patch.positionX ?? null, patch.positionY ?? null, id);
-    }
+  updateNode(...args: Parameters<NodeStore['update']>): void {
+    this.nodes.update(...args);
   }
-
   setNodeStatus(id: string, status: NodeStatus): void {
-    this.db.prepare(`UPDATE node SET status = ? WHERE id = ?`).run(status, id);
+    this.nodes.setStatus(id, status);
   }
-
-  /** D7: cascades to descendants via the foreign key. */
   deleteNode(id: string): void {
-    this.db.prepare(`DELETE FROM node WHERE id = ?`).run(id);
+    this.nodes.delete(id);
   }
-
-  /** Every node in the subtree rooted at `id`, deepest first. */
   descendantsOf(id: string): NodeRow[] {
-    const all = this.db.prepare(`SELECT * FROM node`).all() as unknown as NodeRow[];
-    const childrenOf = new Map<string, NodeRow[]>();
-    for (const row of all) {
-      if (row.parent_id === null) continue;
-      const bucket = childrenOf.get(row.parent_id);
-      if (bucket === undefined) childrenOf.set(row.parent_id, [row]);
-      else bucket.push(row);
-    }
-    const out: NodeRow[] = [];
-    const visit = (nodeId: string): void => {
-      for (const child of childrenOf.get(nodeId) ?? []) visit(child.id);
-      const row = all.find((r) => r.id === nodeId);
-      if (row !== undefined) out.push(row);
-    };
-    visit(id);
-    return out;
+    return this.nodes.descendantsOf(id);
   }
-
-  /** A3: where a child's fork was taken from its parent's conversation. */
   recordFork(id: string, parentMessageSeq: number): void {
-    this.db
-      .prepare(`UPDATE node SET forked_from_message_seq = ? WHERE id = ?`)
-      .run(parentMessageSeq, id);
+    this.nodes.recordFork(id, parentMessageSeq);
   }
-
-  messageCount(nodeId: string): number {
-    const row = this.db
-      .prepare(`SELECT COALESCE(MAX(seq), 0) AS seq FROM message WHERE node_id = ?`)
-      .get(nodeId) as unknown as { seq: number };
-    return Number(row.seq);
-  }
-
   setSessionId(id: string, sessionId: string): void {
-    this.db.prepare(`UPDATE node SET session_id = ? WHERE id = ?`).run(sessionId, id);
+    this.nodes.setSessionId(id, sessionId);
   }
-
-  /**
-   * Records a node's commit, creating its branch reference in the row.
-   *
-   * base_commit is deliberately untouched: it is pinned at creation and
-   * immutable. Only head_commit moves, and only forward (D29: never amend).
-   */
+  markSetupRan(nodeId: string): void {
+    this.nodes.markSetupRan(nodeId);
+  }
   recordCommit(id: string, branchName: string, headCommit: string): void {
-    this.db
-      .prepare(`UPDATE node SET branch_name = ?, head_commit = ? WHERE id = ?`)
-      .run(branchName, headCommit, id);
+    this.nodes.recordCommit(id, branchName, headCommit);
   }
 
-  // -- runs, messages, questions -------------------------------------------
+  // -- runs ----------------------------------------------------------------
 
   createRun(runId: string, nodeId: string): void {
-    this.db
-      .prepare(`INSERT INTO run (id, node_id, status, started_at) VALUES (?, ?, 'running', ?)`)
-      .run(runId, nodeId, now());
+    this.runs.create(runId, nodeId);
   }
-
   finishRun(
     runId: string,
     status: 'done' | 'cancelled' | 'failed',
     error: string | null,
     totals: RunTotals,
   ): void {
-    this.db
-      .prepare(
-        `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
-                        input_tokens = ?, output_tokens = ?,
-                        cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
-                        api_key_source = ?, commit_sha = ?, tools_offered = ?,
-                        tool_calls = ?, duration_ms = ?, stat_files = ?,
-                        stat_insertions = ?, stat_deletions = ?
-         WHERE id = ?`,
-      )
-      .run(
-        status,
-        now(),
-        error,
-        totals.cost,
-        totals.inputTokens,
-        totals.outputTokens,
-        totals.cacheReadTokens ?? 0,
-        totals.cacheCreationTokens ?? 0,
-        totals.model ?? null,
-        totals.apiKeySource ?? null,
-        totals.commitSha ?? null,
-        // JSON rather than a join table: it is written once, read whole, and
-        // never queried by element.
-        totals.toolsOffered == null ? null : JSON.stringify(totals.toolsOffered),
-        totals.toolCalls ?? 0,
-        totals.durationMs ?? null,
-        totals.stat?.files ?? null,
-        totals.stat?.insertions ?? null,
-        totals.stat?.deletions ?? null,
-        runId,
-      );
+    this.runs.finish(runId, status, error, totals);
   }
-
-  testingSource(
-    commit: string,
-  ): { nodeId: string; nodeName: string; runId: string; recordedAt: string } | null {
-    return (
-      (this.db
-        .prepare(
-          `SELECT n.id AS nodeId, n.display_name AS nodeName,
-      r.id AS runId, r.ended_at AS recordedAt FROM run r JOIN node n ON n.id = r.node_id
-      WHERE r.commit_sha = ? LIMIT 1`,
-        )
-        .get(commit) as
-        { nodeId: string; nodeName: string; runId: string; recordedAt: string } | undefined) ?? null
-    );
+  getRun(runId: string): ReturnType<RunStore['get']> {
+    return this.runs.get(runId);
   }
-
-  getRun(
-    runId: string,
-  ): { id: string; node_id: string; status: string; commit_sha: string | null } | undefined {
-    return this.db
-      .prepare(`SELECT id, node_id, status, commit_sha FROM run WHERE id = ?`)
-      .get(runId) as unknown as
-      { id: string; node_id: string; status: string; commit_sha: string | null } | undefined;
-  }
-
-  /** Row counts, for the diagnostics report. One query, not three lists. */
-  counts(): { projects: number; nodes: number; runs: number; running: number } {
-    const one = (sql: string): number => {
-      const row = this.db.prepare(sql).get() as unknown as { n: number } | undefined;
-      return Number(row?.n ?? 0);
-    };
-    return {
-      projects: one(`SELECT COUNT(*) AS n FROM project`),
-      nodes: one(`SELECT COUNT(*) AS n FROM node`),
-      runs: one(`SELECT COUNT(*) AS n FROM run`),
-      running: one(`SELECT COUNT(*) AS n FROM run WHERE status = 'running'`),
-    };
-  }
-
-  /** D31: any run still marked running at startup died with the process. */
-  markOrphanedRunsInterrupted(): number {
-    const runs = this.db
-      .prepare(`SELECT id, node_id FROM run WHERE status = 'running'`)
-      .all() as unknown as Array<{ id: string; node_id: string }>;
-    for (const run of runs) {
-      this.db
-        .prepare(`UPDATE run SET status = 'failed', ended_at = ?, error = ? WHERE id = ?`)
-        .run(now(), 'the app exited while this run was in flight', run.id);
-      this.db.prepare(`UPDATE node SET status = 'interrupted' WHERE id = ?`).run(run.node_id);
-    }
-    return runs.length;
-  }
-
   listRuns(nodeId: string): RunView[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM run WHERE node_id = ? ORDER BY started_at ASC, rowid ASC`)
-      .all(nodeId) as unknown as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      id: r['id'] as string,
-      nodeId: r['node_id'] as string,
-      status: r['status'] as RunView['status'],
-      startedAt: r['started_at'] as string,
-      endedAt: (r['ended_at'] as string | null) ?? null,
-      inputTokens: Number(r['input_tokens'] ?? 0),
-      outputTokens: Number(r['output_tokens'] ?? 0),
-      costUsd: Number(r['cost'] ?? 0),
-      cacheReadTokens: Number(r['cache_read_tokens'] ?? 0),
-      cacheCreationTokens: Number(r['cache_creation_tokens'] ?? 0),
-      model: (r['model'] as string | null) ?? null,
-      apiKeySource: (r['api_key_source'] as string | null) ?? null,
-      commitSha: (r['commit_sha'] as string | null) ?? null,
-      toolsOffered: parseTools(r['tools_offered']),
-      toolCalls: Number(r['tool_calls'] ?? 0),
-      durationMs: r['duration_ms'] == null ? null : Number(r['duration_ms']),
-      error: (r['error'] as string | null) ?? null,
-    }));
+    return this.runs.list(nodeId);
   }
-
-  /**
-   * One node's cost. Used by the panel, where there is exactly one node.
-   *
-   * NOT used when building a tree: see nodeCosts below. A per-node query in
-   * that loop meant a hundred-node project issued a hundred and one queries
-   * every time anything changed, which with several agents running is several
-   * times a second.
-   */
   nodeCost(nodeId: string): number {
-    const row = this.db
-      .prepare(`SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id = ?`)
-      .get(nodeId) as unknown as { total: number } | undefined;
-    return Number(row?.total ?? 0);
+    return this.runs.costOf(nodeId);
+  }
+  counts(): { projects: number; nodes: number; runs: number; running: number } {
+    return this.runs.counts();
+  }
+  markOrphanedRunsInterrupted(): number {
+    return this.runs.markOrphanedInterrupted();
   }
 
-  /** Every node's cost in a project, in one grouped query. */
-  private nodeCosts(projectId: string): Map<string, number> {
-    const rows = this.db
-      .prepare(
-        `SELECT r.node_id, SUM(r.cost) AS total
-           FROM run r JOIN node n ON n.id = r.node_id
-          WHERE n.project_id = ?
-          GROUP BY r.node_id`,
-      )
-      .all(projectId) as unknown as Array<{ node_id: string; total: number }>;
-    return new Map(rows.map((r) => [r.node_id, Number(r.total)]));
-  }
+  // -- messages, questions and checks ---------------------------------------
 
   listMessages(nodeId: string, afterSeq: number): MessageView[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM message WHERE node_id = ? AND seq > ? ORDER BY seq ASC`)
-      .all(nodeId, afterSeq) as unknown as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      id: r['id'] as string,
-      nodeId: r['node_id'] as string,
-      runId: (r['run_id'] as string | null) ?? null,
-      seq: Number(r['seq']),
-      role: r['role'] as MessageView['role'],
-      kind: r['kind'] as MessageView['kind'],
-      content: JSON.parse(r['content_json'] as string) as unknown,
-      createdAt: r['created_at'] as string,
-    }));
+    return this.messages.list(nodeId, afterSeq);
   }
-
-  appendMessage(input: {
-    nodeId: string;
-    runId: string | null;
-    role: MessageView['role'];
-    kind: MessageView['kind'];
-    content: unknown;
-  }): MessageView {
-    const next = this.db
-      .prepare(`SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM message WHERE node_id = ?`)
-      .get(input.nodeId) as unknown as { seq: number };
-    const view: MessageView = {
-      id: randomUUID(),
-      nodeId: input.nodeId,
-      runId: input.runId,
-      seq: Number(next.seq),
-      role: input.role,
-      kind: input.kind,
-      content: input.content,
-      createdAt: now(),
-    };
-    this.db
-      .prepare(
-        `INSERT INTO message (id, node_id, run_id, seq, role, kind, content_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        view.id,
-        view.nodeId,
-        view.runId,
-        view.seq,
-        view.role,
-        view.kind,
-        JSON.stringify(view.content),
-        view.createdAt,
-      );
-    return view;
+  appendMessage(input: Parameters<MessageStore['append']>[0]): MessageView {
+    return this.messages.append(input);
   }
-
-  /** The last thing the user actually asked for on this node. */
+  messageCount(nodeId: string): number {
+    return this.messages.count(nodeId);
+  }
   lastUserPrompt(nodeId: string): string | null {
-    const row = this.db
-      .prepare(
-        `SELECT content_json FROM message
-         WHERE node_id = ? AND role = 'user' ORDER BY seq DESC LIMIT 1`,
-      )
-      .get(nodeId) as unknown as { content_json: string } | undefined;
-    if (row === undefined) return null;
-    try {
-      const parsed: unknown = JSON.parse(row.content_json);
-      return typeof parsed === 'string' ? parsed : null;
-    } catch {
-      return null;
-    }
+    return this.messages.lastUserPrompt(nodeId);
   }
-
-  /**
-   * D34: the agent has stopped and wants an answer.
-   *
-   * Written before the node's status changes, so there is never a moment where
-   * a card says `needs_you` and the panel has no question to show.
-   */
-  askQuestion(input: {
-    id: string;
-    runId: string;
-    nodeId: string;
-    text: string;
-    request?: NonNullable<NodeView['pendingQuestion']>['request'];
-  }): void {
-    this.db
-      .prepare(
-        `INSERT INTO question (id, run_id, node_id, text, asked_at, request_json) VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.id,
-        input.runId,
-        input.nodeId,
-        input.text,
-        now(),
-        input.request ? JSON.stringify(input.request) : null,
-      );
+  askQuestion(input: Parameters<MessageStore['askQuestion']>[0]): void {
+    this.messages.askQuestion(input);
   }
-
-  /**
-   * Records the answer and reports whether this call is the one that landed it.
-   *
-   * False means it was already answered. The interface can be open in two
-   * windows, and the second click must not resume a run twice -- so the check
-   * and the write are one statement rather than a read followed by a write.
-   */
   answerQuestion(questionId: string, answer: string): boolean {
-    const result = this.db
-      .prepare(
-        `UPDATE question SET answer = ?, answered_at = ? WHERE id = ? AND answered_at IS NULL`,
-      )
-      .run(answer, now(), questionId);
-    return result.changes > 0;
+    return this.messages.answerQuestion(questionId, answer);
   }
-
-  getQuestion(
-    questionId: string,
-  ):
-    | { id: string; node_id: string; run_id: string; text: string; answered_at: string | null }
-    | undefined {
-    return this.db
-      .prepare(`SELECT id, node_id, run_id, text, answered_at FROM question WHERE id = ?`)
-      .get(questionId) as unknown as
-      | { id: string; node_id: string; run_id: string; text: string; answered_at: string | null }
-      | undefined;
+  getQuestion(questionId: string): ReturnType<MessageStore['getQuestion']> {
+    return this.messages.getQuestion(questionId);
   }
-
   pendingQuestion(nodeId: string): NodeView['pendingQuestion'] {
-    const row = this.db
-      .prepare(
-        `SELECT id, text, request_json FROM question
-         WHERE node_id = ? AND answered_at IS NULL
-         ORDER BY asked_at DESC LIMIT 1`,
-      )
-      .get(nodeId) as unknown as
-      { id: string; text: string; request_json: string | null } | undefined;
-    if (!row) return null;
-    return {
-      id: row.id,
-      text: row.text,
-      ...(row.request_json === null
-        ? {}
-        : {
-            request: JSON.parse(row.request_json) as NonNullable<
-              NodeView['pendingQuestion']
-            >['request'],
-          }),
-    };
+    return this.messages.pendingQuestion(nodeId);
+  }
+  testingSource(commit: string): ReturnType<CheckStore['sourceOf']> {
+    return this.checks.sourceOf(commit);
   }
 
   // -- views ---------------------------------------------------------------
 
-  /** Assembles NodeViews for a project, deriving every flag from the tree. */
-  /**
-   * The newest committed run's stat, per node, in one query.
-   *
-   * One query for the whole project rather than one per node: the tree view is
-   * rebuilt on every refetch, and every finished run triggers one.
-   */
-  private diffStats(
-    projectId: string,
-  ): Map<string, { files: number; added: number; removed: number }> {
-    const rows = this.db
-      .prepare(
-        `SELECT r.node_id, r.stat_files, r.stat_insertions, r.stat_deletions
-           FROM run r
-           JOIN node n ON n.id = r.node_id
-          WHERE n.project_id = ? AND r.stat_files IS NOT NULL
-          ORDER BY r.started_at ASC`,
-      )
-      .all(projectId) as unknown as Array<{
-      node_id: string;
-      stat_files: number;
-      stat_insertions: number;
-      stat_deletions: number;
-    }>;
-
-    // Ascending, so the last write per node wins: the stat is cumulative
-    // against the node's base, so the newest one is the whole story.
-    const out = new Map<string, { files: number; added: number; removed: number }>();
-    for (const r of rows) {
-      out.set(r.node_id, {
-        files: Number(r.stat_files),
-        added: Number(r.stat_insertions),
-        removed: Number(r.stat_deletions),
-      });
-    }
-    return out;
-  }
-
-  /**
-   * Building a tree issues a constant number of queries, whatever its size.
-   *
-   * Five: the project, the nodes, the costs, the diff stats, and one for any
-   * pending question. It used to be that plus one per node for cost alone.
-   */
   treeView(projectId: string): NodeView[] {
-    const project = this.getProject(projectId);
-    const stats = this.diffStats(projectId);
-    const costs = this.nodeCosts(projectId);
-    const rows = this.listNodes(projectId);
-    const latest = this.db
-      .prepare(
-        `SELECT n.id, (SELECT r.status FROM run r WHERE r.node_id = n.id
-      ORDER BY r.started_at DESC, r.rowid DESC LIMIT 1) AS status FROM node n WHERE n.project_id = ?`,
-      )
-      .all(projectId) as unknown as Array<{ id: string; status: RunStatus | null }>;
-    const lastRuns = new Map(latest.map((r) => [r.id, r.status]));
-    const childrenOf = new Map<string, NodeRow[]>();
-    for (const row of rows) {
-      if (row.parent_id === null) continue;
-      const bucket = childrenOf.get(row.parent_id);
-      if (bucket === undefined) childrenOf.set(row.parent_id, [row]);
-      else bucket.push(row);
-    }
-
-    return rows.map((row) => {
-      const children = childrenOf.get(row.id) ?? [];
-      const flags = deriveFlags(
-        { headCommit: row.head_commit },
-        children.map((c) => ({ headCommit: c.head_commit })),
-      );
-      const question = row.status === 'needs_you' ? this.pendingQuestion(row.id) : null;
-      return {
-        id: row.id,
-        projectId: row.project_id,
-        parentId: row.parent_id,
-        displayName: row.display_name,
-        // §7: for needs_you the card shows the agent's question instead, which
-        // is what makes the canvas triageable at a glance.
-        summaryLine: question?.text ?? row.description,
-        status: row.status,
-        lastRunStatus: lastRuns.get(row.id) ?? null,
-        ...flags,
-        // An adopted project's master worktree IS the user's own folder, on
-        // their own branch. Nothing Bonsai does may write there, so master is
-        // read-only from the moment the project exists rather than from its
-        // first child. Expressed as the `writable` flag rather than a separate
-        // rule so every renderer and the run gate agree without being told.
-        writable: flags.writable && !isUsersOwnCheckout(project, row),
-        frozenReason: isUsersOwnCheckout(project, row)
-          ? 'your_folder'
-          : flags.writable
-            ? null
-            : 'child_committed',
-        pendingQuestion: question,
-        positionX: row.position_x,
-        positionY: row.position_y,
-        diffStat: stats.get(row.id) ?? null,
-        costUsd: costs.get(row.id) ?? 0,
-        // Filled in by the router from the jobs runner. The store knows about
-        // the tree, not about what this process happens to be doing with it.
-        queuePosition: null,
-        createdAt: row.created_at,
-      } satisfies NodeView;
-    });
+    return this.views.tree(projectId);
   }
-
   projectView(row: ProjectRow): ProjectView {
-    return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      defaultModel: row.default_model,
-      defaultPermissionMode: row.default_permission_mode,
-      defaultEffort: row.default_effort,
-      sourceKind: row.source_kind,
-      sourcePath: row.source_path,
-      setup: {
-        copyFiles: parseStringArray(row.copy_files) ?? [],
-        setupCommand: row.setup_command,
-      },
-      costUsd: this.projectCost(row.id),
-      createdAt: row.created_at,
-    };
+    return this.views.project(row);
   }
-
-  /**
-   * Finds the project, and where possible the node, that owns a folder.
-   *
-   * Bonsai creates worktrees and then, later, has no idea what they are: point
-   * the folder picker at one and the only thing that answers is git, which
-   * replies with a sentence about linked worktrees and advice that leads to a
-   * bare repository nobody can adopt. The answer was in the database the whole
-   * time.
-   *
-   * Exact match first -- a node's worktree, or the repository itself -- then
-   * containment, which catches the scaffolding around them: the folder holding
-   * the bare repo, and the `worktrees/` directory between them.
-   */
   findFolderOwner(path: string): { project: ProjectRow; node: NodeRow | null } | null {
-    const target = resolve(path);
-
-    for (const project of this.listProjects()) {
-      for (const node of this.listNodes(project.id)) {
-        if (resolve(node.worktree_path) === target) return { project, node };
-      }
-      if (resolve(project.repo_path) === target) return { project, node: null };
-      if (project.source_path !== null && resolve(project.source_path) === target) {
-        return { project, node: null };
-      }
-    }
-
-    // Nothing owns it outright; see whether it sits inside something that does.
-    // Only Bonsai's own directories count here -- an adopted project's folder
-    // is the user's, and a folder next to it is none of Bonsai's business.
-    for (const project of this.listProjects()) {
-      const scratch = this.projectScratchDir(project.id);
-      const bare = project.source_kind === 'adopted' ? scratch : dirname(project.repo_path);
-      if (isInside(bare, target) || isInside(scratch, target)) return { project, node: null };
-    }
-
-    return null;
+    return this.views.folderOwner(path);
   }
-
-  /** Whether a node's pinned base still agrees with a live walk. See lineage.ts. */
   baseDiverges(row: NodeRow): boolean {
-    const lookup = lookupFrom(this.listNodes(row.project_id).map(toLineage));
-    return divergesFromLiveWalk(toLineage(row), lookup);
+    return this.views.baseDiverges(row);
   }
-
-  /**
-   * Which node this one took its conversation from, and which it took its code
-   * from (PRD §4). The same walk `domain/lineage.ts` already defines -- reused
-   * rather than re-derived, because a second implementation of the
-   * nearest-committing-ancestor rule is precisely the thing that would drift.
-   */
-  /** Resolve the owner of a pinned snapshot, including an ancestor's older run. */
-  private snapshotSource(parent: NodeRow, base: string | null): NodeRow {
-    let source: NodeRow | undefined = parent;
-    let root = parent;
-    while (source !== undefined) {
-      root = source;
-      if (source.head_commit === base || this.listRuns(source.id).some((r) => r.commitSha === base))
-        return source;
-      source = source.parent_id === null ? undefined : this.getNode(source.parent_id);
-    }
-    // The initial repository snapshot has no agent run; it belongs to the root.
-    return root;
-  }
-
   childSourceVersion(parent: NodeRow): string {
-    return createHash('sha256')
-      .update(JSON.stringify([parent.id, parent.head_commit ?? parent.base_commit]))
-      .digest('hex');
+    return this.views.childSourceVersion(parent);
   }
-
   childLineageOf(parent: NodeRow): NodeLineageView {
-    return this.namedLineage(
-      parent,
-      this.snapshotSource(parent, parent.head_commit ?? parent.base_commit),
-    );
+    return this.views.childLineageOf(parent);
   }
-
   lineageOf(row: NodeRow): NodeLineageView {
-    const parent = row.parent_id === null ? undefined : this.getNode(row.parent_id);
-    if (parent === undefined) return { conversationFrom: null, codeFrom: null, diverged: false };
-    return this.namedLineage(parent, this.snapshotSource(parent, row.base_commit));
-  }
-
-  private namedLineage(parent: NodeRow, source: NodeRow): NodeLineageView {
-    return {
-      conversationFrom: { id: parent.id, displayName: parent.display_name },
-      codeFrom: { id: source.id, displayName: source.display_name },
-      diverged: parent.id !== source.id,
-    };
+    return this.views.lineageOf(row);
   }
 }
 
-/** True for the one node whose worktree the user owns: an adopted master. */
-export function isUsersOwnCheckout(project: ProjectRow | undefined, row: NodeRow): boolean {
-  return project?.source_kind === 'adopted' && row.parent_id === null;
-}
-
-export function toLineage(row: NodeRow): LineageNode {
-  return {
-    id: row.id,
-    parentId: row.parent_id,
-    baseCommit: row.base_commit,
-    headCommit: row.head_commit,
-  };
-}
-
-/** An untouched optional field and an empty one mean the same thing: absent. */
-function blankToNull(value: string | null | undefined): string | null {
-  if (value === undefined || value === null) return null;
-  const trimmed = value.trim();
-  return trimmed === '' ? null : trimmed;
-}
-
-/** Shared by the tool list and the copy-files list; both are JSON arrays. */
-function parseStringArray(value: unknown): string[] | null {
-  if (typeof value !== 'string' || value === '') return null;
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Tolerant on purpose: a malformed row should not break the whole panel. */
-function parseTools(value: unknown): string[] | null {
-  if (typeof value !== 'string' || value === '') return null;
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((t): t is string => typeof t === 'string') : null;
-  } catch {
-    return null;
-  }
-}
-
-function isInside(parent: string, child: string): boolean {
-  const p = resolve(parent);
-  return child === p || child.startsWith(p + sep);
-}
+export type { PermissionMode };
