@@ -92,6 +92,19 @@ describe('cancelling a run', () => {
     assert.equal(run.status, 'cancelled');
   });
 
+  test('deletion waits for cancellation cleanup and blocks a replacement run until removal ends', async () => {
+    jobs.start(masterId, 'slow work');
+    const removed = jobs.withStoppedNodes([masterId], () => {
+      assert.equal(jobs.activeCount(), 0);
+      assert.equal(store.listRuns(masterId).at(-1)?.status, 'cancelled');
+      assert.throws(() => jobs.start(masterId, 'replacement'), /deleted/);
+      return Promise.resolve('removed');
+    });
+    assert.throws(() => jobs.start(masterId, 'racing start'), /deleted/);
+    assert.equal(await removed, 'removed');
+    assert.equal(jobs.isRetiring(masterId), false);
+  });
+
   test('cancelling a node that is not running is false, not an error', () => {
     // The route returns 200 with this. "It already stopped" is not a failure,
     // and making it one would put an error banner in front of the user for

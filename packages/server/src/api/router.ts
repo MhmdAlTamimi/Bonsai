@@ -1,3 +1,6 @@
+import { ProjectOperations } from './projectOperations.js';
+import { OperationConflict } from '../domain/errors.js';
+import { assertLocalRequest } from './localRequest.js';
 import { diagnosticReport } from './diagnosticPrivacy.js';
 import { resolveRunSettings } from '../jobs/runSettings.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -13,7 +16,7 @@ import type {
   UpdateProjectRequest,
   UpdateSettingsRequest,
 } from '@bonsai/shared';
-import { deriveNodeName } from '@bonsai/shared';
+import { deriveNodeName, TEXT_SCALES } from '@bonsai/shared';
 import type {
   AdoptProjectRequest,
   DiagnosticsView,
@@ -97,8 +100,24 @@ interface Route {
 }
 
 const routes: Route[] = [];
+const structure = new ProjectOperations();
+function structural(handler: Handler, target: 'node' | 'project'): Handler {
+  return async (req, res, params, ctx) => {
+    const id = target === 'project' ? params['id'] : ctx.store.getNode(params['id']!)?.project_id;
+    if (!id) throw new HttpError(404, 'No such project.');
+    await structure.run(id, async () => {
+      await handler(req, res, params, ctx);
+    });
+  };
+}
 
 function route(method: string, pattern: string, handler: Handler): void {
+  if (
+    (method === 'POST' && pattern === '/api/projects/:id/nodes') ||
+    (method === 'DELETE' && ['/api/projects/:id', '/api/nodes/:id'].includes(pattern))
+  ) {
+    handler = structural(handler, pattern === '/api/nodes/:id' ? 'node' : 'project');
+  }
   routes.push({ method, segments: pattern.split('/').filter(Boolean), handler, pattern });
 }
 
@@ -288,6 +307,8 @@ route('PATCH', '/api/settings', async (req, res, _p, { settings, connection, sto
     )
       throw new HttpError(400, `${field} must be a number.`);
   }
+  if (body.textScale !== undefined && !TEXT_SCALES.some((scale) => scale === body.textScale))
+    throw new HttpError(400, 'Choose a supported text size.');
   const view = settings.update(body);
   // Auth-affecting changes invalidate what we know, so re-check immediately.
   if (body.authMode !== undefined || body.apiKey !== undefined || body.model !== undefined) {
@@ -476,8 +497,10 @@ route('GET', '/api/projects/:id/deletion-impact', (_req, res, params, { store })
 route('DELETE', '/api/projects/:id', async (_req, res, params, { store, bus, jobs }) => {
   const project = store.getProject(params['id']!);
   if (project === undefined) throw new HttpError(404, 'no such project');
-  for (const node of store.listNodes(project.id)) jobs.cancel(node.id);
-  const removed = await deleteProjectTree(store, project.id);
+  const removed = await jobs.withStoppedNodes(
+    store.listNodes(project.id).map((node) => node.id),
+    () => deleteProjectTree(store, project.id),
+  );
   bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
   sendJson(res, 200, { ok: true, ...removed });
 });
@@ -492,6 +515,7 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   const parentId = requireString(body.parentId, 'parentId');
   const parent = store.getNode(parentId);
   if (parent === undefined) throw new HttpError(404, 'no such parent node');
+  if (jobs.isRetiring(parent.id)) throw new HttpError(409, 'This experiment is being deleted.');
   if (parent.project_id !== projectId) throw new HttpError(400, 'parent is in another project');
 
   if (body.sourceVersion !== undefined && body.sourceVersion !== store.childSourceVersion(parent)) {
@@ -606,6 +630,14 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus, jobs }) 
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const body = await readJson<UpdateNodeRequest>(req);
+  for (const field of ['positionX', 'positionY'] as const) {
+    if (
+      body[field] !== undefined &&
+      body[field] !== null &&
+      (typeof body[field] !== 'number' || !Number.isFinite(body[field]))
+    )
+      throw new HttpError(400, 'Position must be a number or automatic.');
+  }
   // D3: nodes are immutable. Display name and canvas position are metadata and
   // are the only things this route will touch.
   store.updateNode(row.id, {
@@ -631,7 +663,7 @@ route('GET', '/api/nodes/:id/deletion-impact', (_req, res, params, { store }) =>
   sendJson(res, 200, {
     nodes: doomed.length,
     names: doomed.map((node) => node.display_name),
-    costUsd: doomed.reduce((sum, n) => sum + store.nodeCost(n.id), 0),
+    costUsd: store.runs.costOfMany(doomed.map((n) => n.id)),
     commits: doomed.filter((n) => n.head_commit !== null).length,
   });
 });
@@ -643,8 +675,10 @@ route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs }
     throw new HttpError(400, 'deleting master means deleting the project');
   // Open Question 3, answered: cancel, then delete. Blocking the delete would
   // strand a node behind a run that may never finish.
-  jobs.cancel(row.id);
-  const removed = await deleteNodeTree(store, row.id);
+  const removed = await jobs.withStoppedNodes(
+    store.descendantsOf(row.id).map((node) => node.id),
+    () => deleteNodeTree(store, row.id),
+  );
   bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
   sendJson(res, 200, { ok: true, removed });
 });
@@ -840,6 +874,12 @@ export async function handleApi(
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (!url.pathname.startsWith('/api/')) return false;
 
+  try {
+    assertLocalRequest(req.headers);
+  } catch (error) {
+    sendError(res, error);
+    return true;
+  }
   const found = match(req.method ?? 'GET', url.pathname);
   if (found === null) {
     ctx.log.warn('api.unrouted', { method: req.method, path: url.pathname });
@@ -857,7 +897,8 @@ export async function handleApi(
      * The path is logged as the ROUTE PATTERN, not the request path, so ids
      * do not accumulate as unique strings and the message is greppable.
      */
-    const status = err instanceof HttpError ? err.status : 500;
+    const status =
+      err instanceof HttpError ? err.status : err instanceof OperationConflict ? 409 : 500;
     const message = err instanceof Error ? err.message : String(err);
     ctx.log[status >= 500 ? 'error' : 'warn']('api.error', {
       method: req.method,

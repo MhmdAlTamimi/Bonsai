@@ -42,6 +42,7 @@ export async function git(args: readonly string[], cwd: string): Promise<string>
       cwd,
       env: { ...process.env, ...IDENTITY },
       maxBuffer: 32 * 1024 * 1024,
+      timeout: 120_000,
       windowsHide: true,
     });
     return stdout;

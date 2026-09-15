@@ -129,6 +129,21 @@ export class NodeStore {
       .all(projectId) as unknown as NodeRow[];
   }
 
+  /**
+   * Every node worktree Bonsai knows about, in one query.
+   *
+   * The folder picker asks "do you already own this path?" on every keystroke
+   * that settles, and answering it by listing the nodes of each project in turn
+   * was a query per project plus a full row read per node. This is the one
+   * question that needs every project at once, so it is the one query that
+   * crosses them.
+   */
+  allWorktrees(): Array<{ id: string; project_id: string; worktree_path: string }> {
+    return this.db
+      .prepare(`SELECT id, project_id, worktree_path FROM node`)
+      .all() as unknown as Array<{ id: string; project_id: string; worktree_path: string }>;
+  }
+
   /** D33: display name and position only. D3 forbids everything else. */
   update(
     id: string,

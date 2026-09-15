@@ -1,3 +1,4 @@
+import { Icon, type IconName } from './Icon.tsx';
 import type { JSX } from 'react';
 import type { NodeStatus, NodeView, RunStatus } from '@bonsai/shared';
 
@@ -14,12 +15,12 @@ import type { NodeStatus, NodeView, RunStatus } from '@bonsai/shared';
  * five are still distinguishable.
  */
 
-export const STATUS_GLYPH: Record<NodeStatus, string> = {
-  new: '○',
-  running: '◐',
-  needs_you: '?',
-  ready: '○',
-  interrupted: '▲',
+export const STATUS_GLYPH: Record<NodeStatus, IconName> = {
+  new: 'circle',
+  running: 'clock',
+  needs_you: 'question',
+  ready: 'finished',
+  interrupted: 'warning',
 };
 
 export const STATUS_LABEL: Record<NodeStatus, string> = {
@@ -53,9 +54,15 @@ export function StatusChip({
 }): JSX.Element {
   if (queuePosition !== null) {
     return (
-      <span className="chip queued" title={`Waiting for a free slot (position ${queuePosition})`}>
-        <span className="glyph">⋯</span>
-        {!compact && `queued #${queuePosition}`}
+      <span
+        className="chip queued"
+        title={`Waiting for a free slot (position ${queuePosition})`}
+        aria-label={`Queued, position ${queuePosition}`}
+      >
+        <span className="glyph">
+          <Icon name="clock" />
+        </span>
+        {!compact && `Queued #${queuePosition}`}
       </span>
     );
   }
@@ -72,7 +79,9 @@ export function StatusChip({
       : STATUS_TITLE[status];
   return (
     <span className={`chip st-${status}`} title={title} aria-label={label}>
-      <span className="glyph">{STATUS_GLYPH[status]}</span>
+      <span className="glyph">
+        <Icon name={label === 'Failed' ? 'warning' : STATUS_GLYPH[status]} />
+      </span>
       {!compact && label}
     </span>
   );

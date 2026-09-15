@@ -3,8 +3,8 @@ import type { NodeView } from '@bonsai/shared';
 import type { Edge, Node } from 'reactflow';
 import { codeState } from '../nodeCode.ts';
 
-export const CARD_WIDTH = 220;
-export const CARD_HEIGHT = 76;
+export const CARD_WIDTH = 260;
+export const CARD_HEIGHT = 138;
 
 /**
  * Layout direction. D35 specifies left-to-right; this is top-to-bottom by
@@ -23,7 +23,10 @@ export const RANK_DIR: 'TB' | 'LR' = 'TB';
  * has been dragged carries its own position and is pinned there; everything
  * else is laid out by dagre.
  */
-export function layoutTree(nodes: readonly NodeView[]): {
+export function layoutTree(
+  nodes: readonly NodeView[],
+  sizes: ReadonlyMap<string, { width: number; height: number }> = new Map(),
+): {
   nodes: Array<Node<NodeView>>;
   edges: Edge[];
 } {
@@ -38,8 +41,10 @@ export function layoutTree(nodes: readonly NodeView[]): {
   );
   graph.setDefaultEdgeLabel(() => ({}));
 
-  for (const n of nodes) graph.setNode(n.id, { width: CARD_WIDTH, height: CARD_HEIGHT });
+  for (const n of nodes)
+    graph.setNode(n.id, sizes.get(n.id) ?? { width: CARD_WIDTH, height: CARD_HEIGHT });
 
+  const byId = new Map(nodes.map((node) => [node.id, node]));
   const edges: Edge[] = [];
   for (const n of nodes) {
     if (n.parentId === null) continue;
@@ -49,6 +54,7 @@ export function layoutTree(nodes: readonly NodeView[]): {
       source: n.parentId,
       target: n.id,
       type: 'smoothstep',
+      ariaLabel: `Conversation from ${byId.get(n.parentId)?.displayName ?? 'source'} to ${n.displayName}`,
       // An edge into a node that ran and wrote nothing carries conversation but
       // no code. Drawing that distinction is the whole point of the tree -- but
       // only once the run has finished and the answer is actually known.
@@ -64,14 +70,16 @@ export function layoutTree(nodes: readonly NodeView[]): {
   return {
     nodes: nodes.map((n) => {
       const laid = graph.node(n.id) as { x: number; y: number } | undefined;
-      const x = n.positionX ?? (laid?.x ?? 0) - CARD_WIDTH / 2;
-      const y = n.positionY ?? (laid?.y ?? 0) - CARD_HEIGHT / 2;
+      const size = sizes.get(n.id) ?? { width: CARD_WIDTH, height: CARD_HEIGHT };
+      const x = n.positionX ?? (laid?.x ?? 0) - size.width / 2;
+      const y = n.positionY ?? (laid?.y ?? 0) - size.height / 2;
       return {
         id: n.id,
         type: 'bonsai',
         position: { x, y },
         data: n,
         draggable: true,
+        ariaLabel: `Experiment ${n.displayName}`,
       } satisfies Node<NodeView>;
     }),
     edges,

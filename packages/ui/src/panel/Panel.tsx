@@ -28,6 +28,7 @@ export function Panel({
   stream,
   streamRevision,
   onProjectSettings,
+  onHide,
   onChanged,
   onCreateChild,
   startError,
@@ -39,6 +40,7 @@ export function Panel({
   stream: readonly Delta[];
   streamRevision: number;
   onProjectSettings: () => void;
+  onHide: () => void;
   onChanged: () => void;
   /** Opens the one create-a-child dialog. See NewChildDialog. */
   onCreateChild: (node: NodeView) => void;
@@ -61,6 +63,7 @@ export function Panel({
       node={node}
       stream={stream}
       streamRevision={streamRevision}
+      onHide={onHide}
       onProjectSettings={onProjectSettings}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
@@ -76,6 +79,7 @@ function NodePanel({
   stream,
   streamRevision,
   onProjectSettings,
+  onHide,
   onChanged,
   onCreateChild,
   startError,
@@ -86,6 +90,7 @@ function NodePanel({
   stream: readonly Delta[];
   streamRevision: number;
   onProjectSettings: () => void;
+  onHide: () => void;
   onChanged: () => void;
   onCreateChild: (node: NodeView) => void;
   startError: string | null;
@@ -169,6 +174,14 @@ function NodePanel({
       <header>
         <h2 title={node.displayName}>{node.displayName}</h2>
         <div className="header-right">
+          <button
+            className="hide-panel"
+            aria-label="Hide experiment panel"
+            title="Back to map"
+            onClick={onHide}
+          >
+            ×
+          </button>
           {/* A node parked on a question is still holding an agent and a
               concurrency slot, so it needs the same way out as a running one. */}
           <StopButton node={node} />
@@ -445,15 +458,22 @@ function OverflowMenu({
 
   useEffect(() => {
     if (!open) return;
+    const frame = requestAnimationFrame(() =>
+      ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus(),
+    );
     const onDown = (e: MouseEvent): void => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') {
+        setOpen(false);
+        ref.current?.querySelector<HTMLButtonElement>('.overflow')?.focus();
+      }
     };
     window.addEventListener('mousedown', onDown);
     window.addEventListener('keydown', onKey);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener('mousedown', onDown);
       window.removeEventListener('keydown', onKey);
     };
@@ -471,7 +491,27 @@ function OverflowMenu({
         ⋯
       </button>
       {open && (
-        <div className="menu-panel right" role="menu">
+        <div
+          className="menu-panel right"
+          role="menu"
+          onKeyDown={(event) => {
+            const items = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+            );
+            const index = items.indexOf(document.activeElement as HTMLButtonElement);
+            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+              event.preventDefault();
+              items[
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? items.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+              ]?.focus();
+            }
+            if (event.key === 'Tab') setOpen(false);
+          }}
+        >
           <button
             role="menuitem"
             disabled={busy}

@@ -159,6 +159,8 @@ export default tseslint.config(
         process: 'readonly',
         fetch: 'readonly',
         performance: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
         WebSocket: 'readonly',
         URL: 'readonly',
         Buffer: 'readonly',

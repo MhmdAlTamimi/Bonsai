@@ -131,10 +131,16 @@ export class Views {
     const target = resolve(path);
     const projects = this.projects.list();
 
+    // One query for every worktree in the database rather than one list per
+    // project: this runs on every folder inspection, including while typing.
+    for (const row of this.nodes.allWorktrees()) {
+      if (resolve(row.worktree_path) !== target) continue;
+      const project = projects.find((p) => p.id === row.project_id);
+      const node = this.nodes.get(row.id);
+      if (project !== undefined && node !== undefined) return { project, node };
+    }
+
     for (const project of projects) {
-      for (const node of this.nodes.list(project.id)) {
-        if (resolve(node.worktree_path) === target) return { project, node };
-      }
       if (resolve(project.repo_path) === target) return { project, node: null };
       if (project.source_path !== null && resolve(project.source_path) === target) {
         return { project, node: null };

@@ -1,3 +1,4 @@
+import { Icon } from '../Icon.tsx';
 import type { JSX } from 'react';
 import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
@@ -34,16 +35,16 @@ function lodFor(zoom: number): Lod {
 
 /** Why the padlock is there. The two reasons lead to different next steps. */
 const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
-  child_committed: "Frozen — a child has committed, so this node's code cannot change.",
+  child_committed: "Frozen — a child has committed, so this experiment's code cannot change.",
   your_folder:
-    'Your own folder. Bonsai reads it but never writes or commits there; drag out a child to make changes.',
+    'Your own folder. Bonsai reads it but never writes or commits there; branch an experiment to make changes.',
 };
 
 export function NodeCard({ data, selected }: { data: NodeView; selected: boolean }): JSX.Element {
   const zoom = useStore((s) => s.transform[2]);
   const lod = lodFor(zoom);
 
-  // Dashed border and the envelope glyph mean "ran and wrote nothing", which is
+  // Dashed border and the conversation glyph mean "ran and wrote nothing", which is
   // only knowable once the run finished. A node that has not run yet gets
   // neither -- see nodeCode.ts.
   const code = codeState(data);
@@ -60,11 +61,11 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
     .join(' ');
 
   // At dot level the card is sized in inverse proportion to the zoom, so it
-  // stays a constant ~30px on screen. Without this the level-of-detail shrink
+  // stays a constant 44px on screen. Without this the level-of-detail shrink
   // and the zoom shrink compound, and the "dot alone" overview D35 asks for
   // turns into single-digit pixels -- nodes that read as having vanished.
   const dotStyle =
-    lod === 'dot' ? { width: `${30 / zoom}px`, height: `${30 / zoom}px` } : undefined;
+    lod === 'dot' ? { width: `${44 / zoom}px`, height: `${44 / zoom}px` } : undefined;
 
   return (
     <div
@@ -75,26 +76,42 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
       <Handle type="target" position={RANK_DIR === 'TB' ? Position.Top : Position.Left} />
 
       {lod === 'dot' ? (
-        <span
-          className="dot-only"
-          aria-label={`${data.displayName}: ${STATUS_LABEL[data.status]}`}
-        />
+        <span className="dot-only" aria-label={`${data.displayName}: ${STATUS_LABEL[data.status]}`}>
+          <StatusChip
+            status={data.status}
+            queuePosition={data.queuePosition}
+            lastRunStatus={data.lastRunStatus}
+            compact
+          />
+        </span>
       ) : (
         <>
           <div className="card-head">
+            {data.positionX !== null && (
+              <span title="Pinned position" role="img" aria-label="Pinned position">
+                <Icon name="pin" />
+              </span>
+            )}
             <span className="card-name">{data.displayName}</span>
             {/* No diff to show, so say so rather than hiding it. */}
             {code === 'none' && (
-              <span className="glyph lock" title={CODE_LABEL[code]}>
-                &#9993;
+              <span
+                className="glyph lock"
+                title={CODE_LABEL[code]}
+                role="img"
+                aria-label={CODE_LABEL[code]}
+              >
+                <Icon name="chat" />
               </span>
             )}
             {!data.writable && (
               <span
                 className="glyph lock"
+                role="img"
+                aria-label={FROZEN_TOOLTIP[data.frozenReason ?? 'child_committed']}
                 title={FROZEN_TOOLTIP[data.frozenReason ?? 'child_committed']}
               >
-                &#128274;
+                <Icon name="lock" />
               </span>
             )}
             {/* At compact zoom the word is gone, so the glyph carries it. */}
@@ -150,8 +167,10 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
         type="source"
         position={RANK_DIR === 'TB' ? Position.Bottom : Position.Right}
         className="add-child-handle"
-        title="drag out to create a child"
-      />
+        title="Drag onto empty map to branch an experiment"
+      >
+        <Icon name="plus" />
+      </Handle>
     </div>
   );
 }

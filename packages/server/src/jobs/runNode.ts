@@ -1,3 +1,4 @@
+import { OperationConflict } from '../domain/errors.js';
 import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
 import { CONCURRENCY, type NodeStatus } from '@bonsai/shared';
@@ -110,6 +111,31 @@ export class RunJobs {
     private readonly log: Logger = silentLogger,
     private readonly connection?: { recordFailure(message: string): void },
   ) {}
+
+  private readonly retiring = new Set<string>();
+  isRetiring(nodeId: string): boolean {
+    return this.retiring.has(nodeId);
+  }
+  /** Keep files and rows intact until every affected job has unwound. */
+  async withStoppedNodes<T>(ids: readonly string[], remove: () => Promise<T>): Promise<T> {
+    if (ids.some((id) => this.retiring.has(id)))
+      throw new OperationConflict('Deletion is already in progress.');
+    for (const id of ids) this.retiring.add(id);
+    try {
+      for (const id of ids) this.cancel(id);
+      const deadline = Date.now() + 10_000;
+      while (ids.some((id) => this.isRunning(id))) {
+        if (Date.now() >= deadline)
+          throw new OperationConflict(
+            'The agent is still stopping. Work is kept; retry deletion after it stops.',
+          );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return await remove();
+    } finally {
+      for (const id of ids) this.retiring.delete(id);
+    }
+  }
 
   isRunning(nodeId: string): boolean {
     return this.running.has(nodeId) || this.queue.some((q) => q.nodeId === nodeId);
@@ -234,7 +260,9 @@ export class RunJobs {
   start(nodeId: string, prompt: string): { runId: string } {
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
-    if (this.running.has(nodeId)) throw new Error('this node is already running');
+    if (this.isRetiring(nodeId)) throw new OperationConflict('This experiment is being deleted.');
+    if (this.isRunning(nodeId))
+      throw new OperationConflict('This experiment is already running or queued.');
 
     /**
      * THE FREEZE IS RESOLVED HERE AND NOWHERE ELSE.

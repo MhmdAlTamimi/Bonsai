@@ -23,12 +23,12 @@ not for shipping code.
 | D1 | The graph is a **tree**. `master → A → C` and `master → B → exploration 1` are separate lines. | Siblings are fully isolated. |
 | D2 | A node inherits the agent session history of **its ancestor chain only**. | Implemented by session forking — see D16. |
 | D3 | **Nodes are immutable.** No editing a node in V0. | Removes the rebase / stale-descendant problem entirely. |
-| D4 | A node is writable **only while it is a leaf**; it freezes once it has a child. | Frozen nodes stay conversational (inquiry), just not writable. |
+| D4 | A node’s code is writable **while no direct child has commits**. Question-only children do not freeze it; deleting the last committed child unfreezes it. Owner confirmed 14 September 2026. | Frozen nodes stay conversational (inquiry), just not writable. |
 | D5 | To make a change you **explicitly create a child**: name + description + confirm. The agent then works inside that child. | Node granularity is a user decision, not an agent side effect. Prevents node spam. |
 | D6 | **Change vs. exploration is emergent, not chosen.** A node whose agent wrote no code is an exploration node. | Replaces the draft's contradictory "pick the type twice" flow. |
 | D7 | **Delete cascades** to descendants. | See B9 — soft delete recommended, not adopted. |
 | D21 | On project creation, the **agent scaffolds starter code** from the project description. Master is not empty. | "Do nothing" is a valid instruction — you still get a repo, a README, and an initial commit. |
-| D24 | **Master is a real git branch.** It's the one node that always has one; a repo needs a default branch with a commit for anything to branch from. Otherwise master behaves like any other node (freezes when it gets a child). | No special-casing beyond this. |
+| D24 | **Master is a real git branch.** It's the one node that always has one; a repo needs a default branch with a commit for anything to branch from. Otherwise master behaves like any other node (freezes when a direct child commits). | No special-casing beyond this. |
 | D25 | **A node forks two independent things: code (a git branch) and conversation (a session fork).** A change node forks both. An **exploration node forks only the conversation** and sits on its parent's commit. | Not two node classes — one node with two flags: `creates_branch`, `writable`. First step toward B10. |
 | D26 | Exploration nodes get a **detached worktree** (`git worktree add --detach <path> <commit>`) plus **read-only `allowedTools`** (no Write/Edit/Bash). | Isolated directory, no branch, no commits. Any stray write lands somewhere harmless instead of dirtying a frozen parent's checkout. Keeps the runner rule uniform: every node has a `cwd`. |
 | D27 | To act on an exploration, you **create a child**, which gets a real branch and forks the exploration's session. | Silently promoting an exploration to a change node would break D3. |

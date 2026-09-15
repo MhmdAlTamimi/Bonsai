@@ -6,8 +6,7 @@ Scope
 The demo script in PRD §2 is the definition of done. If a change isn't needed by
 that script, it doesn't belong in V0.
 Do not build, and do not build toward: merging, syncing with the user's own
-copy, importing existing repos, comparing nodes side by side, editing nodes that
-have children, conflict resolution, pruning/archiving/search, multi-user or
+copy, importing existing repos, comparing nodes side by side, editing code on nodes with a committed child, conflict resolution, pruning/archiving/search, multi-user or
 hosting.
 These are tracked as B1–B13 and are deferred on purpose, not forgotten.
 Non-negotiable constraints
@@ -27,9 +26,12 @@ A node's git base is the nearest ancestor with a commit, not its parent.
 Exploration nodes have no commits, so the walk can be several hops.
 Nodes are immutable. Never amend a commit. Never rewrite history. New
 commits only.
-A node may hold several commits while it's a leaf. A node is a branch, not a
+A node may hold several commits while no direct child has committed. A node is a branch, not a
 single commit.
-A node freezes when it gets a child — writable only while it's a leaf.
+A node's code freezes when a direct child commits. Question-only children do
+not freeze it. Deleting the last committed child makes the parent writable
+again; an adopted project's original folder always remains read-only.
+This owner-approved rule supersedes the earlier freeze-on-creation wording.
 The app owns git; the agent does not. The agent may run read-only git
 (status, diff, log) but never commit, branch, checkout, merge, or reset.
 The agent writes CONTEXT.md; the app commits.

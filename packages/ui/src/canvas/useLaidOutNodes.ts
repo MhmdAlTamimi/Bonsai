@@ -42,10 +42,42 @@ export function useLaidOutNodes(
    */
   const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<NodeView>([]);
 
-  const edges = useMemo(() => layoutTree(nodes).edges, [nodes]);
+  const geometry = JSON.stringify(
+    flowNodes
+      .filter((node) => node.width && node.height)
+      .map((node) => [node.id, node.width, node.height]),
+  );
+  const sizes = useMemo(
+    () =>
+      new Map(
+        (JSON.parse(geometry) as Array<[string, number, number]>).map(([id, width, height]) => [
+          id,
+          { width, height },
+        ]),
+      ),
+    [geometry],
+  );
+  const laid = useMemo(() => layoutTree(nodes, sizes), [nodes, sizes]);
+  const edges = useMemo(() => {
+    const path = new Set<string>();
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    let current = selectedId;
+    while (current !== null && !path.has(current)) {
+      path.add(current);
+      current = byId.get(current)?.parentId ?? null;
+    }
+    return laid.edges.map((edge) => ({
+      ...edge,
+      style: {
+        ...edge.style,
+        ...(path.has(edge.target) && path.has(edge.source)
+          ? { stroke: 'var(--focus)', strokeWidth: 2.5 }
+          : {}),
+      },
+    }));
+  }, [laid, nodes, selectedId]);
 
   useEffect(() => {
-    const laid = layoutTree(nodes);
     setFlowNodes((current) => {
       const byId = new Map(current.map((n) => [n.id, n]));
       return laid.nodes.map((fresh) => {
@@ -64,40 +96,56 @@ export function useLaidOutNodes(
           ? marked
           : {
               ...previous,
-              data: marked.data,
-              position: marked.position,
-              selected: marked.selected,
+              ...marked,
             };
       });
     });
-  }, [nodes, selectedId, setFlowNodes]);
+  }, [laid, selectedId, setFlowNodes]);
 
-  /**
-   * Refit when the tree grows. Not cosmetic: the layout extends downward, so
-   * without this a newly created node lands outside the viewport and cannot be
-   * reached at all until you hit the fit control by hand.
-   *
-   * Two loops to avoid if you touch this. useReactFlow() returns a fresh
-   * `fitView` identity whenever the viewport changes, so depending on it makes
-   * every fit schedule the next one -- hence the ref. And gating on
-   * useNodesInitialized() loops too: fitting changes the zoom, the zoom changes
-   * each card's level of detail, that changes the card's size, and React Flow
-   * re-measures. A plain timer avoids both.
-   *
-   * maxZoom stops a single small node from being blown up to fill the screen.
-   */
-  const { fitView } = useReactFlow();
-  const fitViewRef = useRef(fitView);
-  fitViewRef.current = fitView;
-  const nodeCount = flowNodes.length;
+  // Fit once for a project. Later selection reveals only offscreen nodes, without changing zoom.
+  const flow = useReactFlow();
+  const flowRef = useRef(flow);
+  flowRef.current = flow;
+  const fitted = useRef(false);
+  const count = flowNodes.length;
   useEffect(() => {
-    if (nodeCount === 0) return;
-    const timer = setTimeout(
-      () => fitViewRef.current({ duration: 250, padding: 0.2, maxZoom: 1 }),
-      120,
-    );
+    if (count === 0 || fitted.current) return;
+    const timer = setTimeout(() => {
+      flowRef.current.fitView({ padding: 0.2, maxZoom: 1, duration: 0 });
+      fitted.current = true;
+    }, 120);
     return () => clearTimeout(timer);
-  }, [nodeCount]);
-
+  }, [count]);
+  useEffect(() => {
+    if (!selectedId || !fitted.current) return;
+    const timer = setTimeout(() => {
+      const node = flowRef.current.getNode(selectedId);
+      const element = document.querySelector<HTMLElement>('.react-flow');
+      if (!node || !element || element.clientWidth === 0) return;
+      const viewport = flowRef.current.getViewport();
+      const left = node.position.x * viewport.zoom + viewport.x;
+      const top = node.position.y * viewport.zoom + viewport.y;
+      const width = (node.width ?? 260) * viewport.zoom;
+      const height = (node.height ?? 138) * viewport.zoom;
+      const dx =
+        left < 30
+          ? 30 - left
+          : left + width > element.clientWidth - 30
+            ? element.clientWidth - 30 - left - width
+            : 0;
+      const dy =
+        top < 100
+          ? 100 - top
+          : top + height > element.clientHeight - 70
+            ? element.clientHeight - 70 - top - height
+            : 0;
+      if (dx || dy)
+        flowRef.current.setViewport(
+          { ...viewport, x: viewport.x + dx, y: viewport.y + dy },
+          { duration: 0 },
+        );
+    }, 160);
+    return () => clearTimeout(timer);
+  }, [selectedId, count]);
   return { flowNodes, edges, onNodesChange };
 }

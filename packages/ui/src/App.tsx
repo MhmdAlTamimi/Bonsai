@@ -54,11 +54,36 @@ export function App(): JSX.Element {
   const projectTree = useProjectTree(report, confirm.ask, arrivedAt.projectId);
   const { projects, projectId, tree, noProjects } = projectTree;
   const selection = useSelection();
+  const [panelVisible, setPanelVisible] = useState(true);
+  const selectExperiment = (id: string): void => {
+    selection.select(id);
+    setPanelVisible(true);
+  };
+  useEffect(() => {
+    if (selection.primary !== null) setPanelVisible(true);
+  }, [selection.primary]);
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--text-scale',
+      String((settings?.textScale ?? 100) / 100),
+    );
+  }, [settings?.textScale]);
   useAddressBar({ projectId, nodeId: selection.primary });
   const live = useRunStream(projectId, projectTree.refresh);
+  /**
+   * Re-read the credential when a run reports a failure, and not otherwise.
+   *
+   * The gate records authentication and rate failures as runs report them, so
+   * the app has to look again after one. It used to look again after EVERY
+   * event -- each status change, each finished run -- which fetched the
+   * connection and the whole settings object several times a second on a busy
+   * tree and replaced both objects on arrival, re-rendering everything that
+   * reads them for no new information.
+   */
   useEffect(() => {
+    if (live.agentRevision === 0) return;
     reload();
-  }, [live.revision, reload]);
+  }, [live.agentRevision, reload]);
   const child = useChildCreation({
     projectId,
     onCreated: selection.select,
@@ -134,7 +159,19 @@ export function App(): JSX.Element {
   return (
     <RunAvailability.Provider value={connection.state === 'connected'}>
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
-        <div className="app">
+        <div className={`app${panelVisible ? '' : ' panel-hidden'}`}>
+          <nav className="view-switch" aria-label="Workspace view">
+            <button aria-pressed={!panelVisible} onClick={() => setPanelVisible(false)}>
+              Map
+            </button>
+            <button
+              aria-pressed={panelVisible}
+              disabled={selected === null}
+              onClick={() => setPanelVisible(true)}
+            >
+              Experiment
+            </button>
+          </nav>
           <div className="canvas">
             <MenuBar
               project={tree?.project ?? null}
@@ -198,13 +235,20 @@ export function App(): JSX.Element {
             <StopAll nodes={tree?.nodes ?? []} />
 
             <Canvas
+              key={projectId}
               nodes={tree?.nodes ?? []}
               selectedId={selection.primary}
-              onSelect={selection.select}
+              onSelect={selectExperiment}
               onToggleSelect={selection.toggle}
               onMoved={(nodeId, position) => {
                 void api
                   .updateNode(nodeId, { positionX: position.x, positionY: position.y })
+                  .catch((e: unknown) => report(describeError(e)));
+              }}
+              onAutomatic={(nodeId) => {
+                void api
+                  .updateNode(nodeId, { positionX: null, positionY: null })
+                  .then(projectTree.refresh)
                   .catch((e: unknown) => report(describeError(e)));
               }}
               onDropOnPane={child.begin}
@@ -230,7 +274,7 @@ export function App(): JSX.Element {
               projectName={tree.project.name}
               revision={live.revision}
               onClose={() => setShowUsage(false)}
-              onSelect={selection.select}
+              onSelect={selectExperiment}
             />
           )}
 
@@ -272,6 +316,7 @@ export function App(): JSX.Element {
             }}
             stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
             streamRevision={live.revision}
+            onHide={() => setPanelVisible(false)}
             onProjectSettings={openProjectSettings}
             onChanged={projectTree.refresh}
             /* The panel does not own a second, weaker version of this form any

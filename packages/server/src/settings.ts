@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import {
   CONCURRENCY,
   PANEL_WIDTH,
+  TEXT_SCALES,
   type PermissionMode,
   type SettingsView,
   type UpdateSettingsRequest,
@@ -26,6 +27,7 @@ interface StoredSettings {
   effort: string | null;
   reposRoot: string | null;
   panelWidth: number;
+  textScale: number;
   maxConcurrentRuns: number;
 }
 
@@ -37,6 +39,7 @@ const DEFAULTS: StoredSettings = {
   effort: null,
   reposRoot: null,
   panelWidth: PANEL_WIDTH.default,
+  textScale: 100,
   maxConcurrentRuns: CONCURRENCY.default,
 };
 
@@ -141,6 +144,9 @@ export class Settings {
       reposRoot: this.reposRoot(),
       platform: process.platform,
       panelWidth: this.panelWidth(),
+      textScale: TEXT_SCALES.some((scale) => scale === this.current.textScale)
+        ? this.current.textScale
+        : 100,
       maxConcurrentRuns: this.maxConcurrentRuns(),
     };
   }
@@ -154,6 +160,7 @@ export class Settings {
     if (patch.model !== undefined) next.model = patch.model;
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode;
     if (patch.effort !== undefined) next.effort = patch.effort;
+    if (patch.textScale !== undefined) next.textScale = patch.textScale;
     if (patch.panelWidth !== undefined) next.panelWidth = clampPanel(patch.panelWidth);
     if (patch.maxConcurrentRuns !== undefined) {
       next.maxConcurrentRuns = clampConcurrency(patch.maxConcurrentRuns);

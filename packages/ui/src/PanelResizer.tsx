@@ -36,7 +36,11 @@ export function PanelResizer({
 
   const apply = useCallback(
     (px: number) => {
-      const clamped = Math.min(max, Math.max(min, Math.round(px)));
+      const clamped = Math.min(
+        max,
+        Math.max(min, window.innerWidth - 441),
+        Math.max(min, Math.round(px)),
+      );
       latest.current = clamped;
       document.documentElement.style.setProperty('--panel-width', `${clamped}px`);
     },
@@ -47,6 +51,9 @@ export function PanelResizer({
   // initial load from settings, mainly.
   useEffect(() => {
     apply(width);
+    const resize = (): void => apply(width);
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
   }, [width, apply]);
 
   useEffect(() => {

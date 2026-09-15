@@ -12,11 +12,11 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | Milestone | Branch | Findings | State |
 | --- | --- | --- | --- |
 | 1. Protect users’ work | `codex/milestone-1-protect-work` | F01–F05 | Accepted by owner; merged and pushed |
-| 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Accepted and merged/pushed; F10 decision remains deferred |
+| 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Accepted and merged/pushed; F10 resolved in milestone 6 |
 | 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Accepted by owner; merged and pushed |
 | 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Accepted by owner; merged and pushed |
-| 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Ready for owner review |
-| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Pending |
+| 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Accepted; merged and pushed as `55332e8` |
+| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Implemented; ready for owner review |
 
 ## Milestone 1 review
 
@@ -190,3 +190,39 @@ Tests use temporary projects and the fake agent; no real credentials, personal p
 No new dependencies. Schema 12 pins each project’s storage path; existing files are not moved. F10's previously deferred freeze-timing decision is unchanged.
 
 Restart with `npm start`, review these flows, then request any edits before this branch is merged and pushed.
+
+
+## Milestone 6 review
+
+Branch: `codex/milestone-6-visual-experience`. Milestone 5 was accepted, merged and pushed as `55332e8`.
+The owner's project-tab folder button is sufficient; no experiment-folder action was added.
+
+**F10 resolved, superseding the earlier pending notes:** a direct child freezes its parent's code only
+when it commits. Question/clarification children do not freeze it. Deleting the last committed direct
+child restores writability; another committed child keeps it frozen. An adopted original folder stays
+read-only. AGENTS.md and decisions D4/D24 now agree with this owner-approved behavior.
+
+- **Reading and settings (F30–F31):** the default panel is wider, primary reading is 15px, and headings,
+  code and secondary text have clearer sizes. Settings → App settings → Appearance saves 100%, 115%, or
+  130% text size. Contrast measurements and limits are in the health report.
+- **Dialogs and keyboard (F32, F38):** creation, Rename, settings, deletion and expanded changes share
+  native modal focus containment and restoration. Backdrop clicks keep forms open. Enter submits;
+  Shift+Enter adds a request line. IME composition does not trigger submission or folder navigation.
+  Experiment actions support arrow keys, Home/End and Escape. A focused map experiment opens with Enter/Space.
+- **Map (F33–F35):** visible plus handles accompany the ordinary Branch experiment button. Map key explains
+  symbols and conversation lineage. Status uses SVG shapes plus labels. Selected conversation ancestry is
+  highlighted, and edge labels name experiments. Background additions keep zoom; selection reveals a node
+  with minimal pan. Fit tree is explicit. Pinned nodes offer Automatic position. Layout uses measured cards.
+- **Window composition (F36):** narrow windows switch between Map and Experiment while keeping drafts.
+  The panel can be hidden on desktop, and resizing respects remaining canvas width. Short zoomed windows
+  use one scrolling panel so content is not trapped between fixed header and footer.
+- **Identity (F37):** the owner-supplied mark and matching favicon from milestone 4 are retained. Status,
+  conversation, lock, pin and branch affordances use a consistent local SVG family; no icon dependency.
+
+Review at 1280×720, a narrow window, and enlarged text. Try branch creation with keyboard only, switching
+Map/Experiment with a draft, manual positioning followed by Automatic position, and deleting a committed
+child to restore its parent's writability. Restart with `npm start` so backend and interface match.
+
+System-health findings, fixes, measured limits and verification are recorded in
+[the milestone 6 health review](reports/milestone-6-health-review-2026-09-15.md).
+No dependencies were added. Merge and push only after the owner's review.

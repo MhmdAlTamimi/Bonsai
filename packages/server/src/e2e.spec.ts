@@ -1,7 +1,7 @@
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -1130,6 +1130,243 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     };
     assert.ok(priorImpact.removesDirectories.includes(join(dataDir, 'repos', created.projectId)));
     assert.ok(!priorImpact.removesDirectories.some((path) => path.startsWith(storageRoot)));
+  });
+  test('visual workspace supports text sizing, keyboard branching, stable zoom and narrow views', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'visual-review',
+          description: 'A long experiment description for comfortable reading.',
+          location: dataDir,
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor(
+      "!!document.querySelector('.branch-child') && !!document.querySelector('.card')",
+    );
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 1280,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await session.waitFor(
+      "document.querySelector('.composer textarea').getBoundingClientRect().bottom < 721",
+    );
+    assert.ok(
+      Number(await session.eval('parseFloat(getComputedStyle(document.body).fontSize)')) >= 14.5,
+    );
+    // Pin and unpin using the existing server-owned positioning API.
+    await fetch(nodeUrl, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ positionX: 120, positionY: 150 }),
+    });
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.canvas-tools button')).some(b => b.textContent === 'Automatic position')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.canvas-tools button')).find(b => b.textContent === 'Automatic position').click()",
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.positionX === null)()`,
+    );
+    await session.type('.composer textarea', 'Retain this draft across views');
+    await session.click('.branch-child');
+    await session.waitFor(
+      "document.activeElement?.getAttribute('aria-label') === 'experiment name'",
+    );
+    await session.type('[aria-label="experiment name"]', 'Keyboard experiment');
+    await session.type('[aria-label="what should change"]', 'A multiline request');
+    await session.eval(
+      "document.querySelector('[aria-label=\"what should change\"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}))",
+    );
+    assert.equal(
+      await session.eval('!!document.querySelector(\'dialog[aria-label="Branch experiment"]\')'),
+      true,
+      'IME composition does not submit',
+    );
+    for (let i = 0; i < 14; i++) {
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      assert.equal(
+        await session.eval("document.querySelector('dialog').contains(document.activeElement)"),
+        true,
+      );
+    }
+    // A backdrop click cannot discard this form.
+    await session.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: 2,
+      y: 2,
+      button: 'left',
+      clickCount: 1,
+    });
+    await session.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: 2,
+      y: 2,
+      button: 'left',
+      clickCount: 1,
+    });
+    assert.equal(
+      await session.eval('document.querySelector(\'[aria-label="experiment name"]\').value'),
+      'Keyboard experiment',
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-branch-1280.png'));
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
+    );
+    await session.waitFor("document.activeElement?.classList.contains('branch-child')");
+    const zoom = await session.eval(
+      "document.querySelector('.react-flow__viewport').style.transform.match(/scale\\(([^)]+)\\)/)[1]",
+    );
+    await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        parentId: created.masterNodeId,
+        displayName: 'Background experiment',
+        description: '',
+      }),
+    });
+    await session.waitFor("document.querySelectorAll('.card').length === 2");
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.react-flow__viewport').style.transform.match(/scale\\(([^)]+)\\)/)[1]",
+      ),
+      zoom,
+      'background growth does not refit',
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-map-1280.png'));
+    const contrast = await session.eval(`(() => {
+      const rgb = s => s.match(/[\\d.]+/g).slice(0,3).map(Number);
+      const luminance = c => c.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
+      const ratio = (a,b) => { const x=luminance(rgb(a)), y=luminance(rgb(b)); return Math.round((Math.max(x,y)+.05)/(Math.min(x,y)+.05)*100)/100; };
+      const results = [];
+      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button', '.branch-child', '.card-name', '.chip']) {
+        const el=document.querySelector(selector), style=getComputedStyle(el);
+        let parent=el, bg='rgb(13, 14, 17)';
+        while(parent) { const candidate=getComputedStyle(parent).backgroundColor; if(candidate.startsWith('rgb(')) {bg=candidate;break;} parent=parent.parentElement; }
+        results.push({selector, color:style.color, background:bg, ratio:ratio(style.color,bg)});
+      }
+      return results;
+    })()`);
+    await writeFile(
+      join(repoRoot, 'test-results', 'milestone-6-contrast.json'),
+      JSON.stringify(contrast, null, 2),
+    );
+    for (const pair of contrast as Array<{ selector: string; ratio: number }>)
+      assert.ok(pair.ratio >= 4.5, pair.selector);
+    await session.click('.settings-button');
+    await session.waitFor('!!document.querySelector(\'[aria-label="Text size"]\')');
+    await session.eval(
+      "const input = document.querySelector('[aria-label=\"Text size\"]'); input.value='130'; input.dispatchEvent(new Event('change',{bubbles:true}));",
+    );
+    await session.click('.appearance-settings button');
+    await session.waitFor(
+      "document.querySelector('.appearance-settings .save-feedback').textContent === 'Saved' && parseFloat(getComputedStyle(document.body).fontSize) > 18",
+    );
+    await session.click('[aria-label="Close settings"]');
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 800,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    assert.equal(
+      await session.eval("getComputedStyle(document.querySelector('.canvas')).display"),
+      'none',
+    );
+    assert.ok(
+      Number(
+        await session.eval("document.querySelector('.panel').getBoundingClientRect().width"),
+      ) <= 800,
+    );
+    assert.ok(
+      Number(
+        await session.eval(
+          "document.querySelector('.composer-row button').getBoundingClientRect().bottom",
+        ),
+      ) <= 720,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-800-large.png'));
+    await session.click('.view-switch button:first-child');
+    assert.equal(
+      await session.eval("getComputedStyle(document.querySelector('.panel')).display"),
+      'none',
+    );
+    await session.click('.view-switch button:last-child');
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'Retain this draft across views',
+    );
+    for (const width of [640, 480]) {
+      await session.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height: 720,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      assert.equal(
+        await session.eval('document.documentElement.scrollWidth <= window.innerWidth'),
+        true,
+      );
+      assert.ok(
+        Number(
+          await session.eval(
+            "document.querySelector('.branch-child').getBoundingClientRect().right",
+          ),
+        ) <= width,
+      );
+      await session.screenshot(join(repoRoot, 'test-results', `milestone-6-${width}-large.png`));
+    }
+    // 1280×720 at 200% browser zoom has a 640×360 CSS viewport.
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 640,
+      height: 360,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    assert.equal(
+      await session.eval('document.documentElement.scrollWidth <= window.innerWidth'),
+      true,
+    );
+    assert.ok(Number(await session.eval("document.querySelector('.panel-body').clientHeight")) > 0);
+    await session.eval(
+      "document.querySelector('.composer-row button').scrollIntoView({block:'nearest'})",
+    );
+    assert.ok(
+      Number(
+        await session.eval(
+          "document.querySelector('.composer-row button').getBoundingClientRect().bottom",
+        ),
+      ) <= 361,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-zoom-200.png'));
+    await session.click('.view-switch button:first-child');
+    await session.click('.settings-button');
+    await session.click('[aria-label="Close settings"]');
+    await session.send('Emulation.clearDeviceMetricsOverride', {});
+    await fetch(`${BASE}/api/settings`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ textScale: 100 }),
+    });
   });
 });
 

@@ -118,6 +118,21 @@ export class RunStore {
     return Number(row?.total ?? 0);
   }
 
+  /**
+   * The total cost of a set of nodes, in one query.
+   *
+   * Deletion impact asks this about a whole subtree, and asking per node meant
+   * a query per descendant every time a confirmation dialog opened.
+   */
+  costOfMany(nodeIds: readonly string[]): number {
+    if (nodeIds.length === 0) return 0;
+    const placeholders = nodeIds.map(() => '?').join(', ');
+    const row = this.db
+      .prepare(`SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id IN (${placeholders})`)
+      .get(...nodeIds) as unknown as { total: number } | undefined;
+    return Number(row?.total ?? 0);
+  }
+
   /** Every node's cost in a project, in one grouped query. */
   costsByNode(projectId: string): Map<string, number> {
     const rows = this.db

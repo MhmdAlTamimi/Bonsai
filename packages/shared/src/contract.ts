@@ -72,6 +72,7 @@ export interface SettingsView {
    * the one place preferences already are.
    */
   panelWidth: number;
+  textScale: number;
 }
 
 /**
@@ -81,7 +82,9 @@ export interface SettingsView {
  * and the server so a bad stored value cannot come back on every launch. Two
  * copies of these numbers would eventually disagree.
  */
-export const PANEL_WIDTH = { min: 280, max: 900, default: 360 } as const;
+export const TEXT_SCALES = [100, 115, 130] as const;
+
+export const PANEL_WIDTH = { min: 280, max: 900, default: 420 } as const;
 
 /**
  * How many agents may run at once.
@@ -104,6 +107,7 @@ export interface UpdateSettingsRequest {
   reposRoot?: string;
   /** Clamped server-side; see settings.ts for the bounds and why. */
   panelWidth?: number;
+  textScale?: number;
   maxConcurrentRuns?: number;
 }
 

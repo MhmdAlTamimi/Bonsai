@@ -2,7 +2,7 @@ import { useRef, useState, type JSX } from 'react';
 import type { NodeView } from '@bonsai/shared';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
-import { useEscape } from '../../useEscape.ts';
+import { Dialog } from '../../Dialog.tsx';
 
 export function RenameDialog({
   node,
@@ -20,7 +20,7 @@ export function RenameDialog({
   const close = (): void => {
     if (!saving.current) onClose();
   };
-  useEscape(close);
+
   const save = async (): Promise<void> => {
     if (saving.current || name.trim() === '') return;
     saving.current = true;
@@ -38,52 +38,44 @@ export function RenameDialog({
     }
   };
   return (
-    <div className="dialog-backdrop" onClick={close}>
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Rename experiment"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3>Rename experiment</h3>
-        <p className="hint">
-          Changes the map label only. Code, history and conversation stay the same.
+    <Dialog title="Rename experiment" onClose={close} returnFocus='[aria-label="More actions"]'>
+      <h3>Rename experiment</h3>
+      <p className="hint">
+        Changes the map label only. Code, history and conversation stay the same.
+      </p>
+      <label className="stacked">
+        Experiment name
+        <input
+          data-dialog-focus
+          value={name}
+          disabled={busy}
+          aria-label="experiment name"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void save();
+            }
+          }}
+        />
+      </label>
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
         </p>
-        <label className="stacked">
-          Experiment name
-          <input
-            autoFocus
-            value={name}
-            disabled={busy}
-            aria-label="experiment name"
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                void save();
-              }
-            }}
-          />
-        </label>
-        {error !== null && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="dialog-actions">
-          <button onClick={close} disabled={busy}>
-            Cancel
-          </button>
-          <button
-            className="primary"
-            disabled={busy || name.trim() === ''}
-            onClick={() => void save()}
-          >
-            {busy ? 'Saving…' : 'Save name'}
-          </button>
-        </div>
+      )}
+      <div className="dialog-actions">
+        <button onClick={close} disabled={busy}>
+          Cancel
+        </button>
+        <button
+          className="primary"
+          disabled={busy || name.trim() === ''}
+          onClick={() => void save()}
+        >
+          {busy ? 'Saving…' : 'Save name'}
+        </button>
       </div>
-    </div>
+    </Dialog>
   );
 }

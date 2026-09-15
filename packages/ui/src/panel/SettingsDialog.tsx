@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react';
 import {
   CONCURRENCY,
+  TEXT_SCALES,
   type ConnectionStatus,
   type ProjectView,
   type SettingsView,
@@ -52,6 +53,7 @@ export function SettingsDialog({
       </nav>
       <div hidden={tab !== 'app'} className="settings-sections">
         <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
+        <Appearance settings={settings} onChanged={onChanged} />
         <AppDefaults settings={settings} onChanged={onChanged} />
         <Locations settings={settings} onChanged={onChanged} />
       </div>
@@ -382,5 +384,53 @@ function ConnectionSettings({
       )}
       {output && <pre className="stream">{output}</pre>}
     </details>
+  );
+}
+
+function Appearance({
+  settings,
+  onChanged,
+}: {
+  settings: SettingsView;
+  onChanged: () => void;
+}): JSX.Element {
+  const [scale, setScale] = useState(settings.textScale);
+  const save = useSave();
+  return (
+    <section className="appearance-settings">
+      <h4>Appearance</h4>
+      <label>
+        Text size
+        <select
+          aria-label="Text size"
+          value={scale}
+          disabled={save.busy}
+          onChange={(e) => {
+            setScale(Number(e.target.value));
+            save.reset();
+          }}
+        >
+          {TEXT_SCALES.map((value) => (
+            <option key={value} value={value}>
+              {value === 100 ? 'Standard' : value === 115 ? 'Large' : 'Larger'} · {value}%
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="save-row">
+        <button
+          disabled={save.busy}
+          onClick={() =>
+            void save.run(async () => {
+              await api.updateSettings({ textScale: scale });
+              onChanged();
+            })
+          }
+        >
+          Save appearance
+        </button>
+        <SaveFeedback {...save} />
+      </div>
+    </section>
   );
 }
