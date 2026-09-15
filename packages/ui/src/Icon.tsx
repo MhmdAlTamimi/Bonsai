@@ -10,6 +10,12 @@ const paths = {
   warning: 'm12 3 10 18H2ZM12 9v5M12 17h.01',
   circle: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
   finished: 'M5 5h14v14H5ZM9 12h6',
+  // Canvas controls. Drawn to the same 24px grid and 1.8 stroke as the rest, so
+  // the family reads as one set rather than as icons from three sources.
+  zoomIn: 'M11 5v12M5 11h12M20 20l-4.5-4.5',
+  zoomOut: 'M5 11h12M20 20l-4.5-4.5',
+  fit: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  automatic: 'M4 8h16M4 16h16M9 4v4M15 16v4',
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({ name }: { name: IconName }): JSX.Element {

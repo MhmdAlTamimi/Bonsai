@@ -1,4 +1,4 @@
-import { type JSX, useEffect, useRef, useState } from 'react';
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
 
 import { NextRunInfo } from './NextRunInfo.tsx';
@@ -20,6 +20,7 @@ import { StopButton } from '../state/RunControls.tsx';
 import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
 import type { Delta } from './chat/liveMerge.ts';
+import { useDismiss } from '../useDismiss.ts';
 
 /** One selected experiment: fixed identity/actions, reading area, and composer. */
 export function Panel({
@@ -474,28 +475,19 @@ function OverflowMenu({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  useDismiss(
+    open,
+    useCallback(() => setOpen(false), []),
+    ref,
+    '.overflow',
+  );
 
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() =>
       ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus(),
     );
-    const onDown = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        setOpen(false);
-        ref.current?.querySelector<HTMLButtonElement>('.overflow')?.focus();
-      }
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   return (

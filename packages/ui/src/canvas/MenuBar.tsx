@@ -1,8 +1,9 @@
-import { type JSX, useEffect, useRef, useState } from 'react';
+import { type JSX, useCallback, useRef, useState } from 'react';
 import type { ConnectionStatus, ProjectView, SettingsView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
+import { useDismiss } from '../useDismiss.ts';
 
 /**
  * The application menu.
@@ -39,26 +40,14 @@ export function MenuBar({
 }): JSX.Element {
   const [open, setOpen] = useState<null | 'project'>(null);
   const barRef = useRef<HTMLDivElement>(null);
-
-  // Click-away and Escape both close the menu, as any menu should.
-  useEffect(() => {
-    if (open === null) return;
-    const onDown = (e: MouseEvent): void => {
-      if (!barRef.current?.contains(e.target as Node)) setOpen(null);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        setOpen(null);
-        barRef.current?.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
-      }
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  // Click-away and Escape both close the menu, as any menu should. One shared
+  // rule rather than a copy per menu -- see useDismiss.
+  useDismiss(
+    open !== null,
+    useCallback(() => setOpen(null), []),
+    barRef,
+    '[aria-haspopup]',
+  );
 
   const recent = projects.filter((p) => p.id !== project?.id).slice(0, 6);
 

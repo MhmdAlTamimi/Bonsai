@@ -1208,21 +1208,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         true,
       );
     }
-    // A backdrop click cannot discard this form.
-    await session.send('Input.dispatchMouseEvent', {
-      type: 'mousePressed',
-      x: 2,
-      y: 2,
-      button: 'left',
-      clickCount: 1,
-    });
-    await session.send('Input.dispatchMouseEvent', {
-      type: 'mouseReleased',
-      x: 2,
-      y: 2,
-      button: 'left',
-      clickCount: 1,
-    });
+    // A backdrop click cannot discard this form. Through the harness's mouse
+    // helper: a dispatched press without `buttons` set is not delivered as a
+    // real press, so this used to pass whatever the dialog did.
+    await session.mouse('mousePressed', 2, 2);
+    await session.mouse('mouseReleased', 2, 2);
     assert.equal(
       await session.eval('document.querySelector(\'[aria-label="experiment name"]\').value'),
       'Keyboard experiment',
@@ -1232,6 +1222,43 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
     );
     await session.waitFor("document.activeElement?.classList.contains('branch-child')");
+    /**
+     * Canvas hints: one trigger, three ways out, and nothing inside that
+     * repeats the trigger's job. The old "Map key" panel carried its own
+     * "Close map key" button where the content should have been.
+     */
+    await session.click('.canvas-hints-trigger');
+    await session.waitFor("!!document.querySelector('.canvas-hints-panel')");
+    assert.equal(
+      await session.eval("document.querySelectorAll('.canvas-hints-panel button').length"),
+      0,
+      'nothing inside repeats what the trigger already does',
+    );
+    await session.click('.canvas-hints-trigger');
+    assert.equal(await session.eval("!!document.querySelector('.canvas-hints-panel')"), false);
+    // Escape closes it and puts the keyboard back where it started.
+    await session.click('.canvas-hints-trigger');
+    await session.waitFor("!!document.querySelector('.canvas-hints-panel')");
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+    await session.waitFor("!document.querySelector('.canvas-hints-panel')");
+    assert.equal(
+      await session.eval("document.activeElement?.classList.contains('canvas-hints-trigger')"),
+      true,
+    );
+    // And a press outside closes it. Through the harness's mouse helper, which
+    // sets `buttons` -- a dispatched press without it is not delivered as a
+    // mousedown at all, so the check would pass without proving anything.
+    await session.click('.canvas-hints-trigger');
+    await session.waitFor("!!document.querySelector('.canvas-hints-panel')");
+    await session.mouse('mousePressed', 900, 300);
+    await session.mouse('mouseReleased', 900, 300);
+    await session.waitFor("!document.querySelector('.canvas-hints-panel')");
     const zoom = await session.eval(
       "document.querySelector('.react-flow__viewport').style.transform.match(/scale\\(([^)]+)\\)/)[1]",
     );
@@ -1382,9 +1409,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     // And the reading position, which a hidden element loses on its own: a
     // scroll offset does not survive losing a layout box.
+    // Parked partway up, not at the bottom: following the newest output is a
+    // different behaviour from restoring where someone was reading, and this is
+    // the one that needs the position itself to survive.
     const scrolled = Number(
       await session.eval(
-        "const b=document.querySelector('.panel-body:not([hidden])'); b.scrollTop = Math.max(1, b.scrollHeight - b.clientHeight); b.dispatchEvent(new Event('scroll')); b.scrollTop",
+        "const b=document.querySelector('.panel-body:not([hidden])'); b.scrollTop = Math.floor((b.scrollHeight - b.clientHeight) / 2); b.dispatchEvent(new Event('scroll')); b.scrollTop",
       ),
     );
     assert.ok(scrolled > 0, 'the fixture must actually overflow for this to mean anything');
@@ -1495,6 +1525,8 @@ async function launchBrowser(): Promise<{
     options?: { timeoutMs?: number; intervalMs?: number; label?: string },
   ): Promise<unknown>;
   click(selector: string): Promise<void>;
+  /** A press or release at a point, with `buttons` set so it is a real one. */
+  mouse(type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', x: number, y: number): Promise<void>;
   type(selector: string, text: string): Promise<void>;
   dragTo(selector: string, to: { x: number; y: number }): Promise<void>;
   screenshot(path: string): Promise<string | null>;

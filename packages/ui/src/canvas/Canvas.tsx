@@ -1,8 +1,11 @@
-import { type JSX, useRef, useState } from 'react';
+import { type JSX, useRef } from 'react';
 import ReactFlow, { Background, Controls, type NodeMouseHandler, useReactFlow } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { NodeView } from '@bonsai/shared';
 
+import { Icon } from '../Icon.tsx';
+
+import { CanvasHints } from './CanvasHints.tsx';
 import { NodeCard } from './NodeCard.tsx';
 import { useLaidOutNodes } from './useLaidOutNodes.ts';
 
@@ -36,7 +39,6 @@ export function Canvas({
   /** A drag out of a node's handle, released over empty canvas. */
   onDropOnPane: (target: DropTarget) => void;
 }): JSX.Element {
-  const [keyOpen, setKeyOpen] = useState(false);
   const selected = nodes.find((node) => node.id === selectedId);
   const { flowNodes, edges, onNodesChange } = useLaidOutNodes(nodes, selectedId);
 
@@ -117,25 +119,26 @@ export function Canvas({
       <Background gap={24} size={1} />
       <Controls showInteractive={false} showFitView={false} />
       <div className="canvas-tools">
-        <button onClick={() => fitView({ padding: 0.2, maxZoom: 1, duration: 0 })}>Fit tree</button>
-        <button aria-expanded={keyOpen} onClick={() => setKeyOpen((value) => !value)}>
-          Map key
+        <button
+          className="canvas-tool"
+          title="Fit the whole tree on screen"
+          onClick={() => fitView({ padding: 0.2, maxZoom: 1, duration: 0 })}
+        >
+          <Icon name="fit" />
+          <span>Fit canvas</span>
         </button>
+        <CanvasHints />
         {selected?.positionX != null && (
-          <button onClick={() => onAutomatic(selected.id)}>Automatic position</button>
+          <button
+            className="canvas-tool"
+            title="Let the layout place this experiment again"
+            onClick={() => onAutomatic(selected.id)}
+          >
+            <Icon name="automatic" />
+            <span>Automatic position</span>
+          </button>
         )}
       </div>
-      {keyOpen && (
-        <div className="canvas-key">
-          <strong>Experiment map</strong>
-          <p>Solid: code changes · Dashed: conversation only</p>
-          <p>
-            Highlighted path: selected conversation lineage. Code source is shown in the experiment.
-          </p>
-          <p>Drag + onto empty map to branch. Dropping on another experiment does nothing.</p>
-          <button onClick={() => setKeyOpen(false)}>Close map key</button>
-        </div>
-      )}
     </ReactFlow>
   );
 }
