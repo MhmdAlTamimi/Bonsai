@@ -204,6 +204,30 @@ substitute at this size.
 
 ---
 
+## 9. Found while finishing the interface
+
+Two defects the structural work surfaced, both fixed and both now covered by the
+browser suite:
+
+- **A click was pinning cards.** React Flow's `nodeDragThreshold` defaults to 0,
+  so a plain mousedown/mouseup on a card started and ended a drag, fired
+  `onNodeDragStop` and wrote a position — silently freezing every experiment
+  anyone selected out of the automatic layout, and offering "Automatic position"
+  for a node nobody had dragged. Four pixels of slop. The new browser assertion
+  fails against the old behaviour, which was checked rather than assumed.
+- **A CSS specificity collision hid the canvas controls.** `.app.panel-hidden >
+  .view-switch` outranked the narrow-window rules, so on a narrow window with
+  the panel closed the floating button covered the control bar instead of
+  sitting in the top bar. The floating rule is scoped to a min-width query now.
+
+One more was found and left alone deliberately: the stylesheet has accumulated a
+per-milestone appended block since milestone 3, each overriding rules defined
+earlier in the file. Type is no longer part of that problem — every size is a
+token now, defined once — but several structural rules are still declared twice.
+Merging them is mechanical and safe, and it is churn in a file the owner is
+about to review by eye, so it belongs at the start of the next piece of work
+rather than at the end of this one.
+
 ## Summary of changes made
 
 | Change | Why |
@@ -215,3 +239,6 @@ substitute at this size.
 | `findFolderOwner` in one query | N+1 on every keystroke in the folder picker |
 | `RunStore.costOfMany` | N+1 on every deletion confirmation |
 | `scripts/measure-requests.mjs`, extended `measure-tree.mjs` | so these claims can be re-checked rather than believed |
+| `nodeDragThreshold={4}` | a click was pinning every card it landed on |
+| One dismiss rule for menus and popovers | three copies, and a copy is how one loses its Escape half |
+| One type scale; one icon family | fourteen type sizes and five glyphs from the font |
