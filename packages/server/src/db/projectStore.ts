@@ -37,7 +37,13 @@ export class ProjectStore {
     permissionMode: PermissionMode;
     effort?: string | null;
     /** Set when adopting a directory the user already had. */
-    adopt?: { repoPath: string; sourcePath: string; protectedBranch: string };
+    adopt?: {
+      repoPath: string;
+      sourcePath: string;
+      protectedBranch: string;
+      /** D37: the folder inside the repository the agent works in. '' is the root. */
+      workDir?: string;
+    };
   }): ProjectRow {
     const id = randomUUID();
     const scratch = join(this.futureReposRoot?.() ?? this.reposRoot, id);
@@ -47,6 +53,7 @@ export class ProjectStore {
       description: input.description,
       repo_path: input.adopt?.repoPath ?? join(scratch, 'repo.git'),
       scratch_path: scratch,
+      work_dir: input.adopt?.workDir ?? '',
       default_model: input.model,
       default_permission_mode: input.permissionMode,
       default_effort: input.effort ?? null,
@@ -62,8 +69,8 @@ export class ProjectStore {
         `INSERT INTO project (id, name, description, repo_path, default_model,
                               default_permission_mode, default_effort, source_kind,
                               source_path, protected_branch, copy_files, setup_command,
-                              created_at, scratch_path)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              created_at, scratch_path, work_dir)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -80,6 +87,7 @@ export class ProjectStore {
         row.setup_command,
         row.created_at,
         row.scratch_path,
+        row.work_dir,
       );
     return row;
   }

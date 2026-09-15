@@ -8,6 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
+import { workDirIn } from '../db/rows.js';
 import {
   adoptProject,
   createChildNode,
@@ -192,17 +193,141 @@ describe('adopting a directory', () => {
     assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
   });
 
-  // -- refusing to adopt the wrong thing -------------------------------------
+  // -- repository identity and working scope (D37) ---------------------------
 
-  test('refuses a subdirectory of a repository, and says which folder to pick', async () => {
+  test('a folder inside a repository adopts the repository and works in the folder', async () => {
     const path = await userRepo();
-    const inner = join(path, 'src');
+    const inner = join(path, 'subproject1', 'prompts');
     await mkdir(inner, { recursive: true });
+    await writeFile(join(inner, 'one.md'), 'a prompt\n', 'utf8');
+    await git(['add', '-A'], path);
+    await git(['commit', '-m', 'add prompts'], path);
 
     const inspection = await inspectDirectory(inner);
-    assert.match(inspection.blockedReason ?? '', /rooted at/);
-    await assert.rejects(() => adopt(inner), /rooted at/);
+    assert.equal(inspection.blockedReason, null);
+    assert.equal(inspection.repoRoot, path);
+    assert.equal(inspection.workDir, 'subproject1/prompts');
+    assert.equal(
+      inspection.branch,
+      'main',
+      'the branch is the repository\u2019s, not the folder\u2019s',
+    );
+
+    const { projectId, workDir, repoPath } = await adopt(inner);
+    assert.equal(repoPath, path);
+    assert.equal(workDir, 'subproject1/prompts');
+
+    const project = store.getProject(projectId)!;
+    // The repository is the identity; the subfolder is only where work happens.
+    assert.equal(project.repo_path, path);
+    assert.equal(project.source_path, path);
+    assert.equal(project.work_dir, 'subproject1/prompts');
+    assert.equal(project.protected_branch, 'main');
+
+    const view = store.projectView(project);
+    assert.equal(view.workDir, 'subproject1/prompts');
+    assert.equal(view.workPath, inner);
+
+    // No second repository was made inside the folder that was chosen.
+    assert.equal(existsSync(join(inner, '.git')), false);
+    assert.equal(await gitLine(['rev-parse', '--show-toplevel'], inner), path);
+    assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
   });
+
+  test("a child's agent works in the project's subdirectory of its own worktree", async () => {
+    const path = await userRepo();
+    const inner = join(path, 'services', 'api');
+    await mkdir(inner, { recursive: true });
+    await writeFile(join(inner, 'server.ts'), 'export const port = 1;\n', 'utf8');
+    await git(['add', '-A'], path);
+    await git(['commit', '-m', 'add a service'], path);
+
+    const { projectId, masterNodeId } = await adopt(inner);
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'change the port',
+      description: '',
+    });
+
+    const node = store.getNode(nodeId)!;
+    const project = store.getProject(projectId)!;
+    const working = workDirIn(node.worktree_path, project.work_dir);
+    assert.equal(working, join(node.worktree_path, 'services', 'api'));
+    assert.ok(existsSync(working), 'the working directory exists in the new worktree');
+    // The worktree is still a checkout of the WHOLE repository.
+    assert.ok(existsSync(join(node.worktree_path, 'README.md')));
+  });
+
+  test('a working directory that git would not check out is still created', async () => {
+    const path = await userRepo();
+    // Only gitignored content, so `git worktree add` creates nothing here.
+    const scratch = join(path, 'build', 'out');
+    await mkdir(scratch, { recursive: true });
+    await writeFile(join(scratch, 'artifact.bin'), 'x', 'utf8');
+    await writeFile(join(path, '.gitignore'), 'build/\n', 'utf8');
+    await git(['add', '-A'], path);
+    await git(['commit', '-m', 'ignore build output'], path);
+
+    const { projectId, masterNodeId } = await adopt(scratch);
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'work in the build folder',
+      description: '',
+    });
+    const node = store.getNode(nodeId)!;
+    const project = store.getProject(projectId)!;
+    assert.ok(existsSync(workDirIn(node.worktree_path, project.work_dir)));
+  });
+
+  test('nested repositories resolve to the nearest enclosing one', async () => {
+    const outer = await userRepo('outer');
+    const inner = join(outer, 'vendor', 'library');
+    await mkdir(inner, { recursive: true });
+    await git(['init', '--initial-branch=trunk', '.'], inner);
+    await git(['config', 'user.email', 'you@example.com'], inner);
+    await git(['config', 'user.name', 'You'], inner);
+    await writeFile(join(inner, 'lib.ts'), 'export const x = 1;\n', 'utf8');
+    await git(['add', '-A'], inner);
+    await git(['commit', '-m', 'the inner repository'], inner);
+
+    // Standing in the inner repository, git acts on the inner repository -- so
+    // Bonsai does too, rather than silently reaching past it to the outer one.
+    const atInner = await inspectDirectory(inner);
+    assert.equal(atInner.repoRoot, inner);
+    assert.equal(atInner.workDir, '');
+    assert.equal(atInner.branch, 'trunk');
+
+    const deeper = join(inner, 'src');
+    await mkdir(deeper, { recursive: true });
+    const atDeeper = await inspectDirectory(deeper);
+    assert.equal(atDeeper.repoRoot, inner, 'the nearest repository, not the outer one');
+    assert.equal(atDeeper.workDir, 'src');
+
+    const { projectId } = await adopt(inner);
+    assert.equal(store.getProject(projectId)!.repo_path, inner);
+    assert.equal(store.getProject(projectId)!.protected_branch, 'trunk');
+    // The outer repository is untouched by adopting the inner one.
+    assert.equal(await gitLine(['branch', '--show-current'], outer), 'main');
+  });
+
+  test('a folder in no repository at all still becomes one, where it is', async () => {
+    const plain = join(root, 'plain', 'nested');
+    await mkdir(plain, { recursive: true });
+    await writeFile(join(plain, 'notes.md'), 'hello\n', 'utf8');
+
+    const inspection = await inspectDirectory(plain);
+    assert.equal(inspection.repoRoot, null);
+    assert.equal(inspection.blockedReason, null);
+
+    const { projectId, workDir } = await adopt(plain);
+    assert.equal(workDir, '', 'a new repository is rooted at the folder that was chosen');
+    assert.equal(store.getProject(projectId)!.repo_path, plain);
+    assert.ok(existsSync(join(plain, '.git')));
+  });
+
+  // -- refusing to adopt the wrong thing -------------------------------------
 
   test('recognises its own folders from the database, not from git', async () => {
     const path = await userRepo();

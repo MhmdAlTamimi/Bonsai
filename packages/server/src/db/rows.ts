@@ -1,4 +1,4 @@
-import { resolve, sep } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type { NodeStatus, PermissionMode } from '@bonsai/shared';
 
 import type { LineageNode } from '../domain/lineage.js';
@@ -45,6 +45,15 @@ export interface ProjectRow {
   description: string;
   repo_path: string;
   scratch_path: string | null;
+  /**
+   * D37: the agent's working directory, relative to the repository root, with
+   * '/' separators and '' meaning the root itself.
+   *
+   * The repository is the project's identity -- its branches, its history, its
+   * commits, whole. This is only where the agent stands inside it. Null for a
+   * row written before the column existed, which means the root.
+   */
+  work_dir: string | null;
   default_model: string | null;
   default_permission_mode: PermissionMode;
   default_effort: string | null;
@@ -112,6 +121,15 @@ export function parseStringArray(value: unknown): string[] | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The folder the agent actually works in: a node's worktree plus the project's
+ * working subdirectory. The worktree root when there is no subdirectory.
+ */
+export function workDirIn(worktreePath: string, workDir: string | null): string {
+  const relative = (workDir ?? '').replace(/^[/\\]+|[/\\]+$/g, '');
+  return relative === '' ? worktreePath : join(worktreePath, ...relative.split('/'));
 }
 
 export function isInside(parent: string, child: string): boolean {

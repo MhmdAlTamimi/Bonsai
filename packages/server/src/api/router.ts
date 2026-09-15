@@ -200,6 +200,8 @@ route('POST', '/api/inspect', async (req, res, _p, { store }) => {
       headCommit: null,
       dirtyFiles: 0,
       entryCount: 0,
+      repoRoot: null,
+      workDir: '',
       blockedReason: `This folder is ${what}. It is already in Bonsai.`,
       knownTo: {
         projectId: project.id,

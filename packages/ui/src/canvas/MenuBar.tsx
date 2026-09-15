@@ -75,7 +75,7 @@ export function MenuBar({
           aria-label="Project"
           aria-haspopup="menu"
           aria-expanded={open === 'project'}
-          title={project?.sourcePath ?? project?.name}
+          title={project?.workPath ?? project?.sourcePath ?? project?.name}
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
               e.preventDefault();
@@ -137,21 +137,38 @@ export function MenuBar({
             <div className="menu-sep" />
             {/* This used to open the projects root whatever was selected, which
                 was never the folder anyone meant. It opens THIS project's
-                folder now -- master's checkout, wherever it happens to live. */}
+                folder now -- the working folder, which is the repository root
+                unless a subdirectory inside it was chosen (D37). */}
             <button
               role="menuitem"
-              disabled={project?.sourcePath == null}
-              title={project?.sourcePath ?? 'This project predates folder tracking.'}
+              disabled={project?.workPath == null}
+              title={project?.workPath ?? 'This project predates folder tracking.'}
               onClick={() => {
                 setOpen(null);
-                if (project?.sourcePath != null)
+                if (project?.workPath != null)
                   void api
-                    .reveal(project.sourcePath)
+                    .reveal(project.workPath)
                     .catch((e: unknown) => onError(describeError(e)));
               }}
             >
               Reveal this project in file manager
             </button>
+            {project?.workDir !== undefined && project.workDir !== '' && (
+              <button
+                role="menuitem"
+                disabled={project.sourcePath == null}
+                title={project.sourcePath ?? ''}
+                onClick={() => {
+                  setOpen(null);
+                  if (project.sourcePath != null)
+                    void api
+                      .reveal(project.sourcePath)
+                      .catch((e: unknown) => onError(describeError(e)));
+                }}
+              >
+                Reveal the repository folder
+              </button>
+            )}
             <button
               role="menuitem"
               disabled={settings === null}

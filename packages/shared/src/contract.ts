@@ -170,6 +170,17 @@ export interface ProjectView {
    * was recorded.
    */
   sourcePath: string | null;
+  /**
+   * D37: the agent's working directory inside the repository, '/'-separated,
+   * '' for the repository root itself.
+   *
+   * Bonsai opens a folder the way an editor does. `sourcePath` is the
+   * repository -- the project's identity, whose history, branches and commits
+   * stay whole -- and this is the folder inside it the agent stands in.
+   */
+  workDir: string;
+  /** `sourcePath` and `workDir` joined: the folder to reveal or name. */
+  workPath: string | null;
   setup: ProjectSetupView;
   /** Estimated total across every run in the tree, at API list price. */
   costUsd: number;
@@ -451,7 +462,13 @@ export interface CreateProjectRequest {
 }
 
 export interface AdoptProjectRequest {
-  /** A folder the user already has. Used in place; never copied or moved. */
+  /**
+   * A folder the user already has. Used in place; never copied or moved.
+   *
+   * It need not be a repository root. If it sits inside one, that repository
+   * becomes the project and this folder becomes the agent's working directory
+   * inside it (D37).
+   */
   path: string;
   name?: string;
   description?: string;
@@ -483,6 +500,15 @@ export interface DirectoryInspectionView {
   dirtyFiles: number;
   entryCount: number;
   blockedReason: string | null;
+  /**
+   * The repository this folder belongs to: the nearest enclosing one, which is
+   * the repository the user's own git commands would act on standing here.
+   * Null when the folder is in no repository at all, in which case adopting it
+   * creates one where it is.
+   */
+  repoRoot: string | null;
+  /** The folder relative to `repoRoot`. '' when it IS the repository root. */
+  workDir: string;
   /** Non-null when this folder is already part of a project Bonsai is running. */
   knownTo: KnownFolderView | null;
 }

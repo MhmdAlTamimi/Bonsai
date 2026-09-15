@@ -117,6 +117,15 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'project', 'scratch_path', 'TEXT');
     },
   },
+  {
+    version: 13,
+    name: 'project: the agent working directory inside the repository',
+    up: (db) => {
+      // '' means the repository root, which is what every existing project is:
+      // adoption before D37 could only ever choose a repository root.
+      addColumn(db, 'project', 'work_dir', "TEXT NOT NULL DEFAULT ''");
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

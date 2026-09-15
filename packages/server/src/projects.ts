@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import type { PermissionMode } from '@bonsai/shared';
 
 import type { NodeRow, ProjectRow, Store } from './db/store.js';
+import { workDirIn } from './db/rows.js';
 import { DEFAULT_BRANCH, branchNameFor, createRepo } from './git/repo.js';
 import {
   addBranchWorktree,
@@ -162,7 +163,16 @@ export async function adoptProject(
     /** Let nodes branch from uncommitted work, without committing it anywhere. */
     includeUncommitted?: boolean;
   },
-): Promise<{ projectId: string; masterNodeId: string; initialised: boolean; snapshot: boolean }> {
+): Promise<{
+  projectId: string;
+  masterNodeId: string;
+  initialised: boolean;
+  snapshot: boolean;
+  /** The repository that became the project, which may enclose the chosen folder. */
+  repoPath: string;
+  /** The chosen folder relative to it. '' when the repository root was chosen. */
+  workDir: string;
+}> {
   const adopted = await adoptDirectory(input.path);
 
   let base = adopted.headCommit;
@@ -178,7 +188,11 @@ export async function adoptProject(
   const project = store.createProject({
     name:
       input.name === undefined || input.name.trim() === ''
-        ? suggestProjectName(adopted.repoPath)
+        ? // The folder they PICKED, which is what an editor would put in its
+          // title bar. The repository may be an ancestor of it, and naming the
+          // project after the ancestor would not be recognisable as the thing
+          // they chose. Display names are metadata and rename freely (D33).
+          suggestProjectName(input.path)
         : input.name,
     description: input.description,
     model: input.model,
@@ -186,8 +200,12 @@ export async function adoptProject(
     effort: input.effort ?? null,
     adopt: {
       repoPath: adopted.repoPath,
+      // The project's folder is the REPOSITORY, whichever folder was picked --
+      // that is what git owns and what deletion must leave alone. Where the
+      // agent stands inside it is `workDir` (D37).
       sourcePath: adopted.repoPath,
       protectedBranch: adopted.branch,
+      workDir: adopted.workDir,
     },
   });
 
@@ -207,6 +225,8 @@ export async function adoptProject(
     masterNodeId: master.id,
     initialised: adopted.initialised,
     snapshot,
+    repoPath: adopted.repoPath,
+    workDir: adopted.workDir,
   };
 }
 
@@ -241,6 +261,18 @@ export async function createChildNode(
 
   const node = store.createNode(input);
   await addDetachedWorktree(project.repo_path, node.worktree_path, baseCommit);
+
+  /**
+   * D37: the agent works in the project's chosen subdirectory of the worktree.
+   *
+   * Created here because `git worktree add` checks out TRACKED files only, so a
+   * working directory whose contents are all gitignored -- a build output
+   * folder, a scratch area -- would not exist in a fresh worktree and the agent
+   * would have nowhere to start. An empty directory is invisible to git, so
+   * making it changes nothing about what a run commits.
+   */
+  const workingDir = workDirIn(node.worktree_path, project.work_dir);
+  if (workingDir !== node.worktree_path) await mkdir(workingDir, { recursive: true });
 
   /**
    * The worktree is checked out; now give it what git left behind.

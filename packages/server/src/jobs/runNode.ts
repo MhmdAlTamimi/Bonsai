@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { CONCURRENCY, type NodeStatus } from '@bonsai/shared';
 
 import type { NodeRow, RunTotals, Store } from '../db/store.js';
+import { workDirIn } from '../db/rows.js';
 
 /** A plain record for when the agent skipped writing one (D22). */
 function contextFallback(displayName: string, prompt: string): string {
@@ -391,7 +392,7 @@ export class RunJobs {
    */
   private async ensureSetup(
     node: NodeRow,
-    project: { setup_command: string | null; id: string },
+    project: { setup_command: string | null; id: string; work_dir: string | null },
     runId: string,
     controller: AbortController,
   ): Promise<void> {
@@ -419,7 +420,9 @@ export class RunJobs {
 
     const result = await runCommand({
       command,
-      cwd: node.worktree_path,
+      // The agent's working directory, not the worktree root: `npm install`
+      // for a project opened at `services/api` belongs in `services/api`.
+      cwd: workDirIn(node.worktree_path, project.work_dir),
       signal: controller.signal,
       onOutput: (chunk) => {
         this.bus.publish(node.project_id, {
@@ -543,7 +546,13 @@ export class RunJobs {
       for await (const event of this.runner.run({
         runId,
         nodeId,
-        cwd: node.worktree_path,
+        /**
+         * D37: the worktree is still the isolation boundary, and git still sees
+         * the whole repository -- this is only where the agent stands inside
+         * it, the way an editor opens a folder. '' means the worktree root,
+         * which is every project that did not choose a subdirectory.
+         */
+        cwd: workDirIn(node.worktree_path, project.work_dir),
         prompt,
         resumeSessionId: inheritance.sessionId,
         forkSession: inheritance.fork,

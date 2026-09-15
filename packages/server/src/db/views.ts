@@ -13,6 +13,7 @@ import {
   isUsersOwnCheckout,
   parseStringArray,
   toLineage,
+  workDirIn,
   type NodeRow,
   type ProjectRow,
 } from './rows.js';
@@ -105,6 +106,8 @@ export class Views {
       defaultEffort: row.default_effort,
       sourceKind: row.source_kind,
       sourcePath: row.source_path,
+      workDir: row.work_dir ?? '',
+      workPath: row.source_path === null ? null : workDirIn(row.source_path, row.work_dir),
       setup: {
         copyFiles: parseStringArray(row.copy_files) ?? [],
         setupCommand: row.setup_command,

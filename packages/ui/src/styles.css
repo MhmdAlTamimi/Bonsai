@@ -2043,3 +2043,42 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .panel-body { flex: none; overflow: visible; }
   .panel-foot { flex-shrink: 0; max-height: none; overflow: visible; }
 }
+
+/*
+ * D41: the two folders a project has, told apart.
+ *
+ * The repository is the project's identity and the chosen folder is where the
+ * agent works. Conflating them is exactly the mistake this feature exists to
+ * stop making, so the form shows them as two labelled facts rather than one
+ * sentence with two paths in it.
+ */
+.note.inspected {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+.note.inspected p {
+  margin: 0;
+}
+.scope {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s1) var(--s3);
+  margin: 0;
+}
+.scope dt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.scope dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .scope {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .scope dd {
+    margin-bottom: var(--s2);
+  }
+}

@@ -35,6 +35,11 @@ This owner-approved rule supersedes the earlier freeze-on-creation wording.
 The app owns git; the agent does not. The agent may run read-only git
 (status, diff, log) but never commit, branch, checkout, merge, or reset.
 The agent writes CONTEXT.md; the app commits.
+A project's repository is its identity; a chosen subdirectory is only where
+the agent stands. Opening mainproject/sub/prompts adopts mainproject (the
+nearest enclosing repository) and runs the agent in sub/prompts. Git still
+sees the whole repository: commits, history and diffs are never scoped to
+the subdirectory, and Bonsai never initialises a repository inside one.
 Branch names are node/<uuid> — generated once, never shown, never renamed.
 Display names are metadata and change freely.
 git diff misses untracked files. Use git status --porcelain alongside
