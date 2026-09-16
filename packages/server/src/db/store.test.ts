@@ -62,6 +62,25 @@ describe('store, against real SQL', () => {
     assert.equal(byName.get('argparse')!.frozenReason, null);
   });
 
+  test('deleting the last committed child unfreezes a parent; question children do not freeze it', () => {
+    const master = byName.get('master')!;
+    const children = store
+      .listNodes(projectId)
+      .filter((node) => node.parent_id === master.id && node.head_commit !== null);
+    assert.equal(children.length, 2);
+    store.deleteNode(children[0]!.id);
+    assert.equal(store.treeView(projectId).find((node) => node.id === master.id)?.writable, false);
+    store.deleteNode(children[1]!.id);
+    assert.equal(store.treeView(projectId).find((node) => node.id === master.id)?.writable, true);
+    store.createNode({
+      projectId,
+      parentId: master.id,
+      displayName: 'Clarification',
+      description: '',
+    });
+    assert.equal(store.treeView(projectId).find((node) => node.id === master.id)?.writable, true);
+  });
+
   test('createsBranch is an outcome, not a creation-time choice', () => {
     assert.equal(byName.get('why argparse?')!.createsBranch, false);
     assert.equal(byName.get('click')!.createsBranch, true);

@@ -122,8 +122,16 @@ const server = createServer((req, res) => {
         ? candidate
         : join(UI_DIST, 'index.html');
     res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-    createReadStream(file).pipe(res);
-  })();
+    const stream = createReadStream(file);
+    stream.on('error', () => res.destroy());
+    stream.pipe(res);
+  })().catch((error: unknown) => {
+    log.error('http.failed', { error: error instanceof Error ? error.message : String(error) });
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end('Bonsai could not load this resource.');
+    } else res.destroy();
+  });
 });
 
 /**

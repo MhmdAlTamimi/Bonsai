@@ -1,3 +1,4 @@
+import { OperationConflict } from '../domain/errors.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiError } from '@bonsai/shared';
 
@@ -27,6 +28,10 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
 }
 
 export function sendError(res: ServerResponse, err: unknown): void {
+  if (err instanceof OperationConflict) {
+    sendJson(res, 409, { error: err.message });
+    return;
+  }
   if (err instanceof HttpError) {
     const body: ApiError = { error: err.message };
     if (err.milestone !== undefined) body.milestone = err.milestone;
@@ -49,7 +54,10 @@ export async function readJson<T>(req: IncomingMessage): Promise<T> {
   }
   if (chunks.length === 0) return {} as T;
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
+    const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    if (value === null || typeof value !== 'object' || Array.isArray(value))
+      throw new Error('expected an object');
+    return value as T;
   } catch {
     throw new HttpError(400, 'malformed JSON body');
   }

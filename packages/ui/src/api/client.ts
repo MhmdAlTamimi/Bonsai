@@ -167,6 +167,24 @@ export const api = {
       body: JSON.stringify({ allow, message } satisfies AnswerQuestionRequest),
     }),
 
+  /**
+   * D42: answers to questions the agent asked, keyed by the question's text.
+   * Every question needs one; the server refuses a partial set rather than
+   * sending the agent a blank.
+   */
+  answerChoices: (questionId: string, answers: Record<string, string>) =>
+    json<{ ok: true }>(`/api/questions/${questionId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ answers } satisfies AnswerQuestionRequest),
+    }),
+
+  /** D42: answer nothing, and let the agent decide -- and say what it decided. */
+  leaveToAgent: (questionId: string) =>
+    json<{ ok: true }>(`/api/questions/${questionId}/answer`, {
+      method: 'POST',
+      body: JSON.stringify({ agentDecides: true } satisfies AnswerQuestionRequest),
+    }),
+
   cancelRun: (runId: string) =>
     json<{ cancelled: boolean }>(`/api/runs/${runId}/cancel`, { method: 'POST' }),
 

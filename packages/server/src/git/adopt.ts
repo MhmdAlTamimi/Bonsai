@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
 
@@ -21,6 +21,21 @@ import { git, gitLine, status } from './exec.js';
  * than a tree, git does not record which branch was forked from which, and --
  * decisively -- an imported branch has no conversation, and a node without one
  * is an empty shell that gives its children nothing.
+ *
+ * D37: A FOLDER INSIDE A REPOSITORY IS A VALID CHOICE, and the model is the one
+ * an editor uses when you open a folder:
+ *
+ *   the repository root is the project's IDENTITY -- its branches, its history,
+ *   its commits, all of it, whole;
+ *   the selected folder is the agent's WORKING SCOPE -- where it starts, what it
+ *   sees first, where the setup command runs.
+ *
+ * So `mainproject/subproject1/prompts` is adoptable: the project is
+ * `mainproject`, on the branch it is already on, and the agent works in
+ * `subproject1/prompts`. Bonsai never creates a second repository inside the
+ * folder you picked, and never invents a branch because you picked a nested
+ * folder. This used to be refused outright with advice to pick the root
+ * instead, which meant a monorepo could only be worked on as a whole.
  */
 
 export interface DirectoryInspection {
@@ -39,6 +54,18 @@ export interface DirectoryInspection {
   entryCount: number;
   /** Reason this directory cannot be adopted, if any. */
   blockedReason: string | null;
+  /**
+   * The repository this folder belongs to -- the NEAREST enclosing one, which
+   * is the same repository the user's own git commands would act on standing
+   * here. Null when the folder is in no repository, in which case adopting it
+   * makes one where it is.
+   */
+  repoRoot: string | null;
+  /**
+   * The selected folder relative to `repoRoot`, '/'-separated, '' for the root
+   * itself. This is the agent's working directory inside every node.
+   */
+  workDir: string;
 }
 
 /**
@@ -61,6 +88,8 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
     dirtyFiles: 0,
     entryCount: 0,
     blockedReason: null,
+    repoRoot: null,
+    workDir: '',
   };
 
   if (!existsSync(full)) return { ...base, blockedReason: 'That folder does not exist.' };
@@ -79,25 +108,19 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
   /**
    * Asked of git rather than of the filesystem, and that distinction matters.
    *
-   * Looking for a `.git` entry answers "is this a repository root", but the
-   * case that has to be caught is a folder INSIDE someone's repository -- which
-   * has no `.git` of its own and would otherwise look like a plain folder.
-   * Adopting it would then `git init` a nested repository inside theirs, which
-   * is a mess to unpick and confusing long before anyone notices.
+   * Looking for a `.git` entry answers "is this a repository ROOT", which is a
+   * different question from the one that has to be answered: which repository
+   * does this folder belong to? `--show-toplevel` walks up and stops at the
+   * first one, which for nested repositories and submodules is the nearest --
+   * the same repository the user's own git commands would act on standing here.
    */
-  let top: string;
+  let repoRoot: string;
   try {
-    top = await gitLine(['rev-parse', '--show-toplevel'], full);
+    repoRoot = resolve(await gitLine(['rev-parse', '--show-toplevel'], full));
   } catch {
-    return result; // genuinely not in a repository: a plain folder, adoptable
-  }
-
-  if (resolve(top) !== full) {
-    return {
-      ...result,
-      isGitRepo: true,
-      blockedReason: `That folder is inside a git repository rooted at ${top}. Choose that folder instead.`,
-    };
+    // Genuinely not in a repository. Adopting makes one here, in this folder,
+    // and the working directory is that folder's root.
+    return result;
   }
 
   /**
@@ -107,12 +130,17 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
    * most likely, one of Bonsai's own node worktrees.
    */
   try {
-    const gitDir = await gitLine(['rev-parse', '--absolute-git-dir'], full);
-    const common = await gitLine(['rev-parse', '--path-format=absolute', '--git-common-dir'], full);
+    const gitDir = await gitLine(['rev-parse', '--absolute-git-dir'], repoRoot);
+    const common = await gitLine(
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      repoRoot,
+    );
     if (resolve(gitDir) !== resolve(common)) {
       return {
         ...result,
         isGitRepo: true,
+        repoRoot,
+        workDir: relativeWorkDir(repoRoot, full),
         blockedReason:
           `This folder is a second checkout of a repository that lives at ${repoRootOf(common)}. ` +
           `Pick that repository's main folder instead.`,
@@ -123,23 +151,47 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
   }
 
   try {
-    const branch = await gitLine(['branch', '--show-current'], full);
+    // Asked of the REPOSITORY, not of the selected folder: the branch, the head
+    // and the uncommitted work all belong to the repository as a whole, and a
+    // node branches from all of it however narrow its working directory is.
+    const branch = await gitLine(['branch', '--show-current'], repoRoot);
     let head: string | null = null;
     try {
-      head = await gitLine(['rev-parse', 'HEAD'], full);
+      head = await gitLine(['rev-parse', 'HEAD'], repoRoot);
     } catch {
       head = null; // a repository with no commits yet
     }
     return {
       ...result,
       isGitRepo: true,
+      repoRoot,
+      workDir: relativeWorkDir(repoRoot, full),
       branch: branch === '' ? null : branch,
       headCommit: head,
-      dirtyFiles: (await status(full)).length,
+      dirtyFiles: (await status(repoRoot)).length,
     };
   } catch (err) {
-    return { ...result, blockedReason: err instanceof Error ? err.message : String(err) };
+    return {
+      ...result,
+      repoRoot,
+      workDir: relativeWorkDir(repoRoot, full),
+      blockedReason: err instanceof Error ? err.message : String(err),
+    };
   }
+}
+
+/**
+ * The selected folder as the agent will see it: relative to the repository
+ * root, '/'-separated so it means the same thing on every platform, and '' for
+ * the root itself.
+ */
+export function relativeWorkDir(repoRoot: string, selected: string): string {
+  const rel = relative(resolve(repoRoot), resolve(selected));
+  if (rel === '' || rel === '.') return '';
+  // A selection outside the root cannot happen -- the root came from walking up
+  // from the selection -- but a '..' would silently escape, so it is refused.
+  if (rel.startsWith('..')) return '';
+  return rel.split(sep).join('/');
 }
 
 /**
@@ -156,7 +208,13 @@ function repoRootOf(gitDir: string): string {
 }
 
 export interface AdoptedRepo {
+  /** The repository root: the project's identity. */
   repoPath: string;
+  /**
+   * The agent's working directory inside it, '/'-separated, '' for the root.
+   * D37: the repository is what git sees; this is where the agent stands.
+   */
+  workDir: string;
   branch: string;
   headCommit: string;
   /** True when Bonsai had to create the repository or its first commit. */
@@ -166,10 +224,14 @@ export interface AdoptedRepo {
 /**
  * Makes a directory usable as a project, doing the least possible to it.
  *
- * A plain folder is turned into a git repository with one commit, because
- * Bonsai needs a commit to branch from and there is no way around that. A
- * folder that is already a repository is left completely alone -- no commits,
- * no branches, no config -- beyond reading where its HEAD is.
+ * A folder in no repository is turned into one, with a single commit, because
+ * Bonsai needs a commit to branch from and there is no way around that.
+ *
+ * A folder INSIDE a repository is not initialised at all. The enclosing
+ * repository is the project, exactly as it stands -- its branch, its history --
+ * and the folder that was picked becomes the agent's working directory within
+ * it (D37). Bonsai will not create a nested repository inside someone's
+ * repository, and will not invent a branch because a subfolder was chosen.
  */
 export async function adoptDirectory(path: string): Promise<AdoptedRepo> {
   const full = resolve(path);
@@ -178,33 +240,37 @@ export async function adoptDirectory(path: string): Promise<AdoptedRepo> {
   if (!inspection.isDirectory) throw new Error('That folder cannot be used.');
 
   let initialised = false;
+  let repoRoot = inspection.repoRoot;
 
-  if (!inspection.isGitRepo) {
+  if (repoRoot === null) {
     await git(['init', '--initial-branch=main', '.'], full);
+    repoRoot = full;
     initialised = true;
   }
 
-  let branch = await gitLine(['branch', '--show-current'], full);
+  const workDir = relativeWorkDir(repoRoot, full);
+
+  let branch = await gitLine(['branch', '--show-current'], repoRoot);
   if (branch === '') {
     // Detached HEAD: put the user back on a named branch, because every node
     // Bonsai creates needs a branch to exist alongside.
     branch = 'main';
-    await git(['checkout', '-B', branch], full);
+    await git(['checkout', '-B', branch], repoRoot);
   }
 
   let head: string;
   try {
-    head = await gitLine(['rev-parse', 'HEAD'], full);
+    head = await gitLine(['rev-parse', 'HEAD'], repoRoot);
   } catch {
     // A repository with no commits at all cannot be branched from, so make the
     // one commit that unblocks everything -- and only in that case.
-    await git(['add', '-A'], full);
-    await git(['commit', '-m', 'Initial commit (created by Bonsai)'], full);
-    head = await gitLine(['rev-parse', 'HEAD'], full);
+    await git(['add', '-A'], repoRoot);
+    await git(['commit', '-m', 'Initial commit (created by Bonsai)'], repoRoot);
+    head = await gitLine(['rev-parse', 'HEAD'], repoRoot);
     initialised = true;
   }
 
-  return { repoPath: full, branch, headCommit: head, initialised };
+  return { repoPath: repoRoot, workDir, branch, headCommit: head, initialised };
 }
 
 /**

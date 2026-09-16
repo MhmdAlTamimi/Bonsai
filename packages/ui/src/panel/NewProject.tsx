@@ -201,8 +201,8 @@ export function NewProject({
       ) : (
         <>
           <p className="muted">
-            Pick a folder you already have. It is used where it is — nothing is copied or moved.
-            Your existing branches are left alone and do not become nodes.
+            Pick a folder you already have — a repository, or any folder inside one. It is used
+            where it is: nothing is copied or moved, and your existing branches are left alone.
           </p>
           <DirectoryPicker value={folder} onChange={setFolder} markRepos />
           {folder !== '' && currentInspection === null && inspectionError === null && (
@@ -314,36 +314,63 @@ function Inspected({
     return <p className="error">{inspection.blockedReason}</p>;
   }
 
-  if (!inspection.isGitRepo) {
+  if (inspection.repoRoot === null) {
     return (
       <p className="note">
-        Not a git repository yet. Bonsai will run <code>git init</code> here and make one commit of
-        what is already in the folder — {inspection.entryCount} item
-        {inspection.entryCount === 1 ? '' : 's'} — so nodes have something to branch from.
+        Not a git repository, and not inside one. Bonsai will run <code>git init</code> here and
+        make one commit of what is already in the folder — {inspection.entryCount} item
+        {inspection.entryCount === 1 ? '' : 's'} — so experiments have something to branch from.
         {inspection.entryCount > 400 &&
           ' That is a lot of files; check there is no build output or node_modules in there first.'}
       </p>
     );
   }
 
-  if (inspection.headCommit === null) {
-    return (
-      <p className="note">
-        A git repository with no commits yet. Bonsai will make the first one from what is in the
-        folder, because a branch needs somewhere to start.
-      </p>
-    );
-  }
-
   return (
-    <p className="note">
-      Git repository on <strong>{inspection.branch ?? 'a detached HEAD'}</strong>, at{' '}
-      <code>{inspection.headCommit.slice(0, 8)}</code>.{' '}
-      {inspection.dirtyFiles > 0
-        ? `${inspection.dirtyFiles} uncommitted change${inspection.dirtyFiles === 1 ? '' : 's'} — left exactly as they are.`
-        : 'Clean.'}{' '}
-      This branch becomes master and stays read-only; nodes branch from it.
-    </p>
+    <div className="note inspected">
+      {/*
+       * The two facts that are genuinely separate, said separately (D37).
+       *
+       * A folder inside a repository used to be refused with advice to pick the
+       * root instead, which made a monorepo an all-or-nothing choice. It is
+       * accepted now, so the form has to be explicit about which folder is
+       * which: git still sees the whole repository, and the agent works in the
+       * folder that was picked.
+       */}
+      <dl className="scope">
+        <dt>Repository</dt>
+        <dd>
+          <code>{inspection.repoRoot}</code>
+          {inspection.workDir !== '' && ' — its whole history, branches and commits'}
+        </dd>
+        <dt>Agent works in</dt>
+        <dd>
+          {inspection.workDir === '' ? 'the repository root' : <code>{inspection.workDir}</code>}
+        </dd>
+      </dl>
+      {inspection.headCommit === null ? (
+        <p>
+          The repository has no commits yet. Bonsai will make the first one from what is in it,
+          because a branch needs somewhere to start.
+        </p>
+      ) : (
+        <p>
+          On <strong>{inspection.branch ?? 'a detached HEAD'}</strong>, at{' '}
+          <code>{inspection.headCommit.slice(0, 8)}</code>.{' '}
+          {inspection.dirtyFiles > 0
+            ? `${inspection.dirtyFiles} uncommitted change${inspection.dirtyFiles === 1 ? '' : 's'} — left exactly as they are.`
+            : 'Clean.'}{' '}
+          This branch becomes the starting experiment and stays read-only; experiments branch from
+          it.
+        </p>
+      )}
+      {inspection.workDir !== '' && (
+        <p className="hint">
+          Bonsai will not create a second repository inside this folder, and will not make a branch
+          because you chose a subfolder. Commits, history and diffs stay whole-repository.
+        </p>
+      )}
+    </div>
   );
 }
 

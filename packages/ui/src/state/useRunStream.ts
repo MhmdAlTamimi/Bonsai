@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { subscribe } from '../api/client.ts';
+import { appendDelta } from './deltaBuffer.ts';
 import type { Delta } from '../panel/chat/liveMerge.ts';
 
 /**
@@ -22,6 +23,16 @@ export function useRunStream(
   streams: Record<string, Delta[]>;
   health: 'connecting' | 'live' | 'reconnecting';
   revision: number;
+  /**
+   * Bumped only when a run reports an error.
+   *
+   * The connection gate records authentication and rate failures as they are
+   * reported by runs, so the app has to re-read it after one -- but ONLY after
+   * one. This used to ride on `revision`, which every status change and every
+   * finished run bumps, so a busy tree re-fetched the connection and the whole
+   * settings object several times a second and replaced both on every arrival.
+   */
+  agentRevision: number;
 } {
   // Live run output, keyed by node. Cleared when a run starts so a second run
   // does not read as a continuation of the first.
@@ -36,6 +47,7 @@ export function useRunStream(
    */
   const [health, setHealth] = useState<'connecting' | 'live' | 'reconnecting'>('connecting');
   const [revision, setRevision] = useState(0);
+  const [agentRevision, setAgentRevision] = useState(0);
   const notify = useRef(onTreeChanged);
   notify.current = onTreeChanged;
 
@@ -43,12 +55,11 @@ export function useRunStream(
     setStreams({});
     setHealth('connecting');
     if (projectId === null) return;
-    const append = (nodeId: string, delta: Delta): void => {
+    const add = (nodeId: string, delta: Delta): void => {
       setStreams((prev) => {
         const existing = prev[nodeId] ?? [];
-        if (delta.seq > 0 && existing.some((d) => d.runId === delta.runId && d.seq === delta.seq))
-          return prev;
-        return { ...prev, [nodeId]: [...existing, delta] };
+        const next = appendDelta(existing, delta);
+        return next === existing ? prev : { ...prev, [nodeId]: [...next] };
       });
     };
 
@@ -60,7 +71,7 @@ export function useRunStream(
             setStreams((prev) => ({ ...prev, [event.nodeId]: [] }));
             break;
           case 'run.delta':
-            append(event.nodeId, {
+            add(event.nodeId, {
               runId: event.runId,
               seq: event.seq,
               text: event.text,
@@ -71,7 +82,9 @@ export function useRunStream(
             // seq 0 marks output that is published but never persisted, so the
             // transcript keeps showing it rather than waiting for a row that is
             // not coming.
-            append(event.nodeId, { runId: event.runId, seq: 0, text: event.error });
+            add(event.nodeId, { runId: event.runId, seq: 0, text: event.error });
+            setAgentRevision((n) => n + 1);
+            setRevision((n) => n + 1);
             notify.current();
             break;
           // run.question is here rather than in a case of its own because the
@@ -93,11 +106,14 @@ export function useRunStream(
         setHealth(state);
         if (state === 'live') {
           setRevision((n) => n + 1);
+          // A transport gap can hide a failure the gate recorded while the
+          // stream was down, so reconciling after one includes the credential.
+          setAgentRevision((n) => n + 1);
           notify.current();
         }
       },
     );
   }, [projectId]);
 
-  return { streams, health, revision };
+  return { streams, health, revision, agentRevision };
 }

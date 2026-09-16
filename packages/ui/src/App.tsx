@@ -11,6 +11,7 @@ import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
+import { useWorkspaceView } from './state/useWorkspaceView.ts';
 import { Canvas } from './canvas/Canvas.tsx';
 import { Panel } from './panel/Panel.tsx';
 import { StartScreen } from './panel/StartScreen.tsx';
@@ -54,11 +55,40 @@ export function App(): JSX.Element {
   const projectTree = useProjectTree(report, confirm.ask, arrivedAt.projectId);
   const { projects, projectId, tree, noProjects } = projectTree;
   const selection = useSelection();
+  /**
+   * Map and Experiment, and which of them a window this wide can show.
+   *
+   * Both stay mounted whichever is on screen: switching must not cost the
+   * canvas viewport, a reading position or a half-typed draft, and keeping them
+   * mounted is the only way to guarantee that rather than re-derive it.
+   */
+  const view = useWorkspaceView();
+  const selectExperiment = (id: string): void => {
+    selection.select(id);
+    view.selected();
+  };
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--text-scale',
+      String((settings?.textScale ?? 100) / 100),
+    );
+  }, [settings?.textScale]);
   useAddressBar({ projectId, nodeId: selection.primary });
   const live = useRunStream(projectId, projectTree.refresh);
+  /**
+   * Re-read the credential when a run reports a failure, and not otherwise.
+   *
+   * The gate records authentication and rate failures as runs report them, so
+   * the app has to look again after one. It used to look again after EVERY
+   * event -- each status change, each finished run -- which fetched the
+   * connection and the whole settings object several times a second on a busy
+   * tree and replaced both objects on arrival, re-rendering everything that
+   * reads them for no new information.
+   */
   useEffect(() => {
+    if (live.agentRevision === 0) return;
     reload();
-  }, [live.revision, reload]);
+  }, [live.agentRevision, reload]);
   const child = useChildCreation({
     projectId,
     onCreated: selection.select,
@@ -134,7 +164,46 @@ export function App(): JSX.Element {
   return (
     <RunAvailability.Provider value={connection.state === 'connected'}>
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
-        <div className="app">
+        <div className={`app${view.experimentOpen ? '' : ' panel-hidden'}`}>
+          {/*
+           * Two controls, not one dressed as two.
+           *
+           * NARROW: the views are alternatives, so this is a segmented switch
+           * with exactly one of them current. Experiment is unavailable, and
+           * says why, when nothing is selected -- a full-width panel reading
+           * "select an experiment" is worse than the map it replaced.
+           *
+           * WIDE: they are side by side, so there is nothing to switch. A
+           * collapsed panel gets one button that brings it back. The switch
+           * used to render here too, which left Map pressed and doing nothing:
+           * a control whose only state is the state you are already in.
+           */}
+          <nav className="view-switch" aria-label="Workspace view">
+            {view.narrow ? (
+              <>
+                <button
+                  className="segment"
+                  aria-pressed={!view.experimentOpen}
+                  onClick={view.showMap}
+                >
+                  Map
+                </button>
+                <button
+                  className="segment"
+                  aria-pressed={view.experimentOpen}
+                  disabled={selected === null}
+                  title={selected === null ? 'Choose an experiment on the map first.' : undefined}
+                  onClick={view.showExperiment}
+                >
+                  Experiment
+                </button>
+              </>
+            ) : (
+              <button className="show-panel" onClick={view.showExperiment}>
+                Show experiment
+              </button>
+            )}
+          </nav>
           <div className="canvas">
             <MenuBar
               project={tree?.project ?? null}
@@ -198,13 +267,20 @@ export function App(): JSX.Element {
             <StopAll nodes={tree?.nodes ?? []} />
 
             <Canvas
+              key={projectId}
               nodes={tree?.nodes ?? []}
               selectedId={selection.primary}
-              onSelect={selection.select}
+              onSelect={selectExperiment}
               onToggleSelect={selection.toggle}
               onMoved={(nodeId, position) => {
                 void api
                   .updateNode(nodeId, { positionX: position.x, positionY: position.y })
+                  .catch((e: unknown) => report(describeError(e)));
+              }}
+              onAutomatic={(nodeId) => {
+                void api
+                  .updateNode(nodeId, { positionX: null, positionY: null })
+                  .then(projectTree.refresh)
                   .catch((e: unknown) => report(describeError(e)));
               }}
               onDropOnPane={child.begin}
@@ -230,7 +306,7 @@ export function App(): JSX.Element {
               projectName={tree.project.name}
               revision={live.revision}
               onClose={() => setShowUsage(false)}
-              onSelect={selection.select}
+              onSelect={selectExperiment}
             />
           )}
 
@@ -272,6 +348,9 @@ export function App(): JSX.Element {
             }}
             stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
             streamRevision={live.revision}
+            visible={view.experimentOpen}
+            narrow={view.narrow}
+            onHide={view.showMap}
             onProjectSettings={openProjectSettings}
             onChanged={projectTree.refresh}
             /* The panel does not own a second, weaker version of this form any

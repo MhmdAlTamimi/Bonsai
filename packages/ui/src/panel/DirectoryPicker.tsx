@@ -1,6 +1,7 @@
 import { type JSX, useCallback, useEffect, useState, useRef } from 'react';
 import type { DirectoryListingView } from '@bonsai/shared';
 import { describeError } from '../api/describeError.ts';
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 
 /**
@@ -76,7 +77,7 @@ export function DirectoryPicker({
           disabled={listing?.parent == null}
           onClick={() => listing?.parent != null && void load(listing.parent)}
         >
-          ↑
+          <Icon name="arrowUp" />
         </button>
         <input
           value={typed}
@@ -89,7 +90,7 @@ export function DirectoryPicker({
             onChange('');
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
               e.preventDefault();
               void load(typed);
             }
@@ -100,7 +101,7 @@ export function DirectoryPicker({
         </button>
         {listing !== null && (
           <button type="button" title="Home" onClick={() => void load(listing.home)}>
-            ⌂
+            <Icon name="home" />
           </button>
         )}
       </div>

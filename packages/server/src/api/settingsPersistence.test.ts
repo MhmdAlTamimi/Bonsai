@@ -105,3 +105,22 @@ test('changing future storage pins old created/adopted projects and their later 
     db.close();
   }
 });
+
+test('text size survives settings reload and old settings use the standard size', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bonsai-text-size-'));
+  try {
+    const config = {
+      port: 0,
+      dataDir: dir,
+      reposRoot: join(dir, 'repos'),
+      defaultModel: null,
+      defaultPermissionMode: 'default' as const,
+    };
+    const settings = new Settings(config);
+    assert.equal(settings.view().textScale, 100);
+    settings.update({ textScale: 130 });
+    assert.equal(new Settings(config).view().textScale, 130);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

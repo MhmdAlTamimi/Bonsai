@@ -5,7 +5,9 @@ import type {
   ModelUsage,
   Options,
   PermissionMode,
+  PermissionResult,
 } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentQuestion } from '@bonsai/shared';
 
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
@@ -30,33 +32,8 @@ export class ClaudeSdkRunner implements AgentRunner {
       cwd: spec.cwd,
       abortController: controller,
 
-      /**
-       * Two different jobs, so two different mechanisms.
-       *
-       * READ-ONLY runs get an allow-list, because restriction is the whole
-       * point: a tool that is not named cannot be called, which is what makes
-       * a frozen node genuinely read-only rather than politely asked (D18).
-       *
-       * WRITABLE runs get an approval callback instead. An allow-list here was
-       * a latent bug: it doubles as the pre-approval list, so every tool the
-       * agent might reach for has to be named exactly, and any tool this
-       * harness offers under a name Bonsai does not know is silently
-       * unavailable. The failure mode is the worst kind -- the agent cannot
-       * edit, says so in prose, the run completes "successfully" and commits
-       * nothing. canUseTool approves whatever the harness offers, so Bonsai
-       * never has to keep a list of tool names in sync with the SDK.
-       *
-       * Nothing is loosened by this: the git hook below still blocks mutating
-       * git, and read-only nodes are still restricted by name.
-       *
-       * That callback is also where a run stops to ask (D34). See `gate`.
-       */
-      ...(spec.readOnly ? { allowedTools: [...READ_ONLY_TOOLS] } : { canUseTool: gate(spec) }),
-
-      // D19/D30: the app owns git. Read-only git stays available for recovery.
-      ...(spec.readOnly ? {} : { hooks: { PreToolUse: [gitGuardHook()] } }),
-
-      permissionMode: spec.permissionMode as PermissionMode,
+      // Which tools may run, and who decides. See `permissionOptions`.
+      ...permissionOptions(spec),
       // A key stored in Settings reaches the subprocess here rather than being
       // written into this process's environment.
       ...(spec.agentEnv === null ? {} : { env: { ...process.env, ...spec.agentEnv } }),
@@ -171,6 +148,164 @@ export class ClaudeSdkRunner implements AgentRunner {
 }
 
 /**
+ * Which tools a run may use, and what decides.
+ *
+ * Two different jobs, so two different shapes.
+ *
+ * WRITABLE runs keep the project's permission mode and get an approval
+ * callback. An allow-list was a latent bug here: it doubles as the
+ * pre-approval list, so any tool the harness offers under a name Bonsai does
+ * not know was silently unavailable -- the agent could not edit, said so in
+ * prose, and the run completed "successfully" having committed nothing.
+ * `canUseTool` approves whatever the harness offers, so Bonsai never keeps a
+ * list of tool names in step with the SDK. The git hook still blocks mutating
+ * git, and the callback is also where a run stops to ask (D34, see `gate`).
+ *
+ * READ-ONLY runs -- frozen experiments, and an adopted project's master, whose
+ * folder is the user's own checkout -- are where this used to be wrong. They
+ * were given `allowedTools` alone, on the belief that "a tool that is not
+ * named cannot be called at all". It can. `allowedTools` only PRE-APPROVES;
+ * under `acceptEdits`, the app's default mode, the mode itself approves writes
+ * before any list or callback is consulted. Verified against the real SDK: a
+ * run configured exactly that way created a file when asked to, and a real
+ * read-only run on an adopted project's master ran `Bash` in the user's own
+ * folder. It only happened to run `find` and `grep`.
+ *
+ * So read-only is enforced by the callback, and the mode is forced to
+ * `default` so nothing is approved before the callback sees it: reads are
+ * pre-approved, and every other tool -- including ones a future SDK adds -- is
+ * denied. Deny by default is the only version of this that stays true when the
+ * harness grows a tool.
+ */
+export function permissionOptions(
+  spec: RunSpec,
+): Pick<Options, 'permissionMode' | 'allowedTools' | 'canUseTool' | 'hooks'> {
+  if (spec.readOnly) {
+    return {
+      // Whatever the project chose. `acceptEdits` and `bypassPermissions`
+      // exist to approve changes, and a read-only run makes none.
+      permissionMode: 'default',
+      allowedTools: [...READ_ONLY_TOOLS],
+      canUseTool: readOnlyGate(spec),
+    };
+  }
+  return {
+    permissionMode: spec.permissionMode as PermissionMode,
+    canUseTool: gate(spec),
+    // D19/D30: the app owns git. Read-only git stays available for recovery.
+    hooks: { PreToolUse: [gitGuardHook()] },
+  };
+}
+
+/** Said to the agent when a read-only run reaches for anything that could change something. */
+export const READ_ONLY_REFUSAL =
+  'This experiment is read-only: its code is frozen, or its folder is the user’s own. ' +
+  'You can read, search and answer questions here. To change anything, say what you would ' +
+  'change and the user can branch a new experiment for it.';
+
+/**
+ * Reads go through, and so does a question to the user; everything else is
+ * refused, named or not. Asking changes nothing, so a frozen experiment -- or
+ * your own folder -- may still ask you something (D42).
+ */
+export function readOnlyGate(spec: RunSpec): CanUseTool {
+  return (toolName, input, options) => {
+    if (toolName === ASK_USER_TOOL) return relayQuestion(spec, input, options.signal);
+    return Promise.resolve(
+      (READ_ONLY_TOOLS as readonly string[]).includes(toolName)
+        ? { behavior: 'allow' as const }
+        : { behavior: 'deny' as const, message: READ_ONLY_REFUSAL },
+    );
+  };
+}
+
+/** The SDK's name for the agent asking the user something. */
+export const ASK_USER_TOOL = 'AskUserQuestion';
+
+/** Told to the agent when the user leaves the decision to it. */
+export const NO_ONE_TO_ASK =
+  'No one is available to answer this question. Decide yourself, and say clearly in your ' +
+  'reply what you assumed.';
+
+/**
+ * Puts the agent's question to the user and hands the answer back.
+ *
+ * THE ANSWER TRAVELS IN THE TOOL'S INPUT. The SDK's contract for this tool is
+ * that the permission callback returns the input with an `answers` map filled
+ * in -- "user answers collected by the permission component" -- and the tool's
+ * result is built from that. Approving the call without it is what used to
+ * happen: the tool returned at once, with nothing, and the agent wrote "I'll
+ * wait for them to answer" into a run that then simply ended. Verified against
+ * the real SDK in every permission mode, read-only runs included.
+ *
+ * Not answering is a refusal carrying a reason, because the SDK delivers a
+ * refusal's message to the agent as the tool's result: "decide yourself and
+ * say what you assumed" is something it can act on.
+ */
+export async function relayQuestion(
+  spec: RunSpec,
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<PermissionResult> {
+  if (signal.aborted) return { behavior: 'deny', message: 'the run was stopped' };
+  const questions = parseQuestions(input);
+  if (questions === null) {
+    return {
+      behavior: 'deny',
+      message:
+        'That question could not be shown to the user: it needs 1 to 4 questions, each with a ' +
+        'question, a header and 2 to 4 options. Ask again in that shape, or ask in your reply.',
+    };
+  }
+  if (spec.askChoices === null) return { behavior: 'deny', message: NO_ONE_TO_ASK };
+
+  const decision = await spec.askChoices({ questions });
+  if (!decision.answered) return { behavior: 'deny', message: decision.reason };
+  return { behavior: 'allow', updatedInput: { ...input, answers: decision.answers } };
+}
+
+/**
+ * The questions, or null when the input is not the shape the tool promises.
+ *
+ * Checked rather than cast, because this input comes from the model: a
+ * malformed question should come back to the agent as something to fix, not
+ * reach the panel as something that cannot be rendered or answered.
+ */
+export function parseQuestions(input: Record<string, unknown>): AgentQuestion[] | null {
+  const raw = input['questions'];
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 4) return null;
+  const out: AgentQuestion[] = [];
+  for (const item of raw as unknown[]) {
+    if (item === null || typeof item !== 'object') return null;
+    const q = item as Record<string, unknown>;
+    if (typeof q['question'] !== 'string' || q['question'].trim() === '') return null;
+    if (!Array.isArray(q['options'])) return null;
+    const options: AgentQuestion['options'] = [];
+    for (const option of q['options'] as unknown[]) {
+      if (option === null || typeof option !== 'object') return null;
+      const o = option as Record<string, unknown>;
+      if (typeof o['label'] !== 'string' || o['label'].trim() === '') return null;
+      options.push({
+        label: o['label'],
+        description: typeof o['description'] === 'string' ? o['description'] : '',
+        ...(typeof o['preview'] === 'string' ? { preview: o['preview'] } : {}),
+      });
+    }
+    if (options.length < 2 || options.length > 4) return null;
+    out.push({
+      question: q['question'],
+      header: typeof q['header'] === 'string' ? q['header'] : '',
+      multiSelect: q['multiSelect'] === true,
+      options,
+    });
+  }
+  // Answers are keyed by question text, so two identical questions could not
+  // be answered separately.
+  if (new Set(out.map((q) => q.question)).size !== out.length) return null;
+  return out;
+}
+
+/**
  * The approval callback: either a rubber stamp or the ask-user gate.
  *
  * `spec.ask` is non-null only when the run's permission mode is `default`,
@@ -189,9 +324,13 @@ export class ClaudeSdkRunner implements AgentRunner {
  * tool's input when present -- the previous `updatedInput: {}` was a loaded
  * gun that happened not to have gone off.
  */
-function gate(spec: RunSpec): CanUseTool {
+export function gate(spec: RunSpec): CanUseTool {
   const allow = { behavior: 'allow' as const };
   return (toolName, input, options) => {
+    // Before anything about permission modes: the agent asking the user
+    // something is not an action to approve, so no mode may wave it through
+    // unanswered (D42).
+    if (toolName === ASK_USER_TOOL) return relayQuestion(spec, input, options.signal);
     if (spec.ask === null || (READ_ONLY_TOOLS as readonly string[]).includes(toolName)) {
       return Promise.resolve(allow);
     }
@@ -314,6 +453,13 @@ function usageEvent(message: {
 function describeToolInput(input: unknown, truncate = true): string {
   if (input === null || typeof input !== 'object') return '';
   const o = input as Record<string, unknown>;
+  // A question has no path or command to summarise it by, so it used to be
+  // recorded as a blank line -- and what the agent asked was lost with it.
+  const asked = parseQuestions(o);
+  if (asked !== null) {
+    const text = asked.map((q) => q.question).join(' · ');
+    return truncate && text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  }
   for (const key of ['file_path', 'path', 'pattern', 'command', 'url', 'query']) {
     const value = o[key];
     if (typeof value === 'string') {

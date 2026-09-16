@@ -7,19 +7,28 @@ export function Dialog({
   className = '',
   onClose,
   children,
+  dismissOnBackdrop = false,
+  returnFocus,
 }: {
   title: string;
   className?: string;
   onClose: () => void;
   children: ReactNode;
+  dismissOnBackdrop?: boolean;
+  returnFocus?: string;
 }): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = ref.current;
     dialog?.showModal();
     dialog?.querySelector<HTMLElement>('[data-dialog-focus]')?.focus();
-    return () => dialog?.close();
-  }, []);
+    return () => {
+      dialog?.close();
+      if (opener?.isConnected && opener !== document.body) opener.focus();
+      else if (returnFocus) document.querySelector<HTMLElement>(returnFocus)?.focus();
+    };
+  }, [returnFocus]);
   return createPortal(
     <dialog
       ref={ref}
@@ -51,7 +60,7 @@ export function Dialog({
         onClose();
       }}
       onClick={(e) => {
-        if (e.target !== e.currentTarget) return;
+        if (!dismissOnBackdrop || e.target !== e.currentTarget) return;
         const r = e.currentTarget.getBoundingClientRect();
         if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)
           onClose();

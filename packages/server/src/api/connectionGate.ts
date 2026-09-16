@@ -207,14 +207,3 @@ export interface CliAuthStatus {
   loggedIn: boolean;
   authMethod: string | null;
 }
-
-/** Opens a folder in the platform's file manager. */
-export async function revealInFileManager(path: string): Promise<void> {
-  const command =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
-  try {
-    await run(command, [path], { timeout: 10_000 });
-  } catch {
-    throw new Error('Could not open this folder. Copy its path and open it in your file manager.');
-  }
-}

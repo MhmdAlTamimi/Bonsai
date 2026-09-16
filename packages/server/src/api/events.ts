@@ -32,11 +32,17 @@ export class EventBus {
     this.send(res, { type: 'hello', projectId });
 
     // Comment frames keep intermediaries from closing an idle stream.
-    const keepAlive = setInterval(() => res.write(': ping\n\n'), 25_000);
+    const keepAlive = setInterval(() => {
+      if (!res.destroyed && res.writableLength < 1_048_576) res.write(': ping\n\n');
+      else res.destroy();
+    }, 25_000);
+    keepAlive.unref();
 
     const unsubscribe = (): void => {
       clearInterval(keepAlive);
-      this.subscribers.get(projectId)?.delete(res);
+      const subscribers = this.subscribers.get(projectId);
+      subscribers?.delete(res);
+      if (subscribers?.size === 0) this.subscribers.delete(projectId);
     };
     res.on('close', unsubscribe);
     return unsubscribe;
@@ -49,6 +55,11 @@ export class EventBus {
   }
 
   private send(res: ServerResponse, event: ServerEvent): void {
+    if (res.destroyed || res.writableEnded) return;
+    if (res.writableLength > 1_048_576) {
+      res.destroy();
+      return;
+    }
     this.lastId += 1;
     res.write(`id: ${this.lastId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
   }

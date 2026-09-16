@@ -12,11 +12,11 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | Milestone | Branch | Findings | State |
 | --- | --- | --- | --- |
 | 1. Protect users’ work | `codex/milestone-1-protect-work` | F01–F05 | Accepted by owner; merged and pushed |
-| 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Accepted and merged/pushed; F10 decision remains deferred |
+| 2. Simplify starting and branching | `codex/milestone-2-start-and-branch` | F06–F10, F13 | Accepted and merged/pushed; F10 resolved in milestone 6 |
 | 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Accepted by owner; merged and pushed |
 | 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Accepted by owner; merged and pushed |
-| 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Ready for owner review |
-| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Pending |
+| 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Accepted; merged and pushed as `55332e8` |
+| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Implemented; ready for owner review |
 
 ## Milestone 1 review
 
@@ -190,3 +190,87 @@ Tests use temporary projects and the fake agent; no real credentials, personal p
 No new dependencies. Schema 12 pins each project’s storage path; existing files are not moved. F10's previously deferred freeze-timing decision is unchanged.
 
 Restart with `npm start`, review these flows, then request any edits before this branch is merged and pushed.
+
+
+## Milestone 6 review
+
+Branch: `codex/milestone-6-visual-experience`. Milestone 5 was accepted, merged and pushed as `55332e8`.
+The owner's project-tab folder button is sufficient; no experiment-folder action was added.
+
+**F10 resolved, superseding the earlier pending notes:** a direct child freezes its parent's code only
+when it commits. Question/clarification children do not freeze it. Deleting the last committed direct
+child restores writability; another committed child keeps it frozen. An adopted original folder stays
+read-only. AGENTS.md and decisions D4/D24 now agree with this owner-approved behavior.
+
+**D41, new and owner-approved:** a folder inside a repository can be opened, the way an editor opens
+one. The nearest enclosing repository is the project; the folder chosen is the agent's working
+directory inside every experiment's worktree. Git still sees the whole repository.
+
+### Structure and system health, before the visual work
+
+- **The store no longer grows without a boundary.** `db/store.ts` was one class of fifty methods over
+  five tables; it is now one module per concern (projects, nodes, runs, messages, checks) with a views
+  module assembling what the interface reads, behind a `Store` facade that kept every call site
+  unchanged. A test fails if a concern-sized store reaches into another.
+- **The one real memory leak is closed.** Live run output was kept whole, for every experiment, for the
+  life of the project view. It is a view of a run in flight, not the record of it, so the buffer is
+  bounded and unpersisted setup chunks merge instead of each costing a re-render.
+- **Eight requests per run were carrying no new state.** The credential was re-read on every stream
+  event; it is re-read when a run reports a failure, which is the only thing that changes it. Two N+1
+  reads went with it. Measured before and after — see the health review.
+
+### What to look at
+
+- **Reading and settings (F30–F31):** one type scale of eight steps, and nothing sets a size outside it.
+  Primary reading is 14.5px, secondary 13px, code 13.5px — a monospace face reads smaller than the sans
+  beside it. Settings → App settings → Appearance saves Standard / Large / Larger (100%, 115%, 130%);
+  cards, dialogs and controls are sized in rem so they grow with it rather than clipping. Contrast
+  measurements are in the health report and re-recorded by the browser suite on every run.
+- **Dialogs and keyboard (F32, F38):** creation, Rename, settings, deletion and expanded changes share
+  native modal focus containment and restoration. Backdrop clicks keep forms open. Enter submits;
+  Shift+Enter adds a request line. IME composition does not trigger submission or folder navigation.
+  Experiment actions support arrow keys, Home/End and Escape. A focused map experiment opens with Enter/Space.
+- **Map (F33–F35):** visible plus handles accompany the ordinary Branch experiment button. **Canvas
+  hints** replaces the map key: one trigger toggles it, a click away or Escape closes it, and nothing
+  inside repeats the trigger's job. Status uses SVG shapes plus labels; selected conversation ancestry is
+  highlighted and edge labels name experiments. Background additions keep zoom; selection reveals a node
+  with minimal pan. **Selecting an experiment no longer pins it** — a click was starting and ending a
+  drag, which wrote a position and froze that card out of the automatic layout.
+- **Canvas controls (F33/F35):** zoom out, the zoom level, zoom in, Fit canvas, Canvas hints and any
+  Automatic position are one family — one height, radius, border, icon weight, pressed and focus state,
+  with a tooltip on each. React Flow's own controls, which had their own sizes and their own corner, are
+  gone. Pressing the zoom level resets it to 100%.
+- **Window composition (F36):** wide windows show the map and the experiment together and the panel can
+  be collapsed — and stays collapsed until it is asked back. Narrow windows show one at a time, chosen
+  with a segmented two-state switch; the wide window gets a single button instead, because a switch whose
+  only state is the state you are in does nothing. Switching keeps the canvas viewport, the reading
+  position and any draft. Short zoomed windows use one scrolling panel.
+- **Repository and working folder (D41):** creating a project from an existing folder names the
+  repository and the working folder as two separate facts. A subfolder of a repository is accepted and
+  the repository keeps its branch and history; a folder in no repository is still initialised as one,
+  where it is; nested repositories resolve to the nearest enclosing one. The project menu can reveal
+  either folder.
+- **Questions from the agent (D42, owner-approved):** when the agent asks you something, the run waits in
+  **Needs you** in every permission mode, read-only experiments included. The question box shows each question
+  with its options, descriptions and any preview, and always offers **Other** with a text box. Answer, choose
+  **Let the agent decide** (it chooses and says what it chose), or Stop. There is no timeout, and the question
+  survives a reload. What was asked, the options, and your answer are in the conversation. This replaces a trap:
+  under `acceptEdits` the question used to vanish and the agent wrote "I'll wait" into a run that had ended.
+- **Read-only experiments are read-only (D18 corrected):** frozen experiments and an adopted project's own folder
+  could change files under `acceptEdits`, because the tool list only pre-approved. Two real runs on your adopted
+  `research` project had run Bash in your own folder (only `find`/`grep`; the folder is clean). Enforcement now
+  denies everything but reading and asking.
+- **Identity (F37):** the owner-supplied mark and matching favicon from milestone 4 are retained. Every
+  glyph now comes from the one local SVG family — the typographic close, more, chevron, arrow and home
+  characters are gone, so nothing borrows its weight from the font. No icon dependency.
+
+Review at 1280×720, a narrow window, and enlarged text. Try branch creation with keyboard only; switching
+Map/Experiment with a draft and a half-read conversation; collapsing the panel and clicking around the
+map; dragging a card and then Automatic position; starting a run whose request makes the agent ask you
+something, then answering, typing your own answer, and letting the agent decide; opening a subfolder of one of your own repositories and
+checking where the agent starts; and deleting a committed child to restore its parent's writability.
+Restart with `npm start` so backend and interface match.
+
+System-health findings, fixes, measured limits and verification are recorded in
+[the milestone 6 health review](reports/milestone-6-health-review-2026-09-15.md).
+No dependencies were added. Merge and push only after the owner's review.

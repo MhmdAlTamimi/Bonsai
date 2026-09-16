@@ -1,5 +1,5 @@
-import { type JSX, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { type JSX, useState } from 'react';
+import { Dialog } from '../../Dialog.tsx';
 import { parsePatch, patchTotals, shouldExpand, type DiffFile } from './diffModel.ts';
 
 /** One patch, with file operations, line references, and a wider reading view. */
@@ -53,11 +53,7 @@ export function Diff({
           ))}
         </>
       )}
-      {expanded &&
-        createPortal(
-          <ExpandedDiff patch={patch} dirty={dirty} onClose={() => setExpanded(false)} />,
-          document.body,
-        )}
+      {expanded && <ExpandedDiff patch={patch} dirty={dirty} onClose={() => setExpanded(false)} />}
     </div>
   );
 }
@@ -71,22 +67,16 @@ function ExpandedDiff({
   dirty: readonly string[];
   onClose: () => void;
 }): JSX.Element {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const el = dialog.current;
-    el?.showModal();
-    return () => el?.close();
-  }, []);
   return (
-    <dialog ref={dialog} className="diff-dialog" onCancel={onClose} onClose={onClose}>
+    <Dialog title="Changes" className="diff-dialog" onClose={onClose}>
       <header>
         <h2>Changes</h2>
-        <button autoFocus onClick={onClose}>
+        <button data-dialog-focus onClick={onClose}>
           Close changes
         </button>
       </header>
       <Diff patch={patch} dirty={dirty} allowExpand={false} />
-    </dialog>
+    </Dialog>
   );
 }
 

@@ -72,6 +72,7 @@ export interface SettingsView {
    * the one place preferences already are.
    */
   panelWidth: number;
+  textScale: number;
 }
 
 /**
@@ -81,7 +82,9 @@ export interface SettingsView {
  * and the server so a bad stored value cannot come back on every launch. Two
  * copies of these numbers would eventually disagree.
  */
-export const PANEL_WIDTH = { min: 280, max: 900, default: 360 } as const;
+export const TEXT_SCALES = [100, 115, 130] as const;
+
+export const PANEL_WIDTH = { min: 280, max: 900, default: 420 } as const;
 
 /**
  * How many agents may run at once.
@@ -104,6 +107,7 @@ export interface UpdateSettingsRequest {
   reposRoot?: string;
   /** Clamped server-side; see settings.ts for the bounds and why. */
   panelWidth?: number;
+  textScale?: number;
   maxConcurrentRuns?: number;
 }
 
@@ -166,6 +170,17 @@ export interface ProjectView {
    * was recorded.
    */
   sourcePath: string | null;
+  /**
+   * D37: the agent's working directory inside the repository, '/'-separated,
+   * '' for the repository root itself.
+   *
+   * Bonsai opens a folder the way an editor does. `sourcePath` is the
+   * repository -- the project's identity, whose history, branches and commits
+   * stay whole -- and this is the folder inside it the agent stands in.
+   */
+  workDir: string;
+  /** `sourcePath` and `workDir` joined: the folder to reveal or name. */
+  workPath: string | null;
   setup: ProjectSetupView;
   /** Estimated total across every run in the tree, at API list price. */
   costUsd: number;
@@ -228,8 +243,21 @@ export interface NodeView {
   hasCommits: boolean;
   pendingQuestion: {
     id: string;
+    /** One line, for the card. The question itself, or the permission being asked for. */
     text: string;
+    /**
+     * What kind of answer the agent is waiting for.
+     *
+     *   permission -- may it do this? Allow, or refuse with a reason.
+     *   choice     -- it asked you something (AskUserQuestion). Answer, or
+     *                 leave the decision to it.
+     *
+     * Both park the run the same way and share the Needs you status; they
+     * differ only in what an answer is.
+     */
+    kind: 'permission' | 'choice';
     request?: { action: string; target: string; details: string };
+    questions?: AgentQuestion[];
   } | null;
   positionX: number | null;
   positionY: number | null;
@@ -250,6 +278,29 @@ export interface NodeView {
    */
   queuePosition: number | null;
   createdAt: string;
+}
+
+/**
+ * One question the agent asked, in the shape the SDK's AskUserQuestion tool
+ * uses -- kept identical so nothing is lost or reinterpreted on the way to the
+ * panel.
+ *
+ * There is deliberately no "Other" option in `options`. The tool tells the
+ * agent not to add one because the host always offers free text, so the panel
+ * must: an answer is any string, not only an option's label.
+ */
+export interface AgentQuestion {
+  question: string;
+  /** A short label, at most a few words. */
+  header: string;
+  /** True when several options may be chosen together. */
+  multiSelect: boolean;
+  options: Array<{
+    label: string;
+    description: string;
+    /** Code or a mockup to compare options by, shown in monospace. */
+    preview?: string;
+  }>;
 }
 
 export interface RunView {
@@ -447,7 +498,13 @@ export interface CreateProjectRequest {
 }
 
 export interface AdoptProjectRequest {
-  /** A folder the user already has. Used in place; never copied or moved. */
+  /**
+   * A folder the user already has. Used in place; never copied or moved.
+   *
+   * It need not be a repository root. If it sits inside one, that repository
+   * becomes the project and this folder becomes the agent's working directory
+   * inside it (D37).
+   */
   path: string;
   name?: string;
   description?: string;
@@ -479,6 +536,15 @@ export interface DirectoryInspectionView {
   dirtyFiles: number;
   entryCount: number;
   blockedReason: string | null;
+  /**
+   * The repository this folder belongs to: the nearest enclosing one, which is
+   * the repository the user's own git commands would act on standing here.
+   * Null when the folder is in no repository at all, in which case adopting it
+   * creates one where it is.
+   */
+  repoRoot: string | null;
+  /** The folder relative to `repoRoot`. '' when it IS the repository root. */
+  workDir: string;
   /** Non-null when this folder is already part of a project Bonsai is running. */
   knownTo: KnownFolderView | null;
 }
@@ -548,8 +614,18 @@ export interface StartRunRequest {
  * can say what to do instead; a "yes" is just a yes.
  */
 export interface AnswerQuestionRequest {
-  allow: boolean;
+  /** Permission questions: yes or no. */
+  allow?: boolean;
+  /** Permission questions: sent to the agent with a refusal. */
   message?: string;
+  /**
+   * Choice questions: each question's text to its answer. A multi-select
+   * answer is its labels joined with ", ", which is the form the SDK hands the
+   * agent. Every question must be answered.
+   */
+  answers?: Record<string, string>;
+  /** Choice questions: answer nothing, and let the agent decide and say what it assumed. */
+  agentDecides?: boolean;
 }
 
 export type RecoverAction = 'resume' | 'discard' | 'keep';

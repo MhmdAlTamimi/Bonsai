@@ -1,8 +1,10 @@
+import { OperationConflict } from '../domain/errors.js';
 import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
 import { CONCURRENCY, type NodeStatus } from '@bonsai/shared';
 
 import type { NodeRow, RunTotals, Store } from '../db/store.js';
+import { workDirIn } from '../db/rows.js';
 
 /** A plain record for when the agent skipped writing one (D22). */
 function contextFallback(displayName: string, prompt: string): string {
@@ -28,7 +30,13 @@ export interface SettingsSource {
 }
 import type { EventBus } from '../api/events.js';
 import { silentLogger, type Logger } from '../log.js';
-import type { AgentRunner, PermissionDecision, PermissionRequest } from '../agent/AgentRunner.js';
+import type {
+  AgentRunner,
+  ChoiceDecision,
+  ChoiceRequest,
+  PermissionDecision,
+  PermissionRequest,
+} from '../agent/AgentRunner.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { branchNameFor } from '../git/repo.js';
 import { readWorktreeState, resumePrompt } from '../git/recovery.js';
@@ -73,7 +81,29 @@ interface Queued {
 /** A run held on a question, and the one function that lets it go. */
 interface Waiter {
   questionId: string;
-  settle: (decision: PermissionDecision, resume: boolean) => void;
+  /** Which kind of answer releases it, so the wrong kind cannot. */
+  kind: 'permission' | 'choice';
+  settle: (outcome: PermissionDecision | ChoiceDecision, resume: boolean) => void;
+}
+
+/** What a parked question is told when the node is stopped rather than answered. */
+const STOPPED_CHOICE: ChoiceDecision = { answered: false, reason: 'the run was stopped' };
+
+/**
+ * Told to the agent when the user leaves a question to it (D42).
+ *
+ * It has to say what to do, not only that nobody answered: the SDK hands this
+ * back as the tool's result, and "decide, and say what you assumed" is the
+ * difference between an agent that carries on visibly and one that guesses in
+ * silence -- or, as before, one that announces it is waiting and stops.
+ */
+export const LEFT_TO_AGENT =
+  'The user chose not to answer and left this decision to you. Make a reasonable choice, ' +
+  'carry on, and say clearly in your reply what you decided and why.';
+
+/** The question as the card and the transcript show it: the questions, in order. */
+function choiceText(request: ChoiceRequest): string {
+  return request.questions.map((q) => q.question).join(' · ');
 }
 
 export class RunJobs {
@@ -110,6 +140,31 @@ export class RunJobs {
     private readonly log: Logger = silentLogger,
     private readonly connection?: { recordFailure(message: string): void },
   ) {}
+
+  private readonly retiring = new Set<string>();
+  isRetiring(nodeId: string): boolean {
+    return this.retiring.has(nodeId);
+  }
+  /** Keep files and rows intact until every affected job has unwound. */
+  async withStoppedNodes<T>(ids: readonly string[], remove: () => Promise<T>): Promise<T> {
+    if (ids.some((id) => this.retiring.has(id)))
+      throw new OperationConflict('Deletion is already in progress.');
+    for (const id of ids) this.retiring.add(id);
+    try {
+      for (const id of ids) this.cancel(id);
+      const deadline = Date.now() + 10_000;
+      while (ids.some((id) => this.isRunning(id))) {
+        if (Date.now() >= deadline)
+          throw new OperationConflict(
+            'The agent is still stopping. Work is kept; retry deletion after it stops.',
+          );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return await remove();
+    } finally {
+      for (const id of ids) this.retiring.delete(id);
+    }
+  }
 
   isRunning(nodeId: string): boolean {
     return this.running.has(nodeId) || this.queue.some((q) => q.nodeId === nodeId);
@@ -174,11 +229,34 @@ export class RunJobs {
    * already be showing the node as interrupted.
    */
   answer(questionId: string, decision: PermissionDecision): boolean {
+    return this.release(questionId, 'permission', decision);
+  }
+
+  /**
+   * D42: the user's answers to questions the agent asked, keyed by question.
+   *
+   * Same guarantees as `answer`: false when nothing is waiting on this exact
+   * question any more, so a second window cannot resume a run twice.
+   */
+  answerChoices(questionId: string, answers: Record<string, string>): boolean {
+    return this.release(questionId, 'choice', { answered: true, answers });
+  }
+
+  /** D42: answer nothing, and let the agent decide -- and say what it decided. */
+  leaveToAgent(questionId: string): boolean {
+    return this.release(questionId, 'choice', { answered: false, reason: LEFT_TO_AGENT });
+  }
+
+  private release(
+    questionId: string,
+    kind: Waiter['kind'],
+    outcome: PermissionDecision | ChoiceDecision,
+  ): boolean {
     const question = this.store.getQuestion(questionId);
     if (question === undefined) return false;
     const waiter = this.waiting.get(question.node_id);
-    if (waiter?.questionId !== questionId) return false;
-    waiter.settle(decision, true);
+    if (waiter?.questionId !== questionId || waiter.kind !== kind) return false;
+    waiter.settle(outcome, true);
     return true;
   }
 
@@ -234,7 +312,9 @@ export class RunJobs {
   start(nodeId: string, prompt: string): { runId: string } {
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
-    if (this.running.has(nodeId)) throw new Error('this node is already running');
+    if (this.isRetiring(nodeId)) throw new OperationConflict('This experiment is being deleted.');
+    if (this.isRunning(nodeId))
+      throw new OperationConflict('This experiment is already running or queued.');
 
     /**
      * THE FREEZE IS RESOLVED HERE AND NOWHERE ELSE.
@@ -363,7 +443,7 @@ export class RunJobs {
    */
   private async ensureSetup(
     node: NodeRow,
-    project: { setup_command: string | null; id: string },
+    project: { setup_command: string | null; id: string; work_dir: string | null },
     runId: string,
     controller: AbortController,
   ): Promise<void> {
@@ -391,7 +471,9 @@ export class RunJobs {
 
     const result = await runCommand({
       command,
-      cwd: node.worktree_path,
+      // The agent's working directory, not the worktree root: `npm install`
+      // for a project opened at `services/api` belongs in `services/api`.
+      cwd: workDirIn(node.worktree_path, project.work_dir),
       signal: controller.signal,
       onOutput: (chunk) => {
         this.bus.publish(node.project_id, {
@@ -515,7 +597,13 @@ export class RunJobs {
       for await (const event of this.runner.run({
         runId,
         nodeId,
-        cwd: node.worktree_path,
+        /**
+         * D37: the worktree is still the isolation boundary, and git still sees
+         * the whole repository -- this is only where the agent stands inside
+         * it, the way an editor opens a folder. '' means the worktree root,
+         * which is every project that did not choose a subdirectory.
+         */
+        cwd: workDirIn(node.worktree_path, project.work_dir),
         prompt,
         resumeSessionId: inheritance.sessionId,
         forkSession: inheritance.fork,
@@ -541,6 +629,16 @@ export class RunJobs {
             ? (request): Promise<PermissionDecision> =>
                 this.askUser(node, runId, request, controller)
             : null,
+        /**
+         * D42: in every mode, read-only runs included.
+         *
+         * `ask` above is about whether Bonsai checks before the agent acts, so
+         * the mode decides it. This is the agent asking the user something,
+         * which is not an action to approve -- and when it was tied to the
+         * mode, the question vanished and the run ended claiming to wait.
+         */
+        askChoices: (request): Promise<ChoiceDecision> =>
+          this.askChoices(node, runId, request, controller),
         signal: controller.signal,
       })) {
         switch (event.type) {
@@ -770,14 +868,8 @@ export class RunJobs {
   }
 
   /**
-   * Stops the run and asks (D34). Resolves when the user answers, or when the
-   * node is stopped.
-   *
-   * The order matters: the question row is written BEFORE the status changes,
-   * so there is no instant where a card reads `needs you` and the panel has
-   * nothing to show. It is also appended to the transcript, because "why did
-   * this run stall for ten minutes" should be answerable a week later from the
-   * conversation alone.
+   * Stops the run and asks permission (D34). Resolves when the user answers,
+   * or when the node is stopped.
    */
   private askUser(
     node: NodeRow,
@@ -785,33 +877,122 @@ export class RunJobs {
     request: PermissionRequest,
     controller: AbortController,
   ): Promise<PermissionDecision> {
-    if (controller.signal.aborted) return Promise.resolve(STOPPED);
+    const text = questionText(request);
+    return this.park<PermissionDecision>(node, runId, controller, {
+      kind: 'permission',
+      text,
+      record: {
+        request: {
+          action: request.toolName,
+          target: request.detail,
+          details: request.details ?? request.detail,
+        },
+      },
+      transcript: request.details ? `${text}\n\n${request.details}` : text,
+      logged: { tool: request.toolName },
+      stopped: STOPPED,
+      said: (decision) => (decision.allow ? 'Allowed.' : `Refused: ${decision.reason}`),
+    });
+  }
+
+  /**
+   * Stops the run and puts the agent's own question to the user (D42).
+   * Resolves with the answers, with "left to the agent", or when stopped.
+   */
+  private askChoices(
+    node: NodeRow,
+    runId: string,
+    request: ChoiceRequest,
+    controller: AbortController,
+  ): Promise<ChoiceDecision> {
+    return this.park<ChoiceDecision>(node, runId, controller, {
+      kind: 'choice',
+      text: choiceText(request),
+      record: { questions: request.questions },
+      /**
+       * The options go into the transcript as well as the question, because
+       * "what was it choosing between?" matters as much as what was chosen,
+       * and the question row alone is not what anyone reads a week later.
+       */
+      transcript: request.questions
+        .map(
+          (q) =>
+            `The agent asked: ${q.question}\nOptions: ${q.options.map((o) => o.label).join(' · ')}` +
+            (q.multiSelect ? ' (any that apply)' : ''),
+        )
+        .join('\n\n'),
+      logged: { questions: request.questions.length },
+      stopped: STOPPED_CHOICE,
+      said: (decision) =>
+        decision.answered
+          ? request.questions
+              .map((q) => `${q.question} → ${decision.answers[q.question] ?? ''}`)
+              .join('\n')
+          : decision.reason === LEFT_TO_AGENT
+            ? 'Left the decision to the agent.'
+            : `Not answered: ${decision.reason}`,
+    });
+  }
+
+  /**
+   * Parks a run on a question until it is answered or the node is stopped.
+   *
+   * One implementation for both kinds, because everything that makes parking
+   * safe is the same for both, and a second copy is where one of them would
+   * lose it:
+   *
+   *   the question row is written BEFORE the status changes, so no card ever
+   *   reads `needs you` with nothing to show;
+   *
+   *   an answer and an abort can race, and only the first settles it;
+   *
+   *   stopping the node settles it, or the run hangs on a promise nobody will
+   *   resolve and its concurrency slot never comes back;
+   *
+   *   the status goes back to running BEFORE the promise resolves, so a card
+   *   never says `needs you` for a run that is already going again.
+   *
+   * Both the question and the answer land in the transcript, because "why did
+   * this run stall for ten minutes, and what did it decide" should be
+   * answerable a week later from the conversation alone.
+   */
+  private park<T extends PermissionDecision | ChoiceDecision>(
+    node: NodeRow,
+    runId: string,
+    controller: AbortController,
+    question: {
+      kind: Waiter['kind'];
+      text: string;
+      record: Pick<Parameters<Store['askQuestion']>[0], 'request' | 'questions'>;
+      transcript: string;
+      logged: Record<string, unknown>;
+      stopped: T;
+      said: (outcome: T) => string;
+    },
+  ): Promise<T> {
+    if (controller.signal.aborted) return Promise.resolve(question.stopped);
 
     const questionId = randomUUID();
-    const text = questionText(request);
     this.store.askQuestion({
       id: questionId,
       runId,
       nodeId: node.id,
-      text,
-      request: {
-        action: request.toolName,
-        target: request.detail,
-        details: request.details ?? request.detail,
-      },
+      text: question.text,
+      ...question.record,
     });
     this.store.appendMessage({
       nodeId: node.id,
       runId,
       role: 'system',
       kind: 'text',
-      content: request.details ? `${text}\n\n${request.details}` : text,
+      content: question.transcript,
     });
     this.log.info('run.asked', {
       runId,
       nodeId: node.id,
       projectId: node.project_id,
-      tool: request.toolName,
+      kind: question.kind,
+      ...question.logged,
     });
     this.setStatus(node.id, 'needs_you');
     this.bus.publish(node.project_id, {
@@ -819,20 +1000,19 @@ export class RunJobs {
       nodeId: node.id,
       runId,
       questionId,
-      text,
+      text: question.text,
     });
     this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
 
-    return new Promise<PermissionDecision>((resolve) => {
+    return new Promise<T>((resolve) => {
       let settled = false;
-      const settle = (decision: PermissionDecision, resume: boolean): void => {
-        // Two ways in -- an answer and an abort -- and they can race.
+      const settle = (outcome: T, resume: boolean): void => {
         if (settled) return;
         settled = true;
         this.waiting.delete(node.id);
         controller.signal.removeEventListener('abort', onAbort);
 
-        const said = decision.allow ? 'Allowed.' : `Refused: ${decision.reason}`;
+        const said = question.said(outcome);
         this.store.answerQuestion(questionId, said);
         this.store.appendMessage({
           nodeId: node.id,
@@ -842,19 +1022,21 @@ export class RunJobs {
           content: said,
         });
         if (resume) {
-          // Back to running BEFORE the promise resolves, so the card never
-          // shows `needs you` for a run that is already going again.
           this.setStatus(node.id, 'running');
           this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
         }
-        resolve(decision);
+        resolve(outcome);
       };
 
-      // Stopping a parked node has to let the agent go, or the run hangs on a
-      // promise nobody will ever resolve and the slot never comes back.
-      const onAbort = (): void => settle(STOPPED, false);
+      const onAbort = (): void => settle(question.stopped, false);
       controller.signal.addEventListener('abort', onAbort, { once: true });
-      this.waiting.set(node.id, { questionId, settle });
+      // The waiter's kind decides which answer may release it, so the release
+      // paths hand over the matching outcome type.
+      this.waiting.set(node.id, {
+        questionId,
+        kind: question.kind,
+        settle: settle as Waiter['settle'],
+      });
     });
   }
 

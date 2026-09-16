@@ -1,7 +1,8 @@
-import { type JSX, useEffect, useRef, useState } from 'react';
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
 
 import { NextRunInfo } from './NextRunInfo.tsx';
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { ExperimentChanges } from './node/ExperimentChanges.tsx';
@@ -20,6 +21,7 @@ import { StopButton } from '../state/RunControls.tsx';
 import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
 import type { Delta } from './chat/liveMerge.ts';
+import { useDismiss } from '../useDismiss.ts';
 
 /** One selected experiment: fixed identity/actions, reading area, and composer. */
 export function Panel({
@@ -28,10 +30,13 @@ export function Panel({
   stream,
   streamRevision,
   onProjectSettings,
+  onHide,
   onChanged,
   onCreateChild,
   startError,
   onRunStarted,
+  visible,
+  narrow,
 }: {
   /** Needed only to explain why an adopted project's master cannot be written. */
   project: ProjectView | null;
@@ -39,17 +44,27 @@ export function Panel({
   stream: readonly Delta[];
   streamRevision: number;
   onProjectSettings: () => void;
+  onHide: () => void;
   onChanged: () => void;
   /** Opens the one create-a-child dialog. See NewChildDialog. */
   onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
+  /**
+   * Whether the panel is on screen. It stays MOUNTED when it is not, so drafts
+   * and loaded history survive -- but a hidden element has no layout box, and a
+   * scroll position does not survive losing one. The reading position needs to
+   * know to restore itself when the panel comes back.
+   */
+  visible: boolean;
+  /** On a narrow window this is the whole screen, so closing it means "show the map". */
+  narrow: boolean;
 }): JSX.Element {
   if (node === null) {
     return (
       <aside className="panel empty">
-        <p className="muted">Select a node to see its conversation.</p>
-        <p className="hint">Drag out of a node&rsquo;s handle to branch a new one.</p>
+        <p className="muted">Select an experiment to see its conversation.</p>
+        <p className="hint">Drag out of an experiment&rsquo;s handle to branch a new one.</p>
       </aside>
     );
   }
@@ -61,6 +76,9 @@ export function Panel({
       node={node}
       stream={stream}
       streamRevision={streamRevision}
+      onHide={onHide}
+      visible={visible}
+      narrow={narrow}
       onProjectSettings={onProjectSettings}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
@@ -76,20 +94,26 @@ function NodePanel({
   stream,
   streamRevision,
   onProjectSettings,
+  onHide,
   onChanged,
   onCreateChild,
   startError,
   onRunStarted,
+  visible,
+  narrow,
 }: {
   project: ProjectView | null;
   node: NodeView;
   stream: readonly Delta[];
   streamRevision: number;
   onProjectSettings: () => void;
+  onHide: () => void;
   onChanged: () => void;
   onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
+  visible: boolean;
+  narrow: boolean;
 }): JSX.Element {
   const [view, setView] = useState<'conversation' | 'results'>('conversation');
   const [resultsSeen, setResultsSeen] = useState(false);
@@ -147,7 +171,9 @@ function NodePanel({
   const reading = useReadingPosition(
     `${node.projectId}:${node.id}`,
     chat.loaded && detail !== null,
-    view === 'conversation',
+    // Both conditions, because both take the layout box away: the other tab is
+    // showing, or the whole panel is off screen behind the map.
+    visible && view === 'conversation',
     `${chat.messages.length}:${chat.pending.length}:${streamRevision}`,
   );
 
@@ -160,7 +186,7 @@ function NodePanel({
 
   const branchButton = (
     <button className="branch-child" onClick={() => onCreateChild(node)}>
-      <span aria-hidden="true">+</span> Branch experiment
+      <Icon name="plus" /> Branch experiment
     </button>
   );
 
@@ -169,6 +195,14 @@ function NodePanel({
       <header>
         <h2 title={node.displayName}>{node.displayName}</h2>
         <div className="header-right">
+          <button
+            className="hide-panel"
+            aria-label={narrow ? 'Back to map' : 'Hide experiment panel'}
+            title={narrow ? 'Back to map' : 'Hide this panel and show the whole map'}
+            onClick={onHide}
+          >
+            <Icon name="close" />
+          </button>
           {/* A node parked on a question is still holding an agent and a
               concurrency slot, so it needs the same way out as a running one. */}
           <StopButton node={node} />
@@ -376,7 +410,8 @@ function NodePanel({
         )}
         {view === 'conversation' && reading.away && (
           <button className="jump-latest" onClick={reading.jump}>
-            {reading.unread ? 'New output · Jump to latest ↓' : 'Jump to latest ↓'}
+            {reading.unread ? 'New output · Jump to latest' : 'Jump to latest'}
+            <Icon name="arrowDown" />
           </button>
         )}
         {error !== null && (
@@ -442,21 +477,19 @@ function OverflowMenu({
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  useDismiss(
+    open,
+    useCallback(() => setOpen(false), []),
+    ref,
+    '.overflow',
+  );
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('mousedown', onDown);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('keydown', onKey);
-    };
+    const frame = requestAnimationFrame(() =>
+      ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus(),
+    );
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   return (
@@ -468,10 +501,30 @@ function OverflowMenu({
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        ⋯
+        <Icon name="more" />
       </button>
       {open && (
-        <div className="menu-panel right" role="menu">
+        <div
+          className="menu-panel right"
+          role="menu"
+          onKeyDown={(event) => {
+            const items = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
+            );
+            const index = items.indexOf(document.activeElement as HTMLButtonElement);
+            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+              event.preventDefault();
+              items[
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? items.length - 1
+                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
+              ]?.focus();
+            }
+            if (event.key === 'Tab') setOpen(false);
+          }}
+        >
           <button
             role="menuitem"
             disabled={busy}

@@ -1,7 +1,7 @@
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -872,6 +872,120 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const detail = (await (await fetch(nodeUrl)).json()) as { runs: Array<{ status: string }> };
     assert.equal(detail.runs.at(-1)?.status, 'cancelled');
   });
+  /**
+   * D42: the agent asks a question, and the run waits for the user.
+   *
+   * The reported bug, end to end, in the mode it was reported in. Under
+   * `acceptEdits` the agent's question used to return at once with no answer:
+   * nothing was shown, and the agent wrote "I'll wait" into a run that ended.
+   */
+  test('a question from the agent waits for an answer, or for the agent to decide', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'questions',
+          description: '',
+          location: dataDir,
+          permissionMode: 'acceptEdits',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const status = async (): Promise<string> =>
+      ((await (await fetch(nodeUrl)).json()) as { node: { status: string } }).node.status;
+    const conversation = "(document.querySelector('.conversation-content')?.textContent ?? '')";
+
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'choose: how should this be built?' }),
+    });
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.ask-choice')", {
+      label: 'the question box',
+    });
+
+    // It waits: the card says so, the composer gives way, and nothing is sent
+    // until the question has an answer.
+    assert.equal(await status(), 'needs_you');
+    assert.match(
+      String(
+        await session.eval(
+          `document.querySelector('[data-id="${created.masterNodeId}"] .chip')?.textContent`,
+        ),
+      ),
+      /Needs you/,
+    );
+    assert.equal(await session.eval("!!document.querySelector('.composer-row')"), false);
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.ask-choice button')).find(b => b.textContent === 'Send answer').disabled",
+      ),
+      true,
+    );
+    assert.match(
+      String(await session.eval("document.querySelector('.choice-text').textContent")),
+      /Which approach should I take\?/,
+    );
+    // "Other" is always offered, because the tool promises the agent it is.
+    assert.equal(await session.eval("!!document.querySelector('.choice-other-text')"), true);
+
+    // And it is still waiting after a reload: the question is server state.
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.ask-choice')");
+
+    // Choosing an option shows its preview.
+    await session.eval(
+      "Array.from(document.querySelectorAll('.choice-option')).find(l => l.textContent.includes('Make it configurable')).querySelector('input').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.choice-preview')?.textContent.includes('retries = 3')",
+    );
+    // Typing an answer of your own replaces it.
+    await session.type('.choice-other-text', 'Use the existing pipeline');
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.choice-option')).find(l => l.textContent.includes('Make it configurable')).querySelector('input').checked",
+      ),
+      false,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-agent-question.png'));
+    await session.eval(
+      "Array.from(document.querySelectorAll('.ask-choice button')).find(b => b.textContent === 'Send answer').click()",
+    );
+
+    // The answer reached the agent, which carried on and finished.
+    await session.waitFor(
+      `!document.querySelector('.ask-choice') && ${conversation}.includes('You chose: Use the existing pipeline.')`,
+      { timeoutMs: 20000 },
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+    );
+    // What was asked, and what was answered, are in the conversation.
+    const text = String(await session.eval(conversation));
+    assert.match(text, /The agent asked: Which approach should I take\?/);
+    assert.match(text, /Which approach should I take\? → Use the existing pipeline/);
+
+    // Leaving it to the agent: it decides, says what it decided, and finishes.
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'choose: and this one?' }),
+    });
+    await session.waitFor("!!document.querySelector('.ask-choice')");
+    await session.eval(
+      "Array.from(document.querySelectorAll('.ask-choice button')).find(b => b.textContent === 'Let the agent decide').click()",
+    );
+    await session.waitFor(
+      `!document.querySelector('.ask-choice') && ${conversation}.includes('Nobody chose, so I decided') && ${conversation}.includes('Left the decision to the agent.')`,
+      { timeoutMs: 20000 },
+    );
+    await session.waitFor("!!document.querySelector('.composer-row')");
+  });
+
   test('initial connection and project failures offer retry instead of an empty canvas', async () => {
     const script = (await session.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `window.__failConnection = true; window.__failProjects = true; const nativeFetch = window.fetch; window.fetch = (url, init) => (window.__failConnection && String(url) === '/api/connection') || (window.__failProjects && String(url) === '/api/projects') ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable fixture' }), { status: 503 })) : nativeFetch(url, init);`,
@@ -1131,6 +1245,393 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.ok(priorImpact.removesDirectories.includes(join(dataDir, 'repos', created.projectId)));
     assert.ok(!priorImpact.removesDirectories.some((path) => path.startsWith(storageRoot)));
   });
+  test('visual workspace supports text sizing, keyboard branching, stable zoom and narrow views', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'visual-review',
+          description: 'A long experiment description for comfortable reading.',
+          location: dataDir,
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor(
+      "!!document.querySelector('.branch-child') && !!document.querySelector('.card')",
+    );
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 1280,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await session.waitFor(
+      "document.querySelector('.composer textarea').getBoundingClientRect().bottom < 721",
+    );
+    assert.ok(
+      Number(await session.eval('parseFloat(getComputedStyle(document.body).fontSize)')) >= 14.5,
+    );
+    /**
+     * Selecting an experiment must not pin it.
+     *
+     * React Flow's drag threshold defaults to zero, so a click used to start
+     * and end a drag and write a position -- pinning every card you looked at,
+     * and offering "Automatic position" for a node nobody had dragged.
+     */
+    await session.click('.react-flow__node');
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.positionX === null)()`,
+    );
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.canvas-tools button')).some(b => b.textContent === 'Automatic position')",
+      ),
+      false,
+      'a click does not pin',
+    );
+    // Pin and unpin using the existing server-owned positioning API.
+    await fetch(nodeUrl, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ positionX: 120, positionY: 150 }),
+    });
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.canvas-tools button')).some(b => b.textContent === 'Automatic position')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.canvas-tools button')).find(b => b.textContent === 'Automatic position').click()",
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.positionX === null)()`,
+    );
+    await session.type('.composer textarea', 'Retain this draft across views');
+    await session.click('.branch-child');
+    await session.waitFor(
+      "document.activeElement?.getAttribute('aria-label') === 'experiment name'",
+    );
+    await session.type('[aria-label="experiment name"]', 'Keyboard experiment');
+    await session.type('[aria-label="what should change"]', 'A multiline request');
+    await session.eval(
+      "document.querySelector('[aria-label=\"what should change\"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}))",
+    );
+    assert.equal(
+      await session.eval('!!document.querySelector(\'dialog[aria-label="Branch experiment"]\')'),
+      true,
+      'IME composition does not submit',
+    );
+    for (let i = 0; i < 14; i++) {
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Tab',
+        code: 'Tab',
+        windowsVirtualKeyCode: 9,
+      });
+      assert.equal(
+        await session.eval("document.querySelector('dialog').contains(document.activeElement)"),
+        true,
+      );
+    }
+    // A backdrop click cannot discard this form. Through the harness's mouse
+    // helper: a dispatched press without `buttons` set is not delivered as a
+    // real press, so this used to pass whatever the dialog did.
+    await session.mouse('mousePressed', 2, 2);
+    await session.mouse('mouseReleased', 2, 2);
+    assert.equal(
+      await session.eval('document.querySelector(\'[aria-label="experiment name"]\').value'),
+      'Keyboard experiment',
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-branch-1280.png'));
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
+    );
+    await session.waitFor("document.activeElement?.classList.contains('branch-child')");
+    /**
+     * Canvas hints: one trigger, three ways out, and nothing inside that
+     * repeats the trigger's job. The old "Map key" panel carried its own
+     * "Close map key" button where the content should have been.
+     */
+    await session.click('.canvas-hints-trigger');
+    await session.waitFor("!!document.querySelector('.canvas-hints-panel')");
+    assert.equal(
+      await session.eval("document.querySelectorAll('.canvas-hints-panel button').length"),
+      0,
+      'nothing inside repeats what the trigger already does',
+    );
+    await session.click('.canvas-hints-trigger');
+    assert.equal(await session.eval("!!document.querySelector('.canvas-hints-panel')"), false);
+    // Escape closes it and puts the keyboard back where it started.
+    await session.click('.canvas-hints-trigger');
+    await session.waitFor("!!document.querySelector('.canvas-hints-panel')");
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Escape',
+        code: 'Escape',
+        windowsVirtualKeyCode: 27,
+      });
+    await session.waitFor("!document.querySelector('.canvas-hints-panel')");
+    assert.equal(
+      await session.eval("document.activeElement?.classList.contains('canvas-hints-trigger')"),
+      true,
+    );
+    // And a press outside closes it. Through the harness's mouse helper, which
+    // sets `buttons` -- a dispatched press without it is not delivered as a
+    // mousedown at all, so the check would pass without proving anything.
+    await session.click('.canvas-hints-trigger');
+    await session.waitFor("!!document.querySelector('.canvas-hints-panel')");
+    await session.mouse('mousePressed', 900, 300);
+    await session.mouse('mouseReleased', 900, 300);
+    await session.waitFor("!document.querySelector('.canvas-hints-panel')");
+    const zoom = await session.eval(
+      "document.querySelector('.react-flow__viewport').style.transform.match(/scale\\(([^)]+)\\)/)[1]",
+    );
+    await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        parentId: created.masterNodeId,
+        displayName: 'Background experiment',
+        description: '',
+      }),
+    });
+    await session.waitFor("document.querySelectorAll('.card').length === 2");
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.react-flow__viewport').style.transform.match(/scale\\(([^)]+)\\)/)[1]",
+      ),
+      zoom,
+      'background growth does not refit',
+    );
+    // Wide: collapsing the panel must leave a control that DOES something. The
+    // segmented switch used to render here with Map pressed and inert.
+    await session.click('.hide-panel');
+    await session.waitFor(
+      "document.querySelector('.app').classList.contains('panel-hidden') && document.querySelectorAll('.view-switch button').length === 1",
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.view-switch button').textContent"),
+      'Show experiment',
+    );
+    // A collapsed panel stays collapsed when another experiment is chosen: a
+    // collapse that reopens on the next click is not a collapse.
+    await session.click('.react-flow__node:last-child');
+    assert.equal(
+      await session.eval("document.querySelector('.app').classList.contains('panel-hidden')"),
+      true,
+    );
+    await session.click('.view-switch button');
+    await session.waitFor("!document.querySelector('.app').classList.contains('panel-hidden')");
+    // Back to master, whose draft the narrow checks below follow across views.
+    await session.click('.react-flow__node:first-child');
+    await session.waitFor("document.querySelector('.panel h2')?.textContent === 'master'");
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-map-1280.png'));
+    const contrast = await session.eval(`(() => {
+      const rgb = s => s.match(/[\\d.]+/g).slice(0,3).map(Number);
+      const luminance = c => c.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
+      const ratio = (a,b) => { const x=luminance(rgb(a)), y=luminance(rgb(b)); return Math.round((Math.max(x,y)+.05)/(Math.min(x,y)+.05)*100)/100; };
+      const results = [];
+      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button', '.branch-child', '.card-name', '.chip']) {
+        const el=document.querySelector(selector), style=getComputedStyle(el);
+        let parent=el, bg='rgb(13, 14, 17)';
+        while(parent) { const candidate=getComputedStyle(parent).backgroundColor; if(candidate.startsWith('rgb(')) {bg=candidate;break;} parent=parent.parentElement; }
+        results.push({selector, color:style.color, background:bg, ratio:ratio(style.color,bg)});
+      }
+      return results;
+    })()`);
+    await writeFile(
+      join(repoRoot, 'test-results', 'milestone-6-contrast.json'),
+      JSON.stringify(contrast, null, 2),
+    );
+    for (const pair of contrast as Array<{ selector: string; ratio: number }>)
+      assert.ok(pair.ratio >= 4.5, pair.selector);
+    await session.click('.settings-button');
+    await session.waitFor('!!document.querySelector(\'[aria-label="Text size"]\')');
+    await session.eval(
+      "const input = document.querySelector('[aria-label=\"Text size\"]'); input.value='130'; input.dispatchEvent(new Event('change',{bubbles:true}));",
+    );
+    await session.click('.appearance-settings button');
+    await session.waitFor(
+      "document.querySelector('.appearance-settings .save-feedback').textContent === 'Saved' && parseFloat(getComputedStyle(document.body).fontSize) > 18",
+    );
+    await session.click('[aria-label="Close settings"]');
+    // A transcript worth scrolling, so the reading-position check below cannot
+    // pass by having nothing to scroll. One turn per run, so two runs.
+    for (const prompt of [
+      'Write a first pass worth scrolling through.',
+      'Now extend it so the conversation is longer than the panel.',
+    ]) {
+      await fetch(`${BASE}/api/nodes/${created.masterNodeId}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      // Started, then finished. Counting turns instead would race: the second
+      // run's POST returns before the interface has heard about it, and the
+      // turn count from the first run already satisfies the target.
+      await session.waitFor("!!document.querySelector('.panel button.stop')", {
+        timeoutMs: 20000,
+      });
+      await session.waitFor("!document.querySelector('.panel button.stop')", { timeoutMs: 20000 });
+    }
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 800,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    assert.equal(
+      await session.eval("getComputedStyle(document.querySelector('.canvas')).display"),
+      'none',
+    );
+    assert.ok(
+      Number(
+        await session.eval("document.querySelector('.panel').getBoundingClientRect().width"),
+      ) <= 800,
+    );
+    // Waited for rather than asserted outright: the assertion is about the
+    // settled layout, and a viewport change has not reflowed on the next tick.
+    await session.waitFor(
+      "document.querySelector('.composer-row button').getBoundingClientRect().bottom <= 720",
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-800-large.png'));
+    // Narrow: one view at a time, chosen with a two-state segmented switch.
+    assert.equal(await session.eval("document.querySelectorAll('.view-switch button').length"), 2);
+    await session.click('.view-switch button:first-child');
+    assert.equal(
+      await session.eval("getComputedStyle(document.querySelector('.panel')).display"),
+      'none',
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.view-switch button:first-child').getAttribute('aria-pressed')",
+      ),
+      'true',
+    );
+    /**
+     * The canvas viewport survives the round trip.
+     *
+     * The hidden view stays mounted rather than being unmounted, so switching
+     * away and back must not re-fit the tree or lose where the user had panned
+     * to. React Flow keeps its transform in its own store; this asserts that
+     * losing and regaining a layout box does not disturb it.
+     */
+    const parked = await session.eval(
+      "document.querySelector('.react-flow__viewport').style.transform",
+    );
+    await session.click('.view-switch button:last-child');
+    await session.click('.view-switch button:first-child');
+    assert.equal(
+      await session.eval("document.querySelector('.react-flow__viewport').style.transform"),
+      parked,
+      'switching views preserves the canvas viewport',
+    );
+    await session.click('.view-switch button:last-child');
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'Retain this draft across views',
+    );
+    // And the reading position, which a hidden element loses on its own: a
+    // scroll offset does not survive losing a layout box.
+    // Parked partway up, not at the bottom: following the newest output is a
+    // different behaviour from restoring where someone was reading, and this is
+    // the one that needs the position itself to survive.
+    const scrolled = Number(
+      await session.eval(
+        "const b=document.querySelector('.panel-body:not([hidden])'); b.scrollTop = Math.floor((b.scrollHeight - b.clientHeight) / 2); b.dispatchEvent(new Event('scroll')); b.scrollTop",
+      ),
+    );
+    assert.ok(scrolled > 0, 'the fixture must actually overflow for this to mean anything');
+    await session.click('.view-switch button:first-child');
+    await session.click('.view-switch button:last-child');
+    await session.waitFor(
+      `document.querySelector('.panel-body:not([hidden])').scrollTop === ${scrolled}`,
+    );
+    for (const width of [640, 480]) {
+      await session.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height: 720,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      assert.equal(
+        await session.eval('document.documentElement.scrollWidth <= window.innerWidth'),
+        true,
+      );
+      assert.ok(
+        Number(
+          await session.eval(
+            "document.querySelector('.branch-child').getBoundingClientRect().right",
+          ),
+        ) <= width,
+      );
+      await session.screenshot(join(repoRoot, 'test-results', `milestone-6-${width}-large.png`));
+      // And the map at the same width: the canvas controls are one family and
+      // have to stay inside the window, wrapping rather than overflowing it.
+      await session.click('.view-switch button:first-child');
+      await session.waitFor("!!document.querySelector('.canvas-tools')");
+      assert.equal(
+        await session.eval('document.documentElement.scrollWidth <= window.innerWidth'),
+        true,
+      );
+      assert.equal(
+        await session.eval(
+          `Array.from(document.querySelectorAll('.canvas-tools .canvas-tool')).every(b => { const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= ${width} && r.bottom <= window.innerHeight; })`,
+        ),
+        true,
+        'every canvas control stays on screen',
+      );
+      // One family means one height, whatever the label inside it.
+      assert.equal(
+        await session.eval(
+          "new Set(Array.from(document.querySelectorAll('.canvas-tools .canvas-tool')).map(b => Math.round(b.getBoundingClientRect().height))).size",
+        ),
+        1,
+      );
+      await session.screenshot(join(repoRoot, 'test-results', `milestone-6-${width}-map.png`));
+      await session.click('.view-switch button:last-child');
+    }
+    // 1280×720 at 200% browser zoom has a 640×360 CSS viewport.
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 640,
+      height: 360,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    assert.equal(
+      await session.eval('document.documentElement.scrollWidth <= window.innerWidth'),
+      true,
+    );
+    assert.ok(Number(await session.eval("document.querySelector('.panel-body').clientHeight")) > 0);
+    await session.eval(
+      "document.querySelector('.composer-row button').scrollIntoView({block:'nearest'})",
+    );
+    assert.ok(
+      Number(
+        await session.eval(
+          "document.querySelector('.composer-row button').getBoundingClientRect().bottom",
+        ),
+      ) <= 361,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-zoom-200.png'));
+    await session.click('.view-switch button:first-child');
+    await session.click('.settings-button');
+    await session.click('[aria-label="Close settings"]');
+    await session.send('Emulation.clearDeviceMetricsOverride', {});
+    await fetch(`${BASE}/api/settings`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ textScale: 100 }),
+    });
+  });
 });
 
 /**
@@ -1180,6 +1681,8 @@ async function launchBrowser(): Promise<{
     options?: { timeoutMs?: number; intervalMs?: number; label?: string },
   ): Promise<unknown>;
   click(selector: string): Promise<void>;
+  /** A press or release at a point, with `buttons` set so it is a real one. */
+  mouse(type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', x: number, y: number): Promise<void>;
   type(selector: string, text: string): Promise<void>;
   dragTo(selector: string, to: { x: number; y: number }): Promise<void>;
   screenshot(path: string): Promise<string | null>;

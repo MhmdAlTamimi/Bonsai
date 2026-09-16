@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS project (
   -- source_kind -- Bonsai's when created, and the user's, never deleted, when
   -- adopted. Null only for projects made before this column existed.
   source_path             TEXT,
+  -- D37: the agent's working directory, relative to the repository root, with
+  -- '/' separators and '' meaning the root itself. Bonsai opens a folder the
+  -- way an editor does: the repository is the project's identity and keeps its
+  -- whole history, while this is the folder the agent stands in. It changes
+  -- nothing about what git sees.
+  work_dir                TEXT NOT NULL DEFAULT '',
   -- The branch that was already checked out when the project was adopted.
   -- Bonsai must never delete it: it is the user's own branch, not a node/<uuid>.
   protected_branch        TEXT,
