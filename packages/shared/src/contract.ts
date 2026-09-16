@@ -277,7 +277,50 @@ export interface NodeView {
    * to happen, and nothing else about it differs.
    */
   queuePosition: number | null;
+  /**
+   * What the run is doing right now, or null when nothing is running.
+   *
+   * Derived in memory like `queuePosition`, and for the same reason not a
+   * status: waiting for background work is still `running` -- the run has not
+   * ended, its work has not been committed, and Stop still applies.
+   */
+  activity: RunActivity | null;
   createdAt: string;
+}
+
+/**
+ * The live state of one run (D43).
+ *
+ * A run used to end when the agent's turn ended. That was wrong for any
+ * command still running in the background: Bonsai committed and said
+ * Finished while the experiment kept writing files. Now the run stays open
+ * while that work is live, and this is how the interface says so.
+ */
+export interface RunActivity {
+  /**
+   * working -- the agent is taking a turn.
+   * waiting -- its turn is over, and background work it started is still
+   *            running. The run ends when that work does, or on Finish now.
+   */
+  state: 'working' | 'waiting';
+  /** The tool call in progress, so a long command reads as running rather than stuck. */
+  tool: { name: string; detail: string; startedAt: string } | null;
+  background: BackgroundJob[];
+}
+
+export interface BackgroundJob {
+  id: string;
+  /** The agent's description of a tracked job, or the command line of a detached process. */
+  description: string;
+  /**
+   * true  -- started in the agent's background mode, so the harness knows when
+   *          it ends and wakes the agent.
+   * false -- detached some other way (nohup, a trailing &) and found by Bonsai
+   *          through the run's marker; nothing tells the agent when it ends.
+   */
+  tracked: boolean;
+  /** When Bonsai first saw it. */
+  startedAt: string;
 }
 
 /**
@@ -649,6 +692,8 @@ export type ServerEvent =
       tool?: { name: string; detail: string };
     }
   | { type: 'run.question'; nodeId: string; runId: string; questionId: string; text: string }
+  /** At most about once a second per run, so a long command cannot flood the stream. */
+  | { type: 'run.activity'; nodeId: string; runId: string; activity: RunActivity }
   | {
       type: 'run.finished';
       nodeId: string;

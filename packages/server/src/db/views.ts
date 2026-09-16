@@ -91,6 +91,7 @@ export class Views {
         // Filled in by the router from the jobs runner. The store knows about
         // the tree, not about what this process happens to be doing with it.
         queuePosition: null,
+        activity: null,
         createdAt: row.created_at,
       } satisfies NodeView;
     });

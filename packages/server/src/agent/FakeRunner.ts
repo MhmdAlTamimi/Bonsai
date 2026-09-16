@@ -32,6 +32,10 @@ export const FAKE_QUESTION: AgentQuestion = {
  *   a prompt starting with '?'  ->  writes nothing. Conversation only.
  *   anything else               ->  writes a file, so the node commits.
  *
+ * Plus two prefixes for paths that need a user in the loop: "choose:" asks a
+ * question (D42), and "background:" leaves a job running after its turn so the
+ * run waits for it (D43).
+ *
  * That single rule is enough to exercise the emergent model end to end: the
  * same creation flow produces a node with a branch or a node without one, and
  * nothing anywhere had to be told which kind it was making.
@@ -117,6 +121,41 @@ export class FakeRunner implements AgentRunner {
     }
 
     /**
+     * D43: a request starting with "background:" starts a job, ends its turn,
+     * and waits for the job the way a real session does -- until the job ends
+     * (BONSAI_FAKE_BACKGROUND_MS), Finish now, or Stop. Finish now still lets
+     * the run end normally and commit; Stop does not.
+     */
+    if (spec.prompt.trimStart().toLowerCase().startsWith('background:')) {
+      yield { type: 'tool', name: 'Bash', detail: 'sleep (stand-in background job)' };
+      spec.onActivity({
+        state: 'waiting',
+        tool: null,
+        background: [
+          {
+            id: 'fake-job',
+            description: 'Stand-in background job',
+            tracked: true,
+            startedAt: new Date().toISOString(),
+          },
+        ],
+      });
+      await abortableDelay(
+        Number(process.env['BONSAI_FAKE_BACKGROUND_MS'] ?? 4000),
+        spec.signal,
+        spec.finishNow,
+      );
+      if (spec.signal.aborted) return;
+      spec.onActivity({ state: 'working', tool: null, background: [] });
+      yield {
+        type: 'text',
+        text: spec.finishNow.aborted
+          ? 'The background job was stopped: you chose Finish now.'
+          : 'The background job finished.',
+      };
+    }
+
+    /**
      * The pause sits BETWEEN the writes, and that placement is the point.
      *
      * Real agents take seconds and write as they go, so being killed leaves the
@@ -167,16 +206,17 @@ export class FakeRunner implements AgentRunner {
   }
 }
 
-function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
-  if (ms <= 0 || signal.aborted) return Promise.resolve();
+/** Waits, unless any of the signals fires first. */
+function abortableDelay(ms: number, ...signals: AbortSignal[]): Promise<void> {
+  if (ms <= 0 || signals.some((signal) => signal.aborted)) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(done, ms);
     function done(): void {
       clearTimeout(timer);
-      signal.removeEventListener('abort', done);
+      for (const signal of signals) signal.removeEventListener('abort', done);
       resolve();
     }
-    signal.addEventListener('abort', done, { once: true });
+    for (const signal of signals) signal.addEventListener('abort', done, { once: true });
   });
 }
 

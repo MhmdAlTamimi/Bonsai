@@ -6,11 +6,15 @@ import type {
   Options,
   PermissionMode,
   PermissionResult,
+  Query,
+  SDKMessage,
+  SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentQuestion } from '@bonsai/shared';
 
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
+import { Inbox, SessionActivity } from './session.js';
 
 /**
  * D15: the Claude Agent SDK, not the raw API -- the same harness as Claude Code,
@@ -21,10 +25,29 @@ import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
  * only turns a RunSpec into a query() and its messages into RunEvents.
  */
 export class ClaudeSdkRunner implements AgentRunner {
+  /** The SDK's `query`, unless a test supplies a scripted one. */
+  constructor(private readonly startQuery: StartQuery = query) {}
+
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
+    if (spec.signal.aborted) return;
     const controller = new AbortController();
-    const abort = (): void => controller.abort();
-    spec.signal.addEventListener('abort', abort, { once: true });
+    const inbox = new Inbox();
+    const session = new SessionActivity(spec.onActivity, () => inbox.close());
+    let live: SessionQuery | null = null;
+
+    // Stop: the jobs it started are stopped through the harness first, which
+    // ends their whole process trees, and only then is the session killed.
+    const stop = (): void => {
+      void stopJobs(live, session).finally(() => controller.abort());
+    };
+    // Finish now: the same jobs stopped, but the session is closed rather than
+    // killed, so the turn in progress completes and the run ends normally.
+    const finish = (): void => {
+      session.finish();
+      void stopJobs(live, session).finally(() => inbox.close());
+    };
+    spec.signal.addEventListener('abort', stop, { once: true });
+    spec.finishNow.addEventListener('abort', finish, { once: true });
 
     const options: Options = {
       // D17: the worktree is the isolation boundary. Every node has one,
@@ -91,7 +114,12 @@ export class ClaudeSdkRunner implements AgentRunner {
     let sessionAnnounced = false;
 
     try {
-      for await (const message of query({ prompt: promptWithCriteria(spec), options })) {
+      // D43: a stream, not a string, so the session outlives the first turn.
+      // See `Inbox` for what the string version did to background commands.
+      inbox.send(promptWithCriteria(spec));
+      live = this.startQuery({ prompt: inbox, options });
+
+      for await (const message of live) {
         // session_id rides every message. A forked run gets a NEW one, which is
         // the id this node must store -- storing the parent's would make later
         // chats on this node write into the parent's conversation.
@@ -100,28 +128,47 @@ export class ClaudeSdkRunner implements AgentRunner {
           yield { type: 'session', sessionId: message.session_id };
         }
 
-        if (message.type === 'system' && message.subtype === 'init') {
-          // Bonsai sets no model unless a project or node overrides one (D32),
-          // so this is the SDK's default and the only place it is observable.
-          //
-          // apiKeySource says which credential is paying. 'none' is a claude.ai
-          // subscription login, where nothing is charged per token -- so the
-          // cost figure below is an API-equivalent estimate, not money spent,
-          // and the UI has to say which.
-          yield {
-            type: 'model',
-            model: message.model,
-            apiKeySource: message.apiKeySource,
-            // Recorded so a run that edited nothing can be diagnosed: either
-            // the agent chose not to, or the tool it needed was not offered.
-            tools: message.tools,
-          };
+        if (message.type === 'system') {
+          if (message.subtype === 'init') {
+            // Bonsai sets no model unless a project or node overrides one (D32),
+            // so this is the SDK's default and the only place it is observable.
+            //
+            // apiKeySource says which credential is paying. 'none' is a claude.ai
+            // subscription login, where nothing is charged per token -- so the
+            // cost figure below is an API-equivalent estimate, not money spent,
+            // and the UI has to say which.
+            yield {
+              type: 'model',
+              model: message.model,
+              apiKeySource: message.apiKeySource,
+              // Recorded so a run that edited nothing can be diagnosed: either
+              // the agent chose not to, or the tool it needed was not offered.
+              tools: message.tools,
+            };
+          } else if (message.subtype === 'background_tasks_changed') {
+            session.jobsChanged(message.tasks);
+          } else if (message.subtype === 'thinking_tokens') {
+            session.thinking();
+          }
         } else if (message.type === 'assistant') {
+          // A subagent's messages carry the tool call that started it. They
+          // are shown, but they are not the agent taking a turn.
+          const main = message.parent_tool_use_id === null;
+          if (main) session.turnStarted();
           for (const block of message.message.content) {
             if (block.type === 'text' && block.text.trim() !== '') {
               yield { type: 'text', text: block.text };
             } else if (block.type === 'tool_use') {
-              yield { type: 'tool', name: block.name, detail: describeToolInput(block.input) };
+              const detail = describeToolInput(block.input);
+              if (main) session.toolStarted(block.id, block.name, detail);
+              yield { type: 'tool', name: block.name, detail };
+            }
+          }
+        } else if (message.type === 'user') {
+          const content = message.message.content;
+          if (message.parent_tool_use_id === null && Array.isArray(content)) {
+            for (const block of content) {
+              if (block.type === 'tool_result') session.toolFinished(block.tool_use_id);
             }
           }
         } else if (message.type === 'result') {
@@ -134,17 +181,53 @@ export class ClaudeSdkRunner implements AgentRunner {
             };
             return;
           }
-          // D20: cost and tokens captured per run from day one.
+          // D20: cost and tokens captured per run from day one. Every turn's
+          // result carries the running total, so each one replaces the last.
           yield usageEvent(message);
+          // D43: the end of a turn is the end of the run only when nothing it
+          // started is still running.
+          if (session.turnEnded(message.queued_turn_count ?? 0)) inbox.close();
         }
       }
     } catch (err) {
       if (controller.signal.aborted) return; // cancellation is not a failure
       throw err;
     } finally {
-      spec.signal.removeEventListener('abort', abort);
+      spec.signal.removeEventListener('abort', stop);
+      spec.finishNow.removeEventListener('abort', finish);
+      session.dispose();
+      inbox.close();
     }
   }
+}
+
+/** Starts a session. The SDK's `query`, narrowed to what a run uses. */
+export type StartQuery = (params: {
+  prompt: AsyncIterable<SDKUserMessage>;
+  options: Options;
+}) => SessionQuery;
+
+export type SessionQuery = AsyncIterable<SDKMessage> & Pick<Query, 'stopTask'>;
+
+/** How long Stop and Finish now wait for the harness to stop jobs before going ahead. */
+const STOP_JOBS_MS = 2_000;
+
+/**
+ * Stops every tracked job through the harness, which ends each one's process
+ * tree and tells the agent it was stopped. Bounded, because a harness that
+ * does not answer must not turn Stop into a hang.
+ */
+async function stopJobs(live: SessionQuery | null, session: SessionActivity): Promise<void> {
+  const ids = session.liveJobIds();
+  if (live === null || ids.length === 0) return;
+  let timer: NodeJS.Timeout | undefined;
+  await Promise.race([
+    Promise.allSettled(ids.map((id) => live.stopTask(id))),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, STOP_JOBS_MS);
+    }),
+  ]);
+  clearTimeout(timer);
 }
 
 /**
@@ -401,6 +484,13 @@ If the message gives you a definition of done, run the check yourself and add a
 actually printed. Report a failure as a failure — a node that honestly says the
 tests fail is far more useful than one that says it verified something it did
 not. Never claim to have run something you did not run.
+
+For a command that takes a long time -- installs, training, batch jobs -- use the
+Bash tool's background mode (run_in_background). Never detach a process with
+nohup, setsid, disown or a trailing &: nothing would tell you when it ends. Bonsai
+keeps this run open while your background commands are running and you are
+notified when each one finishes, so end your turn and wait for that notification
+instead of polling. The run is committed only after your background work is done.
 `.trim();
 
 /**

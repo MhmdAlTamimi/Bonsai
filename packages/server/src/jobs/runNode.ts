@@ -1,7 +1,7 @@
 import { OperationConflict } from '../domain/errors.js';
 import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
-import { CONCURRENCY, type NodeStatus } from '@bonsai/shared';
+import { CONCURRENCY, type NodeStatus, type RunActivity } from '@bonsai/shared';
 
 import type { NodeRow, RunTotals, Store } from '../db/store.js';
 import { workDirIn } from '../db/rows.js';
@@ -78,6 +78,27 @@ interface Queued {
   controller: AbortController;
 }
 
+/**
+ * A run with an agent, and what the interface can see and do while it lasts.
+ *
+ * Stop and Finish now are two controllers because they are two different
+ * endings: Stop cancels the run and commits nothing, Finish now stops waiting
+ * for background work and lets the run end -- and commit -- the ordinary way.
+ */
+interface LiveRun {
+  runId: string;
+  projectId: string;
+  controller: AbortController;
+  finish: AbortController;
+  activity: RunActivity | null;
+  /** When `run.activity` last went out, and the trailing publish when one is due. */
+  publishedAt: number;
+  publishTimer: NodeJS.Timeout | null;
+}
+
+/** `run.activity` goes out at most this often per run; a long command changes nothing a second. */
+const ACTIVITY_INTERVAL_MS = 1_000;
+
 /** A run held on a question, and the one function that lets it go. */
 interface Waiter {
   questionId: string;
@@ -107,7 +128,7 @@ function choiceText(request: ChoiceRequest): string {
 }
 
 export class RunJobs {
-  private readonly running = new Map<string, AbortController>();
+  private readonly running = new Map<string, LiveRun>();
   /**
    * Runs waiting for a slot, oldest first.
    *
@@ -195,9 +216,9 @@ export class RunJobs {
    * yet would leave a node stuck in `running` for ever.
    */
   cancel(nodeId: string): boolean {
-    const controller = this.running.get(nodeId);
-    if (controller !== undefined) {
-      controller.abort();
+    const live = this.running.get(nodeId);
+    if (live !== undefined) {
+      live.controller.abort();
       return true;
     }
 
@@ -218,6 +239,41 @@ export class RunJobs {
       projectId: dropped.projectId,
     });
     return true;
+  }
+
+  /**
+   * D43: Finish now. Stop waiting for the background work the agent started,
+   * stop that work, and end the run normally, so what it produced is committed.
+   *
+   * False when there is nothing to finish: no run with an agent (a queued run
+   * has started nothing -- Stop drops it), or a run parked on a question, which
+   * cannot end its turn until the question is answered or the run is stopped.
+   */
+  finish(nodeId: string): boolean {
+    const live = this.running.get(nodeId);
+    if (live === undefined || this.waiting.has(nodeId)) return false;
+    if (live.finish.signal.aborted || live.controller.signal.aborted) return true;
+
+    const jobs = live.activity?.background ?? [];
+    this.store.appendMessage({
+      nodeId,
+      runId: live.runId,
+      role: 'system',
+      kind: 'text',
+      content:
+        jobs.length === 0
+          ? 'Finish now: the run ends when the agent’s current turn does.'
+          : `Finish now: stopping ${jobs.length === 1 ? 'the background job' : `${jobs.length} background jobs`} ` +
+            `(${jobs.map((job) => job.description).join(' · ')}) and ending the run.`,
+    });
+    this.log.info('run.finish_now', { runId: live.runId, nodeId, jobs: jobs.length });
+    live.finish.abort();
+    return true;
+  }
+
+  /** What a running node is doing right now, or null. Read by the router, like `queuePosition`. */
+  activity(nodeId: string): RunActivity | null {
+    return this.running.get(nodeId)?.activity ?? null;
   }
 
   /**
@@ -269,7 +325,7 @@ export class RunJobs {
     // The queue first: draining it into aborts would start each run only to
     // stop it, which costs a subprocess launch apiece.
     for (const q of [...this.queue]) this.cancel(q.nodeId);
-    for (const c of this.running.values()) c.abort();
+    for (const live of this.running.values()) live.controller.abort();
   }
 
   /** How many runs are in flight. Shutdown and tests wait on this. */
@@ -386,19 +442,68 @@ export class RunJobs {
 
   /** Starts a job now, and takes the next queued one when it finishes. */
   private dispatch(job: Queued): void {
-    this.running.set(job.nodeId, job.controller);
+    const live: LiveRun = {
+      runId: job.runId,
+      projectId: job.projectId,
+      controller: job.controller,
+      finish: new AbortController(),
+      activity: null,
+      publishedAt: 0,
+      publishTimer: null,
+    };
+    this.running.set(job.nodeId, live);
     this.bus.publish(job.projectId, {
       type: 'run.started',
       nodeId: job.nodeId,
       runId: job.runId,
     });
 
-    void this.execute(job.runId, job.nodeId, job.prompt, job.readOnly, job.controller).finally(
-      () => {
-        this.running.delete(job.nodeId);
-        this.pump();
-      },
-    );
+    void this.execute(job.runId, job.nodeId, job.prompt, job.readOnly, live).finally(() => {
+      if (live.publishTimer !== null) clearTimeout(live.publishTimer);
+      this.running.delete(job.nodeId);
+      this.pump();
+    });
+  }
+
+  /**
+   * Records what a run is doing, and tells the interface -- at most once a
+   * second, with the latest state always sent last, so nothing is lost but a
+   * burst of tool calls is not a burst of events.
+   */
+  private reportActivity(nodeId: string, live: LiveRun, activity: RunActivity): void {
+    const was = live.activity?.state;
+    live.activity = activity;
+    if (activity.state === 'waiting' && was !== 'waiting') {
+      // Counts, not descriptions: a description is the agent's words about
+      // the user's code, and logs are what get pasted into bug reports.
+      this.log.info('run.waiting', {
+        runId: live.runId,
+        nodeId,
+        jobs: activity.background.length,
+        untracked: activity.background.filter((job) => !job.tracked).length,
+      });
+    }
+    if (live.publishTimer !== null) return;
+    const due = live.publishedAt + ACTIVITY_INTERVAL_MS - Date.now();
+    if (due <= 0) {
+      this.publishActivity(nodeId, live);
+      return;
+    }
+    live.publishTimer = setTimeout(() => {
+      live.publishTimer = null;
+      this.publishActivity(nodeId, live);
+    }, due);
+  }
+
+  private publishActivity(nodeId: string, live: LiveRun): void {
+    if (live.activity === null || this.running.get(nodeId) !== live) return;
+    live.publishedAt = Date.now();
+    this.bus.publish(live.projectId, {
+      type: 'run.activity',
+      nodeId,
+      runId: live.runId,
+      activity: live.activity,
+    });
   }
 
   /**
@@ -445,14 +550,22 @@ export class RunJobs {
     node: NodeRow,
     project: { setup_command: string | null; id: string; work_dir: string | null },
     runId: string,
-    controller: AbortController,
+    live: LiveRun,
   ): Promise<void> {
     const command = project.setup_command;
+    const controller = live.controller;
     if (command === null || command.trim() === '') return;
     // Once per node. Recorded in the database so a restart mid-install does
     // not mean running it again on every message from then on.
     if (node.setup_ran_at !== null) return;
     if (controller.signal.aborted) return;
+
+    // A cold `npm install` takes minutes, and should read as running, not stuck.
+    this.reportActivity(node.id, live, {
+      state: 'working',
+      tool: { name: 'Setup', detail: command, startedAt: new Date().toISOString() },
+      background: [],
+    });
 
     this.store.appendMessage({
       nodeId: node.id,
@@ -486,6 +599,7 @@ export class RunJobs {
       },
     });
 
+    this.reportActivity(node.id, live, { state: 'working', tool: null, background: [] });
     this.log.info('node.setup', {
       nodeId: node.id,
       projectId: node.project_id,
@@ -546,8 +660,9 @@ export class RunJobs {
     nodeId: string,
     prompt: string,
     readOnly: boolean,
-    controller: AbortController,
+    live: LiveRun,
   ): Promise<void> {
+    const controller = live.controller;
     // Fetched defensively rather than with `!`: these two lines sit outside the
     // try below, so a throw here would escape into an unhandled rejection and
     // take the process down instead of failing the run. A node deleted between
@@ -586,7 +701,7 @@ export class RunJobs {
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     // Before the agent, not before the response. See createChildNode for why.
-    await this.ensureSetup(node, project, runId, controller);
+    await this.ensureSetup(node, project, runId, live);
 
     try {
       const inheritance = this.resolveInheritance(node);
@@ -640,6 +755,8 @@ export class RunJobs {
         askChoices: (request): Promise<ChoiceDecision> =>
           this.askChoices(node, runId, request, controller),
         signal: controller.signal,
+        finishNow: live.finish.signal,
+        onActivity: (activity) => this.reportActivity(nodeId, live, activity),
       })) {
         switch (event.type) {
           case 'session':

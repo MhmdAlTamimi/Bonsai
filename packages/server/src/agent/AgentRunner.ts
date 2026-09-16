@@ -1,4 +1,4 @@
-import type { AgentQuestion } from '@bonsai/shared';
+import type { AgentQuestion, RunActivity } from '@bonsai/shared';
 
 /**
  * D14e: agent invocation sits behind one interface, so swapping the model or
@@ -74,7 +74,25 @@ export interface RunSpec {
    * given null must still not pretend the user answered.
    */
   askChoices: ((request: ChoiceRequest) => Promise<ChoiceDecision>) | null;
+  /** Stop: end the run now, and stop what it started. The run is cancelled. */
   signal: AbortSignal;
+  /**
+   * Finish now (D43): stop waiting for background work, stop it, and end the
+   * run the ordinary way -- so it commits, unlike Stop.
+   *
+   * A run stays open while work the agent started in the background is still
+   * live, however long that takes; there is deliberately no timeout, because
+   * a training run and a dev server look the same from here. This is how the
+   * user ends the second kind.
+   */
+  finishNow: AbortSignal;
+  /**
+   * Told what the run is doing whenever that changes: the tool in progress,
+   * and whether it is waiting for background work. A callback rather than a
+   * RunEvent because it changes while no event is due -- a job ending while
+   * the agent is idle is exactly when the interface most needs to hear.
+   */
+  onActivity: (activity: RunActivity) => void;
 }
 
 /** Questions the agent wants answered, exactly as it asked them. */
