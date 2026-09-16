@@ -250,13 +250,24 @@ directory inside every experiment's worktree. Git still sees the whole repositor
   the repository keeps its branch and history; a folder in no repository is still initialised as one,
   where it is; nested repositories resolve to the nearest enclosing one. The project menu can reveal
   either folder.
+- **Questions from the agent (D42, owner-approved):** when the agent asks you something, the run waits in
+  **Needs you** in every permission mode, read-only experiments included. The question box shows each question
+  with its options, descriptions and any preview, and always offers **Other** with a text box. Answer, choose
+  **Let the agent decide** (it chooses and says what it chose), or Stop. There is no timeout, and the question
+  survives a reload. What was asked, the options, and your answer are in the conversation. This replaces a trap:
+  under `acceptEdits` the question used to vanish and the agent wrote "I'll wait" into a run that had ended.
+- **Read-only experiments are read-only (D18 corrected):** frozen experiments and an adopted project's own folder
+  could change files under `acceptEdits`, because the tool list only pre-approved. Two real runs on your adopted
+  `research` project had run Bash in your own folder (only `find`/`grep`; the folder is clean). Enforcement now
+  denies everything but reading and asking.
 - **Identity (F37):** the owner-supplied mark and matching favicon from milestone 4 are retained. Every
   glyph now comes from the one local SVG family — the typographic close, more, chevron, arrow and home
   characters are gone, so nothing borrows its weight from the font. No icon dependency.
 
 Review at 1280×720, a narrow window, and enlarged text. Try branch creation with keyboard only; switching
 Map/Experiment with a draft and a half-read conversation; collapsing the panel and clicking around the
-map; dragging a card and then Automatic position; opening a subfolder of one of your own repositories and
+map; dragging a card and then Automatic position; starting a run whose request makes the agent ask you
+something, then answering, typing your own answer, and letting the agent decide; opening a subfolder of one of your own repositories and
 checking where the agent starts; and deleting a committed child to restore its parent's writability.
 Restart with `npm start` so backend and interface match.
 

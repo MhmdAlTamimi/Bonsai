@@ -234,6 +234,23 @@ browser suite:
   away the reason, which is why the diagnostics report showed nothing but
   `status: 500` — failures now carry their cause and the path.
 
+- **Read-only runs could write — including into the user's own folder.** Found
+  on 16 September while making the agent's questions work, by probing the real
+  SDK rather than trusting the configuration. Read-only runs were given
+  `allowedTools` alone, and that list only pre-approves: under `acceptEdits`
+  the mode approved a Write before any list was consulted, and a run so
+  configured created a file on request. Two real read-only runs on the owner's
+  adopted project had run Bash inside their own checkout; they ran only `find`
+  and `grep`, and `git status` there is clean. Enforcement is now a callback
+  that denies everything except reading and asking, with the mode forced to
+  `default` for those runs. `scripts/probe-agent-permissions.mjs` re-checks it
+  against the real SDK, through Bonsai's compiled options.
+- **The agent's questions were silently dropped.** `AskUserQuestion` was
+  approved like any tool outside `default` mode, and treated as a permission
+  prompt inside it, and neither path supplied the `answers` the SDK needs. The
+  tool returned at once and the run ended with the agent saying it would wait.
+  Fixed as D42, verified against the real SDK in all four modes.
+
 One more was found and left alone deliberately: the stylesheet has accumulated a
 per-milestone appended block since milestone 3, each overriding rules defined
 earlier in the file. Type is no longer part of that problem — every size is a
@@ -256,3 +273,5 @@ rather than at the end of this one.
 | `nodeDragThreshold={4}` | a click was pinning every card it landed on |
 | One dismiss rule for menus and popovers | three copies, and a copy is how one loses its Escape half |
 | One type scale; one icon family | fourteen type sizes and five glyphs from the font |
+| Read-only enforced by a deny-by-default callback | read-only runs could write, and had run Bash in the user's folder |
+| Agent questions park the run in every mode (D42) | questions vanished and runs ended claiming to wait |
