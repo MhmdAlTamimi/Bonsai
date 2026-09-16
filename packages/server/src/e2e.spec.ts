@@ -706,13 +706,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const cancelled = await fetch(`${nodeUrl}/cancel`, { method: 'POST' });
     assert.equal(cancelled.ok, true);
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.panel > .recover .partial-review')");
-    await session.click('.partial-review summary');
-    assert.equal(
-      await session.eval(
-        "document.querySelector('.partial-review').textContent.includes('untracked')",
-      ),
-      true,
+    await session.waitFor("!!document.querySelector('.panel > .recover .recover-files button')");
+    // The files are reviewed in the Changes tab, not as a patch in the notice.
+    await session.click('.recover-files button');
+    await session.waitFor(
+      "document.querySelector('.changes-scope')?.value === 'uncommitted' && Array.from(document.querySelectorAll('.tree-row.file')).some(r => r.textContent.includes('new'))",
     );
     // D45: it says what happened -- the user stopped it -- not "interrupted".
     assert.match(

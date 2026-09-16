@@ -290,6 +290,10 @@ function NodePanel({
             busy={actions.busy}
             partialWork={detail?.partialWork ?? null}
             onRecover={(action) => void actions.recover(action)}
+            onReview={() => {
+              setChangesScope({ kind: 'uncommitted' });
+              changeView('changes');
+            }}
           />
         )}
 

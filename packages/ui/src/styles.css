@@ -1750,8 +1750,6 @@ button.destructive:hover:not(:disabled) {
 
 /* Recovery stays visible while history scrolls. File review has a bounded viewport. */
 .panel > .recover { flex-shrink: 0; margin: 8px 16px; }
-.partial-review[open] { max-height: 30vh; overflow: auto; }
-.partial-review li { overflow-wrap: anywhere; }
 
 /* The primary branch action has the same location in every experiment state. */
 .creation-sources { padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
