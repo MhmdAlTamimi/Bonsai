@@ -1,6 +1,7 @@
 import { ProjectOperations } from './projectOperations.js';
 import { OperationConflict } from '../domain/errors.js';
 import { assertLocalRequest } from './localRequest.js';
+import { parseAnswer } from './answers.js';
 import { diagnosticReport } from './diagnosticPrivacy.js';
 import { resolveRunSettings } from '../jobs/runSettings.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -786,14 +787,15 @@ route('POST', '/api/questions/:id/answer', async (req, res, params, { store, job
   const question = store.getQuestion(params['id']!);
   if (question === undefined) throw new HttpError(404, 'no such question');
 
-  const body = await readJson<AnswerQuestionRequest>(req);
-  if (typeof body.allow !== 'boolean') throw new HttpError(400, 'allow must be true or false');
-
-  const said = (body.message ?? '').trim();
-  const answered = jobs.answer(
-    question.id,
-    body.allow ? { allow: true } : { allow: false, reason: said === '' ? 'No.' : said },
-  );
+  // Checked against the stored question: the two kinds take different answers,
+  // and a mismatch is a bug to surface rather than something to reinterpret.
+  const parsed = parseAnswer(question, await readJson<AnswerQuestionRequest>(req));
+  const answered =
+    parsed.kind === 'permission'
+      ? jobs.answer(question.id, parsed.decision)
+      : parsed.kind === 'choice'
+        ? jobs.answerChoices(question.id, parsed.answers)
+        : jobs.leaveToAgent(question.id);
   if (!answered) {
     throw new HttpError(
       409,

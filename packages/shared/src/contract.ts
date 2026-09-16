@@ -243,8 +243,21 @@ export interface NodeView {
   hasCommits: boolean;
   pendingQuestion: {
     id: string;
+    /** One line, for the card. The question itself, or the permission being asked for. */
     text: string;
+    /**
+     * What kind of answer the agent is waiting for.
+     *
+     *   permission -- may it do this? Allow, or refuse with a reason.
+     *   choice     -- it asked you something (AskUserQuestion). Answer, or
+     *                 leave the decision to it.
+     *
+     * Both park the run the same way and share the Needs you status; they
+     * differ only in what an answer is.
+     */
+    kind: 'permission' | 'choice';
     request?: { action: string; target: string; details: string };
+    questions?: AgentQuestion[];
   } | null;
   positionX: number | null;
   positionY: number | null;
@@ -265,6 +278,29 @@ export interface NodeView {
    */
   queuePosition: number | null;
   createdAt: string;
+}
+
+/**
+ * One question the agent asked, in the shape the SDK's AskUserQuestion tool
+ * uses -- kept identical so nothing is lost or reinterpreted on the way to the
+ * panel.
+ *
+ * There is deliberately no "Other" option in `options`. The tool tells the
+ * agent not to add one because the host always offers free text, so the panel
+ * must: an answer is any string, not only an option's label.
+ */
+export interface AgentQuestion {
+  question: string;
+  /** A short label, at most a few words. */
+  header: string;
+  /** True when several options may be chosen together. */
+  multiSelect: boolean;
+  options: Array<{
+    label: string;
+    description: string;
+    /** Code or a mockup to compare options by, shown in monospace. */
+    preview?: string;
+  }>;
 }
 
 export interface RunView {
@@ -578,8 +614,18 @@ export interface StartRunRequest {
  * can say what to do instead; a "yes" is just a yes.
  */
 export interface AnswerQuestionRequest {
-  allow: boolean;
+  /** Permission questions: yes or no. */
+  allow?: boolean;
+  /** Permission questions: sent to the agent with a refusal. */
   message?: string;
+  /**
+   * Choice questions: each question's text to its answer. A multi-select
+   * answer is its labels joined with ", ", which is the form the SDK hands the
+   * agent. Every question must be answered.
+   */
+  answers?: Record<string, string>;
+  /** Choice questions: answer nothing, and let the agent decide and say what it assumed. */
+  agentDecides?: boolean;
 }
 
 export type RecoverAction = 'resume' | 'discard' | 'keep';

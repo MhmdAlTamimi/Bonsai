@@ -1,7 +1,27 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { AgentQuestion } from '@bonsai/shared';
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
+
+/**
+ * The question the stand-in asks, shaped like a real one: a short header, two
+ * options with descriptions, and a preview on one of them, so the panel's
+ * handling of every part of the shape is exercised without a credential.
+ */
+export const FAKE_QUESTION: AgentQuestion = {
+  question: 'Which approach should I take?',
+  header: 'Approach',
+  multiSelect: false,
+  options: [
+    { label: 'Keep it simple', description: 'The smallest change that does the job.' },
+    {
+      label: 'Make it configurable',
+      description: 'More code, but the behaviour can be changed later without editing it.',
+      preview: 'approach = "configurable"\nretries = 3',
+    },
+  ],
+};
 
 /**
  * Stands in for the agent so M2 can drive the git layer with fake file writes.
@@ -40,6 +60,25 @@ export class FakeRunner implements AgentRunner {
         ? `Reading the code to answer: ${spec.prompt.trim()}`
         : `Working on: ${spec.prompt.trim()}`,
     };
+
+    /**
+     * D42: the stand-in asks the user something, too.
+     *
+     * A request starting with "choose:" puts a question to the user before
+     * doing anything else -- in every permission mode, and on read-only
+     * experiments, because asking changes nothing. The answer, or the lack of
+     * one, is said back in the transcript the way a real agent would.
+     */
+    if (spec.prompt.trimStart().toLowerCase().startsWith('choose:') && spec.askChoices !== null) {
+      const decision = await spec.askChoices({ questions: [FAKE_QUESTION] });
+      if (spec.signal.aborted) return;
+      yield {
+        type: 'text',
+        text: decision.answered
+          ? `You chose: ${decision.answers[FAKE_QUESTION.question] ?? ''}.`
+          : `Nobody chose, so I decided: Keep it simple. (${decision.reason})`,
+      };
+    }
 
     if (spec.readOnly) {
       yield { type: 'text', text: 'This node is frozen, so I can only read.' };

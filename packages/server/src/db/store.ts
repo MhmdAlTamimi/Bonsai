@@ -20,6 +20,7 @@ import type { NodeRow, ProjectRow, RunTotals } from './rows.js';
 export type { NodeRow, ProjectRow, RunTotals };
 export { isUsersOwnCheckout, toLineage } from './rows.js';
 export type { NodeChecks, TestingSource } from './checkStore.js';
+export type { StoredQuestion } from './messageStore.js';
 
 /**
  * The database, as one object with five concerns behind it.

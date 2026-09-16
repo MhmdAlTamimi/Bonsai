@@ -133,6 +133,7 @@ describe('a run that asks the user', () => {
       .treeView(store.getNode(masterId)!.project_id)
       .find((n) => n.id === masterId)!;
     assert.notEqual(view.pendingQuestion, null);
+    assert.equal(view.pendingQuestion!.kind, 'permission');
     assert.match(view.pendingQuestion!.text, /Bash/);
     assert.match(view.pendingQuestion!.text, /rm -rf build/);
     assert.deepEqual(view.pendingQuestion!.request, {

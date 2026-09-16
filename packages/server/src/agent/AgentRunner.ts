@@ -1,3 +1,5 @@
+import type { AgentQuestion } from '@bonsai/shared';
+
 /**
  * D14e: agent invocation sits behind one interface, so swapping the model or
  * the harness is cheap.
@@ -57,8 +59,36 @@ export interface RunSpec {
    * that ignored that would be a worse bug than no gate at all.
    */
   ask: ((request: PermissionRequest) => Promise<PermissionDecision>) | null;
+  /**
+   * How the run puts a question to the user when the AGENT decides to ask one
+   * (its AskUserQuestion tool), as opposed to asking permission.
+   *
+   * D42: provided in EVERY permission mode, read-only runs included. That is
+   * the difference from `ask`, and it is deliberate: a permission mode says
+   * whether Bonsai should check before the agent acts, and the agent asking a
+   * question is not an action. Tying the two together is what made the
+   * question silently vanish -- the tool returned at once with no answer, and
+   * the agent wrote "I'll wait for the user" to a run that had already ended.
+   *
+   * Null only where no pipeline is driving the run (tests, probes). A runner
+   * given null must still not pretend the user answered.
+   */
+  askChoices: ((request: ChoiceRequest) => Promise<ChoiceDecision>) | null;
   signal: AbortSignal;
 }
+
+/** Questions the agent wants answered, exactly as it asked them. */
+export interface ChoiceRequest {
+  questions: AgentQuestion[];
+}
+
+/**
+ * What came back. Not answering is a real outcome rather than a missing one:
+ * the user can leave the decision to the agent, or stop the run, and in both
+ * cases the agent is told so in words it can act on.
+ */
+export type ChoiceDecision =
+  { answered: true; answers: Record<string, string> } | { answered: false; reason: string };
 
 /** A tool call the agent wants to make, held until someone decides. */
 export interface PermissionRequest {

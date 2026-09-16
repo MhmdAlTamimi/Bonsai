@@ -5,7 +5,9 @@ import type {
   ModelUsage,
   Options,
   PermissionMode,
+  PermissionResult,
 } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentQuestion } from '@bonsai/shared';
 
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
@@ -184,7 +186,7 @@ export function permissionOptions(
       // exist to approve changes, and a read-only run makes none.
       permissionMode: 'default',
       allowedTools: [...READ_ONLY_TOOLS],
-      canUseTool: readOnlyGate(),
+      canUseTool: readOnlyGate(spec),
     };
   }
   return {
@@ -201,14 +203,106 @@ export const READ_ONLY_REFUSAL =
   'You can read, search and answer questions here. To change anything, say what you would ' +
   'change and the user can branch a new experiment for it.';
 
-/** Reads go through; everything else is refused, named or not. */
-export function readOnlyGate(): CanUseTool {
-  return (toolName) =>
-    Promise.resolve(
+/**
+ * Reads go through, and so does a question to the user; everything else is
+ * refused, named or not. Asking changes nothing, so a frozen experiment -- or
+ * your own folder -- may still ask you something (D42).
+ */
+export function readOnlyGate(spec: RunSpec): CanUseTool {
+  return (toolName, input, options) => {
+    if (toolName === ASK_USER_TOOL) return relayQuestion(spec, input, options.signal);
+    return Promise.resolve(
       (READ_ONLY_TOOLS as readonly string[]).includes(toolName)
         ? { behavior: 'allow' as const }
         : { behavior: 'deny' as const, message: READ_ONLY_REFUSAL },
     );
+  };
+}
+
+/** The SDK's name for the agent asking the user something. */
+export const ASK_USER_TOOL = 'AskUserQuestion';
+
+/** Told to the agent when the user leaves the decision to it. */
+export const NO_ONE_TO_ASK =
+  'No one is available to answer this question. Decide yourself, and say clearly in your ' +
+  'reply what you assumed.';
+
+/**
+ * Puts the agent's question to the user and hands the answer back.
+ *
+ * THE ANSWER TRAVELS IN THE TOOL'S INPUT. The SDK's contract for this tool is
+ * that the permission callback returns the input with an `answers` map filled
+ * in -- "user answers collected by the permission component" -- and the tool's
+ * result is built from that. Approving the call without it is what used to
+ * happen: the tool returned at once, with nothing, and the agent wrote "I'll
+ * wait for them to answer" into a run that then simply ended. Verified against
+ * the real SDK in every permission mode, read-only runs included.
+ *
+ * Not answering is a refusal carrying a reason, because the SDK delivers a
+ * refusal's message to the agent as the tool's result: "decide yourself and
+ * say what you assumed" is something it can act on.
+ */
+export async function relayQuestion(
+  spec: RunSpec,
+  input: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<PermissionResult> {
+  if (signal.aborted) return { behavior: 'deny', message: 'the run was stopped' };
+  const questions = parseQuestions(input);
+  if (questions === null) {
+    return {
+      behavior: 'deny',
+      message:
+        'That question could not be shown to the user: it needs 1 to 4 questions, each with a ' +
+        'question, a header and 2 to 4 options. Ask again in that shape, or ask in your reply.',
+    };
+  }
+  if (spec.askChoices === null) return { behavior: 'deny', message: NO_ONE_TO_ASK };
+
+  const decision = await spec.askChoices({ questions });
+  if (!decision.answered) return { behavior: 'deny', message: decision.reason };
+  return { behavior: 'allow', updatedInput: { ...input, answers: decision.answers } };
+}
+
+/**
+ * The questions, or null when the input is not the shape the tool promises.
+ *
+ * Checked rather than cast, because this input comes from the model: a
+ * malformed question should come back to the agent as something to fix, not
+ * reach the panel as something that cannot be rendered or answered.
+ */
+export function parseQuestions(input: Record<string, unknown>): AgentQuestion[] | null {
+  const raw = input['questions'];
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 4) return null;
+  const out: AgentQuestion[] = [];
+  for (const item of raw as unknown[]) {
+    if (item === null || typeof item !== 'object') return null;
+    const q = item as Record<string, unknown>;
+    if (typeof q['question'] !== 'string' || q['question'].trim() === '') return null;
+    if (!Array.isArray(q['options'])) return null;
+    const options: AgentQuestion['options'] = [];
+    for (const option of q['options'] as unknown[]) {
+      if (option === null || typeof option !== 'object') return null;
+      const o = option as Record<string, unknown>;
+      if (typeof o['label'] !== 'string' || o['label'].trim() === '') return null;
+      options.push({
+        label: o['label'],
+        description: typeof o['description'] === 'string' ? o['description'] : '',
+        ...(typeof o['preview'] === 'string' ? { preview: o['preview'] } : {}),
+      });
+    }
+    if (options.length < 2 || options.length > 4) return null;
+    out.push({
+      question: q['question'],
+      header: typeof q['header'] === 'string' ? q['header'] : '',
+      multiSelect: q['multiSelect'] === true,
+      options,
+    });
+  }
+  // Answers are keyed by question text, so two identical questions could not
+  // be answered separately.
+  if (new Set(out.map((q) => q.question)).size !== out.length) return null;
+  return out;
 }
 
 /**
@@ -233,6 +327,10 @@ export function readOnlyGate(): CanUseTool {
 export function gate(spec: RunSpec): CanUseTool {
   const allow = { behavior: 'allow' as const };
   return (toolName, input, options) => {
+    // Before anything about permission modes: the agent asking the user
+    // something is not an action to approve, so no mode may wave it through
+    // unanswered (D42).
+    if (toolName === ASK_USER_TOOL) return relayQuestion(spec, input, options.signal);
     if (spec.ask === null || (READ_ONLY_TOOLS as readonly string[]).includes(toolName)) {
       return Promise.resolve(allow);
     }
@@ -355,6 +453,13 @@ function usageEvent(message: {
 function describeToolInput(input: unknown, truncate = true): string {
   if (input === null || typeof input !== 'object') return '';
   const o = input as Record<string, unknown>;
+  // A question has no path or command to summarise it by, so it used to be
+  // recorded as a blank line -- and what the agent asked was lost with it.
+  const asked = parseQuestions(o);
+  if (asked !== null) {
+    const text = asked.map((q) => q.question).join(' · ');
+    return truncate && text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  }
   for (const key of ['file_path', 'path', 'pattern', 'command', 'url', 'query']) {
     const value = o[key];
     if (typeof value === 'string') {

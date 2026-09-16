@@ -46,6 +46,7 @@ function spec(overrides) {
     permissionMode: 'acceptEdits',
     agentEnv: null,
     ask: null,
+    askChoices: null,
     signal: new AbortController().signal,
     ...overrides,
   };
@@ -93,6 +94,45 @@ const WRITE =
 for (const mode of ['acceptEdits', 'bypassPermissions']) {
   const outcome = await run(WRITE, spec({ readOnly: true, permissionMode: mode }));
   check(`read-only run under "${mode}" writes nothing`, !outcome.wrote, outcome);
+}
+
+// -- the agent's questions reach the user, in every mode (D42) ---------------
+// The reported bug: AskUserQuestion returned at once with no answer and the
+// agent announced it would wait. Answered through Bonsai's own callback, the
+// agent must repeat back a free-text answer that is none of the options.
+const ASK =
+  "Use the AskUserQuestion tool exactly once to ask me which codename to use, header 'Codename', " +
+  "options 'Purple-Walrus' and 'Green-Otter'. Then reply with exactly one line: CODENAME=<the answer you received>.";
+const answering = {
+  askChoices: (request) =>
+    Promise.resolve({ answered: true, answers: { [request.questions[0].question]: 'Blue-Heron' } }),
+};
+for (const [label, overrides] of [
+  ['acceptEdits', { permissionMode: 'acceptEdits' }],
+  ['bypassPermissions', { permissionMode: 'bypassPermissions' }],
+  ['default', { permissionMode: 'default' }],
+  ['plan', { permissionMode: 'plan' }],
+  ['a read-only run', { readOnly: true }],
+]) {
+  const outcome = await run(ASK, spec({ ...overrides, ...answering }));
+  check(`question answered under ${label}`, outcome.text.includes('Blue-Heron'), outcome);
+}
+
+// Leaving it to the agent: it must carry on and choose, not stop to wait.
+{
+  const outcome = await run(
+    ASK.replace('the answer you received', 'the codename you will use'),
+    spec({
+      askChoices: () =>
+        Promise.resolve({
+          answered: false,
+          reason:
+            'The user chose not to answer and left this decision to you. Make a reasonable ' +
+            'choice, carry on, and say clearly in your reply what you decided and why.',
+        }),
+    }),
+  );
+  check('left to the agent, it decides', /CODENAME=\S+/.test(outcome.text), outcome);
 }
 
 console.log(JSON.stringify(results, null, 2));

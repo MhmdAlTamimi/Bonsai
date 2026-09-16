@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import type { MessageView, NodeView } from '@bonsai/shared';
+import type { AgentQuestion, MessageView, NodeView } from '@bonsai/shared';
 
 import { now } from './rows.js';
 
@@ -103,20 +103,16 @@ export class MessageStore {
     runId: string;
     nodeId: string;
     text: string;
+    /** A permission question: the action the agent wants to take. */
     request?: NonNullable<NodeView['pendingQuestion']>['request'];
+    /** A question the agent asked (D42): what it asked, and the options it offered. */
+    questions?: AgentQuestion[];
   }): void {
     this.db
       .prepare(
         `INSERT INTO question (id, run_id, node_id, text, asked_at, request_json) VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(
-        input.id,
-        input.runId,
-        input.nodeId,
-        input.text,
-        now(),
-        input.request ? JSON.stringify(input.request) : null,
-      );
+      .run(input.id, input.runId, input.nodeId, input.text, now(), requestJson(input));
   }
 
   /**
@@ -135,16 +131,24 @@ export class MessageStore {
     return result.changes > 0;
   }
 
-  getQuestion(
-    questionId: string,
-  ):
-    | { id: string; node_id: string; run_id: string; text: string; answered_at: string | null }
-    | undefined {
-    return this.db
-      .prepare(`SELECT id, node_id, run_id, text, answered_at FROM question WHERE id = ?`)
+  getQuestion(questionId: string): StoredQuestion | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT id, node_id, run_id, text, answered_at, request_json FROM question WHERE id = ?`,
+      )
       .get(questionId) as unknown as
-      | { id: string; node_id: string; run_id: string; text: string; answered_at: string | null }
+      | {
+          id: string;
+          node_id: string;
+          run_id: string;
+          text: string;
+          answered_at: string | null;
+          request_json: string | null;
+        }
       | undefined;
+    if (row === undefined) return undefined;
+    const { request_json, ...rest } = row;
+    return { ...rest, ...readRequest(request_json) };
   }
 
   pendingQuestion(nodeId: string): NodeView['pendingQuestion'] {
@@ -157,16 +161,49 @@ export class MessageStore {
       .get(nodeId) as unknown as
       { id: string; text: string; request_json: string | null } | undefined;
     if (!row) return null;
-    return {
-      id: row.id,
-      text: row.text,
-      ...(row.request_json === null
-        ? {}
-        : {
-            request: JSON.parse(row.request_json) as NonNullable<
-              NodeView['pendingQuestion']
-            >['request'],
-          }),
-    };
+    return { id: row.id, text: row.text, ...readRequest(row.request_json) };
   }
+}
+
+/** A question row, with what kind of answer it is waiting for. */
+export interface StoredQuestion {
+  id: string;
+  node_id: string;
+  run_id: string;
+  text: string;
+  answered_at: string | null;
+  kind: 'permission' | 'choice';
+  request?: NonNullable<NodeView['pendingQuestion']>['request'];
+  questions?: AgentQuestion[];
+}
+
+/**
+ * What goes in `request_json`.
+ *
+ * No migration: a choice question carries `kind: 'choice'` inside the JSON,
+ * and a permission question keeps exactly the shape it always had -- so every
+ * row written before questions existed still reads as what it was.
+ */
+function requestJson(input: {
+  request?: NonNullable<NodeView['pendingQuestion']>['request'];
+  questions?: AgentQuestion[];
+}): string | null {
+  if (input.questions !== undefined)
+    return JSON.stringify({ kind: 'choice', questions: input.questions });
+  return input.request ? JSON.stringify(input.request) : null;
+}
+
+function readRequest(json: string | null): {
+  kind: 'permission' | 'choice';
+  request?: NonNullable<NodeView['pendingQuestion']>['request'];
+  questions?: AgentQuestion[];
+} {
+  if (json === null) return { kind: 'permission' };
+  const parsed = JSON.parse(json) as Record<string, unknown>;
+  if (parsed['kind'] === 'choice' && Array.isArray(parsed['questions']))
+    return { kind: 'choice', questions: parsed['questions'] as AgentQuestion[] };
+  return {
+    kind: 'permission',
+    request: parsed as unknown as NonNullable<NodeView['pendingQuestion']>['request'],
+  };
 }
