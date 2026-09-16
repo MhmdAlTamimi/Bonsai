@@ -1,11 +1,12 @@
 import { Icon } from '../Icon.tsx';
-import type { JSX } from 'react';
+import { type JSX, useContext } from 'react';
 import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
 import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
 import { StopButton } from '../state/RunControls.tsx';
 import { STATUS_LABEL, StatusChip } from '../nodeStatus.tsx';
+import { BranchContext } from './branchContext.ts';
 
 /**
  * The node card. Renders from FLAGS, never from a node "type" string
@@ -43,6 +44,7 @@ const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
 export function NodeCard({ data, selected }: { data: NodeView; selected: boolean }): JSX.Element {
   const zoom = useStore((s) => s.transform[2]);
   const lod = lodFor(zoom);
+  const branch = useContext(BranchContext);
 
   // Dashed border and the conversation glyph mean "ran and wrote nothing", which is
   // only knowable once the run finished. A node that has not run yet gets
@@ -169,8 +171,19 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
       <Handle
         type="source"
         position={RANK_DIR === 'TB' ? Position.Bottom : Position.Right}
-        className="add-child-handle"
-        title="Drag onto empty map to branch an experiment"
+        className="add-child-handle nodrag"
+        role="button"
+        tabIndex={0}
+        aria-label={`Branch an experiment from ${data.displayName}`}
+        title="Branch an experiment — click, or drag onto the map to place it"
+        onClick={() => branch?.(data.id)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || (event.key !== 'Enter' && event.key !== ' ')) return;
+          // The card underneath treats Enter as "select me"; this one is "branch".
+          event.preventDefault();
+          event.stopPropagation();
+          branch?.(data.id);
+        }}
       >
         <Icon name="plus" />
       </Handle>

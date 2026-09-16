@@ -84,7 +84,9 @@ export function Panel({
     return (
       <aside className="panel empty">
         <p className="muted">Select an experiment to see its conversation.</p>
-        <p className="hint">Drag out of an experiment&rsquo;s handle to branch a new one.</p>
+        <p className="hint">
+          Click an experiment&rsquo;s + on the map to branch a new one, or drag it out to place it.
+        </p>
       </aside>
     );
   }
@@ -232,12 +234,6 @@ function NodePanel({
    */
   const isYourFolder = node.frozenReason === 'your_folder';
 
-  const branchButton = (
-    <button className="branch-child" onClick={() => onCreateChild(node)}>
-      <Icon name="plus" /> Branch experiment
-    </button>
-  );
-
   return (
     <aside className="panel">
       <header>
@@ -262,13 +258,12 @@ function NodePanel({
           />
           <OverflowMenu
             busy={actions.busy}
+            onBranch={() => onCreateChild(node)}
             onRename={() => setRenaming(true)}
             onDelete={node.parentId === null ? undefined : () => void actions.remove()}
           />
         </div>
       </header>
-
-      <div className="panel-actions">{branchButton}</div>
 
       {isYourFolder && (
         <p className="note" title={project?.sourcePath ?? undefined}>
@@ -549,10 +544,12 @@ function latestRunOutcome(run: RunView | undefined, activity: RunActivity | null
  */
 function OverflowMenu({
   busy,
+  onBranch,
   onDelete,
   onRename,
 }: {
   busy: boolean;
+  onBranch: () => void;
   onDelete?: () => void;
   onRename: () => void;
 }): JSX.Element {
@@ -606,6 +603,22 @@ function OverflowMenu({
             if (event.key === 'Tab') setOpen(false);
           }}
         >
+          {/*
+           * Branching lives here and on the map's `+`, not as a full-width
+           * button: it took a row of the panel for something done from the
+           * map. The trigger takes focus first, so a dialog closed without
+           * creating anything gives the keyboard back to this menu.
+           */}
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              ref.current?.querySelector<HTMLButtonElement>('.overflow')?.focus();
+              onBranch();
+            }}
+          >
+            Branch experiment…
+          </button>
           <button
             role="menuitem"
             disabled={busy}

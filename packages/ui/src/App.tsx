@@ -284,7 +284,7 @@ export function App(): JSX.Element {
                   .then(projectTree.refresh)
                   .catch((e: unknown) => report(describeError(e)));
               }}
-              onDropOnPane={child.begin}
+              onBranch={child.begin}
             />
             <WindowLayer projectId={projectId} node={selected} narrow={view.narrow} />
           </div>

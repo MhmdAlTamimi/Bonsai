@@ -1348,29 +1348,6 @@ body.resizing .panel-resizer {
 
 /* ---- panel actions ------------------------------------------------------- */
 
-/*
- * Dashed, not accent-coloured: the stylesheet's one-accent rule means the
- * primary button on this panel is Send, and a second violet button would make
- * neither of them read as the action. The dash echoes the branch it makes.
- */
-.branch-child {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  padding: 8px 12px;
-  background: var(--surface-2);
-  border: 1px dashed var(--line-strong);
-  color: var(--text-dim);
-  font-weight: 500;
-}
-.branch-child:hover:not(:disabled) {
-  background: var(--surface-3);
-  border-style: solid;
-  border-color: var(--accent);
-  color: var(--text);
-}
 
 .start {
   padding: var(--s3);
@@ -1777,7 +1754,6 @@ button.destructive:hover:not(:disabled) {
 .partial-review li { overflow-wrap: anywhere; }
 
 /* The primary branch action has the same location in every experiment state. */
-.panel-actions { flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .creation-sources { padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
 .creation-sources h4 { margin: 0 0 8px; }
 .creation-sources p { margin: 6px 0; }
@@ -1945,7 +1921,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Buttons that are only an icon: a square target, not a line of text. */
 .dialog-close, .hide-panel, .overflow, .picker-bar button { display: inline-flex; align-items: center; justify-content: center; }
 .jump-latest { display: flex; align-items: center; justify-content: center; gap: var(--s2); }
-.branch-child { display: flex; align-items: center; justify-content: center; gap: var(--s2); }
 .project-picker > .icon { grid-column: 2; grid-row: 1 / 3; align-self: center; margin-left: var(--s3); color: var(--muted); }
 /* The one width where the canvas and the panel stop both being useful.
    Kept in step with NARROW_MAX in state/useWorkspaceView.ts. */
@@ -2169,3 +2144,6 @@ button.turn-changes:hover:not(:disabled) .turn-changes-go { text-decoration: und
 .diff-viewer-full { position: fixed; inset: 0; z-index: 30; display: flex; background: var(--bg); }
 .diff-viewer-full .diff-window { position: static; flex: 1; border: 0; border-radius: 0; box-shadow: none; }
 .diff-viewer-full .win-controls button { width: 2.5rem; height: 2.5rem; }
+/* The map's + is a button now as well as a drag handle: focusable, with the
+   same focus ring as every other control. */
+.react-flow__handle.add-child-handle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

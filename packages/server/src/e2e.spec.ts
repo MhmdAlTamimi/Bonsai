@@ -350,8 +350,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       `(async () => (await (await fetch('/api/nodes/${question.node.id}')).json()).node.status === 'ready')()`,
     );
     await session.goto(`${BASE}/?project=${projectId}&node=${question.node.id}`);
-    await session.waitFor("!!document.querySelector('.panel-actions .branch-child')");
-    await session.click('.panel-actions .branch-child');
+    // Branching from the panel is in the experiment's menu now, not a
+    // full-width button.
+    await session.click('.panel header .overflow');
+    await session.waitFor("!!document.querySelector('.menu-panel')");
+    await session.eval(
+      "Array.from(document.querySelectorAll('.menu-panel [role=menuitem]')).find(b => b.textContent === 'Branch experiment…').click()",
+    );
     await session.waitFor(
       "document.querySelector('.creation-sources')?.textContent.includes('Named approach')",
     );
@@ -1584,7 +1589,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor(
-      "!!document.querySelector('.branch-child') && !!document.querySelector('.card')",
+      "!!document.querySelector('.add-child-handle') && !!document.querySelector('.card')",
     );
     await session.send('Emulation.setDeviceMetricsOverride', {
       width: 1280,
@@ -1632,7 +1637,22 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.positionX === null)()`,
     );
     await session.type('.composer textarea', 'Retain this draft across views');
-    await session.click('.branch-child');
+    // The map's + is a button: a click opens the branch dialog without a drag.
+    await session.click('.add-child-handle');
+    await session.waitFor('!!document.querySelector(\'dialog[aria-label="Branch experiment"]\')');
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
+    );
+    await session.waitFor('!document.querySelector(\'dialog[aria-label="Branch experiment"]\')');
+    // And the keyboard: Enter on the focused + does the same.
+    await session.eval("document.querySelector('.add-child-handle').focus()");
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
     await session.waitFor(
       "document.activeElement?.getAttribute('aria-label') === 'experiment name'",
     );
@@ -1677,7 +1697,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.eval(
       "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
     );
-    await session.waitFor("document.activeElement?.classList.contains('branch-child')");
+    await session.waitFor("document.activeElement?.classList.contains('add-child-handle')");
     /**
      * Canvas hints: one trigger, three ways out, and nothing inside that
      * repeats the trigger's job. The old "Map key" panel carried its own
@@ -1763,7 +1783,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       const luminance = c => c.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
       const ratio = (a,b) => { const x=luminance(rgb(a)), y=luminance(rgb(b)); return Math.round((Math.max(x,y)+.05)/(Math.min(x,y)+.05)*100)/100; };
       const results = [];
-      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button', '.branch-child', '.card-name', '.chip']) {
+      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button', '.panel-tabs button', '.card-name', '.chip']) {
         const el=document.querySelector(selector), style=getComputedStyle(el);
         let parent=el, bg='rgb(13, 14, 17)';
         while(parent) { const candidate=getComputedStyle(parent).backgroundColor; if(candidate.startsWith('rgb(')) {bg=candidate;break;} parent=parent.parentElement; }
@@ -1893,7 +1913,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       assert.ok(
         Number(
           await session.eval(
-            "document.querySelector('.branch-child').getBoundingClientRect().right",
+            "document.querySelector('.panel header .overflow').getBoundingClientRect().right",
           ),
         ) <= width,
       );
