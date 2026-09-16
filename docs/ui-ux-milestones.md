@@ -16,7 +16,8 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Accepted by owner; merged and pushed |
 | 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Accepted by owner; merged and pushed |
 | 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Accepted; merged and pushed as `55332e8` |
-| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Implemented; ready for owner review |
+| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Accepted; merged locally as `4061c1f` |
+| 7. Review changes clearly, and runs that end when the work ends | `codex/milestone-7-changes-and-runs` | Owner feedback, D43–D45 | Phase 1 implemented; ready for owner review |
 
 ## Milestone 1 review
 
@@ -274,3 +275,44 @@ Restart with `npm start` so backend and interface match.
 System-health findings, fixes, measured limits and verification are recorded in
 [the milestone 6 health review](reports/milestone-6-health-review-2026-09-15.md).
 No dependencies were added. Merge and push only after the owner's review.
+
+## Milestone 7 review
+
+Branch: `codex/milestone-7-changes-and-runs`, from local `main` after milestone 6 was merged as `4061c1f`.
+Nothing is pushed. The owner reviews each phase before the next one starts.
+
+| Phase | What | State |
+| --- | --- | --- |
+| 1. Runs end when the work ends | D43, D45: waiting for background work, Finish now, leftover processes, end reasons, recovery by cause | Implemented; ready for owner review |
+| 2. Changes | Conversation · Changes · Summary tabs, a file tree, floating in-app diff windows (D44) | Not started |
+| 3. Conversation and branching | Per-run change chips, collapsible prompts, Summary tab, branch from ⋯ and a clickable `+` | Not started |
+
+### Phase 1 — what to look at
+
+- **A long command reads as work.** Above the composer, a running experiment says what it is doing and for how
+  long — `Running uv sync · 1m 12s` — instead of "Agent working…". Setup commands show the same way.
+- **A run waits for its background work (D43).** When the agent's turn ends with a background job still running,
+  the experiment stays **Running**; the card and the header say **Waiting**, and the panel lists each job with how
+  long it has run. The run ends — and commits — when the work does, however long that is. A process started with
+  `nohup … &` is found too, marked **detached**, and the agent is told when it exits.
+- **Finish now** ends the wait: it stops the jobs and ends the run normally, so what is there is committed.
+  **Stop** still cancels, and nothing the run started keeps running afterwards; the conversation says what was
+  stopped.
+- **Recovery says what happened (D45).** "You stopped this run." / "The run failed." (with the error) /
+  "Bonsai closed while this run was working." / "Files changed after this run finished." The buttons are
+  **Continue from these files**, **Leave uncommitted** and **Discard…** — or **Run it again** / **Dismiss** when
+  nothing was written, and **Ask the agent to review them** after a finished run. The agent receives the same
+  story: a finished run is never described to it as interrupted. Card chips say **Stopped** or **Failed**
+  rather than "Cancelled".
+- **Switching never stops a run.** Selecting another experiment, opening another project, leaving the page or
+  reloading all leave a run going; a browser test now checks all four.
+
+Try: rerun the chunking experiment that exposed this. `uv sync` and the batch run should keep it Running/Waiting
+until the work truly finishes, then commit the outputs in that run. Also start something long and press Finish now;
+start something and press Stop, and check the notice reads "You stopped this run". The stand-in agent (`npm run dev`
+with `BONSAI_FAKE_AGENT=1`) has `background:` and `detach:` request prefixes to reach these states without a
+credential. Restart with `npm start` so backend and interface match.
+
+Verified against the real SDK with `scripts/probe-agent-runs.mjs` (paid, opt-in): a tracked job keeps the run open
+and wakes the agent; Finish now ends it in seconds; Stop leaves no process; a job detached inside a script is found,
+waited for, and reported to the agent. No dependencies were added.
