@@ -31,6 +31,7 @@ export function Transcript({
   runs,
   pending,
   running,
+  waiting = false,
   onProjectSettings,
 }: {
   onProjectSettings?: () => void;
@@ -39,6 +40,8 @@ export function Transcript({
   /** Live deltas the persisted transcript has not caught up with. */
   pending: readonly Delta[];
   running: boolean;
+  /** The live run's turn is over and it is waiting for background work (D43). */
+  waiting?: boolean;
 }): JSX.Element {
   const runsById = new Map(runs.map((r) => [r.id, r]));
   const groups = groupByRun(messages);
@@ -77,6 +80,7 @@ export function Transcript({
               (group.runId === pendingRunId ||
                 runsById.get(group.runId ?? '')?.status === 'running')
             }
+            waiting={waiting}
           />
         ),
       )}
@@ -105,11 +109,13 @@ function Turn({
   run,
   pending,
   running,
+  waiting,
 }: {
   group: Group;
   run: RunView | undefined;
   pending: readonly Delta[];
   running: boolean;
+  waiting: boolean;
 }): JSX.Element {
   const prompt = group.messages.find((m) => m.role === 'user');
   const body: MessageView[] = [
@@ -160,7 +166,7 @@ function Turn({
         {running && (
           <div className="working" aria-live="polite">
             <span className="working-dot" aria-hidden="true" />
-            working&hellip;
+            {waiting ? 'waiting for background work' : 'working'}&hellip;
           </div>
         )}
       </div>
@@ -220,9 +226,17 @@ function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
   if (run.status === 'running') return null;
 
   if (run.status === 'failed' || run.status === 'cancelled') {
+    // Said the way the rest of the panel says it (D45): a stop is the user's,
+    // and Bonsai closing is neither a stop nor a failure.
+    const said =
+      run.endReason === 'app_closed'
+        ? 'Bonsai closed while this run was working'
+        : run.endReason === 'stopped'
+          ? 'Stopped'
+          : 'Failed';
     return (
       <footer className="turn-foot failed">
-        {run.status === 'failed' ? 'Failed' : 'Cancelled'}
+        {said}
         {run.error !== null ? ` — ${run.error}` : ''}
       </footer>
     );

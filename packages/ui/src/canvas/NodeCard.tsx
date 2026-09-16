@@ -80,7 +80,8 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
           <StatusChip
             status={data.status}
             queuePosition={data.queuePosition}
-            lastRunStatus={data.lastRunStatus}
+            lastRunEndReason={data.lastRunEndReason}
+            waiting={data.activity?.state === 'waiting'}
             compact
           />
         </span>
@@ -119,7 +120,8 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               <StatusChip
                 status={data.status}
                 queuePosition={data.queuePosition}
-                lastRunStatus={data.lastRunStatus}
+                lastRunEndReason={data.lastRunEndReason}
+                waiting={data.activity?.state === 'waiting'}
                 compact
               />
             )}
@@ -136,7 +138,8 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 <StatusChip
                   status={data.status}
                   queuePosition={data.queuePosition}
-                  lastRunStatus={data.lastRunStatus}
+                  lastRunEndReason={data.lastRunEndReason}
+                  waiting={data.activity?.state === 'waiting'}
                 />
                 <StopButton node={data} />
                 {/*

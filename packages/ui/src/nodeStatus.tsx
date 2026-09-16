@@ -1,6 +1,6 @@
 import { Icon, type IconName } from './Icon.tsx';
 import type { JSX } from 'react';
-import type { NodeStatus, NodeView, RunStatus } from '@bonsai/shared';
+import type { NodeStatus, NodeView, RunEndReason } from '@bonsai/shared';
 
 /**
  * A node's status, as a glyph, a word and a colour — in that order.
@@ -39,14 +39,21 @@ const STATUS_TITLE: Record<NodeStatus, string> = {
   interrupted: 'The last run was stopped or failed. Its work is still in the folder.',
 };
 
+/** Said instead of Running while a run waits for background work (D43). */
+const WAITING_TITLE =
+  'The agent’s turn is over, and background work it started is still running. The run ends, and its results are saved, when that work does.';
+
 export function StatusChip({
   status,
   queuePosition = null,
   compact = false,
-  lastRunStatus,
+  lastRunEndReason = null,
+  waiting = false,
 }: {
   status: NodeStatus;
-  lastRunStatus?: RunStatus | null;
+  /** Why the last run ended, so a stopped or failed run says so rather than "Interrupted". */
+  lastRunEndReason?: RunEndReason | null;
+  waiting?: boolean;
   /** Shown instead of "running" while a node waits for a free slot. */
   queuePosition?: number | null;
   /** Glyph only, for places too narrow for the word. The word is in the title. */
@@ -68,15 +75,19 @@ export function StatusChip({
   }
   const ended = status !== 'running' && status !== 'needs_you';
   const label =
-    ended && lastRunStatus === 'failed'
-      ? 'Failed'
-      : ended && lastRunStatus === 'cancelled'
-        ? 'Cancelled'
-        : STATUS_LABEL[status];
+    status === 'running' && waiting
+      ? 'Waiting'
+      : ended && lastRunEndReason === 'failed'
+        ? 'Failed'
+        : ended && lastRunEndReason === 'stopped'
+          ? 'Stopped'
+          : STATUS_LABEL[status];
   const title =
-    label === 'Failed' || label === 'Cancelled'
-      ? `${label}. Review the conversation and any partial work.`
-      : STATUS_TITLE[status];
+    label === 'Waiting'
+      ? WAITING_TITLE
+      : label === 'Failed' || label === 'Stopped'
+        ? `${label}. Review the conversation and any uncommitted work.`
+        : STATUS_TITLE[status];
   return (
     <span className={`chip st-${status}`} title={title} aria-label={label}>
       <span className="glyph">

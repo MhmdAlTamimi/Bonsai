@@ -45,7 +45,7 @@ export class Views {
     const stats = this.runs.statsByNode(projectId);
     const costs = this.runs.costsByNode(projectId);
     const rows = this.nodes.list(projectId);
-    const lastRuns = this.runs.latestStatusByNode(projectId);
+    const lastRuns = this.runs.latestEndReasonByNode(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
       if (row.parent_id === null) continue;
@@ -70,7 +70,7 @@ export class Views {
         // is what makes the canvas triageable at a glance.
         summaryLine: question?.text ?? row.description,
         status: row.status,
-        lastRunStatus: lastRuns.get(row.id) ?? null,
+        lastRunEndReason: lastRuns.get(row.id) ?? null,
         ...flags,
         // An adopted project's master worktree IS the user's own folder, on
         // their own branch. Nothing Bonsai does may write there, so master is

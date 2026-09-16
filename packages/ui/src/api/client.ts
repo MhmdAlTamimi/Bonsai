@@ -196,6 +196,13 @@ export const api = {
   cancelNode: (nodeId: string) =>
     json<{ cancelled: boolean }>(`/api/nodes/${nodeId}/cancel`, { method: 'POST' }),
 
+  /**
+   * Finish now (D43): stop waiting for background work, stop it, and let the
+   * run end normally so its results are committed. Unlike Stop, which cancels.
+   */
+  finishNow: (nodeId: string) =>
+    json<{ finished: boolean }>(`/api/nodes/${nodeId}/finish`, { method: 'POST' }),
+
   cancelProject: (projectId: string) =>
     json<{ cancelled: number }>(`/api/projects/${projectId}/cancel`, { method: 'POST' }),
 

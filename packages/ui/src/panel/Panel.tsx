@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
-import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
+import type { NodeDetail, NodeView, ProjectView, RunActivity, RunView } from '@bonsai/shared';
 
 import { NextRunInfo } from './NextRunInfo.tsx';
 import { Icon } from '../Icon.tsx';
@@ -11,10 +11,11 @@ import { RenameDialog } from './node/RenameDialog.tsx';
 import { Checkout } from './node/Checkout.tsx';
 import { Details } from './node/Details.tsx';
 import { Lineage } from './node/Lineage.tsx';
-import { Recover } from './node/Recover.tsx';
+import { Recovery } from './node/Recovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
 import { StatusChip } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
+import { ActivityStrip } from './chat/ActivityStrip.tsx';
 import { Composer } from './chat/Composer.tsx';
 import { Transcript } from './chat/Transcript.tsx';
 import { StopButton } from '../state/RunControls.tsx';
@@ -28,6 +29,7 @@ export function Panel({
   project,
   node,
   stream,
+  liveActivity,
   streamRevision,
   onProjectSettings,
   onHide,
@@ -42,6 +44,8 @@ export function Panel({
   project: ProjectView | null;
   node: NodeView | null;
   stream: readonly Delta[];
+  /** The newest pushed activity for this node, fresher than the tree's copy. */
+  liveActivity: RunActivity | null;
   streamRevision: number;
   onProjectSettings: () => void;
   onHide: () => void;
@@ -75,6 +79,7 @@ export function Panel({
       project={project}
       node={node}
       stream={stream}
+      liveActivity={liveActivity}
       streamRevision={streamRevision}
       onHide={onHide}
       visible={visible}
@@ -92,6 +97,7 @@ function NodePanel({
   project,
   node,
   stream,
+  liveActivity,
   streamRevision,
   onProjectSettings,
   onHide,
@@ -105,6 +111,7 @@ function NodePanel({
   project: ProjectView | null;
   node: NodeView;
   stream: readonly Delta[];
+  liveActivity: RunActivity | null;
   streamRevision: number;
   onProjectSettings: () => void;
   onHide: () => void;
@@ -168,6 +175,9 @@ function NodePanel({
   }, [node.id, node.status, revision, streamRevision]);
 
   const runs = detail?.runs ?? [];
+  // Only a running node is doing anything. A pushed value can outlive its run
+  // by a moment, and the tree's copy by a refetch.
+  const activity = node.status === 'running' ? (liveActivity ?? node.activity) : null;
   const reading = useReadingPosition(
     `${node.projectId}:${node.id}`,
     chat.loaded && detail !== null,
@@ -209,7 +219,8 @@ function NodePanel({
           <StatusChip
             status={node.status}
             queuePosition={node.queuePosition}
-            lastRunStatus={node.lastRunStatus}
+            lastRunEndReason={node.lastRunEndReason}
+            waiting={activity?.state === 'waiting'}
           />
           <OverflowMenu
             busy={actions.busy}
@@ -239,12 +250,12 @@ function NodePanel({
       {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
         node.status !== 'running' &&
         node.status !== 'needs_you' && (
-          <Recover
+          <Recovery
+            node={node}
             runs={runs}
             isYourFolder={isYourFolder}
             busy={actions.busy}
             partialWork={detail?.partialWork ?? null}
-            interrupted={node.status === 'interrupted'}
             onRecover={(action) => void actions.recover(action)}
           />
         )}
@@ -337,6 +348,7 @@ function NodePanel({
               runs={runs}
               pending={chat.pending}
               running={chat.running}
+              waiting={activity?.state === 'waiting'}
               onProjectSettings={onProjectSettings}
             />
           )}
@@ -371,17 +383,7 @@ function NodePanel({
               <>
                 <section className="result-outcome">
                   <h3>Latest run</h3>
-                  <p>
-                    {runs.length === 0
-                      ? 'No runs recorded yet.'
-                      : runs.at(-1)?.status === 'done'
-                        ? `Finished — ${runs.at(-1)?.commitSha === null ? 'answered without file changes' : 'files changed'}.`
-                        : runs.at(-1)?.status === 'cancelled'
-                          ? 'Cancelled — review any partial work.'
-                          : runs.at(-1)?.status === 'failed'
-                            ? 'Failed — review the conversation and partial work.'
-                            : 'In progress — no completed result yet.'}
-                  </p>
+                  <p>{latestRunOutcome(runs.at(-1), activity)}</p>
                 </section>
                 <Checks node={node} detail={detail} />
                 <Lineage lineage={detail.lineage} />
@@ -419,13 +421,7 @@ function NodePanel({
             {error} <button onClick={() => setError(null)}>Dismiss</button>
           </p>
         )}
-        {node.status === 'running' && (
-          <p className="activity" role="status">
-            {node.queuePosition !== null
-              ? `Queued · position ${node.queuePosition}`
-              : 'Agent working…'}
-          </p>
-        )}
+        <ActivityStrip node={node} activity={activity} onError={setError} />
         {startError !== null && (
           <p className="error start-error" role="alert">
             {startError}
@@ -456,6 +452,25 @@ function NodePanel({
       {actions.confirmDialog}
     </aside>
   );
+}
+
+/** The latest run in one line, by why it ended (D45) -- or what it is doing. */
+function latestRunOutcome(run: RunView | undefined, activity: RunActivity | null): string {
+  if (run === undefined) return 'No runs recorded yet.';
+  switch (run.endReason) {
+    case 'finished':
+      return `Finished — ${run.commitSha === null ? 'answered without file changes' : 'files changed'}.`;
+    case 'stopped':
+      return 'You stopped this run — review any uncommitted work.';
+    case 'failed':
+      return 'Failed — review the conversation and any uncommitted work.';
+    case 'app_closed':
+      return 'Bonsai closed while this run was working — review any uncommitted work.';
+    case null:
+      return activity?.state === 'waiting'
+        ? 'Waiting for background work — results are saved when it ends.'
+        : 'In progress — no completed result yet.';
+  }
 }
 
 /**

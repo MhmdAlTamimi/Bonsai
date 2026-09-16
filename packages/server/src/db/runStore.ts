@@ -204,15 +204,15 @@ export class RunStore {
     return out;
   }
 
-  /** The newest run's status per node, for the whole project, in one query. */
-  latestStatusByNode(projectId: string): Map<string, RunView['status'] | null> {
+  /** Why each node's newest run ended, for the whole project, in one query. */
+  latestEndReasonByNode(projectId: string): Map<string, RunView['endReason']> {
     const rows = this.db
       .prepare(
-        `SELECT n.id, (SELECT r.status FROM run r WHERE r.node_id = n.id
-      ORDER BY r.started_at DESC, r.rowid DESC LIMIT 1) AS status FROM node n WHERE n.project_id = ?`,
+        `SELECT n.id, (SELECT r.end_reason FROM run r WHERE r.node_id = n.id
+      ORDER BY r.started_at DESC, r.rowid DESC LIMIT 1) AS reason FROM node n WHERE n.project_id = ?`,
       )
-      .all(projectId) as unknown as Array<{ id: string; status: RunView['status'] | null }>;
-    return new Map(rows.map((r) => [r.id, r.status]));
+      .all(projectId) as unknown as Array<{ id: string; reason: RunView['endReason'] }>;
+    return new Map(rows.map((r) => [r.id, r.reason]));
   }
 
   /** Row counts, for the diagnostics report. One query each, not three lists. */

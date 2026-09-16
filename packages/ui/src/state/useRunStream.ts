@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { RunActivity } from '@bonsai/shared';
 
 import { subscribe } from '../api/client.ts';
 import { appendDelta } from './deltaBuffer.ts';
@@ -21,6 +22,12 @@ export function useRunStream(
   onTreeChanged: () => void,
 ): {
   streams: Record<string, Delta[]>;
+  /**
+   * What each running node is doing, as last pushed (D43). Fresher than the
+   * tree's copy, which is only as recent as the last refetch -- and a tool
+   * changing is not worth refetching a tree for.
+   */
+  activity: Record<string, RunActivity>;
   health: 'connecting' | 'live' | 'reconnecting';
   revision: number;
   /**
@@ -37,6 +44,7 @@ export function useRunStream(
   // Live run output, keyed by node. Cleared when a run starts so a second run
   // does not read as a continuation of the first.
   const [streams, setStreams] = useState<Record<string, Delta[]>>({});
+  const [activity, setActivity] = useState<Record<string, RunActivity>>({});
 
   /**
    * The refetch callback behind a ref.
@@ -53,8 +61,19 @@ export function useRunStream(
 
   useEffect(() => {
     setStreams({});
+    setActivity({});
     setHealth('connecting');
     if (projectId === null) return;
+    const forget = (nodeId: string): void =>
+      setActivity((prev) => {
+        if (!(nodeId in prev)) return prev;
+        const next = { ...prev };
+        delete next[nodeId];
+        return next;
+      });
+    // Per node, outside React state: whether a push changed working to
+    // waiting or back is decided synchronously, as it arrives.
+    const states = new Map<string, RunActivity['state']>();
     const add = (nodeId: string, delta: Delta): void => {
       setStreams((prev) => {
         const existing = prev[nodeId] ?? [];
@@ -69,7 +88,21 @@ export function useRunStream(
         switch (event.type) {
           case 'run.started':
             setStreams((prev) => ({ ...prev, [event.nodeId]: [] }));
+            states.delete(event.nodeId);
+            forget(event.nodeId);
             break;
+          case 'run.activity': {
+            const was = states.get(event.nodeId);
+            states.set(event.nodeId, event.activity.state);
+            setActivity((prev) => ({ ...prev, [event.nodeId]: event.activity }));
+            // Waiting shows on the card as well, and the card reads the tree.
+            // Refetched only when it flips, which is rare, not on every tool.
+            if (was !== undefined && was !== event.activity.state) {
+              setRevision((n) => n + 1);
+              notify.current();
+            }
+            break;
+          }
           case 'run.delta':
             add(event.nodeId, {
               runId: event.runId,
@@ -83,6 +116,8 @@ export function useRunStream(
             // transcript keeps showing it rather than waiting for a row that is
             // not coming.
             add(event.nodeId, { runId: event.runId, seq: 0, text: event.error });
+            states.delete(event.nodeId);
+            forget(event.nodeId);
             setAgentRevision((n) => n + 1);
             setRevision((n) => n + 1);
             notify.current();
@@ -91,10 +126,15 @@ export function useRunStream(
           // tree already carries the question (NodeView.pendingQuestion) -- this
           // only has to say "look again". It has to say it promptly, though: the
           // agent is stopped until someone answers.
+          case 'run.finished':
+            states.delete(event.nodeId);
+            forget(event.nodeId);
+            setRevision((n) => n + 1);
+            notify.current();
+            break;
           case 'tree.updated':
           case 'node.status':
           case 'run.question':
-          case 'run.finished':
             setRevision((n) => n + 1);
             notify.current();
             break;
@@ -105,6 +145,10 @@ export function useRunStream(
       (state) => {
         setHealth(state);
         if (state === 'live') {
+          // Pushes missed while disconnected are gone; the refetch below
+          // brings the tree's copy, which is current as of now.
+          states.clear();
+          setActivity({});
           setRevision((n) => n + 1);
           // A transport gap can hide a failure the gate recorded while the
           // stream was down, so reconciling after one includes the credential.
@@ -115,5 +159,5 @@ export function useRunStream(
     );
   }, [projectId]);
 
-  return { streams, health, revision, agentRevision };
+  return { streams, activity, health, revision, agentRevision };
 }

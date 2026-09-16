@@ -347,6 +347,7 @@ export function App(): JSX.Element {
               if (selected !== null) child.clearStartError(selected.id);
             }}
             stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
+            liveActivity={selected === null ? null : (live.activity[selected.id] ?? null)}
             streamRevision={live.revision}
             visible={view.experimentOpen}
             narrow={view.narrow}

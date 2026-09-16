@@ -234,7 +234,8 @@ export interface NodeView {
   /** The change description, or the agent's question when status is needs_you. */
   summaryLine: string;
   status: NodeStatus;
-  lastRunStatus?: RunStatus | null;
+  /** Why the newest run ended, or null while it runs or before there is one. */
+  lastRunEndReason: RunEndReason | null;
   createsBranch: boolean;
   writable: boolean;
   frozenReason: FrozenReason | null;

@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { findLeftovers } from './jobs/leftovers.js';
+
 /**
  * One end-to-end pass through the real interface, in a real browser.
  *
@@ -57,6 +59,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
           BONSAI_PORT: String(PORT),
           BONSAI_FAKE_AGENT: '1',
           BONSAI_FAKE_DELAY_MS: '700',
+          // Long enough that a stand-in background job is still running
+          // whenever a test looks; each test ends it with Finish now or Stop.
+          BONSAI_FAKE_BACKGROUND_MS: '60000',
         },
         stdio: 'ignore',
       },
@@ -562,11 +567,16 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       true,
     );
+    // D45: it says what happened -- the user stopped it -- not "interrupted".
+    assert.match(
+      String(await session.eval("document.querySelector('.recover-headline').textContent")),
+      /You stopped this run\./,
+    );
     await session.eval(
-      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent.trim() === 'Keep partial work').click()",
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent.trim() === 'Leave uncommitted').click()",
     );
     await session.waitFor(
-      "document.querySelector('.recover')?.textContent.includes('Partial work kept — not committed')",
+      "document.querySelector('.recover')?.textContent.includes('Work from the run you stopped is still uncommitted.')",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-partial-work.png'));
     const before = (await (await fetch(nodeUrl)).json()) as { partialWork: { changed: string[] } };
@@ -984,6 +994,178 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       { timeoutMs: 20000 },
     );
     await session.waitFor("!!document.querySelector('.composer-row')");
+  });
+
+  /** A project whose master has a stand-in run in flight, and helpers to watch it. */
+  async function projectWithRun(
+    name: string,
+    prompt: string,
+  ): Promise<{
+    projectId: string;
+    masterNodeId: string;
+    nodeUrl: string;
+    runId: string;
+    detail: () => Promise<{
+      node: { status: string };
+      runs: Array<{
+        id: string;
+        status: string;
+        endReason: string | null;
+        stoppedBackground: number;
+        commitSha: string | null;
+      }>;
+    }>;
+  }> {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          description: '',
+          location: dataDir,
+          permissionMode: 'acceptEdits',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const { runId } = (await (
+      await fetch(`${nodeUrl}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+    ).json()) as { runId: string };
+    return {
+      ...created,
+      nodeUrl,
+      runId,
+      detail: async () => (await (await fetch(nodeUrl)).json()) as never,
+    };
+  }
+
+  test('a run waiting for background work says so, and Finish now saves its results', async () => {
+    const run = await projectWithRun('waiting', 'background: train the model');
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor(
+      "document.querySelector('.activity-waiting')?.textContent.includes('Waiting for 1 background job')",
+      { label: 'the waiting strip', timeoutMs: 15000 },
+    );
+
+    // Still running, and said as waiting on the card and in the header alike.
+    assert.equal((await run.detail()).node.status, 'running');
+    assert.match(
+      String(await session.eval("document.querySelector('.activity-jobs').textContent")),
+      /Stand-in background job/,
+    );
+    await session.waitFor(
+      `document.querySelector('[data-id="${run.masterNodeId}"] .chip')?.textContent.includes('Waiting')`,
+      { label: 'the card to say Waiting' },
+    );
+    assert.match(
+      String(await session.eval("document.querySelector('.panel header .chip').textContent")),
+      /Waiting/,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-waiting.png'));
+
+    await session.eval(
+      "Array.from(document.querySelectorAll('.activity-waiting button')).find(b => b.textContent === 'Finish now').click()",
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(run.nodeUrl)})).json()).node.status === 'ready')()`,
+      { label: 'the run to finish', timeoutMs: 15000 },
+    );
+    const last = (await run.detail()).runs.at(-1)!;
+    assert.equal(last.endReason, 'finished', 'finished, not stopped: its results were kept');
+    assert.notEqual(last.commitSha, null);
+    assert.equal(last.stoppedBackground, 1);
+    await session.waitFor(
+      "!document.querySelector('.activity-waiting') && document.querySelector('.conversation-content').textContent.includes('you chose Finish now')",
+    );
+  });
+
+  test('switching experiments or projects, or leaving the page, never stops a run', async () => {
+    const run = await projectWithRun('keeps-running', 'background: a long job');
+    const other = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'elsewhere', description: '', location: dataDir }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const sibling = (
+      (await (
+        await fetch(`${BASE}/api/projects/${run.projectId}/nodes`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            parentId: run.masterNodeId,
+            displayName: 'sibling',
+            description: '',
+          }),
+        })
+      ).json()) as { node: { id: string } }
+    ).node;
+    const stillRunning = async (): Promise<void> => {
+      const detail = await run.detail();
+      assert.equal(detail.node.status, 'running');
+      assert.equal(detail.runs.find((r) => r.id === run.runId)?.status, 'running');
+    };
+
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.activity-waiting')", { timeoutMs: 15000 });
+
+    await session.click(`[data-id="${sibling.id}"]`);
+    await session.waitFor("document.querySelector('.panel h2')?.textContent === 'sibling'");
+    await stillRunning();
+
+    await session.goto(`${BASE}/?project=${other.projectId}&node=${other.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.panel h2')");
+    await stillRunning();
+
+    await session.goto('about:blank');
+    await new Promise((r) => setTimeout(r, 1000));
+    await stillRunning();
+
+    // And coming back, the page learns what it is doing from the tree alone.
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.activity-waiting')", { timeoutMs: 15000 });
+    await stillRunning();
+
+    await fetch(`${run.nodeUrl}/finish`, { method: 'POST' });
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(run.nodeUrl)})).json()).node.status === 'ready')()`,
+      { timeoutMs: 15000 },
+    );
+    assert.equal((await run.detail()).runs.filter((r) => r.status === 'cancelled').length, 0);
+  });
+
+  test('a detached process is waited for, and Stop ends it and says so', async () => {
+    const run = await projectWithRun('detached', 'detach: start the server');
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor(
+      "document.querySelector('.activity-jobs')?.textContent.includes('detached')",
+      { label: 'the detached process to be found', timeoutMs: 15000 },
+    );
+    assert.equal((await findLeftovers(run.runId)).length > 0, true);
+
+    await session.click('.panel header button.stop');
+    await session.waitFor(
+      "document.querySelector('.recover-headline')?.textContent.includes('You stopped this run.')",
+      {
+        label: 'the recovery notice',
+        timeoutMs: 15000,
+      },
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-stopped.png'));
+    // Nothing the run started outlives it.
+    assert.deepEqual(await findLeftovers(run.runId), []);
+    const last = (await run.detail()).runs.at(-1)!;
+    assert.equal(last.endReason, 'stopped');
+    assert.match(
+      String(await session.eval("document.querySelector('.panel header .chip').textContent")),
+      /Stopped/,
+    );
   });
 
   test('initial connection and project failures offer retry instead of an empty canvas', async () => {
