@@ -309,9 +309,9 @@ Nothing is pushed. The owner reviews each phase before the next one starts.
 
 Try: rerun the chunking experiment that exposed this. `uv sync` and the batch run should keep it Running/Waiting
 until the work truly finishes, then commit the outputs in that run. Also start something long and press Finish now;
-start something and press Stop, and check the notice reads "You stopped this run". The stand-in agent (`npm run dev`
-with `BONSAI_FAKE_AGENT=1`) has `background:` and `detach:` request prefixes to reach these states without a
-credential. Restart with `npm start` so backend and interface match.
+start something and press Stop, and check the notice reads "You stopped this run". Without a credential, the stand-in agent
+(`BONSAI_FAKE_AGENT=1 BONSAI_FAKE_BACKGROUND_MS=60000 npm start`) reaches these states from requests starting
+`background:` (a tracked job) or `detach:` (a nohup-style process). Restart with `npm start` so backend and interface match.
 
 Verified against the real SDK with `scripts/probe-agent-runs.mjs` (paid, opt-in): a tracked job keeps the run open
 and wakes the agent; Finish now ends it in seconds; Stop leaves no process; a job detached inside a script is found,
