@@ -30,33 +30,8 @@ export class ClaudeSdkRunner implements AgentRunner {
       cwd: spec.cwd,
       abortController: controller,
 
-      /**
-       * Two different jobs, so two different mechanisms.
-       *
-       * READ-ONLY runs get an allow-list, because restriction is the whole
-       * point: a tool that is not named cannot be called, which is what makes
-       * a frozen node genuinely read-only rather than politely asked (D18).
-       *
-       * WRITABLE runs get an approval callback instead. An allow-list here was
-       * a latent bug: it doubles as the pre-approval list, so every tool the
-       * agent might reach for has to be named exactly, and any tool this
-       * harness offers under a name Bonsai does not know is silently
-       * unavailable. The failure mode is the worst kind -- the agent cannot
-       * edit, says so in prose, the run completes "successfully" and commits
-       * nothing. canUseTool approves whatever the harness offers, so Bonsai
-       * never has to keep a list of tool names in sync with the SDK.
-       *
-       * Nothing is loosened by this: the git hook below still blocks mutating
-       * git, and read-only nodes are still restricted by name.
-       *
-       * That callback is also where a run stops to ask (D34). See `gate`.
-       */
-      ...(spec.readOnly ? { allowedTools: [...READ_ONLY_TOOLS] } : { canUseTool: gate(spec) }),
-
-      // D19/D30: the app owns git. Read-only git stays available for recovery.
-      ...(spec.readOnly ? {} : { hooks: { PreToolUse: [gitGuardHook()] } }),
-
-      permissionMode: spec.permissionMode as PermissionMode,
+      // Which tools may run, and who decides. See `permissionOptions`.
+      ...permissionOptions(spec),
       // A key stored in Settings reaches the subprocess here rather than being
       // written into this process's environment.
       ...(spec.agentEnv === null ? {} : { env: { ...process.env, ...spec.agentEnv } }),
@@ -171,6 +146,72 @@ export class ClaudeSdkRunner implements AgentRunner {
 }
 
 /**
+ * Which tools a run may use, and what decides.
+ *
+ * Two different jobs, so two different shapes.
+ *
+ * WRITABLE runs keep the project's permission mode and get an approval
+ * callback. An allow-list was a latent bug here: it doubles as the
+ * pre-approval list, so any tool the harness offers under a name Bonsai does
+ * not know was silently unavailable -- the agent could not edit, said so in
+ * prose, and the run completed "successfully" having committed nothing.
+ * `canUseTool` approves whatever the harness offers, so Bonsai never keeps a
+ * list of tool names in step with the SDK. The git hook still blocks mutating
+ * git, and the callback is also where a run stops to ask (D34, see `gate`).
+ *
+ * READ-ONLY runs -- frozen experiments, and an adopted project's master, whose
+ * folder is the user's own checkout -- are where this used to be wrong. They
+ * were given `allowedTools` alone, on the belief that "a tool that is not
+ * named cannot be called at all". It can. `allowedTools` only PRE-APPROVES;
+ * under `acceptEdits`, the app's default mode, the mode itself approves writes
+ * before any list or callback is consulted. Verified against the real SDK: a
+ * run configured exactly that way created a file when asked to, and a real
+ * read-only run on an adopted project's master ran `Bash` in the user's own
+ * folder. It only happened to run `find` and `grep`.
+ *
+ * So read-only is enforced by the callback, and the mode is forced to
+ * `default` so nothing is approved before the callback sees it: reads are
+ * pre-approved, and every other tool -- including ones a future SDK adds -- is
+ * denied. Deny by default is the only version of this that stays true when the
+ * harness grows a tool.
+ */
+export function permissionOptions(
+  spec: RunSpec,
+): Pick<Options, 'permissionMode' | 'allowedTools' | 'canUseTool' | 'hooks'> {
+  if (spec.readOnly) {
+    return {
+      // Whatever the project chose. `acceptEdits` and `bypassPermissions`
+      // exist to approve changes, and a read-only run makes none.
+      permissionMode: 'default',
+      allowedTools: [...READ_ONLY_TOOLS],
+      canUseTool: readOnlyGate(),
+    };
+  }
+  return {
+    permissionMode: spec.permissionMode as PermissionMode,
+    canUseTool: gate(spec),
+    // D19/D30: the app owns git. Read-only git stays available for recovery.
+    hooks: { PreToolUse: [gitGuardHook()] },
+  };
+}
+
+/** Said to the agent when a read-only run reaches for anything that could change something. */
+export const READ_ONLY_REFUSAL =
+  'This experiment is read-only: its code is frozen, or its folder is the user’s own. ' +
+  'You can read, search and answer questions here. To change anything, say what you would ' +
+  'change and the user can branch a new experiment for it.';
+
+/** Reads go through; everything else is refused, named or not. */
+export function readOnlyGate(): CanUseTool {
+  return (toolName) =>
+    Promise.resolve(
+      (READ_ONLY_TOOLS as readonly string[]).includes(toolName)
+        ? { behavior: 'allow' as const }
+        : { behavior: 'deny' as const, message: READ_ONLY_REFUSAL },
+    );
+}
+
+/**
  * The approval callback: either a rubber stamp or the ask-user gate.
  *
  * `spec.ask` is non-null only when the run's permission mode is `default`,
@@ -189,7 +230,7 @@ export class ClaudeSdkRunner implements AgentRunner {
  * tool's input when present -- the previous `updatedInput: {}` was a loaded
  * gun that happened not to have gone off.
  */
-function gate(spec: RunSpec): CanUseTool {
+export function gate(spec: RunSpec): CanUseTool {
   const allow = { behavior: 'allow' as const };
   return (toolName, input, options) => {
     if (spec.ask === null || (READ_ONLY_TOOLS as readonly string[]).includes(toolName)) {

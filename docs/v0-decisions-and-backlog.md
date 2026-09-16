@@ -56,7 +56,7 @@ not for shipping code.
 |---|---|---|
 | D15 | Use the **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`), not the raw API. | Same harness as Claude Code: file editing, search, bash already reliable. |
 | D16 | **Memory across nodes = session forking.** Child = `query({ resume: parentSessionId, forkSession: true, cwd: nodeWorktree })`. | Full ancestor history, parent untouched, siblings invisible. D2 becomes a config flag. |
-| D18 | **`allowedTools` restricted to read-only** for exploration nodes and frozen nodes. | Enforcement, not instruction. |
+| D18 | **Read-only runs are enforced by the permission callback, not by `allowedTools`**, for frozen nodes and an adopted project's master. Reads are pre-approved; every other tool, named or not, is denied; the permission mode is forced to `default` for these runs. Corrected 16 September 2026. | Enforcement, not instruction. The original wording trusted `allowedTools` to restrict, and verified against the real SDK it does not: the list only pre-approves, and `acceptEdits` approves writes before it is consulted. A read-only run so configured created a file on request, and a real one ran Bash in an adopted project's own folder. `scripts/probe-agent-permissions.mjs` re-checks this against the SDK. |
 | D20 | **Capture cost/tokens per node** from the result message, from day one. | Nearly free; prevents a nasty surprise later. |
 | D22 | `CONTEXT.md` is a **single human-readable record** shown in the side panel — not the agent's memory. | Memory is D16. |
 | D23 | Auth supports **both an API key and subscription login**. | |

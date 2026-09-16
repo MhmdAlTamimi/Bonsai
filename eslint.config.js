@@ -161,6 +161,7 @@ export default tseslint.config(
         performance: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
+        AbortController: 'readonly',
         WebSocket: 'readonly',
         URL: 'readonly',
         Buffer: 'readonly',

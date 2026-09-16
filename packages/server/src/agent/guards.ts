@@ -7,10 +7,15 @@ import type {
 /**
  * What the agent is allowed to do.
  *
- * Two layers, and they are not equally strong. `allowedTools` is enforced by
- * the SDK -- a tool that is not listed cannot be called at all. The git hook
- * below only inspects Bash command strings, which is weaker; see the honesty
- * note on MUTATING_GIT.
+ * Two layers, and they are not equally strong. Read-only runs are enforced by
+ * a permission callback that denies anything not on the list below (see
+ * `permissionOptions` in ClaudeSdkRunner). The git hook below only inspects
+ * Bash command strings, which is weaker; see the honesty note on MUTATING_GIT.
+ *
+ * NOTE what this list is NOT: a restriction on its own. This used to say "a
+ * tool that is not listed cannot be called at all", and that was false --
+ * passed as `allowedTools` the list only pre-approves, and a permissive mode
+ * approves writes before it is consulted.
  */
 
 /** D18/D26: frozen and conversation-only runs get no way to change anything. */
