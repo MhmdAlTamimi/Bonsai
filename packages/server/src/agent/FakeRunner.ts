@@ -1,8 +1,10 @@
+import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentQuestion } from '@bonsai/shared';
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
+import { RUN_MARKER } from '../jobs/leftovers.js';
 
 /**
  * The question the stand-in asks, shaped like a real one: a short header, two
@@ -32,9 +34,10 @@ export const FAKE_QUESTION: AgentQuestion = {
  *   a prompt starting with '?'  ->  writes nothing. Conversation only.
  *   anything else               ->  writes a file, so the node commits.
  *
- * Plus two prefixes for paths that need a user in the loop: "choose:" asks a
- * question (D42), and "background:" leaves a job running after its turn so the
- * run waits for it (D43).
+ * Plus prefixes for paths that need a user in the loop: "choose:" asks a
+ * question (D42); "background:" leaves a tracked job running after its turn,
+ * and "detach:" a process started the way `nohup … &` starts one, so the run
+ * waits for either (D43).
  *
  * That single rule is enough to exercise the emergent model end to end: the
  * same creation flow produces a node with a branch or a node without one, and
@@ -126,6 +129,41 @@ export class FakeRunner implements AgentRunner {
      * (BONSAI_FAKE_BACKGROUND_MS), Finish now, or Stop. Finish now still lets
      * the run end normally and commit; Stop does not.
      */
+    /**
+     * D43: "detach:" starts a real process outside any tracking, carrying the
+     * run's marker, and waits the way the real runner does -- by looking for
+     * it -- so the pipeline's detection and its clean-up on Stop are what get
+     * exercised, not a stand-in for them.
+     */
+    if (spec.prompt.trimStart().toLowerCase().startsWith('detach:')) {
+      const seconds = Math.max(1, Number(process.env['BONSAI_FAKE_BACKGROUND_MS'] ?? 4000) / 1000);
+      const shell = spawn('sh', ['-c', `sleep ${seconds} &`], {
+        cwd: spec.cwd,
+        env: { ...process.env, [RUN_MARKER]: spec.runId },
+        stdio: 'ignore',
+        detached: true,
+      });
+      shell.on('error', () => undefined);
+      shell.unref();
+      yield { type: 'tool', name: 'Bash', detail: `nohup sleep ${seconds} &` };
+      await abortableDelay(200, spec.signal);
+      for (;;) {
+        if (spec.signal.aborted || spec.finishNow.aborted) break;
+        const detached = await spec.backgroundLeftovers();
+        if (detached.length === 0) break;
+        spec.onActivity({ state: 'waiting', tool: null, background: detached });
+        await abortableDelay(250, spec.signal, spec.finishNow);
+      }
+      if (spec.signal.aborted) return;
+      spec.onActivity({ state: 'working', tool: null, background: [] });
+      yield {
+        type: 'text',
+        text: spec.finishNow.aborted
+          ? 'Stopped waiting for the detached process: you chose Finish now.'
+          : 'The detached process exited.',
+      };
+    }
+
     if (spec.prompt.trimStart().toLowerCase().startsWith('background:')) {
       yield { type: 'tool', name: 'Bash', detail: 'sleep (stand-in background job)' };
       spec.onActivity({

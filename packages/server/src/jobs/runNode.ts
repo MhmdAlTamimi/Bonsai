@@ -1,7 +1,7 @@
 import { OperationConflict } from '../domain/errors.js';
 import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
-import { CONCURRENCY, type NodeStatus, type RunActivity } from '@bonsai/shared';
+import { CONCURRENCY, type BackgroundJob, type NodeStatus, type RunActivity } from '@bonsai/shared';
 
 import type { NodeRow, RunTotals, Store } from '../db/store.js';
 import { workDirIn } from '../db/rows.js';
@@ -42,6 +42,7 @@ import { branchNameFor } from '../git/repo.js';
 import { readWorktreeState, resumePrompt } from '../git/recovery.js';
 import { runCommand, summarise } from '../exec/command.js';
 import { status } from '../git/exec.js';
+import { findLeftovers, roots, stopLeftovers } from './leftovers.js';
 
 /**
  * D14d: runs are async jobs. Start returns a job id, progress streams, cancel
@@ -121,6 +122,26 @@ const STOPPED_CHOICE: ChoiceDecision = { answered: false, reason: 'the run was s
 export const LEFT_TO_AGENT =
   'The user chose not to answer and left this decision to you. Make a reasonable choice, ' +
   'carry on, and say clearly in your reply what you decided and why.';
+
+/** A process's command line, short enough for a card. */
+function describeProcess(command: string): string {
+  const trimmed = command.trim() || 'a process';
+  return trimmed.length > 120 ? `${trimmed.slice(0, 117)}...` : trimmed;
+}
+
+/**
+ * A run's detached processes, as the jobs the interface shows: one per piece of
+ * work rather than per process. Keyed by pid, which is stable for as long as
+ * the process lives -- which is as long as it is shown.
+ */
+async function detachedJobs(runId: string): Promise<BackgroundJob[]> {
+  return roots(await findLeftovers(runId)).map((p) => ({
+    id: `pid:${p.pid}`,
+    description: describeProcess(p.command),
+    tracked: false,
+    startedAt: new Date().toISOString(),
+  }));
+}
 
 /** The question as the card and the transcript show it: the questions, in order. */
 function choiceText(request: ChoiceRequest): string {
@@ -757,6 +778,7 @@ export class RunJobs {
         signal: controller.signal,
         finishNow: live.finish.signal,
         onActivity: (activity) => this.reportActivity(nodeId, live, activity),
+        backgroundLeftovers: () => detachedJobs(runId),
       })) {
         switch (event.type) {
           case 'session':
@@ -818,6 +840,9 @@ export class RunJobs {
             throw new Error(event.error);
         }
       }
+
+      // Before anything is committed, so nothing is still writing into it.
+      await this.endLeftovers(runId, nodeId, node.project_id);
 
       if (controller.signal.aborted) {
         this.log.info('run.cancelled', {
@@ -917,6 +942,7 @@ export class RunJobs {
       });
       this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
     } catch (err) {
+      await this.endLeftovers(runId, nodeId, node.project_id).catch(() => undefined);
       /**
        * An abort is a cancellation whatever the runner said on its way out.
        *
@@ -982,6 +1008,29 @@ export class RunJobs {
       });
       this.bus.publish(node.project_id, { type: 'run.error', nodeId, runId, error: message });
     }
+  }
+
+  /**
+   * D43: nothing a run started outlives it.
+   *
+   * A run normally ends only once its detached processes have exited, so this
+   * finds nothing. It matters when the run was stopped, finished early, or
+   * failed -- and it is what makes Stop mean stop for a `nohup` job the
+   * harness never knew about. Said in the transcript when it does anything.
+   */
+  private async endLeftovers(runId: string, nodeId: string, projectId: string): Promise<void> {
+    const stopped = await stopLeftovers(runId);
+    if (stopped.length === 0) return;
+    this.log.info('run.leftovers_stopped', { runId, nodeId, projectId, processes: stopped.length });
+    this.store.appendMessage({
+      nodeId,
+      runId,
+      role: 'system',
+      kind: 'text',
+      content:
+        `Stopped ${stopped.length === 1 ? 'a background process' : `${stopped.length} background processes`} ` +
+        `still running when the run ended: ${stopped.map((p) => describeProcess(p.command)).join(' · ')}`,
+    });
   }
 
   /**

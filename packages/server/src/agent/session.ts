@@ -68,11 +68,41 @@ export class Inbox implements AsyncIterable<SDKUserMessage> {
  */
 export const WAKE_GRACE_MS = 60_000;
 
+/** How often a waiting run looks for detached processes that have exited. */
+export const LEFTOVER_POLL_MS = 5_000;
+
 /** One entry of the SDK's `background_tasks_changed` payload. */
 export interface HarnessTask {
   task_id: string;
   description: string;
   ambient?: boolean;
+}
+
+export interface SessionHooks {
+  report: (activity: RunActivity) => void;
+  /** Ends the session: nothing more will be said to the agent. */
+  end: () => void;
+  /** Says something to the agent, which starts a turn. */
+  say: (text: string) => void;
+  /** Detached processes this run started that are still running. */
+  leftovers: () => Promise<BackgroundJob[]>;
+  clock?: () => Date;
+  wakeGraceMs?: number;
+  pollMs?: number;
+}
+
+/**
+ * Told to the agent when a process it detached has exited. The harness sends
+ * nothing for those -- it never knew about them -- so without this the agent
+ * would never take the turn that looks at the output.
+ */
+export function detachedExited(jobs: readonly BackgroundJob[]): string {
+  const names = jobs.map((job) => `\`${job.description}\``).join(', ');
+  return (
+    `The background ${jobs.length === 1 ? 'process' : 'processes'} you started outside the ` +
+    `Bash tool's background mode (${names}) ${jobs.length === 1 ? 'has' : 'have'} exited. ` +
+    'Check the output, then finish. Next time use run_in_background, so you are notified directly.'
+  );
 }
 
 /**
@@ -82,42 +112,41 @@ export interface HarnessTask {
  *
  *   a turn ends and nothing is running      -> the run is over;
  *   a turn ends and background work is live -> wait. The harness wakes the
- *                                              agent when that work settles,
- *                                              and the next turn decides again;
+ *                                              agent when tracked work
+ *                                              settles; Bonsai tells it when
+ *                                              detached work does. The next
+ *                                              turn decides again;
  *   Finish now                              -> over at the end of this turn,
  *                                              whatever is still running.
  *
- * The live set is the harness's own level signal, replaced wholesale on every
+ * Tracked work is the harness's own level signal, replaced wholesale on every
  * change as its documentation asks, rather than rebuilt from start and end
  * events -- a missed end event would otherwise hold a run open for ever.
  * Ambient tasks (the harness's own watchers) are not work anyone started.
+ * Detached work is looked for when a turn ends, and then polled while waiting.
  */
 export class SessionActivity {
   private state: RunActivity['state'] = 'working';
   private readonly jobs = new Map<string, BackgroundJob>();
+  private detached: BackgroundJob[] = [];
   /** Main-thread tool calls in progress, oldest first. */
   private readonly tools = new Map<string, NonNullable<RunActivity['tool']>>();
   /** Between the end of one turn and the start of the next. */
   private idle = false;
   private finishing = false;
+  private disposed = false;
   private wakeTimer: NodeJS.Timeout | null = null;
+  private pollTimer: NodeJS.Timeout | null = null;
   private reported = '';
+  private readonly clock: () => Date;
 
-  constructor(
-    private readonly report: (activity: RunActivity) => void,
-    /** Ends the session. Called only when the harness never wakes the agent. */
-    private readonly end: () => void,
-    private readonly clock: () => Date = () => new Date(),
-    private readonly wakeGraceMs = WAKE_GRACE_MS,
-  ) {}
+  constructor(private readonly hooks: SessionHooks) {
+    this.clock = hooks.clock ?? ((): Date => new Date());
+  }
 
   /** Tracked jobs still running, for Stop and Finish now to stop. */
   liveJobIds(): string[] {
     return [...this.jobs.keys()];
-  }
-
-  isFinishing(): boolean {
-    return this.finishing;
   }
 
   /** The agent is taking a turn: something it said, or a tool it called, arrived. */
@@ -164,8 +193,8 @@ export class SessionActivity {
     this.jobs.clear();
     for (const [id, job] of next) this.jobs.set(id, job);
 
-    // The last job ended while the agent was idle. The harness is about to
-    // wake it with the result; until then it is working, not waiting.
+    // The last tracked job ended while the agent was idle. The harness is
+    // about to wake it with the result; until then it is working, not waiting.
     if (this.idle && hadJobs && this.jobs.size === 0 && !this.finishing) {
       this.state = 'working';
       this.armWake();
@@ -179,39 +208,88 @@ export class SessionActivity {
    * `queued` is the harness's count of messages already waiting to be sent,
    * each of which means another turn follows without anything from here.
    */
-  turnEnded(queued: number): boolean {
+  async turnEnded(queued: number): Promise<boolean> {
     this.tools.clear();
-    this.idle = queued === 0;
-    let over: boolean;
-    if (this.finishing) over = true;
-    else if (queued > 0) {
+    if (this.finishing) return true;
+    if (queued > 0) {
       this.state = 'working';
-      over = false;
-    } else if (this.jobs.size === 0) over = true;
-    else {
-      this.state = 'waiting';
-      over = false;
+      this.publish();
+      return false;
     }
+    this.idle = true;
+    this.detached = await this.findDetached();
+    if (this.finishing) return true;
+    if (this.jobs.size === 0 && this.detached.length === 0) return true;
+    this.state = 'waiting';
+    if (this.detached.length > 0) this.startPolling();
     this.publish();
-    return over;
+    return false;
   }
 
   /** Finish now: whatever is still running, the end of this turn is the end of the run. */
   finish(): void {
     this.finishing = true;
     this.clearWake();
+    this.stopPolling();
   }
 
   dispose(): void {
+    this.disposed = true;
     this.clearWake();
+    this.stopPolling();
+  }
+
+  private async findDetached(): Promise<BackgroundJob[]> {
+    // Kept stable across scans, so a job's start time is when it was first seen.
+    const found = await this.hooks.leftovers().catch(() => []);
+    return found.map((job) => this.detached.find((known) => known.id === job.id) ?? job);
+  }
+
+  /**
+   * Detached work sends no signal when it ends, so it is looked for. When the
+   * last of it is gone the agent is told, which starts the turn that decides
+   * whether the run is over -- the same thing the harness does for tracked work.
+   */
+  private startPolling(): void {
+    if (this.pollTimer !== null) return;
+    let scanning = false;
+    this.pollTimer = setInterval(() => {
+      if (scanning) return;
+      scanning = true;
+      void this.findDetached()
+        .then((now) => {
+          if (this.disposed || this.finishing) return;
+          const gone = this.detached.filter((job) => !now.some((n) => n.id === job.id));
+          this.detached = now;
+          if (now.length === 0) {
+            this.stopPolling();
+            if (this.idle && gone.length > 0) {
+              this.idle = false;
+              this.state = 'working';
+              this.hooks.say(detachedExited(gone));
+            }
+          }
+          this.publish();
+        })
+        .finally(() => {
+          scanning = false;
+        });
+    }, this.hooks.pollMs ?? LEFTOVER_POLL_MS);
+    this.pollTimer.unref();
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer === null) return;
+    clearInterval(this.pollTimer);
+    this.pollTimer = null;
   }
 
   private armWake(): void {
     this.clearWake();
     this.wakeTimer = setTimeout(() => {
       this.wakeTimer = null;
-      if (this.idle && this.jobs.size === 0) this.end();
-    }, this.wakeGraceMs);
+      if (this.idle && this.jobs.size === 0 && this.detached.length === 0) this.hooks.end();
+    }, this.hooks.wakeGraceMs ?? WAKE_GRACE_MS);
     this.wakeTimer.unref();
   }
 
@@ -222,15 +300,16 @@ export class SessionActivity {
   }
 
   private publish(): void {
+    if (this.disposed) return;
     const tools = [...this.tools.values()];
     const activity: RunActivity = {
       state: this.state,
       tool: this.state === 'waiting' ? null : (tools.at(-1) ?? null),
-      background: [...this.jobs.values()],
+      background: [...this.jobs.values(), ...this.detached],
     };
     const key = JSON.stringify(activity);
     if (key === this.reported) return;
     this.reported = key;
-    this.report(activity);
+    this.hooks.report(activity);
   }
 }

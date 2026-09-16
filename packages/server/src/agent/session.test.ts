@@ -1,10 +1,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { RunActivity } from '@bonsai/shared';
+import type { BackgroundJob, RunActivity } from '@bonsai/shared';
 
 import { ClaudeSdkRunner, type SessionQuery } from './ClaudeSdkRunner.js';
-import { SessionActivity } from './session.js';
+import { SessionActivity, detachedExited, type SessionHooks } from './session.js';
 import type { RunEvent, RunSpec } from './AgentRunner.js';
 
 /**
@@ -127,7 +127,7 @@ class ScriptedSession implements SessionQuery {
   }
 }
 
-function start(): {
+function start(detached: BackgroundJob[] = []): {
   session: Promise<ScriptedSession>;
   stop: AbortController;
   finish: AbortController;
@@ -165,6 +165,7 @@ function start(): {
     signal: stop.signal,
     finishNow: finish.signal,
     onActivity: (a) => activity.push(a),
+    backgroundLeftovers: () => Promise.resolve([...detached]),
   };
   const done = (async () => {
     for await (const event of runner.run(spec)) events.push(event);
@@ -319,48 +320,126 @@ describe('a run and its background work', () => {
 });
 
 describe('waiting for the agent to be woken', () => {
-  test('if the harness never wakes it, the run still ends', async () => {
+  function tracker(overrides: Partial<SessionHooks> = {}): {
+    activity: SessionActivity;
+    reports: RunActivity[];
+    said: string[];
+    ended: () => number;
+  } {
+    const reports: RunActivity[] = [];
+    const said: string[] = [];
     let ended = 0;
-    const activity = new SessionActivity(
-      () => undefined,
-      () => (ended += 1),
-      () => new Date(),
-      10,
-    );
-    activity.jobsChanged([{ task_id: 'b1', description: 'job' }]);
-    assert.equal(activity.turnEnded(0), false);
-    activity.jobsChanged([]);
+    const activity = new SessionActivity({
+      report: (a) => reports.push(a),
+      end: () => (ended += 1),
+      say: (text) => said.push(text),
+      leftovers: () => Promise.resolve([]),
+      ...overrides,
+    });
+    return { activity, reports, said, ended: () => ended };
+  }
+
+  test('if the harness never wakes it, the run still ends', async () => {
+    const t = tracker({ wakeGraceMs: 10 });
+    t.activity.jobsChanged([{ task_id: 'b1', description: 'job' }]);
+    assert.equal(await t.activity.turnEnded(0), false);
+    t.activity.jobsChanged([]);
     await new Promise((r) => setTimeout(r, 40));
-    assert.equal(ended, 1);
+    assert.equal(t.ended(), 1);
   });
 
   test('a turn starting in time cancels that', async () => {
-    let ended = 0;
-    const activity = new SessionActivity(
-      () => undefined,
-      () => (ended += 1),
-      () => new Date(),
-      30,
-    );
-    activity.jobsChanged([{ task_id: 'b1', description: 'job' }]);
-    activity.turnEnded(0);
-    activity.jobsChanged([]);
-    activity.thinking();
+    const t = tracker({ wakeGraceMs: 30 });
+    t.activity.jobsChanged([{ task_id: 'b1', description: 'job' }]);
+    await t.activity.turnEnded(0);
+    t.activity.jobsChanged([]);
+    t.activity.thinking();
     await new Promise((r) => setTimeout(r, 60));
-    assert.equal(ended, 0);
+    assert.equal(t.ended(), 0);
+    t.activity.dispose();
+  });
+
+  test('thinking is not a turn when no wake is expected', async () => {
+    const t = tracker();
+    t.activity.jobsChanged([{ task_id: 'a1', description: 'background subagent' }]);
+    await t.activity.turnEnded(0);
+    t.activity.thinking();
+    assert.equal(t.reports.at(-1)?.state, 'waiting');
+    t.activity.dispose();
+  });
+});
+
+describe('work detached outside the harness', () => {
+  test('a turn that leaves a detached process running waits for it', async () => {
+    const run = start([
+      { id: 'pid:1', description: 'nohup python run.py', tracked: false, startedAt: '' },
+    ]);
+    const session = await run.session;
+    session.emit(say('Started it with nohup.'), turnOver(0.01));
+    await drained();
+
+    assert.equal(session.inputClosed, false);
+    assert.equal(run.activity.at(-1)?.state, 'waiting');
+    assert.equal(run.activity.at(-1)?.background[0]?.tracked, false);
+
+    run.stop.abort();
+    await run.done;
+  });
+
+  test('when it exits the agent is told, since the harness never knew about it', async () => {
+    const TRAIN: BackgroundJob = {
+      id: 'pid:4242',
+      description: 'python train.py',
+      tracked: false,
+      startedAt: '2026-09-16T12:00:00.000Z',
+    };
+    let running = [TRAIN];
+    const reports: RunActivity[] = [];
+    const said: string[] = [];
+    const activity = new SessionActivity({
+      report: (a) => reports.push(a),
+      end: () => undefined,
+      say: (text) => said.push(text),
+      leftovers: () => Promise.resolve(running),
+      pollMs: 10,
+    });
+
+    assert.equal(await activity.turnEnded(0), false);
+    assert.equal(reports.at(-1)?.state, 'waiting');
+
+    running = [];
+    await new Promise((r) => setTimeout(r, 50));
+    assert.deepEqual(said, [detachedExited([TRAIN])]);
+    assert.match(said[0]!, /`python train.py`/);
+    assert.equal(reports.at(-1)?.state, 'working');
+    assert.deepEqual(reports.at(-1)?.background, []);
+
+    // The turn that follows ends the run, now that nothing is left.
+    activity.turnStarted();
+    assert.equal(await activity.turnEnded(0), true);
     activity.dispose();
   });
 
-  test('thinking is not a turn when no wake is expected', () => {
+  test('a detached process keeps the start time it was first seen with', async () => {
+    let scans = 0;
     const reports: RunActivity[] = [];
-    const activity = new SessionActivity(
-      (a) => reports.push(a),
-      () => undefined,
-    );
-    activity.jobsChanged([{ task_id: 'a1', description: 'background subagent' }]);
-    activity.turnEnded(0);
-    activity.thinking();
-    assert.equal(reports.at(-1)?.state, 'waiting');
+    const activity = new SessionActivity({
+      report: (a) => reports.push(a),
+      end: () => undefined,
+      say: () => undefined,
+      leftovers: () => {
+        scans += 1;
+        return Promise.resolve([
+          { id: 'pid:7', description: 'job', tracked: false, startedAt: `scan ${scans}` },
+        ]);
+      },
+    });
+    await activity.turnEnded(0);
+    activity.turnStarted();
+    await activity.turnEnded(0);
     activity.dispose();
+
+    assert.equal(scans, 2);
+    assert.equal(reports.at(-1)?.background[0]?.startedAt, 'scan 1');
   });
 });

@@ -15,6 +15,7 @@ import type { AgentQuestion } from '@bonsai/shared';
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
 import { Inbox, SessionActivity } from './session.js';
+import { RUN_MARKER } from '../jobs/leftovers.js';
 
 /**
  * D15: the Claude Agent SDK, not the raw API -- the same harness as Claude Code,
@@ -32,7 +33,12 @@ export class ClaudeSdkRunner implements AgentRunner {
     if (spec.signal.aborted) return;
     const controller = new AbortController();
     const inbox = new Inbox();
-    const session = new SessionActivity(spec.onActivity, () => inbox.close());
+    const session = new SessionActivity({
+      report: spec.onActivity,
+      end: () => inbox.close(),
+      say: (text) => inbox.send(text),
+      leftovers: spec.backgroundLeftovers,
+    });
     let live: SessionQuery | null = null;
 
     // Stop: the jobs it started are stopped through the harness first, which
@@ -58,8 +64,10 @@ export class ClaudeSdkRunner implements AgentRunner {
       // Which tools may run, and who decides. See `permissionOptions`.
       ...permissionOptions(spec),
       // A key stored in Settings reaches the subprocess here rather than being
-      // written into this process's environment.
-      ...(spec.agentEnv === null ? {} : { env: { ...process.env, ...spec.agentEnv } }),
+      // written into this process's environment. The run's marker rides along
+      // into everything the agent starts, detached processes included, which
+      // is how Bonsai finds work the harness is not tracking (D43).
+      env: { ...process.env, ...spec.agentEnv, [RUN_MARKER]: spec.runId },
       ...(spec.model === null ? {} : { model: spec.model }),
 
       // Bonsai's own instructions only. Without this the SDK would also load
@@ -186,7 +194,7 @@ export class ClaudeSdkRunner implements AgentRunner {
           yield usageEvent(message);
           // D43: the end of a turn is the end of the run only when nothing it
           // started is still running.
-          if (session.turnEnded(message.queued_turn_count ?? 0)) inbox.close();
+          if (await session.turnEnded(message.queued_turn_count ?? 0)) inbox.close();
         }
       }
     } catch (err) {

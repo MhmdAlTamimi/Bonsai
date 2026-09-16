@@ -1,4 +1,4 @@
-import type { AgentQuestion, RunActivity } from '@bonsai/shared';
+import type { AgentQuestion, BackgroundJob, RunActivity } from '@bonsai/shared';
 
 /**
  * D14e: agent invocation sits behind one interface, so swapping the model or
@@ -93,6 +93,12 @@ export interface RunSpec {
    * the agent is idle is exactly when the interface most needs to hear.
    */
   onActivity: (activity: RunActivity) => void;
+  /**
+   * Processes this run started that the harness is not tracking -- detached
+   * with nohup, setsid or a trailing & -- and that are still running. Found by
+   * the run's marker, so the runner stays unaware of how (D43).
+   */
+  backgroundLeftovers: () => Promise<BackgroundJob[]>;
 }
 
 /** Questions the agent wants answered, exactly as it asked them. */
