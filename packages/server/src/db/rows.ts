@@ -1,5 +1,5 @@
 import { join, resolve, sep } from 'node:path';
-import type { NodeStatus, PermissionMode } from '@bonsai/shared';
+import type { NodeStatus, PermissionMode, RunEndReason } from '@bonsai/shared';
 
 import type { LineageNode } from '../domain/lineage.js';
 
@@ -66,6 +66,14 @@ export interface ProjectRow {
 }
 
 /** What a finished run reports. Cost is an estimate at list price, not a bill. */
+/** How a run ended: its status, and why (D45). */
+export interface RunEnd {
+  status: 'done' | 'cancelled' | 'failed';
+  reason: RunEndReason;
+  /** A failure's message. Null for everything else. */
+  error: string | null;
+}
+
 export interface RunTotals {
   cost: number;
   inputTokens: number;
@@ -79,6 +87,10 @@ export interface RunTotals {
   commitSha?: string | null;
   /** The node's cumulative change against its base, as of this run. */
   stat?: { files: number; insertions: number; deletions: number } | null;
+  /** This run's own change: its commit against the one before. */
+  change?: { files: number; insertions: number; deletions: number } | null;
+  /** Jobs and processes still running that had to be stopped when it ended. */
+  stoppedBackground?: number;
   /** The tool names the agent was offered. See the schema for why it is kept. */
   toolsOffered?: readonly string[] | null;
   toolCalls?: number;

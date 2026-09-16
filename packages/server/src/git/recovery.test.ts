@@ -122,7 +122,11 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     const node = store.getNode(masterNodeId)!;
     await writeFile(join(node.worktree_path, 'new.py'), 'x = 1\n', 'utf8');
 
-    const prompt = resumePrompt(await readWorktreeState(node.worktree_path), 'build a CLI');
+    const prompt = resumePrompt(
+      await readWorktreeState(node.worktree_path),
+      'build a CLI',
+      'app_closed',
+    );
     assert.match(prompt, /new\.py/);
     assert.match(prompt, /did not exist before/);
     assert.match(prompt, /build a CLI/);
@@ -135,7 +139,11 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     const node = store.getNode(masterNodeId)!;
     await writeFile(join(node.worktree_path, 'cli.py'), 'print(2)\n', 'utf8');
 
-    const prompt = resumePrompt(await readWorktreeState(node.worktree_path), 'change it');
+    const prompt = resumePrompt(
+      await readWorktreeState(node.worktree_path),
+      'change it',
+      'stopped',
+    );
     assert.match(prompt, /```diff/);
     assert.match(prompt, /print\(2\)/);
   });
@@ -143,9 +151,34 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
   test('a clean worktree resumes from the beginning instead of pretending', async () => {
     const { masterNodeId } = await project();
     const node = store.getNode(masterNodeId)!;
-    const prompt = resumePrompt(await readWorktreeState(node.worktree_path), 'build a CLI');
+    const prompt = resumePrompt(
+      await readWorktreeState(node.worktree_path),
+      'build a CLI',
+      'app_closed',
+    );
     assert.match(prompt, /nothing you did was saved/);
     assert.match(prompt, /start again from the beginning/);
+  });
+
+  test('the agent is told what actually happened, and never that a finished run was interrupted', async () => {
+    const { masterNodeId } = await project();
+    const node = store.getNode(masterNodeId)!;
+    await writeFile(join(node.worktree_path, 'results.csv'), 'loss\n0.1\n', 'utf8');
+    const state = await readWorktreeState(node.worktree_path);
+
+    assert.match(resumePrompt(state, 'train', 'stopped'), /The user stopped your previous run/);
+    assert.match(
+      resumePrompt(state, 'train', 'failed', 'rate limited'),
+      /failed before it finished, with this error: rate limited/,
+    );
+    assert.match(resumePrompt(state, 'train', 'app_closed'), /Bonsai closed/);
+
+    const after = resumePrompt(state, 'train', 'changed_after_finish');
+    assert.doesNotMatch(after, /interrupted|stopped before/i);
+    assert.match(after, /changed after it ended/);
+    assert.match(after, /results\.csv/);
+    assert.match(after, /Review these changes/);
+    assert.match(after, /train/);
   });
 
   test('discard removes untracked files as well as reverting tracked ones', async () => {
@@ -221,7 +254,11 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     // The work survived, and resume is told about it rather than guessing.
     const state = await readWorktreeState(node.worktree_path);
     assert.deepEqual(state.untracked, ['feature.py']);
-    const prompt = resumePrompt(state, store.lastUserPrompt(nodeId)!);
+    const run = store.listRuns(nodeId).at(-1)!;
+    assert.equal(run.endReason, 'app_closed', 'recorded as the app closing, not as a failure');
+    assert.equal(run.error, null);
+    const prompt = resumePrompt(state, store.lastUserPrompt(nodeId)!, 'app_closed');
+    assert.match(prompt, /Bonsai closed while your previous run was in progress/);
     assert.match(prompt, /feature\.py/);
     assert.match(prompt, /add a feature/, 'the original request must survive the restart');
   });

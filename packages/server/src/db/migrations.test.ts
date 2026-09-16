@@ -72,6 +72,9 @@ describe('schema migrations', () => {
       'stat_files',
       'stat_insertions',
       'stat_deletions',
+      'run_files',
+      'end_reason',
+      'stopped_background',
     ]) {
       assert.ok(columns.includes(added), `missing ${added}`);
     }
@@ -87,6 +90,39 @@ describe('schema migrations', () => {
     };
     assert.equal(row.cost, 0.5);
     assert.ok(existsSync(`${file}.v1.backup`), 'a backup must be written before migrating');
+    db.close();
+  });
+
+  test('runs that ended before end reasons existed are given one', () => {
+    // A v13 database: every column but the ones version 14 adds.
+    const db = new DatabaseSync(':memory:');
+    db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE run (id TEXT PRIMARY KEY, status TEXT NOT NULL, error TEXT);`);
+    db.prepare(`INSERT INTO meta VALUES ('schema_version', '13')`).run();
+    const insert = db.prepare(`INSERT INTO run (id, status, error) VALUES (?, ?, ?)`);
+    insert.run('done', 'done', null);
+    insert.run('stopped', 'cancelled', 'cancelled by the user');
+    insert.run('failed', 'failed', 'rate limited');
+    insert.run('closed', 'failed', 'the app exited while this run was in flight');
+    insert.run('live', 'running', null);
+
+    runMigrations(db);
+    const reasons = Object.fromEntries(
+      (
+        db.prepare(`SELECT id, end_reason FROM run`).all() as unknown as Array<{
+          id: string;
+          end_reason: string | null;
+        }>
+      ).map((r) => [r.id, r.end_reason]),
+    );
+    assert.deepEqual(reasons, {
+      done: 'finished',
+      stopped: 'stopped',
+      failed: 'failed',
+      closed: 'app_closed',
+      // Still running: its reason is written when it ends.
+      live: null,
+    });
     db.close();
   });
 

@@ -346,10 +346,23 @@ export interface AgentQuestion {
   }>;
 }
 
+/**
+ * Why a run ended (D45). Recovery is worded by this, because the four need
+ * different words: "you stopped this run" is not "Bonsai closed while it was
+ * working", and neither is an error.
+ */
+export type RunEndReason = 'finished' | 'stopped' | 'failed' | 'app_closed';
+
 export interface RunView {
   id: string;
   nodeId: string;
   status: RunStatus;
+  /** Null while the run is still going. */
+  endReason: RunEndReason | null;
+  /** Background jobs and detached processes that were still running and had to be stopped. */
+  stoppedBackground: number;
+  /** What this run alone changed, against the commit before it. Null when it committed nothing. */
+  change: { files: number; added: number; removed: number } | null;
   startedAt: string;
   endedAt: string | null;
   inputTokens: number;
@@ -384,6 +397,7 @@ export interface RunView {
   toolCalls: number;
   /** Wall-clock, in milliseconds. Null for runs recorded before this existed. */
   durationMs: number | null;
+  /** What went wrong, for a failed run. Stops and app exits say so through `endReason`. */
   error: string | null;
 }
 

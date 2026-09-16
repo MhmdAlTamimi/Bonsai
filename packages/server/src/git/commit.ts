@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
+import { parentSnapshot } from './diff.js';
 
 /** D22/D28: a single human-readable record, written by the agent, committed by the app. */
 export const CONTEXT_FILE = 'CONTEXT.md';
@@ -22,6 +23,8 @@ export interface CommitOutcome {
    * twice. Null when the run committed nothing.
    */
   stat: DiffStat | null;
+  /** What this commit alone changed, against the commit before it. */
+  ownStat: DiffStat | null;
 }
 
 export interface DiffStat {
@@ -66,7 +69,14 @@ export async function commitRunOutput(opts: {
 
   if (changed.length === 0) {
     await revertContextFile(worktreePath, entries);
-    return { committed: false, commit: null, branch: null, changedPaths: [], stat: null };
+    return {
+      committed: false,
+      commit: null,
+      branch: null,
+      changedPaths: [],
+      stat: null,
+      ownStat: null,
+    };
   }
 
   /**
@@ -109,6 +119,7 @@ export async function commitRunOutput(opts: {
     // it while building the tree view would mean shelling out per node on
     // every refetch, which happens after every run of every sibling.
     stat: opts.baseCommit == null ? null : await diffStat(worktreePath, opts.baseCommit, commit),
+    ownStat: await diffStat(worktreePath, await parentSnapshot(worktreePath, commit), commit),
   };
 }
 

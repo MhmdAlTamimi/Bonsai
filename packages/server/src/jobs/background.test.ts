@@ -124,7 +124,11 @@ describe('a run waiting for background work', () => {
 
     const run = store.listRuns(nodeId)[0]!;
     assert.equal(run.status, 'done');
+    assert.equal(run.endReason, 'finished');
+    assert.equal(run.stoppedBackground, 1, 'the training job it stopped is counted');
     assert.notEqual(run.commitSha, null, 'the results were committed');
+    // This run's own change: results.csv, and the CONTEXT.md written for it.
+    assert.deepEqual(run.change, { files: 2, added: run.change!.added, removed: 0 });
     assert.equal(store.getNode(nodeId)!.status, 'ready');
     assert.equal(jobs.activity(nodeId), null, 'nothing is live once the run is over');
     const transcript = store
@@ -147,8 +151,17 @@ describe('a run waiting for background work', () => {
 
     assert.equal(jobs.activeCount(), 0);
     assert.equal(store.listRuns(nodeId)[0]!.status, 'cancelled');
+    assert.equal(store.listRuns(nodeId)[0]!.endReason, 'stopped');
+    assert.equal(store.listRuns(nodeId)[0]!.error, null, 'a stop is not an error');
     assert.equal(store.getNode(nodeId)!.head_commit, before, 'a stopped run commits nothing');
     assert.equal(jobs.activity(nodeId), null);
+  });
+
+  test('a run cut off by the app closing is recorded as that, not as a stop', async () => {
+    jobs.start(nodeId, 'train the model');
+    await runner.waiting;
+    await jobs.drain();
+    assert.equal(store.listRuns(nodeId)[0]!.endReason, 'app_closed');
   });
 
   test('there is nothing to finish when nothing is running', () => {

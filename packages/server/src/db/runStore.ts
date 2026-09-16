@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { RunView } from '@bonsai/shared';
 
-import { now, parseStringArray, type RunTotals } from './rows.js';
+import { now, parseStringArray, type RunEnd, type RunTotals } from './rows.js';
 
 /**
  * Runs: one agent request, from start to whatever ended it.
@@ -20,26 +20,24 @@ export class RunStore {
       .run(runId, nodeId, now());
   }
 
-  finish(
-    runId: string,
-    status: 'done' | 'cancelled' | 'failed',
-    error: string | null,
-    totals: RunTotals,
-  ): void {
+  finish(runId: string, end: RunEnd, totals: RunTotals): void {
     this.db
       .prepare(
-        `UPDATE run SET status = ?, ended_at = ?, error = ?, cost = ?,
+        `UPDATE run SET status = ?, end_reason = ?, ended_at = ?, error = ?, cost = ?,
                         input_tokens = ?, output_tokens = ?,
                         cache_read_tokens = ?, cache_creation_tokens = ?, model = ?,
                         api_key_source = ?, commit_sha = ?, tools_offered = ?,
                         tool_calls = ?, duration_ms = ?, stat_files = ?,
-                        stat_insertions = ?, stat_deletions = ?
+                        stat_insertions = ?, stat_deletions = ?,
+                        run_files = ?, run_added = ?, run_removed = ?,
+                        stopped_background = ?
          WHERE id = ?`,
       )
       .run(
-        status,
+        end.status,
+        end.reason,
         now(),
-        error,
+        end.error,
         totals.cost,
         totals.inputTokens,
         totals.outputTokens,
@@ -56,6 +54,10 @@ export class RunStore {
         totals.stat?.files ?? null,
         totals.stat?.insertions ?? null,
         totals.stat?.deletions ?? null,
+        totals.change?.files ?? null,
+        totals.change?.insertions ?? null,
+        totals.change?.deletions ?? null,
+        totals.stoppedBackground ?? 0,
         runId,
       );
   }
@@ -77,6 +79,16 @@ export class RunStore {
       id: r['id'] as string,
       nodeId: r['node_id'] as string,
       status: r['status'] as RunView['status'],
+      endReason: (r['end_reason'] as RunView['endReason']) ?? null,
+      stoppedBackground: Number(r['stopped_background'] ?? 0),
+      change:
+        r['run_files'] == null
+          ? null
+          : {
+              files: Number(r['run_files']),
+              added: Number(r['run_added'] ?? 0),
+              removed: Number(r['run_removed'] ?? 0),
+            },
       startedAt: r['started_at'] as string,
       endedAt: (r['ended_at'] as string | null) ?? null,
       inputTokens: Number(r['input_tokens'] ?? 0),
@@ -217,15 +229,23 @@ export class RunStore {
     };
   }
 
-  /** D31: any run still marked running at startup died with the process. */
+  /**
+   * D31: any run still marked running at startup died with the process.
+   *
+   * Its end reason says so (D45) rather than an error message: the run did
+   * not fail, Bonsai stopped existing underneath it.
+   */
   markOrphanedInterrupted(): number {
     const runs = this.db
       .prepare(`SELECT id, node_id FROM run WHERE status = 'running'`)
       .all() as unknown as Array<{ id: string; node_id: string }>;
     for (const run of runs) {
       this.db
-        .prepare(`UPDATE run SET status = 'failed', ended_at = ?, error = ? WHERE id = ?`)
-        .run(now(), 'the app exited while this run was in flight', run.id);
+        .prepare(
+          `UPDATE run SET status = 'failed', end_reason = 'app_closed', ended_at = ?, error = NULL
+           WHERE id = ?`,
+        )
+        .run(now(), run.id);
       this.db.prepare(`UPDATE node SET status = 'interrupted' WHERE id = ?`).run(run.node_id);
     }
     return runs.length;
