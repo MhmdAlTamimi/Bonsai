@@ -1,9 +1,7 @@
-import { type JSX, useEffect, useState } from 'react';
-import type { DiffView, MessageView, RunView } from '@bonsai/shared';
+import { type JSX, useState } from 'react';
+import type { MessageView, RunView } from '@bonsai/shared';
 
-import { describeError } from '../../api/describeError.ts';
-import { api } from '../../api/client.ts';
-import { Diff } from './Diff.tsx';
+import { Icon } from '../../Icon.tsx';
 import { Markdown } from './Markdown.tsx';
 import { ToolCalls } from './ToolCalls.tsx';
 import { relativeTime, exactTime } from './time.ts';
@@ -33,8 +31,11 @@ export function Transcript({
   running,
   waiting = false,
   onProjectSettings,
+  onViewRunChanges,
 }: {
   onProjectSettings?: () => void;
+  /** Opens the Changes tab on one run's own changes. */
+  onViewRunChanges?: (runId: string) => void;
   messages: readonly MessageView[];
   runs: readonly RunView[];
   /** Live deltas the persisted transcript has not caught up with. */
@@ -81,6 +82,7 @@ export function Transcript({
                 runsById.get(group.runId ?? '')?.status === 'running')
             }
             waiting={waiting}
+            onViewChanges={onViewRunChanges}
           />
         ),
       )}
@@ -110,12 +112,14 @@ function Turn({
   pending,
   running,
   waiting,
+  onViewChanges,
 }: {
   group: Group;
   run: RunView | undefined;
   pending: readonly Delta[];
   running: boolean;
   waiting: boolean;
+  onViewChanges?: (runId: string) => void;
 }): JSX.Element {
   const prompt = group.messages.find((m) => m.role === 'user');
   const body: MessageView[] = [
@@ -171,7 +175,9 @@ function Turn({
         )}
       </div>
 
-      {!collapsed && !running && run !== undefined && <TurnFoot run={run} />}
+      {!collapsed && !running && run !== undefined && (
+        <TurnFoot run={run} onViewChanges={onViewChanges} />
+      )}
     </article>
   );
 }
@@ -222,7 +228,13 @@ function segment(messages: readonly MessageView[]): Part[] {
  * used to render "answered - no commit" the moment the agent produced its first
  * message, which is a plain lie about a run that is still working.
  */
-function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
+function TurnFoot({
+  run,
+  onViewChanges,
+}: {
+  run: RunView;
+  onViewChanges?: (runId: string) => void;
+}): JSX.Element | null {
   if (run.status === 'running') return null;
 
   if (run.status === 'failed' || run.status === 'cancelled') {
@@ -252,7 +264,29 @@ function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
           Answered without file changes
         </span>
       ) : (
-        <RunDiff runId={run.id} />
+        /*
+         * What this run changed, in one line, and the way to read it -- in the
+         * Changes tab, scoped to this run. The conversation used to expand the
+         * whole diff here, repeating what the Changes tab is for.
+         */
+        <button
+          className="linkish turn-changes"
+          disabled={onViewChanges === undefined}
+          onClick={() => onViewChanges?.(run.id)}
+        >
+          {run.change === null ? (
+            'Files changed'
+          ) : (
+            <>
+              {run.change.files} file{run.change.files === 1 ? '' : 's'}
+              <span className="added">+{run.change.added}</span>
+              <span className="removed">−{run.change.removed}</span>
+            </>
+          )}
+          <span className="turn-changes-go">
+            View changes <Icon name="chevronRight" />
+          </span>
+        </button>
       )}
       <span className="turn-stats">
         {seconds !== null && <span title="Wall-clock time for this run">{seconds}s</span>}
@@ -264,54 +298,6 @@ function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
         {run.model !== null && <span className="turn-model">{run.model}</span>}
       </span>
     </footer>
-  );
-}
-
-function RunDiff({ runId }: { runId: string }): JSX.Element {
-  const [diff, setDiff] = useState<DiffView | null>(null);
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [retry, setRetry] = useState(0);
-
-  useEffect(() => {
-    if (!open) return;
-    setDiff(null);
-    setError(null);
-    let alive = true;
-    void api
-      .runDiff(runId)
-      .then((d) => alive && setDiff(d))
-      .catch((e: unknown) => {
-        if (alive) setError(describeError(e));
-      });
-    return () => {
-      alive = false;
-    };
-  }, [open, runId, retry]);
-
-  return (
-    <>
-      <button className="turn-diff-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span>{' '}
-        {diff === null
-          ? 'Changes from this run'
-          : `Changes from this run · ${diff.files.length} file(s)`}
-      </button>
-      {open &&
-        diff === null &&
-        (error === null ? (
-          <p role="status">Loading run changes…</p>
-        ) : (
-          <p className="error" role="alert">
-            {error} <button onClick={() => setRetry((n) => n + 1)}>Retry run changes</button>
-          </p>
-        ))}
-      {open && diff !== null && (
-        <div className="turn-diff">
-          <Diff patch={diff.patch} dirty={diff.dirty} />
-        </div>
-      )}
-    </>
   );
 }
 

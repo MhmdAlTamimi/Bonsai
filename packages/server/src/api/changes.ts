@@ -90,7 +90,7 @@ export async function runChanges(
     summary: {
       scope: 'run',
       runId,
-      baseLabel: range === null ? 'This run changed no files' : 'The code just before this run',
+      baseLabel: 'The code just before this run',
       totals: totalsOf(files),
       files,
       uncommitted: [],

@@ -2,6 +2,9 @@ import type {
   AdoptProjectRequest,
   ChildPreviewView,
   AnswerQuestionRequest,
+  ChangedFilePatchView,
+  ChangeScope,
+  ChangeSummaryView,
   ConnectionStatus,
   CreateProjectRequest,
   DeletionImpactView,
@@ -140,7 +143,24 @@ export const api = {
       snapshot: boolean;
     }>('/api/projects/adopt', { method: 'POST', body: JSON.stringify(body) }),
 
+  /** An experiment's whole patch as text. For Copy patch only; reading goes file by file. */
   diff: (nodeId: string) => json<NodeDiffView>(`/api/nodes/${nodeId}/diff`),
+
+  /** What an experiment changed, file by file, with what is not committed yet. */
+  nodeChanges: (nodeId: string, signal?: AbortSignal) =>
+    json<ChangeSummaryView>(`/api/nodes/${nodeId}/changes`, { signal }),
+
+  /** What one run's own commit changed, file by file. */
+  runChanges: (runId: string, signal?: AbortSignal) =>
+    json<ChangeSummaryView>(`/api/runs/${runId}/changes`, { signal }),
+
+  /** One file's patch, from the change it belongs to. */
+  changedFile: (nodeId: string, scope: ChangeScope, path: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ path });
+    if (scope.kind === 'run') query.set('run', scope.runId);
+    if (scope.kind === 'uncommitted') query.set('uncommitted', '1');
+    return json<ChangedFilePatchView>(`/api/nodes/${nodeId}/changes/file?${query}`, { signal });
+  },
 
   runDiff: (runId: string) => json<DiffView>(`/api/runs/${runId}/diff`),
 

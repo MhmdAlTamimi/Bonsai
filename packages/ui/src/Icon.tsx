@@ -23,6 +23,13 @@ const paths = {
   arrowDown: 'M12 5v14M6 13l6 6 6-6',
   home: 'M4 11 12 4l8 7M6 10v9h12v-9',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
+  // Diff windows (D44).
+  chevronLeft: 'm15 6-6 6 6 6',
+  chevronRight: 'm9 6 6 6-6 6',
+  maximize: 'M5 5h14v14H5Z',
+  restore: 'M8 8h11v11H8ZM5 16V5h11',
+  tile: 'M4 5h7v14H4ZM13 5h7v14h-7Z',
+  stack: 'M8 4h12v12H8ZM4 8v12h12',
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({ name }: { name: IconName }): JSX.Element {
