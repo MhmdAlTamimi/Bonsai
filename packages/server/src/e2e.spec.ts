@@ -872,6 +872,120 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const detail = (await (await fetch(nodeUrl)).json()) as { runs: Array<{ status: string }> };
     assert.equal(detail.runs.at(-1)?.status, 'cancelled');
   });
+  /**
+   * D42: the agent asks a question, and the run waits for the user.
+   *
+   * The reported bug, end to end, in the mode it was reported in. Under
+   * `acceptEdits` the agent's question used to return at once with no answer:
+   * nothing was shown, and the agent wrote "I'll wait" into a run that ended.
+   */
+  test('a question from the agent waits for an answer, or for the agent to decide', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'questions',
+          description: '',
+          location: dataDir,
+          permissionMode: 'acceptEdits',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const status = async (): Promise<string> =>
+      ((await (await fetch(nodeUrl)).json()) as { node: { status: string } }).node.status;
+    const conversation = "(document.querySelector('.conversation-content')?.textContent ?? '')";
+
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'choose: how should this be built?' }),
+    });
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.ask-choice')", {
+      label: 'the question box',
+    });
+
+    // It waits: the card says so, the composer gives way, and nothing is sent
+    // until the question has an answer.
+    assert.equal(await status(), 'needs_you');
+    assert.match(
+      String(
+        await session.eval(
+          `document.querySelector('[data-id="${created.masterNodeId}"] .chip')?.textContent`,
+        ),
+      ),
+      /Needs you/,
+    );
+    assert.equal(await session.eval("!!document.querySelector('.composer-row')"), false);
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.ask-choice button')).find(b => b.textContent === 'Send answer').disabled",
+      ),
+      true,
+    );
+    assert.match(
+      String(await session.eval("document.querySelector('.choice-text').textContent")),
+      /Which approach should I take\?/,
+    );
+    // "Other" is always offered, because the tool promises the agent it is.
+    assert.equal(await session.eval("!!document.querySelector('.choice-other-text')"), true);
+
+    // And it is still waiting after a reload: the question is server state.
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.ask-choice')");
+
+    // Choosing an option shows its preview.
+    await session.eval(
+      "Array.from(document.querySelectorAll('.choice-option')).find(l => l.textContent.includes('Make it configurable')).querySelector('input').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.choice-preview')?.textContent.includes('retries = 3')",
+    );
+    // Typing an answer of your own replaces it.
+    await session.type('.choice-other-text', 'Use the existing pipeline');
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.choice-option')).find(l => l.textContent.includes('Make it configurable')).querySelector('input').checked",
+      ),
+      false,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-agent-question.png'));
+    await session.eval(
+      "Array.from(document.querySelectorAll('.ask-choice button')).find(b => b.textContent === 'Send answer').click()",
+    );
+
+    // The answer reached the agent, which carried on and finished.
+    await session.waitFor(
+      `!document.querySelector('.ask-choice') && ${conversation}.includes('You chose: Use the existing pipeline.')`,
+      { timeoutMs: 20000 },
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+    );
+    // What was asked, and what was answered, are in the conversation.
+    const text = String(await session.eval(conversation));
+    assert.match(text, /The agent asked: Which approach should I take\?/);
+    assert.match(text, /Which approach should I take\? → Use the existing pipeline/);
+
+    // Leaving it to the agent: it decides, says what it decided, and finishes.
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'choose: and this one?' }),
+    });
+    await session.waitFor("!!document.querySelector('.ask-choice')");
+    await session.eval(
+      "Array.from(document.querySelectorAll('.ask-choice button')).find(b => b.textContent === 'Let the agent decide').click()",
+    );
+    await session.waitFor(
+      `!document.querySelector('.ask-choice') && ${conversation}.includes('Nobody chose, so I decided') && ${conversation}.includes('Left the decision to the agent.')`,
+      { timeoutMs: 20000 },
+    );
+    await session.waitFor("!!document.querySelector('.composer-row')");
+  });
+
   test('initial connection and project failures offer retry instead of an empty canvas', async () => {
     const script = (await session.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `window.__failConnection = true; window.__failProjects = true; const nativeFetch = window.fetch; window.fetch = (url, init) => (window.__failConnection && String(url) === '/api/connection') || (window.__failProjects && String(url) === '/api/projects') ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable fixture' }), { status: 503 })) : nativeFetch(url, init);`,

@@ -2139,3 +2139,22 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .scope { grid-template-columns: minmax(0, 1fr); }
   .scope dd { margin-bottom: var(--s2); }
 }
+
+/* D42: a question the agent asked. The same box as a permission prompt -- same
+   Needs you colour, same place -- because to the user it is the same event;
+   only the answer differs. Options are native radios and checkboxes laid out
+   as rows you can hit anywhere on, and "Other" is always the last row. */
+.ask-choice { gap: var(--s3); }
+.choice-question { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.choice-question legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); padding: 0; margin-bottom: var(--s2); }
+.choice-text { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.choice-options { display: flex; flex-direction: column; gap: var(--s1); }
+.choice-option { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s2); align-items: baseline; padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); cursor: pointer; }
+.choice-option:hover { border-color: var(--control-line); }
+.choice-option:has(input:checked) { border-color: var(--focus); background: var(--accent-soft); }
+.choice-option input[type="radio"], .choice-option input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.choice-label { color: var(--text); overflow-wrap: anywhere; }
+.choice-description { grid-column: 2; color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.choice-other-text { grid-column: 2; margin-top: var(--s1); width: 100%; min-width: 0; }
+.choice-preview { margin: 0; padding: var(--s2) var(--s3); max-height: 12rem; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); font: var(--fs-code)/1.5 var(--mono); white-space: pre; }
+.choice-question:disabled .choice-option { cursor: default; opacity: .7; }
