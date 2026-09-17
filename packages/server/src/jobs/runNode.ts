@@ -831,15 +831,20 @@ export class RunJobs {
               text: event.text,
             });
             break;
-          case 'tool':
+          case 'tool': {
             toolCalls += 1;
             seq += 1;
+            const tool = {
+              name: event.name,
+              detail: event.detail,
+              ...(event.id === undefined ? {} : { id: event.id }),
+            };
             this.store.appendMessage({
               nodeId,
               runId,
               role: 'assistant',
               kind: 'tool_use',
-              content: { name: event.name, detail: event.detail },
+              content: tool,
             });
             this.bus.publish(node.project_id, {
               type: 'run.delta',
@@ -847,7 +852,31 @@ export class RunJobs {
               runId,
               seq,
               text: `${event.name}: ${event.detail}`,
-              tool: { name: event.name, detail: event.detail },
+              tool,
+            });
+            break;
+          }
+          /**
+           * What the call produced, as its own message rather than an edit of
+           * the call's row: messages are append-only, and the conversation
+           * pairs the two by the tool's id when it draws the block.
+           */
+          case 'tool_result':
+            seq += 1;
+            this.store.appendMessage({
+              nodeId,
+              runId,
+              role: 'assistant',
+              kind: 'tool_result',
+              content: event.result,
+            });
+            this.bus.publish(node.project_id, {
+              type: 'run.delta',
+              nodeId,
+              runId,
+              seq,
+              text: '',
+              toolResult: event.result,
             });
             break;
           case 'model':

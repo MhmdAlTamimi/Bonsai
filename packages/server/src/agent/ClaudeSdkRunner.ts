@@ -15,6 +15,7 @@ import type { AgentQuestion } from '@bonsai/shared';
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
 import { Inbox, SessionActivity } from './session.js';
+import { toolResultFrom } from './toolResults.js';
 import { RUN_MARKER } from '../jobs/leftovers.js';
 
 /**
@@ -120,6 +121,9 @@ export class ClaudeSdkRunner implements AgentRunner {
     }
 
     let sessionAnnounced = false;
+    // Which tool each in-flight call was, so its result can be named when it
+    // comes back a message later.
+    const calledTools = new Map<string, string>();
 
     try {
       // D43: a stream, not a string, so the session outlives the first turn.
@@ -169,14 +173,35 @@ export class ClaudeSdkRunner implements AgentRunner {
             } else if (block.type === 'tool_use') {
               const detail = describeToolInput(block.input);
               if (main) session.toolStarted(block.id, block.name, detail);
-              yield { type: 'tool', name: block.name, detail };
+              calledTools.set(block.id, block.name);
+              yield { type: 'tool', name: block.name, detail, id: block.id };
             }
           }
         } else if (message.type === 'user') {
           const content = message.message.content;
           if (message.parent_tool_use_id === null && Array.isArray(content)) {
             for (const block of content) {
-              if (block.type === 'tool_result') session.toolFinished(block.tool_use_id);
+              if (block.type !== 'tool_result') continue;
+              session.toolFinished(block.tool_use_id);
+              /**
+               * What the tool actually did, from the harness's structured
+               * output rather than from the text handed to the model: the
+               * text is written for the agent to read and is truncated,
+               * re-worded and sometimes a placeholder.
+               */
+              const name = calledTools.get(block.tool_use_id);
+              const result =
+                name === undefined
+                  ? null
+                  : toolResultFrom(
+                      block.tool_use_id,
+                      name,
+                      block.is_error !== true,
+                      message.tool_use_result,
+                      spec.cwd,
+                    );
+              calledTools.delete(block.tool_use_id);
+              if (result !== null) yield { type: 'tool_result', result };
             }
           }
         } else if (message.type === 'result') {

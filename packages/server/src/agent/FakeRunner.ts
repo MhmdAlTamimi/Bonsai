@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentQuestion } from '@bonsai/shared';
+import type { AgentQuestion, ToolResultContent } from '@bonsai/shared';
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
 import { RUN_MARKER } from '../jobs/leftovers.js';
 
@@ -48,6 +48,27 @@ export const FAKE_QUESTION: AgentQuestion = {
  * has to get right -- a CONTEXT.md left behind by a no-op run would otherwise
  * ride into the next run's commit.
  */
+/** What the stand-in "ran": a few lines of output, the way a real command answers. */
+function ranOutput(id: string, command: string, lines: string[]): ToolResultContent {
+  return { toolUseId: id, name: 'Bash', ok: true, output: lines };
+}
+
+/** What the stand-in wrote, as the changed lines an EDIT block draws. */
+function wroteFile(id: string, path: string, body: string): ToolResultContent {
+  const lines = body.split('\n').filter((line) => line !== '');
+  return {
+    toolUseId: id,
+    name: 'Write',
+    ok: true,
+    edit: {
+      path,
+      added: lines.length,
+      removed: 0,
+      lines: lines.map((text, index) => ({ kind: 'add' as const, text, newLine: index + 1 })),
+    },
+  };
+}
+
 export class FakeRunner implements AgentRunner {
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     // Mirrors the real runner: a fork yields a NEW session id (the parent's is
@@ -119,8 +140,10 @@ export class FakeRunner implements AgentRunner {
 
     if (!question && refused === null) {
       const file = `notes/${slug(spec.prompt)}.md`;
-      await writeInside(spec.cwd, file, `# ${spec.prompt.trim()}\n\nWritten by FakeRunner.\n`);
-      yield { type: 'tool', name: 'Write', detail: file };
+      const body = `# ${spec.prompt.trim()}\n\nWritten by FakeRunner.\n`;
+      await writeInside(spec.cwd, file, body);
+      yield { type: 'tool', name: 'Write', detail: file, id: 'fake-write' };
+      yield { type: 'tool_result', result: wroteFile('fake-write', file, body) };
     }
 
     /**
@@ -145,7 +168,11 @@ export class FakeRunner implements AgentRunner {
       });
       shell.on('error', () => undefined);
       shell.unref();
-      yield { type: 'tool', name: 'Bash', detail: `nohup sleep ${seconds} &` };
+      yield { type: 'tool', name: 'Bash', detail: `nohup sleep ${seconds} &`, id: 'fake-detach' };
+      yield {
+        type: 'tool_result',
+        result: ranOutput('fake-detach', 'nohup', [`started a detached sleep ${seconds}`]),
+      };
       await abortableDelay(200, spec.signal);
       for (;;) {
         if (spec.signal.aborted || spec.finishNow.aborted) break;
@@ -165,7 +192,19 @@ export class FakeRunner implements AgentRunner {
     }
 
     if (spec.prompt.trimStart().toLowerCase().startsWith('background:')) {
-      yield { type: 'tool', name: 'Bash', detail: 'sleep (stand-in background job)' };
+      yield {
+        type: 'tool',
+        name: 'Bash',
+        detail: 'sleep (stand-in background job)',
+        id: 'fake-background',
+      };
+      yield {
+        type: 'tool_result',
+        result: ranOutput('fake-background', 'sleep', [
+          'running in the background',
+          'stand-in job · no real work',
+        ]),
+      };
       spec.onActivity({
         state: 'waiting',
         tool: null,
@@ -226,18 +265,17 @@ export class FakeRunner implements AgentRunner {
         : `\n## Testing\n\nRan \`${spec.verificationHint ?? 'the check'}\` — FakeRunner did not really run it.\n` +
           `Success criteria: ${spec.successCriteria ?? '(none given)'}\n`;
 
-    await writeInside(
-      spec.cwd,
-      'CONTEXT.md',
+    const context =
       `# Context\n\n${spec.prompt.trim()}\n\n${
         question
           ? 'Answered without changing code.'
           : refused === null
             ? 'Changed code.'
             : `Did not change code: ${refused}`
-      }\n${testing}`,
-    );
-    yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md' };
+      }\n` + testing;
+    await writeInside(spec.cwd, 'CONTEXT.md', context);
+    yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md', id: 'fake-context' };
+    yield { type: 'tool_result', result: wroteFile('fake-context', 'CONTEXT.md', context) };
 
     // D20: cost is captured per run from day one, even when it is fake.
     yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };

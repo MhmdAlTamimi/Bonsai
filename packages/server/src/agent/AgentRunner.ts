@@ -1,4 +1,4 @@
-import type { AgentQuestion, BackgroundJob, RunActivity } from '@bonsai/shared';
+import type { AgentQuestion, BackgroundJob, RunActivity, ToolResultContent } from '@bonsai/shared';
 
 /**
  * D14e: agent invocation sits behind one interface, so swapping the model or
@@ -133,7 +133,9 @@ export type PermissionDecision = { allow: true } | { allow: false; reason: strin
 
 export type RunEvent =
   | { type: 'text'; text: string }
-  | { type: 'tool'; name: string; detail: string }
+  | { type: 'tool'; name: string; detail: string; id?: string }
+  /** What a tool produced: a command's output, or an edit's changed lines. */
+  | { type: 'tool_result'; result: ToolResultContent }
   | { type: 'session'; sessionId: string }
   /** Which model the run is actually using, and which credential is paying. */
   | { type: 'model'; model: string; apiKeySource?: string; tools?: string[] }

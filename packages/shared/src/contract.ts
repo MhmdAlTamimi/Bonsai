@@ -408,6 +408,45 @@ export interface DiffView {
   dirty: string[];
 }
 
+/**
+ * What a tool call produced, kept for the two blocks the conversation draws:
+ * a command with its output, and an edit with its changed lines.
+ *
+ * Captured because a transcript that says only "Bash" and "Edit" cannot answer
+ * "what did it actually run, and what did that change?" -- which is the whole
+ * question a reader has. Trimmed at capture: a command that prints a megabyte
+ * is worth three lines and a count of the rest.
+ */
+export interface ToolDiffLine {
+  kind: 'add' | 'del' | 'context';
+  text: string;
+  /** Line numbers from the file's own patch; absent on the side that has none. */
+  oldLine?: number;
+  newLine?: number;
+}
+
+export interface ToolResultContent {
+  /** The tool call this answers, so the two halves can be drawn as one block. */
+  toolUseId: string;
+  /** Bash, Edit, Write — the tool that ran. */
+  name: string;
+  /** False when the tool reported an error. */
+  ok: boolean;
+  /** A command's output, oldest first and already trimmed. */
+  output?: string[];
+  /** Output lines left out of `output`. */
+  dropped?: number;
+  /** An edit or a write: which file, and what changed in it. */
+  edit?: {
+    path: string;
+    added: number;
+    removed: number;
+    lines: ToolDiffLine[];
+    /** True when more changed lines exist than are kept here. */
+    truncated?: boolean;
+  };
+}
+
 export interface MessageView {
   id: string;
   nodeId: string;
@@ -704,7 +743,9 @@ export type ServerEvent =
       runId: string;
       seq: number;
       text: string;
-      tool?: { name: string; detail: string };
+      tool?: { name: string; detail: string; id?: string };
+      /** What a tool produced, when this delta is a result rather than a call. */
+      toolResult?: ToolResultContent;
     }
   | { type: 'run.question'; nodeId: string; runId: string; questionId: string; text: string }
   /** At most about once a second per run, so a long command cannot flood the stream. */
