@@ -401,7 +401,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-2-panel.png'));
   });
 
-  test('each run’s changes are its own, and the tabs survive errors without implying a verdict', async () => {
+  test('root and multi-run results have distinct changes, visible errors and no implied verdict', async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {
         method: 'POST',
@@ -428,258 +428,116 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
       );
     }
-    const paths = async (url: string): Promise<string[]> =>
-      ((await (await fetch(url)).json()) as { files: Array<{ path: string }> }).files.map(
-        (f) => f.path,
-      );
-    assert.ok(
-      (await paths(`${BASE}/api/runs/${runIds[0]}/changes`)).includes('notes/first-change.md'),
-    );
-    assert.ok(
-      !(await paths(`${BASE}/api/runs/${runIds[1]}/changes`)).includes('notes/first-change.md'),
-    );
-    const combined = await paths(`${nodeUrl}/changes`);
+    const firstResponse = await fetch(`${BASE}/api/runs/${runIds[0]}/diff`);
+    assert.equal(firstResponse.status, 200);
+    const first = (await firstResponse.json()) as { files: string[] };
+    assert.ok(first.files.includes('notes/first-change.md'));
+    const second = (await (
+      await fetch(`${BASE}/api/runs/${runIds[1]}/diff`)
+    ).json()) as typeof first;
+    assert.ok(!second.files.includes('notes/first-change.md'));
+    const combined = (await (await fetch(`${nodeUrl}/diff`)).json()) as typeof first;
     for (const name of ['first', 'second', 'third'])
-      assert.ok(combined.includes(`notes/${name}-change.md`));
-
+      assert.ok(combined.files.includes(`notes/${name}-change.md`));
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.turn-changes')");
+    await session.waitFor("!!document.querySelector('.turn-diff-toggle')");
     assert.equal(
       await session.eval(
         "document.querySelector('.panel .st-ready').textContent.includes('Finished')",
       ),
       true,
     );
-    // The conversation says what a run changed in one line; it no longer
-    // expands a diff inline.
-    assert.equal(await session.eval("!!document.querySelector('.panel .dl')"), false);
-
-    // The Summary tab: checks and the latest run, no verdict implied.
-    await session.click(`#tab-${created.masterNodeId}-summary`);
-    await session.waitFor(
-      "document.querySelector('.results-panel').textContent.includes('No checks recorded for the latest run')",
-    );
-
-    // A failing change summary offers a retry and keeps the tab usable.
-    await session.eval(`(() => {
-      window.__originalFetch = window.fetch;
-      window.fetch = (url, init) => String(url).includes('/changes')
-        ? new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({error: 'fixture changes unavailable'}), {status: 503})), 250))
-        : window.__originalFetch(url, init);
-    })()`);
-    await session.click(`#tab-${created.masterNodeId}-changes`);
-    await session.waitFor(
-      "document.querySelector('.changes-tab')?.textContent.includes('Loading changes')",
-    );
-    await session.waitFor(
-      "document.querySelector('.changes-tab').textContent.includes('Retry changes')",
-    );
-    await session.eval('window.fetch = window.__originalFetch');
-    await session.eval(
-      "Array.from(document.querySelectorAll('.changes-tab button')).find(b => b.textContent === 'Retry changes').click()",
-    );
-    await session.waitFor(
-      "document.querySelector('.file-tree')?.textContent.includes('third-change.md')",
-    );
-    assert.match(
-      String(await session.eval("document.querySelector('.changes-base').textContent")),
-      /before this experiment/,
-    );
-
-    // Copy patch says so when the clipboard refuses.
-    await session.eval(
-      "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
-    );
-    await session.click('.changes-bar .copy-button');
-    await session.waitFor(
-      "document.querySelector('.changes-bar').textContent.includes('Could not copy')",
-    );
-    await session.eval('delete navigator.clipboard');
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-changes.png'));
-
-    // A run's chip opens Changes scoped to that run alone.
-    await session.click(`#tab-${created.masterNodeId}-conversation`);
-    await session.eval(
-      "document.querySelector('.turn-changes').scrollIntoView({ block: 'center' })",
-    );
-    await session.click('.turn-changes');
-    await session.waitFor(
-      `document.querySelector('.changes-scope')?.value === ${JSON.stringify(`run:${runIds[0]}`)} && document.querySelector('.file-tree')?.textContent.includes('first-change.md')`,
-    );
     assert.equal(
-      await session.eval(
-        "document.querySelector('.file-tree').textContent.includes('second-change.md')",
-      ),
+      await session.eval("document.querySelector('.panel .st-ready').textContent.includes('✓')"),
       false,
     );
-
-    // Uncommitted work is called out, and one click lists it.
     await session.eval(`(() => {
-      window.fetch = (url, init) => String(url).endsWith('/changes')
-        ? Promise.resolve(new Response(JSON.stringify({ scope: 'all', runId: null, baseLabel: 'Fixture base', totals: { files: 0, added: 0, removed: 0 }, files: [], uncommitted: [{ path: 'unfinished-new-file.txt', status: 'added', added: 2, removed: 0, binary: false, notes: false, untracked: true }] })))
+      window.__originalFetch = window.fetch;
+      window.fetch = (url, init) => String(url).endsWith('/diff')
+        ? new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({error: 'fixture diff unavailable'}), {status: 503})), 250))
         : window.__originalFetch(url, init);
     })()`);
-    // Identical summary requests within two seconds share one response, and
-    // this one must come from the fixture.
-    await new Promise((resolve) => setTimeout(resolve, 2_100));
-    await session.eval(`(() => {
-      const select = document.querySelector('.changes-scope');
-      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
-      setter.call(select, 'all');
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    })()`);
-    await session.waitFor(
-      "document.querySelector('.changes-uncommitted')?.textContent.includes('not committed')",
-    );
-    await session.eval("document.querySelector('.changes-uncommitted button').click()");
-    await session.waitFor(
-      "document.querySelector('.file-tree')?.textContent.includes('unfinished-new-file.txt')",
-    );
-    await session.eval('window.fetch = window.__originalFetch');
-  });
-
-  test('many changed files are a tree, and files open in windows over the map', async () => {
-    const created = (await (
-      await fetch(`${BASE}/api/projects`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'windows', description: '', location: dataDir }),
-      })
-    ).json()) as { projectId: string; masterNodeId: string };
-    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
-    await fetch(`${nodeUrl}/runs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt: 'many files: build the pipeline' }),
-    });
-    await session.waitFor(
-      `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
-      { timeoutMs: 20000 },
-    );
-    const sibling = (
-      (await (
-        await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            parentId: created.masterNodeId,
-            displayName: 'elsewhere',
-            description: '',
-          }),
-        })
-      ).json()) as { node: { id: string } }
-    ).node;
-
-    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.click(`#tab-${created.masterNodeId}-changes`);
-    await session.waitFor("document.querySelectorAll('.tree-row.file').length > 30", {
-      label: 'the file tree',
-    });
-    // Nothing opens by itself: no patch anywhere until a file is chosen.
-    assert.equal(await session.eval("document.querySelectorAll('.dl').length"), 0);
-    assert.equal(await session.eval("!!document.querySelector('.diff-window')"), false);
-
-    // A long list is filterable.
-    await session.type('.changes-filter', 'TABLE');
-    await session.waitFor(
-      "document.querySelectorAll('.tree-row.file').length === 1 && document.querySelector('.tree-row.file').textContent.includes('long table.csv')",
-    );
-    await session.type('.changes-filter', '');
-
-    const openFile = async (name: string): Promise<void> => {
-      await session.eval(
-        `Array.from(document.querySelectorAll('.tree-row.file')).find(r => r.querySelector('.tree-name').textContent === ${JSON.stringify(name)}).click()`,
-      );
-    };
-    await openFile('part 7.py');
-    await session.waitFor("document.querySelectorAll('.diff-window .dl').length > 5");
-    await openFile('long table.csv');
-    await session.waitFor("document.querySelectorAll('.diff-window').length === 2");
-    // A long file shows its first thousand lines, then offers the rest.
-    const longWindow =
-      "Array.from(document.querySelectorAll('.diff-window')).find(w => w.querySelector('.win-path').textContent.includes('long table.csv'))";
-    await session.waitFor(`${longWindow}.querySelectorAll('.dl').length === 1000`);
-    await session.eval(`${longWindow}.querySelector('.diff-more').click()`);
-    await session.waitFor(`${longWindow}.querySelectorAll('.dl').length === 1501`);
-    // Opening an open file brings it forward rather than a copy.
-    await openFile('part 7.py');
-    assert.equal(await session.eval("document.querySelectorAll('.diff-window').length"), 2);
-    await session.waitFor(
-      "document.querySelector('.diff-window.front .win-path')?.textContent.includes('part 7.py')",
-    );
-
-    const insideArea = `(() => {
-      const area = document.querySelector('.window-area').getBoundingClientRect();
-      return Array.from(document.querySelectorAll('.diff-window')).every(w => {
-        const r = w.getBoundingClientRect();
-        return r.left >= area.left - 1 && r.top >= area.top - 1 && r.right <= area.right + 1 && r.bottom <= area.bottom + 1;
-      });
-    })()`;
-    // Side by side: one row, and never over the experiment panel.
     await session.eval(
-      "Array.from(document.querySelectorAll('.window-bar button')).find(b => b.textContent.includes('Tile')).click()",
+      "document.querySelector('.turn-diff-toggle').scrollIntoView({ block: 'center' })",
+    );
+    await session.click('.turn-diff-toggle');
+    await session.waitFor(
+      "document.querySelector('.turn-diff-toggle').parentElement.textContent.includes('Loading run changes')",
     );
     await session.waitFor(
-      "(() => { const [a, b] = Array.from(document.querySelectorAll('.diff-window')).map(w => w.getBoundingClientRect()); return Math.abs(a.top - b.top) < 1 && Math.abs(a.left - b.left) > 100; })()",
+      "document.querySelector('.panel').textContent.includes('Retry run changes')",
     );
-    assert.equal(await session.eval(insideArea), true);
+    await session.click('.panel-tabs button:last-child');
+    await session.waitFor(
+      "document.querySelector('.experiment-changes').textContent.includes('Retry experiment changes')",
+    );
     assert.equal(
       await session.eval(
-        "Array.from(document.querySelectorAll('.diff-window')).every(w => w.getBoundingClientRect().right <= document.querySelector('.panel').getBoundingClientRect().left)",
+        "document.querySelector('.results-panel').textContent.includes('No checks recorded for the latest run')",
       ),
       true,
     );
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-windows-tiled.png'));
-
-    // Dragged far past the edge, a window stays on the map.
-    await session.dragTo('.diff-window .win-path', { x: 5000, y: 5000 });
-    assert.equal(await session.eval(insideArea), true);
-
-    // ] reads the next file in the same window; Esc closes it.
-    await session.eval("document.querySelector('.diff-window.front').focus()");
-    const frontPath = "document.querySelector('.diff-window.front .win-jump').value";
-    const before = String(await session.eval(frontPath));
-    await session.send('Input.dispatchKeyEvent', { type: 'keyDown', key: ']', text: ']' });
-    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: ']' });
-    await session.waitFor(`${frontPath} !== ${JSON.stringify(before)}`);
-    await session.send('Input.dispatchKeyEvent', {
-      type: 'keyDown',
-      key: 'Escape',
-      code: 'Escape',
-    });
-    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
-    await session.waitFor("document.querySelectorAll('.diff-window').length === 1");
-
-    // Windows belong to their experiment: hidden when another is selected,
-    // back where they were on returning.
-    await session.click(`[data-id="${sibling.id}"]`);
-    await session.waitFor(
-      "document.querySelector('.panel h2')?.textContent === 'elsewhere' && !document.querySelector('.diff-window')",
+    await session.eval('window.fetch = window.__originalFetch');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent.includes('Retry experiment')).click()",
     );
-    await session.click(`[data-id="${created.masterNodeId}"]`);
-    await session.waitFor("document.querySelectorAll('.diff-window').length === 1");
-
-    // A narrow window has no room to float: the file fills the screen instead.
-    try {
-      await session.send('Emulation.setDeviceMetricsOverride', {
-        width: 800,
-        height: 760,
-        deviceScaleFactor: 1,
-        mobile: false,
-      });
-      await session.waitFor("!!document.querySelector('.diff-viewer-full .dl')");
-      assert.equal(
-        await session.eval(
-          "(() => { const r = document.querySelector('.diff-viewer-full').getBoundingClientRect(); return r.width === window.innerWidth && r.height === window.innerHeight; })()",
-        ),
-        true,
-      );
-      await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-narrow-viewer.png'));
-      await session.click('.diff-viewer-full button[aria-label="Close window"]');
-      await session.waitFor("!document.querySelector('.diff-viewer-full')");
-    } finally {
-      await session.send('Emulation.clearDeviceMetricsOverride', {});
-    }
+    await session.waitFor(
+      "document.querySelector('.experiment-changes').textContent.includes('notes/third-change.md')",
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.comparison-base').textContent.includes('before this experiment')",
+      ),
+      true,
+    );
+    await session.eval(
+      "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
+    );
+    await session.eval(
+      "document.querySelector('.results-panel .diff-copy').scrollIntoView({block: 'center'})",
+    );
+    await session.click('.results-panel .diff-copy');
+    await session.waitFor(
+      "document.querySelector('.results-panel .diff').textContent.includes('Could not copy the patch')",
+    );
+    await session.eval('delete navigator.clipboard');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.results-panel button')).find(b => b.textContent === 'Expand changes').click()",
+    );
+    await session.waitFor("!!document.querySelector('dialog[open] .dl-number')");
+    assert.equal(
+      await session.eval(
+        "document.querySelector('dialog').getBoundingClientRect().width > document.querySelector('.panel').getBoundingClientRect().width",
+      ),
+      true,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-3-expanded-changes.png'));
+    await session.click('dialog header button');
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-3-results.png'));
+    await session.click('.panel-tabs button:first-child');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.panel button')).find(b => b.textContent === 'Retry run changes').click()",
+    );
+    await session.waitFor("!!document.querySelector('.turn-diff .diff-file')");
+    await session.click('.panel-tabs button:last-child');
+    await session.eval(`(() => {
+      window.fetch = (url, init) => String(url).endsWith('/diff')
+        ? Promise.resolve(new Response(JSON.stringify({ files: [], patch: '', dirty: ['unfinished-new-file.txt'], baseLabel: 'fixture base' })))
+        : window.__originalFetch(url, init);
+    })()`);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent === 'Refresh changes').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.diff-dirty')?.textContent.includes('unfinished-new-file.txt')",
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.results-panel').textContent.includes('No committed changes in this comparison')",
+      ),
+      true,
+    );
+    await session.eval('window.fetch = window.__originalFetch');
   });
 
   test('partial work remains visible after Keep and Discard requires confirmation', async () => {
@@ -706,11 +564,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const cancelled = await fetch(`${nodeUrl}/cancel`, { method: 'POST' });
     assert.equal(cancelled.ok, true);
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.panel > .recover .recover-files button')");
-    // The files are reviewed in the Changes tab, not as a patch in the notice.
-    await session.click('.recover-files button');
-    await session.waitFor(
-      "document.querySelector('.changes-scope')?.value === 'uncommitted' && Array.from(document.querySelectorAll('.tree-row.file')).some(r => r.textContent.includes('new'))",
+    await session.waitFor("!!document.querySelector('.panel > .recover .partial-review')");
+    await session.click('.partial-review summary');
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.partial-review').textContent.includes('untracked')",
+      ),
+      true,
     );
     // D45: it says what happened -- the user stopped it -- not "interrupted".
     assert.match(

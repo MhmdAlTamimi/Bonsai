@@ -1,27 +1,11 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
-import type {
-  ChangedFile,
-  ChangeScope,
-  NodeDetail,
-  NodeView,
-  ProjectView,
-  RunActivity,
-  RunView,
-} from '@bonsai/shared';
+import type { NodeDetail, NodeView, ProjectView, RunActivity, RunView } from '@bonsai/shared';
 
 import { NextRunInfo } from './NextRunInfo.tsx';
 import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
-import { ChangesTab } from './changes/ChangesTab.tsx';
-import {
-  changesMayHaveChanged,
-  sameScope,
-  scopeLabel,
-  useChangeRevision,
-} from './changes/useChanges.ts';
-import { useWindows, windowsKey } from '../state/useWindows.ts';
-import { openWindow } from '../state/windows.ts';
+import { ExperimentChanges } from './node/ExperimentChanges.tsx';
 import { Checks } from './node/Checks.tsx';
 import { RenameDialog } from './node/RenameDialog.tsx';
 import { Checkout } from './node/Checkout.tsx';
@@ -140,15 +124,12 @@ function NodePanel({
   visible: boolean;
   narrow: boolean;
 }): JSX.Element {
-  const [view, setView] = useState<PanelView>('conversation');
-  // A tab is mounted the first time it is shown and then kept, so switching
-  // back does not refetch or lose a scroll position.
-  const [seen, setSeen] = useState<ReadonlySet<PanelView>>(() => new Set(['conversation']));
-  const changeView = (next: PanelView): void => {
+  const [view, setView] = useState<'conversation' | 'results'>('conversation');
+  const [resultsSeen, setResultsSeen] = useState(false);
+  const changeView = (next: 'conversation' | 'results'): void => {
     setView(next);
-    setSeen((prev) => (prev.has(next) ? prev : new Set([...prev, next])));
+    if (next === 'results') setResultsSeen(true);
   };
-  const [changesScope, setChangesScope] = useState<ChangeScope>({ kind: 'all' });
   const [renaming, setRenaming] = useState(false);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -163,8 +144,6 @@ function NodePanel({
   const changed = (): void => {
     if (!mounted.current) return;
     setRevision((n) => n + 1);
-    // Recovery can discard or keep files without the node's status saying so.
-    changesMayHaveChanged();
     onChanged();
   };
   const [error, setError] = useState<string | null>(null);
@@ -198,23 +177,6 @@ function NodePanel({
   }, [node.id, node.status, revision, streamRevision]);
 
   const runs = detail?.runs ?? [];
-  const changeRevision = useChangeRevision(node);
-  const { windows, change: changeWindows } = useWindows(windowsKey(node.projectId, node.id));
-  const openFile = (file: ChangedFile): void =>
-    changeWindows((state, area) =>
-      openWindow(
-        state,
-        { path: file.path, scope: changesScope, scopeLabel: scopeLabel(changesScope, runs) },
-        area,
-      ),
-    );
-  const openPaths = new Set(
-    windows.list.filter((w) => sameScope(w.scope, changesScope)).map((w) => w.path),
-  );
-  const viewRunChanges = (runId: string): void => {
-    setChangesScope({ kind: 'run', runId });
-    changeView('changes');
-  };
   // Only a running node is doing anything. A pushed value can outlive its run
   // by a moment, and the tree's copy by a refetch.
   const activity = node.status === 'running' ? (liveActivity ?? node.activity) : null;
@@ -290,10 +252,6 @@ function NodePanel({
             busy={actions.busy}
             partialWork={detail?.partialWork ?? null}
             onRecover={(action) => void actions.recover(action)}
-            onReview={() => {
-              setChangesScope({ kind: 'uncommitted' });
-              changeView('changes');
-            }}
           />
         )}
 
@@ -305,7 +263,7 @@ function NodePanel({
        * reply box you stop using.
        */}
       <div className="panel-tabs" role="tablist" aria-label="Experiment view">
-        {PANEL_VIEWS.map((tab, index) => (
+        {(['conversation', 'results'] as const).map((tab, index) => (
           <button
             key={tab}
             role="tab"
@@ -317,27 +275,20 @@ function NodePanel({
             onKeyDown={(e) => {
               if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
                 e.preventDefault();
-                const last = PANEL_VIEWS.length - 1;
                 const next =
-                  PANEL_VIEWS[
-                    e.key === 'Home'
-                      ? 0
-                      : e.key === 'End'
-                        ? last
-                        : (index + (e.key === 'ArrowRight' ? 1 : last)) % PANEL_VIEWS.length
-                  ]!;
+                  e.key === 'Home'
+                    ? 'conversation'
+                    : e.key === 'End'
+                      ? 'results'
+                      : index === 0
+                        ? 'results'
+                        : 'conversation';
                 changeView(next);
                 document.getElementById(`tab-${node.id}-${next}`)?.focus();
               }
             }}
           >
-            {tab === 'conversation'
-              ? 'Conversation'
-              : tab === 'changes'
-                ? node.diffStat === null
-                  ? 'Changes'
-                  : `Changes (${node.diffStat.files})`
-                : 'Summary'}
+            {tab === 'conversation' ? 'Conversation' : 'Results & changes'}
           </button>
         ))}
       </div>
@@ -394,54 +345,33 @@ function NodePanel({
               running={chat.running}
               waiting={activity?.state === 'waiting'}
               onProjectSettings={onProjectSettings}
-              onViewRunChanges={viewRunChanges}
             />
           )}
         </div>
       </div>
 
       <div
-        className="panel-body changes-panel"
-        hidden={view !== 'changes'}
-        role="tabpanel"
-        id={`view-${node.id}-changes`}
-        aria-labelledby={`tab-${node.id}-changes`}
-      >
-        {seen.has('changes') && (
-          <ChangesTab
-            node={node}
-            runs={runs}
-            scope={changesScope}
-            revision={`${changeRevision}:${revision}:${runs.length}`}
-            openPaths={openPaths}
-            onScope={setChangesScope}
-            onOpen={openFile}
-          />
-        )}
-      </div>
-
-      <div
         className="panel-body results-panel"
-        hidden={view !== 'summary'}
+        hidden={view !== 'results'}
         role="tabpanel"
-        id={`view-${node.id}-summary`}
-        aria-labelledby={`tab-${node.id}-summary`}
+        id={`view-${node.id}-results`}
+        aria-labelledby={`tab-${node.id}-results`}
       >
-        {seen.has('summary') && (
+        {resultsSeen && (
           <>
             {detailError !== null && detail !== null && (
               <p className="error" role="alert">
-                Summary may be out of date. {detailError}{' '}
-                <button onClick={() => setRevision((n) => n + 1)}>Retry summary</button>
+                Results may be out of date. {detailError}{' '}
+                <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
               </p>
             )}
             {detail === null ? (
               detailError === null ? (
-                <p role="status">Loading summary…</p>
+                <p role="status">Loading results…</p>
               ) : (
                 <p className="error" role="alert">
                   {detailError}{' '}
-                  <button onClick={() => setRevision((n) => n + 1)}>Retry summary</button>
+                  <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
                 </p>
               )
             ) : (
@@ -454,6 +384,10 @@ function NodePanel({
                 <Lineage lineage={detail.lineage} />
               </>
             )}
+            <ExperimentChanges
+              node={node}
+              revision={`${revision}:${runs.at(-1)?.id ?? ''}:${runs.at(-1)?.status ?? ''}`}
+            />
             <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
 
             {detail?.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
@@ -514,10 +448,6 @@ function NodePanel({
     </aside>
   );
 }
-
-/** The panel's three views of one experiment. */
-const PANEL_VIEWS = ['conversation', 'changes', 'summary'] as const;
-type PanelView = (typeof PANEL_VIEWS)[number];
 
 /** The latest run in one line, by why it ended (D45) -- or what it is doing. */
 function latestRunOutcome(run: RunView | undefined, activity: RunActivity | null): string {

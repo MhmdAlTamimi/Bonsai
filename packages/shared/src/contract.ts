@@ -402,55 +402,6 @@ export interface RunView {
   error: string | null;
 }
 
-/**
- * One changed file, as the Changes tab lists it. Counts and a status, never
- * the patch: a summary of a thousand-file change is small, and the patch for
- * one file is fetched only when someone opens it.
- */
-export type ChangeStatus = 'added' | 'modified' | 'deleted' | 'renamed';
-
-export interface ChangedFile {
-  path: string;
-  /** Where a renamed file came from. */
-  oldPath?: string;
-  status: ChangeStatus;
-  added: number;
-  removed: number;
-  binary: boolean;
-  /** CONTEXT.md: the agent's notes about the work, not part of the project's code. */
-  notes: boolean;
-  /** A new file git is not tracking yet. Only ever true for uncommitted changes. */
-  untracked?: boolean;
-}
-
-export interface ChangeSummaryView {
-  /** Every run's committed work together, or one run's own commit. */
-  scope: 'all' | 'run';
-  runId: string | null;
-  /** What the files are compared with, in words. */
-  baseLabel: string;
-  totals: { files: number; added: number; removed: number };
-  files: ChangedFile[];
-  /**
-   * Files changed in the experiment's folder and not committed. Filled for the
-   * whole experiment; empty for one run, and for your own folder, whose
-   * uncommitted work is yours rather than an experiment's.
-   */
-  uncommitted: ChangedFile[];
-}
-
-/** Which changes a single file is being read from. */
-export type ChangeScope =
-  { kind: 'all' } | { kind: 'run'; runId: string } | { kind: 'uncommitted' };
-
-export interface ChangedFilePatchView {
-  file: ChangedFile;
-  /** This one file's unified diff. */
-  patch: string;
-  /** True when the patch was too large and only its beginning is here. */
-  truncated: boolean;
-}
-
 export interface DiffView {
   files: string[];
   patch: string;

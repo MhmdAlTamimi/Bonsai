@@ -7,7 +7,6 @@ import { resolveRunSettings } from '../jobs/runSettings.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   AnswerQuestionRequest,
-  ChangeScope,
   CreateNodeRequest,
   CreateProjectRequest,
   NodeDetail,
@@ -43,13 +42,6 @@ import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
 import { rejectPath } from '../git/seedWorktree.js';
 import { checkoutFor } from './checkout.js';
-import {
-  changedFilePatch,
-  experimentBaseLabel,
-  experimentChanges,
-  experimentRange,
-  runChanges,
-} from './changes.js';
 import { discardWorktreeChanges, readWorktreeState } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection } from './connectionGate.js';
@@ -708,47 +700,30 @@ route('GET', '/api/nodes/:id/messages', (req, res, params, { store }) => {
   sendJson(res, 200, store.listMessages(row.id, Number.isFinite(afterSeq) ? afterSeq : 0));
 });
 
-/**
- * An experiment's whole patch at once. Kept for "Copy patch" only: reading
- * goes through the change summary and one file at a time.
- */
 route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  const range = await experimentRange(store, row);
-  const diff =
-    range === null
-      ? await nodeDiff(row.worktree_path, row.head_commit ?? 'HEAD', false)
-      : await nodeDiff(row.worktree_path, range.base, true, range.head);
-  sendJson(res, 200, { ...diff, baseLabel: experimentBaseLabel(store, row) });
-});
-
-/** What an experiment changed, file by file: counts and statuses, no patches. */
-route('GET', '/api/nodes/:id/changes', async (_req, res, params, { store }) => {
-  const row = store.getNode(params['id']!);
-  if (row === undefined) throw new HttpError(404, 'no such node');
-  sendJson(res, 200, await experimentChanges(store, row));
-});
-
-/**
- * One changed file's patch. `run` reads it from that run's commit, and
- * `uncommitted=1` from the experiment's folder; neither means the whole
- * experiment. The path must be part of that change.
- */
-route('GET', '/api/nodes/:id/changes/file', async (req, res, params, { store }) => {
-  const row = store.getNode(params['id']!);
-  if (row === undefined) throw new HttpError(404, 'no such node');
-  const query = new URL(req.url ?? '/', 'http://localhost').searchParams;
-  const path = query.get('path');
-  if (path === null || path === '') throw new HttpError(400, 'path is required');
-  const runId = query.get('run');
-  const scope: ChangeScope =
-    query.get('uncommitted') === '1'
-      ? { kind: 'uncommitted' }
-      : runId !== null && runId !== ''
-        ? { kind: 'run', runId }
-        : { kind: 'all' };
-  sendJson(res, 200, await changedFilePatch(store, row, scope, path));
+  const first = store.listRuns(row.id).find((run) => run.commitSha !== null);
+  const base =
+    row.base_commit ??
+    (first?.commitSha != null
+      ? await parentSnapshot(row.worktree_path, first.commitSha)
+      : row.head_commit);
+  if (base === null) throw new HttpError(400, 'No starting code snapshot is available.');
+  const diff = await nodeDiff(
+    row.worktree_path,
+    base,
+    row.parent_id === null ? first !== undefined : row.head_commit !== null,
+    row.head_commit ?? base,
+  );
+  const source = store.lineageOf(row).codeFrom;
+  sendJson(res, 200, {
+    ...diff,
+    baseLabel:
+      row.parent_id === null
+        ? 'The code before this experiment’s first modifying run'
+        : `The inherited code snapshot from ${source?.displayName ?? 'its source experiment'}`,
+  });
 });
 
 // -- runs --------------------------------------------------------------------
@@ -892,12 +867,7 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
   }
 });
 
-/** What one run's own commit changed, file by file. */
-route('GET', '/api/runs/:id/changes', async (_req, res, params, { store }) => {
-  sendJson(res, 200, (await runChanges(store, params['id']!)).summary);
-});
-
-/** One run's whole patch, for "Copy patch". */
+/** The diff a single run produced, so the conversation can show it in place. */
 route('GET', '/api/runs/:id/diff', async (_req, res, params, { store }) => {
   const run = store.getRun(params['id']!);
   if (run === undefined) throw new HttpError(404, 'no such run');

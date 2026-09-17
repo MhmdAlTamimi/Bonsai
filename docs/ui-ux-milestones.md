@@ -17,7 +17,7 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Accepted by owner; merged and pushed |
 | 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Accepted; merged and pushed as `55332e8` |
 | 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Accepted; merged locally as `4061c1f` |
-| 7. Review changes clearly, and runs that end when the work ends | `codex/milestone-7-changes-and-runs` | Owner feedback, D43–D45 | Phase 1 accepted; phase 2 ready for owner review |
+| 7. Review changes clearly, and runs that end when the work ends | `codex/milestone-7-changes-and-runs` | Owner feedback, D43–D45 | Phase 1 implemented; ready for owner review |
 
 ## Milestone 1 review
 
@@ -283,9 +283,9 @@ Nothing is pushed. The owner reviews each phase before the next one starts.
 
 | Phase | What | State |
 | --- | --- | --- |
-| 1. Runs end when the work ends | D43, D45: waiting for background work, Finish now, leftover processes, end reasons, recovery by cause | Accepted by owner; fixes, if any, later |
-| 2. Changes and branching | Conversation · Changes · Summary tabs, a file tree, floating in-app diff windows (D44), per-run change chips, branch from ⋯ and a clickable `+` | Implemented; ready for owner review |
-| 3. Conversation and summary | Collapsible long prompts, run history and agent notes in Summary | Not started |
+| 1. Runs end when the work ends | D43, D45: waiting for background work, Finish now, leftover processes, end reasons, recovery by cause | Implemented; ready for owner review |
+| 2. Changes | Conversation · Changes · Summary tabs, a file tree, floating in-app diff windows (D44) | Not started |
+| 3. Conversation and branching | Per-run change chips, collapsible prompts, Summary tab, branch from ⋯ and a clickable `+` | Not started |
 
 ### Phase 1 — what to look at
 
@@ -316,36 +316,3 @@ start something and press Stop, and check the notice reads "You stopped this run
 Verified against the real SDK with `scripts/probe-agent-runs.mjs` (paid, opt-in): a tracked job keeps the run open
 and wakes the agent; Finish now ends it in seconds; Stop leaves no process; a job detached inside a script is found,
 waited for, and reported to the agent. No dependencies were added.
-
-### Phase 2 — what to look at
-
-- **Three tabs.** Conversation · **Changes (N)** · Summary. Summary is what Results & changes held apart from the
-  diffs: the latest run, checks, lineage, details and Use outside Bonsai.
-- **Changes is a tree, and nothing opens by itself (D44).** Folders carry their files' counts, a chain of single
-  folders is one row (`src/components/forms`), each file has a status letter (A, M, D, R) and `+/−`, `CONTEXT.md`
-  is tagged **notes**, and new untracked files **new**. Above 15 files there is a filter. The arrow keys walk the
-  tree; Enter opens a file or folds a folder. The scope menu switches between **All changes**, **Run N**, and
-  **Not committed yet** — and when files are not committed, a line above the tree says so, with **Show them**.
-  **Copy patch** copies the whole change.
-- **Files open in windows over the map, inside the app.** Click several to read them side by side. Drag a window by
-  its title bar, resize it from any edge, minimise, maximise, or close it; double-click the title to maximise.
-  **Tile side by side**, **Stack** and **Close all** sit above the map. A file already open comes forward instead of
-  opening twice, and a fifth window replaces the oldest. Inside a window: previous / next, **Jump to file**,
-  **Copy path** and **Copy patch**. A long file shows 1,000 lines, then **Show more**. Keys: Esc closes, `[` `]`
-  move between files, Ctrl/Cmd+Shift+`[` `]` cycle windows. Windows stay on the map when the window is resized, and
-  never cover the panel.
-- **Windows belong to their experiment.** Select another experiment and they disappear; come back and they are where
-  you left them. Below 900px wide, an open file fills the screen until you close it.
-- **The conversation no longer repeats the diff.** Each run that changed files ends with one line —
-  `3 files +20 −5 · View changes` — which opens Changes on that run alone. The first-four auto-expanded files are
-  gone, and so is the expanded-diff dialog.
-- **Branching without the panel button.** The full-width Branch experiment button is gone. Use **⋯ → Branch
-  experiment…**, or click the **+** under a card on the map (or Tab to it and press Enter). Dragging the + onto the
-  map still places the new experiment where you drop it.
-- **Recovery links to the files.** The notice says how many files are not saved and offers **Review them**, which
-  opens Changes on what is not committed — rather than a patch inside the notice.
-
-Try: an experiment with many changed files (the chunking one, or the stand-in with a request starting `many files:`);
-open three files, tile them, drag one past the edge of the map, then select another experiment and come back. Open
-a run's **View changes** from the conversation. Narrow the window below 900px with a file open. Branch from ⋯ and
-from a card's +. Restart with `npm start` so backend and interface match. No dependencies were added.

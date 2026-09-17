@@ -9,7 +9,6 @@ import { useSelection } from './state/selection.ts';
 import { useConnection } from './state/useConnection.ts';
 import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
-import { WindowLayer } from './panel/changes/WindowLayer.tsx';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
 import { useWorkspaceView } from './state/useWorkspaceView.ts';
@@ -286,7 +285,6 @@ export function App(): JSX.Element {
               }}
               onBranch={child.begin}
             />
-            <WindowLayer projectId={projectId} node={selected} narrow={view.narrow} />
           </div>
 
           {showSettings && settings !== null && (

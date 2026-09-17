@@ -16,7 +16,6 @@ export function Recovery({
   isYourFolder,
   busy,
   onRecover,
-  onReview,
 }: {
   node: NodeView;
   runs: readonly RunView[];
@@ -24,8 +23,6 @@ export function Recovery({
   isYourFolder: boolean;
   busy: boolean;
   onRecover: (action: RecoverAction) => void;
-  /** Shows the uncommitted files in the Changes tab, where any of them can be opened. */
-  onReview: () => void;
 }): JSX.Element {
   const canRun = useCanRun();
   const changed = partialWork?.changed ?? [];
@@ -53,14 +50,18 @@ export function Recovery({
       ) : changed.length === 0 ? (
         <p className="hint">{words.files}</p>
       ) : (
-        // The files themselves are read in the Changes tab, one window each,
-        // rather than as one long patch inside this notice.
-        <p className="hint recover-files">
-          {words.files}{' '}
-          <button className="linkish" onClick={onReview}>
-            Review {changed.length === 1 ? 'it' : 'them'}
-          </button>
-        </p>
+        <details className="partial-review">
+          <summary>{words.files}</summary>
+          <ul>
+            {changed.map((path) => (
+              <li key={path}>
+                {path}
+                {partialWork?.untracked.includes(path) ? ' (new, untracked)' : ''}
+              </li>
+            ))}
+          </ul>
+          {partialWork?.patch && <pre className="stream">{partialWork.patch}</pre>}
+        </details>
       )}
       <div className="row">
         <button

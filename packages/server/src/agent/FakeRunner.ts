@@ -37,8 +37,7 @@ export const FAKE_QUESTION: AgentQuestion = {
  * Plus prefixes for paths that need a user in the loop: "choose:" asks a
  * question (D42); "background:" leaves a tracked job running after its turn,
  * and "detach:" a process started the way `nohup … &` starts one, so the run
- * waits for either (D43). "many files:" writes a few dozen files across nested
- * folders, which is what reviewing a large change needs (D44).
+ * waits for either (D43).
  *
  * That single rule is enough to exercise the emergent model end to end: the
  * same creation flow produces a node with a branch or a node without one, and
@@ -122,25 +121,6 @@ export class FakeRunner implements AgentRunner {
       const file = `notes/${slug(spec.prompt)}.md`;
       await writeInside(spec.cwd, file, `# ${spec.prompt.trim()}\n\nWritten by FakeRunner.\n`);
       yield { type: 'tool', name: 'Write', detail: file };
-    }
-
-    if (
-      !question &&
-      refused === null &&
-      spec.prompt.trimStart().toLowerCase().startsWith('many files:')
-    ) {
-      for (let i = 1; i <= 36; i += 1) {
-        const file = `src/module-${Math.ceil(i / 6)}/part ${i}.py`;
-        const body = Array.from({ length: i * 3 }, (_, line) => `value_${line} = ${line * i}`);
-        await writeInside(spec.cwd, file, `${body.join('\n')}\n`);
-      }
-      // One long file, so reading past the first thousand lines is reachable.
-      await writeInside(
-        spec.cwd,
-        'data/generated/long table.csv',
-        Array.from({ length: 1_500 }, (_, row) => `${row},${row * row}`).join('\n') + '\n',
-      );
-      yield { type: 'tool', name: 'Write', detail: '37 files' };
     }
 
     /**
