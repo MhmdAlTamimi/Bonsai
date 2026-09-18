@@ -45,7 +45,7 @@ export class Views {
     const stats = this.runs.statsByNode(projectId);
     const costs = this.runs.costsByNode(projectId);
     const rows = this.nodes.list(projectId);
-    const lastRuns = this.runs.latestStatusByNode(projectId);
+    const lastRuns = this.runs.latestEndReasonByNode(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
       if (row.parent_id === null) continue;
@@ -70,7 +70,7 @@ export class Views {
         // is what makes the canvas triageable at a glance.
         summaryLine: question?.text ?? row.description,
         status: row.status,
-        lastRunStatus: lastRuns.get(row.id) ?? null,
+        lastRunEndReason: lastRuns.get(row.id) ?? null,
         ...flags,
         // An adopted project's master worktree IS the user's own folder, on
         // their own branch. Nothing Bonsai does may write there, so master is
@@ -91,6 +91,7 @@ export class Views {
         // Filled in by the router from the jobs runner. The store knows about
         // the tree, not about what this process happens to be doing with it.
         queuePosition: null,
+        activity: null,
         createdAt: row.created_at,
       } satisfies NodeView;
     });
@@ -108,6 +109,9 @@ export class Views {
       sourcePath: row.source_path,
       workDir: row.work_dir ?? '',
       workPath: row.source_path === null ? null : workDirIn(row.source_path, row.work_dir),
+      // Only the user's own repository has a branch worth naming: an adopted
+      // project sits on theirs, and a created one has only node branches (D33).
+      branchLabel: row.source_kind === 'adopted' ? row.protected_branch : null,
       setup: {
         copyFiles: parseStringArray(row.copy_files) ?? [],
         setupCommand: row.setup_command,

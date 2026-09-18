@@ -2,7 +2,29 @@ import type { JSX } from 'react';
 import type { NodeDetail, NodeView } from '@bonsai/shared';
 import { Markdown } from '../chat/Markdown.tsx';
 
-/** Goals and attributed evidence, without inventing a pass/fail verdict. */
+/**
+ * What this experiment was for.
+ *
+ * A property of the node rather than part of the conversation, so it is read
+ * with the node's other facts and not between two messages.
+ */
+export function Goal({ detail }: { detail: NodeDetail | null }): JSX.Element | null {
+  if (detail === null) return null;
+  return (
+    <section className="checks" aria-label="Goal">
+      <h3>Goal</h3>
+      <p>{detail.successCriteria ?? 'No success criteria were provided.'}</p>
+      {detail.verificationHint !== null && (
+        <>
+          <h3>Requested verification</h3>
+          <p>{detail.verificationHint}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Attributed evidence, without inventing a pass/fail verdict. */
 export function Checks({
   node,
   detail,
@@ -15,15 +37,7 @@ export function Checks({
   const source = detail.testingSource;
   const current = source !== null && !source.inherited && !source.predatesLatestRun;
   return (
-    <section className="checks results-checks" aria-label="Goal and recorded checks">
-      <h3>Goal</h3>
-      <p>{detail.successCriteria ?? 'No success criteria were provided.'}</p>
-      {detail.verificationHint !== null && (
-        <details className="disclosure">
-          <summary>Requested verification</summary>
-          <p>{detail.verificationHint}</p>
-        </details>
-      )}
+    <section className="checks results-checks" aria-label="Recorded checks">
       <h3>Recorded checks</h3>
       {!current && (
         <p className="hint">

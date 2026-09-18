@@ -1,38 +1,29 @@
-import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
-import type { NodeDetail, NodeView, ProjectView } from '@bonsai/shared';
+import { type JSX, useEffect, useRef, useState } from 'react';
+import type { NodeDetail, NodeView, ProjectView, RunActivity } from '@bonsai/shared';
 
-import { NextRunInfo } from './NextRunInfo.tsx';
-import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
-import { ExperimentChanges } from './node/ExperimentChanges.tsx';
-import { Checks } from './node/Checks.tsx';
-import { RenameDialog } from './node/RenameDialog.tsx';
-import { Checkout } from './node/Checkout.tsx';
-import { Details } from './node/Details.tsx';
-import { Lineage } from './node/Lineage.tsx';
-import { Recover } from './node/Recover.tsx';
+import { Recovery } from './node/Recovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
-import { StatusChip } from '../nodeStatus.tsx';
+import { nodeStatusTitle } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
+import { ActivityStrip } from './chat/ActivityStrip.tsx';
 import { Composer } from './chat/Composer.tsx';
 import { Transcript } from './chat/Transcript.tsx';
-import { StopButton } from '../state/RunControls.tsx';
 import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
 import type { Delta } from './chat/liveMerge.ts';
-import { useDismiss } from '../useDismiss.ts';
 
 /** One selected experiment: fixed identity/actions, reading area, and composer. */
 export function Panel({
   project,
   node,
   stream,
+  liveActivity,
   streamRevision,
   onProjectSettings,
   onHide,
   onChanged,
-  onCreateChild,
   startError,
   onRunStarted,
   visible,
@@ -42,12 +33,12 @@ export function Panel({
   project: ProjectView | null;
   node: NodeView | null;
   stream: readonly Delta[];
+  /** The newest pushed activity for this node, fresher than the tree's copy. */
+  liveActivity: RunActivity | null;
   streamRevision: number;
   onProjectSettings: () => void;
   onHide: () => void;
   onChanged: () => void;
-  /** Opens the one create-a-child dialog. See NewChildDialog. */
-  onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
   /**
@@ -64,7 +55,9 @@ export function Panel({
     return (
       <aside className="panel empty">
         <p className="muted">Select an experiment to see its conversation.</p>
-        <p className="hint">Drag out of an experiment&rsquo;s handle to branch a new one.</p>
+        <p className="hint">
+          Click an experiment&rsquo;s + on the map to branch a new one, or drag it out to place it.
+        </p>
       </aside>
     );
   }
@@ -75,13 +68,13 @@ export function Panel({
       project={project}
       node={node}
       stream={stream}
+      liveActivity={liveActivity}
       streamRevision={streamRevision}
       onHide={onHide}
       visible={visible}
       narrow={narrow}
       onProjectSettings={onProjectSettings}
       onChanged={onChanged}
-      onCreateChild={onCreateChild}
       startError={startError}
       onRunStarted={onRunStarted}
     />
@@ -92,11 +85,11 @@ function NodePanel({
   project,
   node,
   stream,
+  liveActivity,
   streamRevision,
   onProjectSettings,
   onHide,
   onChanged,
-  onCreateChild,
   startError,
   onRunStarted,
   visible,
@@ -105,23 +98,16 @@ function NodePanel({
   project: ProjectView | null;
   node: NodeView;
   stream: readonly Delta[];
+  liveActivity: RunActivity | null;
   streamRevision: number;
   onProjectSettings: () => void;
   onHide: () => void;
   onChanged: () => void;
-  onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
   visible: boolean;
   narrow: boolean;
 }): JSX.Element {
-  const [view, setView] = useState<'conversation' | 'results'>('conversation');
-  const [resultsSeen, setResultsSeen] = useState(false);
-  const changeView = (next: 'conversation' | 'results'): void => {
-    setView(next);
-    if (next === 'results') setResultsSeen(true);
-  };
-  const [renaming, setRenaming] = useState(false);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -138,7 +124,7 @@ function NodePanel({
     onChanged();
   };
   const [error, setError] = useState<string | null>(null);
-  const actions = useNodeActions(node, changed, setError);
+  const actions = useNodeActions(changed, setError);
   const chat = useChat(
     node,
     stream,
@@ -168,12 +154,15 @@ function NodePanel({
   }, [node.id, node.status, revision, streamRevision]);
 
   const runs = detail?.runs ?? [];
+  // Only a running node is doing anything. A pushed value can outlive its run
+  // by a moment, and the tree's copy by a refetch.
+  const activity = node.status === 'running' ? (liveActivity ?? node.activity) : null;
   const reading = useReadingPosition(
     `${node.projectId}:${node.id}`,
     chat.loaded && detail !== null,
-    // Both conditions, because both take the layout box away: the other tab is
-    // showing, or the whole panel is off screen behind the map.
-    visible && view === 'conversation',
+    // A hidden panel has no layout box, and a scroll position does not survive
+    // losing one, so the thread restores itself when it comes back.
+    visible,
     `${chat.messages.length}:${chat.pending.length}:${streamRevision}`,
   );
 
@@ -184,49 +173,60 @@ function NodePanel({
    */
   const isYourFolder = node.frozenReason === 'your_folder';
 
-  const branchButton = (
-    <button className="branch-child" onClick={() => onCreateChild(node)}>
-      <Icon name="plus" /> Branch experiment
-    </button>
-  );
+  const source = detail?.lineage.codeFrom?.displayName ?? null;
 
   return (
     <aside className="panel">
-      <header>
+      {/*
+       * Identity on the right, controls on the left: the name is what you
+       * read, and it sits against the edge the panel is docked to, so the eye
+       * finds it in the same place whatever the width.
+       */}
+      <header className="panel-head">
+        <button
+          className="collapse"
+          aria-label={narrow ? 'Back to map' : 'Collapse the conversation'}
+          title={narrow ? 'Back to map' : 'Collapse the conversation (⌘\\)'}
+          onClick={onHide}
+        >
+          <span aria-hidden="true">›</span>
+          <span className="collapse-bar" aria-hidden="true" />
+        </button>
+        <div className="spacer" />
+        <span className="node-dot" title={nodeStatusTitle(node)} aria-hidden="true" />
         <h2 title={node.displayName}>{node.displayName}</h2>
-        <div className="header-right">
-          <button
-            className="hide-panel"
-            aria-label={narrow ? 'Back to map' : 'Hide experiment panel'}
-            title={narrow ? 'Back to map' : 'Hide this panel and show the whole map'}
-            onClick={onHide}
-          >
-            <Icon name="close" />
-          </button>
-          {/* A node parked on a question is still holding an agent and a
-              concurrency slot, so it needs the same way out as a running one. */}
-          <StopButton node={node} />
-          <StatusChip
-            status={node.status}
-            queuePosition={node.queuePosition}
-            lastRunStatus={node.lastRunStatus}
-          />
-          <OverflowMenu
-            busy={actions.busy}
-            onRename={() => setRenaming(true)}
-            onDelete={node.parentId === null ? undefined : () => void actions.remove()}
-          />
-        </div>
+        <span className="run-count">
+          {runs.length} run{runs.length === 1 ? '' : 's'}
+        </span>
       </header>
 
-      <div className="panel-actions">{branchButton}</div>
+      <p className="panel-meta">
+        {source !== null && (
+          <>
+            <span>from {source}</span>
+            <span className="sep">·</span>
+          </>
+        )}
+        {node.diffStat === null ? (
+          <span className="no-change">no file changes</span>
+        ) : (
+          <>
+            <span>
+              {node.diffStat.files} file{node.diffStat.files === 1 ? '' : 's'}
+            </span>
+            <span className="added">+{node.diffStat.added.toLocaleString()}</span>
+            {node.diffStat.removed > 0 && (
+              <span className="removed">−{node.diffStat.removed.toLocaleString()}</span>
+            )}
+          </>
+        )}
+      </p>
 
       {isYourFolder && (
         <p className="note" title={project?.sourcePath ?? undefined}>
           Your own folder — read only. Branch a child to make changes.
         </p>
       )}
-
       {detail?.baseIsPinnedBehindLiveWalk === true && (
         <p
           className="note"
@@ -236,196 +236,92 @@ function NodePanel({
         </p>
       )}
 
-      {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
-        node.status !== 'running' &&
-        node.status !== 'needs_you' && (
-          <Recover
-            runs={runs}
-            isYourFolder={isYourFolder}
-            busy={actions.busy}
-            partialWork={detail?.partialWork ?? null}
-            interrupted={node.status === 'interrupted'}
-            onRecover={(action) => void actions.recover(action)}
-          />
-        )}
-
       {/*
-       * The one scrolling region. The transcript used to scroll inside this,
-       * which scrolled inside the panel, so the wheel did different things two
-       * centimetres apart. Everything that is read scrolls together; only the
-       * composer is pinned, because a reply box you have to scroll to find is a
-       * reply box you stop using.
+       * One scrolling region, anchored to the composer: the newest turn sits
+       * just above the reply box, and a short thread leaves its space at the
+       * top rather than floating above nothing.
        */}
-      <div className="panel-tabs" role="tablist" aria-label="Experiment view">
-        {(['conversation', 'results'] as const).map((tab, index) => (
-          <button
-            key={tab}
-            role="tab"
-            id={`tab-${node.id}-${tab}`}
-            aria-controls={`view-${node.id}-${tab}`}
-            aria-selected={view === tab}
-            tabIndex={view === tab ? 0 : -1}
-            onClick={() => changeView(tab)}
-            onKeyDown={(e) => {
-              if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                e.preventDefault();
-                const next =
-                  e.key === 'Home'
-                    ? 'conversation'
-                    : e.key === 'End'
-                      ? 'results'
-                      : index === 0
-                        ? 'results'
-                        : 'conversation';
-                changeView(next);
-                document.getElementById(`tab-${node.id}-${next}`)?.focus();
-              }
-            }}
-          >
-            {tab === 'conversation' ? 'Conversation' : 'Results & changes'}
-          </button>
-        ))}
-      </div>
-      <div
-        className="panel-body"
-        ref={reading.scrollRef}
-        onScroll={reading.onScroll}
-        hidden={view !== 'conversation'}
-        role="tabpanel"
-        id={`view-${node.id}-conversation`}
-        aria-labelledby={`tab-${node.id}-conversation`}
-      >
-        <div ref={reading.contentRef} className="conversation-content">
-          {node.status === 'new' && (
-            <section className="start">
-              <h3>Ready for the first run</h3>
-              <p className="hint">
-                Creating this experiment has not run the agent. Edit the request below, then choose
-                Start first run.
-              </p>
-            </section>
-          )}
-
-          {(detail === null || detailError !== null) &&
-            (detailError === null ? (
-              <p role="status">Loading experiment details…</p>
-            ) : (
-              <p className="error" role="alert">
-                {detailError}{' '}
-                <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
-              </p>
-            ))}
-          {chat.loading && !chat.loaded && <p role="status">Loading conversation…</p>}
-          {chat.error !== null && (
-            <p className="error" role="alert">
-              {chat.loaded && 'Showing previously loaded conversation. '}
-              {chat.error} <button onClick={chat.retry}>Retry conversation</button>
-            </p>
-          )}
-          {chat.loaded &&
-            chat.error === null &&
-            chat.messages.length === 0 &&
-            chat.pending.length === 0 &&
-            !chat.busy && (
-              <p className="muted chat-empty">
-                No conversation yet. Ask for a change, or ask a question.
-              </p>
+      <div className="panel-scroll">
+        <div className="panel-body" ref={reading.scrollRef} onScroll={reading.onScroll}>
+          <div ref={reading.contentRef} className="conversation-content">
+            {node.status === 'new' && (
+              <section className="start">
+                <h3>Ready for the first run</h3>
+                <p className="hint">
+                  Creating this experiment has not run the agent. Edit the request below, then
+                  choose Start first run.
+                </p>
+              </section>
             )}
-          {(chat.messages.length > 0 || chat.pending.length > 0) && (
-            <Transcript
-              messages={chat.messages}
-              runs={runs}
-              pending={chat.pending}
-              running={chat.running}
-              onProjectSettings={onProjectSettings}
-            />
-          )}
-        </div>
-      </div>
 
-      <div
-        className="panel-body results-panel"
-        hidden={view !== 'results'}
-        role="tabpanel"
-        id={`view-${node.id}-results`}
-        aria-labelledby={`tab-${node.id}-results`}
-      >
-        {resultsSeen && (
-          <>
-            {detailError !== null && detail !== null && (
-              <p className="error" role="alert">
-                Results may be out of date. {detailError}{' '}
-                <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
-              </p>
-            )}
-            {detail === null ? (
-              detailError === null ? (
-                <p role="status">Loading results…</p>
+            {(detail === null || detailError !== null) &&
+              (detailError === null ? (
+                <p role="status">Loading experiment details…</p>
               ) : (
                 <p className="error" role="alert">
                   {detailError}{' '}
-                  <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
+                  <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
                 </p>
-              )
-            ) : (
-              <>
-                <section className="result-outcome">
-                  <h3>Latest run</h3>
-                  <p>
-                    {runs.length === 0
-                      ? 'No runs recorded yet.'
-                      : runs.at(-1)?.status === 'done'
-                        ? `Finished — ${runs.at(-1)?.commitSha === null ? 'answered without file changes' : 'files changed'}.`
-                        : runs.at(-1)?.status === 'cancelled'
-                          ? 'Cancelled — review any partial work.'
-                          : runs.at(-1)?.status === 'failed'
-                            ? 'Failed — review the conversation and partial work.'
-                            : 'In progress — no completed result yet.'}
-                  </p>
-                </section>
-                <Checks node={node} detail={detail} />
-                <Lineage lineage={detail.lineage} />
-              </>
+              ))}
+            {chat.loading && !chat.loaded && <p role="status">Loading conversation…</p>}
+            {chat.error !== null && (
+              <p className="error" role="alert">
+                {chat.loaded && 'Showing previously loaded conversation. '}
+                {chat.error} <button onClick={chat.retry}>Retry conversation</button>
+              </p>
             )}
-            <ExperimentChanges
-              node={node}
-              revision={`${revision}:${runs.at(-1)?.id ?? ''}:${runs.at(-1)?.status ?? ''}`}
-            />
-            <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
-
-            {detail?.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
-              <Checkout
-                command={detail.checkoutCommand}
-                hint={detail.checkoutHint}
-                onError={setError}
+            {chat.loaded &&
+              chat.error === null &&
+              chat.messages.length === 0 &&
+              chat.pending.length === 0 &&
+              !chat.busy && (
+                <p className="muted chat-empty">
+                  No conversation yet. Ask for a change, or ask a question.
+                </p>
+              )}
+            {(chat.messages.length > 0 || chat.pending.length > 0) && (
+              <Transcript
+                messages={chat.messages}
+                runs={runs}
+                pending={chat.pending}
+                running={chat.running}
+                waiting={activity?.state === 'waiting'}
+                onProjectSettings={onProjectSettings}
               />
             )}
-          </>
+          </div>
+        </div>
+        {/*
+         * A pill over the thread, not a row in the footer: a full-width button
+         * under the conversation pushed the composer down while you were
+         * reading, and this is only true while you are away from the bottom.
+         */}
+        {reading.away && (
+          <button className="jump-latest" onClick={reading.jump}>
+            {reading.unread ? 'New output · Jump ↓' : 'Jump to latest ↓'}
+          </button>
         )}
       </div>
 
       <div className="panel-foot">
-        {!chat.busy && detail?.nextRunSettings && (
-          <NextRunInfo value={detail.nextRunSettings} onSettings={onProjectSettings} />
-        )}
-        {view === 'conversation' && reading.away && (
-          <button className="jump-latest" onClick={reading.jump}>
-            {reading.unread ? 'New output · Jump to latest' : 'Jump to latest'}
-            <Icon name="arrowDown" />
-          </button>
-        )}
+        {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
+          node.status !== 'running' &&
+          node.status !== 'needs_you' && (
+            <Recovery
+              node={node}
+              runs={runs}
+              isYourFolder={isYourFolder}
+              busy={actions.busy}
+              partialWork={detail?.partialWork ?? null}
+              onRecover={(action) => void actions.recover(node, action)}
+            />
+          )}
         {error !== null && (
           <p className="error" role="alert">
             {error} <button onClick={() => setError(null)}>Dismiss</button>
           </p>
         )}
-        {node.status === 'running' && (
-          <p className="activity" role="status">
-            {node.queuePosition !== null
-              ? `Queued · position ${node.queuePosition}`
-              : 'Agent working…'}
-          </p>
-        )}
+        <ActivityStrip node={node} activity={activity} onError={setError} />
         {startError !== null && (
           <p className="error start-error" role="alert">
             {startError}
@@ -442,114 +338,16 @@ function NodePanel({
             node={node}
             busy={chat.busy}
             sending={chat.sending}
-            emphasised
             value={chat.prompt}
             onChange={chat.setPrompt}
             onSend={chat.send}
+            nextRun={chat.busy ? null : (detail?.nextRunSettings ?? null)}
+            onProjectSettings={onProjectSettings}
           />
         )}
       </div>
 
-      {renaming && (
-        <RenameDialog node={node} onClose={() => setRenaming(false)} onChanged={changed} />
-      )}
       {actions.confirmDialog}
     </aside>
-  );
-}
-
-/**
- * Delete, out of thumb's reach.
- *
- * It used to be a lowercase link eight pixels from Stop: irreversible,
- * cascading to every descendant, and styled as the least prominent control in
- * the header -- so the confirmation existed to catch a misclick the layout was
- * inviting. Behind a menu it takes a deliberate second action to reach.
- */
-function OverflowMenu({
-  busy,
-  onDelete,
-  onRename,
-}: {
-  busy: boolean;
-  onDelete?: () => void;
-  onRename: () => void;
-}): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useDismiss(
-    open,
-    useCallback(() => setOpen(false), []),
-    ref,
-    '.overflow',
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(() =>
-      ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus(),
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [open]);
-
-  return (
-    <div className="menu" ref={ref}>
-      <button
-        className="overflow"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="More actions"
-        aria-expanded={open}
-        aria-haspopup="menu"
-      >
-        <Icon name="more" />
-      </button>
-      {open && (
-        <div
-          className="menu-panel right"
-          role="menu"
-          onKeyDown={(event) => {
-            const items = Array.from(
-              event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
-            );
-            const index = items.indexOf(document.activeElement as HTMLButtonElement);
-            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-              event.preventDefault();
-              items[
-                event.key === 'Home'
-                  ? 0
-                  : event.key === 'End'
-                    ? items.length - 1
-                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
-              ]?.focus();
-            }
-            if (event.key === 'Tab') setOpen(false);
-          }}
-        >
-          <button
-            role="menuitem"
-            disabled={busy}
-            onClick={() => {
-              setOpen(false);
-              onRename();
-            }}
-          >
-            Rename experiment…
-          </button>
-          {onDelete !== undefined && (
-            <button
-              className="danger"
-              role="menuitem"
-              disabled={busy}
-              onClick={() => {
-                setOpen(false);
-                onDelete();
-              }}
-            >
-              Delete this experiment…
-            </button>
-          )}
-        </div>
-      )}
-    </div>
   );
 }

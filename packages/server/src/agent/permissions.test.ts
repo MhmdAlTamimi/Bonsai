@@ -44,6 +44,9 @@ function spec(overrides: Partial<RunSpec>): RunSpec {
     ask: null,
     askChoices: null,
     signal: new AbortController().signal,
+    finishNow: new AbortController().signal,
+    onActivity: () => undefined,
+    backgroundLeftovers: () => Promise.resolve([]),
     ...overrides,
   };
 }

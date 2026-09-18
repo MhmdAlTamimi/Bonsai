@@ -153,7 +153,11 @@ describe('building a tree', () => {
     for (const cost of [0.25, 0.5]) {
       const runId = `run-${cost}`;
       store.createRun(runId, nodeId);
-      store.finishRun(runId, 'done', null, { cost, inputTokens: 0, outputTokens: 0 });
+      store.finishRun(
+        runId,
+        { status: 'done', reason: 'finished', error: null },
+        { cost, inputTokens: 0, outputTokens: 0 },
+      );
     }
 
     const view = store.treeView(created.projectId).find((n) => n.id === nodeId)!;

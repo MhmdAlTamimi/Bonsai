@@ -1,9 +1,15 @@
 import { OperationConflict } from '../domain/errors.js';
 import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
-import { CONCURRENCY, type NodeStatus } from '@bonsai/shared';
+import {
+  CONCURRENCY,
+  recoveryCause,
+  type BackgroundJob,
+  type NodeStatus,
+  type RunActivity,
+} from '@bonsai/shared';
 
-import type { NodeRow, RunTotals, Store } from '../db/store.js';
+import type { NodeRow, RunEnd, RunTotals, Store } from '../db/store.js';
 import { workDirIn } from '../db/rows.js';
 
 /** A plain record for when the agent skipped writing one (D22). */
@@ -42,6 +48,8 @@ import { branchNameFor } from '../git/repo.js';
 import { readWorktreeState, resumePrompt } from '../git/recovery.js';
 import { runCommand, summarise } from '../exec/command.js';
 import { status } from '../git/exec.js';
+import { parentSnapshot } from '../git/diff.js';
+import { findLeftovers, roots, stopLeftovers } from './leftovers.js';
 
 /**
  * D14d: runs are async jobs. Start returns a job id, progress streams, cancel
@@ -78,6 +86,29 @@ interface Queued {
   controller: AbortController;
 }
 
+/**
+ * A run with an agent, and what the interface can see and do while it lasts.
+ *
+ * Stop and Finish now are two controllers because they are two different
+ * endings: Stop cancels the run and commits nothing, Finish now stops waiting
+ * for background work and lets the run end -- and commit -- the ordinary way.
+ */
+interface LiveRun {
+  runId: string;
+  projectId: string;
+  controller: AbortController;
+  finish: AbortController;
+  activity: RunActivity | null;
+  /** Tracked jobs that were live when Stop or Finish now was pressed. */
+  stoppedTracked: number;
+  /** When `run.activity` last went out, and the trailing publish when one is due. */
+  publishedAt: number;
+  publishTimer: NodeJS.Timeout | null;
+}
+
+/** `run.activity` goes out at most this often per run; a long command changes nothing a second. */
+const ACTIVITY_INTERVAL_MS = 1_000;
+
 /** A run held on a question, and the one function that lets it go. */
 interface Waiter {
   questionId: string;
@@ -101,13 +132,38 @@ export const LEFT_TO_AGENT =
   'The user chose not to answer and left this decision to you. Make a reasonable choice, ' +
   'carry on, and say clearly in your reply what you decided and why.';
 
+/** Tracked jobs in a run's activity: what Stop or Finish now is about to stop. */
+function trackedJobs(activity: RunActivity | null): number {
+  return activity?.background.filter((job) => job.tracked).length ?? 0;
+}
+
+/** A process's command line, short enough for a card. */
+function describeProcess(command: string): string {
+  const trimmed = command.trim() || 'a process';
+  return trimmed.length > 120 ? `${trimmed.slice(0, 117)}...` : trimmed;
+}
+
+/**
+ * A run's detached processes, as the jobs the interface shows: one per piece of
+ * work rather than per process. Keyed by pid, which is stable for as long as
+ * the process lives -- which is as long as it is shown.
+ */
+async function detachedJobs(runId: string): Promise<BackgroundJob[]> {
+  return roots(await findLeftovers(runId)).map((p) => ({
+    id: `pid:${p.pid}`,
+    description: describeProcess(p.command),
+    tracked: false,
+    startedAt: new Date().toISOString(),
+  }));
+}
+
 /** The question as the card and the transcript show it: the questions, in order. */
 function choiceText(request: ChoiceRequest): string {
   return request.questions.map((q) => q.question).join(' · ');
 }
 
 export class RunJobs {
-  private readonly running = new Map<string, AbortController>();
+  private readonly running = new Map<string, LiveRun>();
   /**
    * Runs waiting for a slot, oldest first.
    *
@@ -142,6 +198,11 @@ export class RunJobs {
   ) {}
 
   private readonly retiring = new Set<string>();
+  /**
+   * Set once the app starts shutting down, so the runs it cancels on the way
+   * out are recorded as the app closing rather than as the user stopping them.
+   */
+  private closing = false;
   isRetiring(nodeId: string): boolean {
     return this.retiring.has(nodeId);
   }
@@ -195,9 +256,10 @@ export class RunJobs {
    * yet would leave a node stuck in `running` for ever.
    */
   cancel(nodeId: string): boolean {
-    const controller = this.running.get(nodeId);
-    if (controller !== undefined) {
-      controller.abort();
+    const live = this.running.get(nodeId);
+    if (live !== undefined) {
+      if (!live.controller.signal.aborted) live.stoppedTracked = trackedJobs(live.activity);
+      live.controller.abort();
       return true;
     }
 
@@ -207,7 +269,7 @@ export class RunJobs {
     if (dropped === undefined) return false;
 
     this.log.info('run.cancelled', { runId: dropped.runId, nodeId, queued: true });
-    this.store.finishRun(dropped.runId, 'cancelled', 'cancelled before it started', {
+    this.store.finishRun(dropped.runId, this.stopped(), {
       cost: 0,
       inputTokens: 0,
       outputTokens: 0,
@@ -218,6 +280,42 @@ export class RunJobs {
       projectId: dropped.projectId,
     });
     return true;
+  }
+
+  /**
+   * D43: Finish now. Stop waiting for the background work the agent started,
+   * stop that work, and end the run normally, so what it produced is committed.
+   *
+   * False when there is nothing to finish: no run with an agent (a queued run
+   * has started nothing -- Stop drops it), or a run parked on a question, which
+   * cannot end its turn until the question is answered or the run is stopped.
+   */
+  finish(nodeId: string): boolean {
+    const live = this.running.get(nodeId);
+    if (live === undefined || this.waiting.has(nodeId)) return false;
+    if (live.finish.signal.aborted || live.controller.signal.aborted) return true;
+
+    const jobs = live.activity?.background ?? [];
+    this.store.appendMessage({
+      nodeId,
+      runId: live.runId,
+      role: 'system',
+      kind: 'text',
+      content:
+        jobs.length === 0
+          ? 'Finish now: the run ends when the agent’s current turn does.'
+          : `Finish now: stopping ${jobs.length === 1 ? 'the background job' : `${jobs.length} background jobs`} ` +
+            `(${jobs.map((job) => job.description).join(' · ')}) and ending the run.`,
+    });
+    this.log.info('run.finish_now', { runId: live.runId, nodeId, jobs: jobs.length });
+    live.stoppedTracked = trackedJobs(live.activity);
+    live.finish.abort();
+    return true;
+  }
+
+  /** What a running node is doing right now, or null. Read by the router, like `queuePosition`. */
+  activity(nodeId: string): RunActivity | null {
+    return this.running.get(nodeId)?.activity ?? null;
   }
 
   /**
@@ -269,7 +367,7 @@ export class RunJobs {
     // The queue first: draining it into aborts would start each run only to
     // stop it, which costs a subprocess launch apiece.
     for (const q of [...this.queue]) this.cancel(q.nodeId);
-    for (const c of this.running.values()) c.abort();
+    for (const live of this.running.values()) live.controller.abort();
   }
 
   /** How many runs are in flight. Shutdown and tests wait on this. */
@@ -286,6 +384,7 @@ export class RunJobs {
    * an unawaited throw in a `void`-ed promise is an unhandled rejection.
    */
   async drain(timeoutMs = 5000): Promise<void> {
+    this.closing = true;
     this.cancelAll();
     const deadline = Date.now() + timeoutMs;
     while ((this.running.size > 0 || this.queue.length > 0) && Date.now() < deadline) {
@@ -306,7 +405,11 @@ export class RunJobs {
 
     const state = await readWorktreeState(node.worktree_path);
     const original = this.store.lastUserPrompt(nodeId) ?? node.description;
-    return this.start(nodeId, resumePrompt(state, original));
+    const last = this.store.listRuns(nodeId).at(-1);
+    return this.start(
+      nodeId,
+      resumePrompt(state, original, recoveryCause(last), last?.error ?? null),
+    );
   }
 
   start(nodeId: string, prompt: string): { runId: string } {
@@ -386,19 +489,69 @@ export class RunJobs {
 
   /** Starts a job now, and takes the next queued one when it finishes. */
   private dispatch(job: Queued): void {
-    this.running.set(job.nodeId, job.controller);
+    const live: LiveRun = {
+      runId: job.runId,
+      projectId: job.projectId,
+      controller: job.controller,
+      finish: new AbortController(),
+      activity: null,
+      stoppedTracked: 0,
+      publishedAt: 0,
+      publishTimer: null,
+    };
+    this.running.set(job.nodeId, live);
     this.bus.publish(job.projectId, {
       type: 'run.started',
       nodeId: job.nodeId,
       runId: job.runId,
     });
 
-    void this.execute(job.runId, job.nodeId, job.prompt, job.readOnly, job.controller).finally(
-      () => {
-        this.running.delete(job.nodeId);
-        this.pump();
-      },
-    );
+    void this.execute(job.runId, job.nodeId, job.prompt, job.readOnly, live).finally(() => {
+      if (live.publishTimer !== null) clearTimeout(live.publishTimer);
+      this.running.delete(job.nodeId);
+      this.pump();
+    });
+  }
+
+  /**
+   * Records what a run is doing, and tells the interface -- at most once a
+   * second, with the latest state always sent last, so nothing is lost but a
+   * burst of tool calls is not a burst of events.
+   */
+  private reportActivity(nodeId: string, live: LiveRun, activity: RunActivity): void {
+    const was = live.activity?.state;
+    live.activity = activity;
+    if (activity.state === 'waiting' && was !== 'waiting') {
+      // Counts, not descriptions: a description is the agent's words about
+      // the user's code, and logs are what get pasted into bug reports.
+      this.log.info('run.waiting', {
+        runId: live.runId,
+        nodeId,
+        jobs: activity.background.length,
+        untracked: activity.background.filter((job) => !job.tracked).length,
+      });
+    }
+    if (live.publishTimer !== null) return;
+    const due = live.publishedAt + ACTIVITY_INTERVAL_MS - Date.now();
+    if (due <= 0) {
+      this.publishActivity(nodeId, live);
+      return;
+    }
+    live.publishTimer = setTimeout(() => {
+      live.publishTimer = null;
+      this.publishActivity(nodeId, live);
+    }, due);
+  }
+
+  private publishActivity(nodeId: string, live: LiveRun): void {
+    if (live.activity === null || this.running.get(nodeId) !== live) return;
+    live.publishedAt = Date.now();
+    this.bus.publish(live.projectId, {
+      type: 'run.activity',
+      nodeId,
+      runId: live.runId,
+      activity: live.activity,
+    });
   }
 
   /**
@@ -445,14 +598,22 @@ export class RunJobs {
     node: NodeRow,
     project: { setup_command: string | null; id: string; work_dir: string | null },
     runId: string,
-    controller: AbortController,
+    live: LiveRun,
   ): Promise<void> {
     const command = project.setup_command;
+    const controller = live.controller;
     if (command === null || command.trim() === '') return;
     // Once per node. Recorded in the database so a restart mid-install does
     // not mean running it again on every message from then on.
     if (node.setup_ran_at !== null) return;
     if (controller.signal.aborted) return;
+
+    // A cold `npm install` takes minutes, and should read as running, not stuck.
+    this.reportActivity(node.id, live, {
+      state: 'working',
+      tool: { name: 'Setup', detail: command, startedAt: new Date().toISOString() },
+      background: [],
+    });
 
     this.store.appendMessage({
       nodeId: node.id,
@@ -486,6 +647,7 @@ export class RunJobs {
       },
     });
 
+    this.reportActivity(node.id, live, { state: 'working', tool: null, background: [] });
     this.log.info('node.setup', {
       nodeId: node.id,
       projectId: node.project_id,
@@ -546,8 +708,9 @@ export class RunJobs {
     nodeId: string,
     prompt: string,
     readOnly: boolean,
-    controller: AbortController,
+    live: LiveRun,
   ): Promise<void> {
+    const controller = live.controller;
     // Fetched defensively rather than with `!`: these two lines sit outside the
     // try below, so a throw here would escape into an unhandled rejection and
     // take the process down instead of failing the run. A node deleted between
@@ -556,11 +719,15 @@ export class RunJobs {
     const node = this.store.getNode(nodeId);
     const project = node === undefined ? undefined : this.store.getProject(node.project_id);
     if (node === undefined || project === undefined) {
-      this.store.finishRun(runId, 'failed', 'the node was removed before its run started', {
-        cost: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-      });
+      this.store.finishRun(
+        runId,
+        {
+          status: 'failed',
+          reason: 'failed',
+          error: 'the node was removed before its run started',
+        },
+        { cost: 0, inputTokens: 0, outputTokens: 0 },
+      );
       return;
     }
 
@@ -586,7 +753,7 @@ export class RunJobs {
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     // Before the agent, not before the response. See createChildNode for why.
-    await this.ensureSetup(node, project, runId, controller);
+    await this.ensureSetup(node, project, runId, live);
 
     try {
       const inheritance = this.resolveInheritance(node);
@@ -640,6 +807,9 @@ export class RunJobs {
         askChoices: (request): Promise<ChoiceDecision> =>
           this.askChoices(node, runId, request, controller),
         signal: controller.signal,
+        finishNow: live.finish.signal,
+        onActivity: (activity) => this.reportActivity(nodeId, live, activity),
+        backgroundLeftovers: () => detachedJobs(runId),
       })) {
         switch (event.type) {
           case 'session':
@@ -662,15 +832,20 @@ export class RunJobs {
               text: event.text,
             });
             break;
-          case 'tool':
+          case 'tool': {
             toolCalls += 1;
             seq += 1;
+            const tool = {
+              name: event.name,
+              detail: event.detail,
+              ...(event.id === undefined ? {} : { id: event.id }),
+            };
             this.store.appendMessage({
               nodeId,
               runId,
               role: 'assistant',
               kind: 'tool_use',
-              content: { name: event.name, detail: event.detail },
+              content: tool,
             });
             this.bus.publish(node.project_id, {
               type: 'run.delta',
@@ -678,7 +853,31 @@ export class RunJobs {
               runId,
               seq,
               text: `${event.name}: ${event.detail}`,
-              tool: { name: event.name, detail: event.detail },
+              tool,
+            });
+            break;
+          }
+          /**
+           * What the call produced, as its own message rather than an edit of
+           * the call's row: messages are append-only, and the conversation
+           * pairs the two by the tool's id when it draws the block.
+           */
+          case 'tool_result':
+            seq += 1;
+            this.store.appendMessage({
+              nodeId,
+              runId,
+              role: 'assistant',
+              kind: 'tool_result',
+              content: event.result,
+            });
+            this.bus.publish(node.project_id, {
+              type: 'run.delta',
+              nodeId,
+              runId,
+              seq,
+              text: '',
+              toolResult: event.result,
             });
             break;
           case 'model':
@@ -702,6 +901,10 @@ export class RunJobs {
         }
       }
 
+      // Before anything is committed, so nothing is still writing into it.
+      const detachedStopped = await this.endLeftovers(runId, nodeId, node.project_id);
+      const stoppedBackground = live.stoppedTracked + detachedStopped;
+
       if (controller.signal.aborted) {
         this.log.info('run.cancelled', {
           runId,
@@ -710,7 +913,7 @@ export class RunJobs {
           toolCalls,
           costUsd: cost,
         });
-        this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
+        this.finishRun(runId, nodeId, this.stopped(), {
           cost,
           inputTokens,
           outputTokens,
@@ -721,6 +924,7 @@ export class RunJobs {
           toolsOffered,
           toolCalls,
           durationMs: Date.now() - startedAt,
+          stoppedBackground,
         });
         return;
       }
@@ -739,14 +943,21 @@ export class RunJobs {
        * the no-change path, which would discard an edit of theirs.
        */
       const outcome = readOnly
-        ? { committed: false, commit: null, branch: null, changedPaths: [], stat: null }
+        ? {
+            committed: false,
+            commit: null,
+            branch: null,
+            changedPaths: [],
+            stat: null,
+            ownStat: null,
+          }
         : await commitRunOutput({
             repoPath: project.repo_path,
             worktreePath: node.worktree_path,
             branchName: node.branch_name ?? branchNameFor(nodeId),
             message: commitMessageFor(node.display_name, node.description),
             fallbackContext: contextFallback(node.display_name, prompt),
-            baseCommit: node.base_commit,
+            baseCommit: await this.baseFor(node),
           });
 
       const commitSha = outcome.commit;
@@ -757,20 +968,26 @@ export class RunJobs {
         this.store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
       }
 
-      this.store.finishRun(runId, 'done', null, {
-        cost,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cacheCreationTokens,
-        model,
-        apiKeySource,
-        commitSha,
-        toolsOffered,
-        toolCalls,
-        durationMs: Date.now() - startedAt,
-        stat: outcome.stat,
-      });
+      this.store.finishRun(
+        runId,
+        { status: 'done', reason: 'finished', error: null },
+        {
+          cost,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+          model,
+          apiKeySource,
+          commitSha,
+          toolsOffered,
+          toolCalls,
+          durationMs: Date.now() - startedAt,
+          stat: outcome.stat,
+          change: outcome.ownStat,
+          stoppedBackground,
+        },
+      );
       this.log.info('run.done', {
         runId,
         nodeId,
@@ -800,6 +1017,9 @@ export class RunJobs {
       });
       this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
     } catch (err) {
+      const stoppedBackground =
+        live.stoppedTracked +
+        (await this.endLeftovers(runId, nodeId, node.project_id).catch(() => 0));
       /**
        * An abort is a cancellation whatever the runner said on its way out.
        *
@@ -818,7 +1038,7 @@ export class RunJobs {
           toolCalls,
           costUsd: cost,
         });
-        this.finishRun(runId, nodeId, 'cancelled', 'cancelled by the user', {
+        this.finishRun(runId, nodeId, this.stopped(), {
           cost,
           inputTokens,
           outputTokens,
@@ -829,6 +1049,7 @@ export class RunJobs {
           toolsOffered,
           toolCalls,
           durationMs: Date.now() - startedAt,
+          stoppedBackground,
         });
         return;
       }
@@ -849,22 +1070,75 @@ export class RunJobs {
       });
       // D31: a failed run is an `interrupted` node plus an error, not a sixth
       // state. The worktree is left dirty on purpose so M4 can resume it.
-      this.finishRun(runId, nodeId, 'failed', message, {
-        cost,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cacheCreationTokens,
-        model,
-        apiKeySource,
-        // Especially on a failure: "which tools did it have" is most of the
-        // answer to "why did it do that".
-        toolsOffered,
-        toolCalls,
-        durationMs: Date.now() - startedAt,
-      });
+      this.finishRun(
+        runId,
+        nodeId,
+        { status: 'failed', reason: 'failed', error: message },
+        {
+          cost,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cacheCreationTokens,
+          model,
+          apiKeySource,
+          // Especially on a failure: "which tools did it have" is most of the
+          // answer to "why did it do that".
+          toolsOffered,
+          toolCalls,
+          durationMs: Date.now() - startedAt,
+          stoppedBackground,
+        },
+      );
       this.bus.publish(node.project_id, { type: 'run.error', nodeId, runId, error: message });
     }
+  }
+
+  /**
+   * D43: nothing a run started outlives it.
+   *
+   * A run normally ends only once its detached processes have exited, so this
+   * finds nothing. It matters when the run was stopped, finished early, or
+   * failed -- and it is what makes Stop mean stop for a `nohup` job the
+   * harness never knew about. Said in the transcript when it does anything.
+   */
+  private async endLeftovers(runId: string, nodeId: string, projectId: string): Promise<number> {
+    // No grace to speak of while the app is closing: shutdown waits only a
+    // few seconds for runs to unwind, and a leftover is stopped either way.
+    const stopped = await stopLeftovers(runId, this.closing ? 300 : 3_000);
+    if (stopped.length === 0) return 0;
+    this.log.info('run.leftovers_stopped', { runId, nodeId, projectId, processes: stopped.length });
+    this.store.appendMessage({
+      nodeId,
+      runId,
+      role: 'system',
+      kind: 'text',
+      content:
+        `Stopped ${stopped.length === 1 ? 'a background process' : `${stopped.length} background processes`} ` +
+        `still running when the run ended: ${stopped.map((p) => describeProcess(p.command)).join(' · ')}`,
+    });
+    return stopped.length;
+  }
+
+  /**
+   * What this node's change is measured against.
+   *
+   * A child pins its base when it is created. Master pins nothing, so its
+   * change starts at the commit before its first modifying run -- the same
+   * range the review screen uses, so the card's count and the review's file
+   * list can never disagree.
+   */
+  private async baseFor(node: NodeRow): Promise<string | null> {
+    if (node.base_commit !== null) return node.base_commit;
+    const first = this.store.listRuns(node.id).find((run) => run.commitSha !== null);
+    return first?.commitSha == null
+      ? null
+      : await parentSnapshot(node.worktree_path, first.commitSha);
+  }
+
+  /** How a cancelled run ended: stopped by the user, or cut off by the app closing (D45). */
+  private stopped(): RunEnd {
+    return { status: 'cancelled', reason: this.closing ? 'app_closed' : 'stopped', error: null };
   }
 
   /**
@@ -1040,14 +1314,8 @@ export class RunJobs {
     });
   }
 
-  private finishRun(
-    runId: string,
-    nodeId: string,
-    status: 'cancelled' | 'failed',
-    error: string | null,
-    totals: RunTotals,
-  ): void {
-    this.store.finishRun(runId, status, error, totals);
+  private finishRun(runId: string, nodeId: string, end: RunEnd, totals: RunTotals): void {
+    this.store.finishRun(runId, end, totals);
     this.setStatus(nodeId, 'interrupted');
     const node = this.store.getNode(nodeId);
     if (node !== undefined) {

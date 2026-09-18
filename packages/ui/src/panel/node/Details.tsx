@@ -5,9 +5,11 @@ import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../../nodeCode.ts';
 import { exactTime, relativeTime } from '../chat/time.ts';
 
 /**
- * Facts about the node, read occasionally rather than constantly, so behind a
- * disclosure rather than on the surface (§7: the conversation is the
- * workspace).
+ * Facts about the node: what its code is, whether it can still change, when it
+ * was made, and the id a bug report asks for.
+ *
+ * Read once a week rather than once a scroll, so they live in the card's ⋯
+ * menu -- the conversation panel is for the conversation.
  */
 export function Details({
   node,
@@ -22,8 +24,7 @@ export function Details({
 }): JSX.Element {
   const latest = runs.at(-1);
   return (
-    <details className="disclosure">
-      <summary>Details</summary>
+    <section className="facts-section" aria-label="Experiment facts">
       <dl className="facts">
         <div>
           <dt>code</dt>
@@ -80,10 +81,10 @@ export function Details({
       </dl>
       {detail?.contextMd != null && (
         <>
-          <h3>CONTEXT.md</h3>
+          <h3>Agent notes — CONTEXT.md</h3>
           <pre className="stream">{detail.contextMd}</pre>
         </>
       )}
-    </details>
+    </section>
   );
 }

@@ -1,8 +1,10 @@
+import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AgentQuestion } from '@bonsai/shared';
+import type { AgentQuestion, ToolResultContent } from '@bonsai/shared';
 import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
+import { RUN_MARKER } from '../jobs/leftovers.js';
 
 /**
  * The question the stand-in asks, shaped like a real one: a short header, two
@@ -32,6 +34,12 @@ export const FAKE_QUESTION: AgentQuestion = {
  *   a prompt starting with '?'  ->  writes nothing. Conversation only.
  *   anything else               ->  writes a file, so the node commits.
  *
+ * Plus prefixes for paths that need a user in the loop: "choose:" asks a
+ * question (D42); "background:" leaves a tracked job running after its turn,
+ * and "detach:" a process started the way `nohup … &` starts one, so the run
+ * waits for either (D43). "tools:" makes the three kinds of tool block — a
+ * read, a search and a command with more output than a block shows.
+ *
  * That single rule is enough to exercise the emergent model end to end: the
  * same creation flow produces a node with a branch or a node without one, and
  * nothing anywhere had to be told which kind it was making.
@@ -41,6 +49,27 @@ export const FAKE_QUESTION: AgentQuestion = {
  * has to get right -- a CONTEXT.md left behind by a no-op run would otherwise
  * ride into the next run's commit.
  */
+/** What the stand-in "ran": a few lines of output, the way a real command answers. */
+function ranOutput(id: string, command: string, lines: string[]): ToolResultContent {
+  return { toolUseId: id, name: 'Bash', ok: true, output: lines };
+}
+
+/** What the stand-in wrote, as the changed lines an EDIT block draws. */
+function wroteFile(id: string, path: string, body: string): ToolResultContent {
+  const lines = body.split('\n').filter((line) => line !== '');
+  return {
+    toolUseId: id,
+    name: 'Write',
+    ok: true,
+    edit: {
+      path,
+      added: lines.length,
+      removed: 0,
+      lines: lines.map((text, index) => ({ kind: 'add' as const, text, newLine: index + 1 })),
+    },
+  };
+}
+
 export class FakeRunner implements AgentRunner {
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     // Mirrors the real runner: a fork yields a NEW session id (the parent's is
@@ -110,10 +139,128 @@ export class FakeRunner implements AgentRunner {
       };
     }
 
+    /**
+     * The three kinds of block, for looking at the conversation itself: a
+     * READ with nothing to show, another read of a different shape, and a RUN
+     * whose output is longer than the eight lines a block draws.
+     */
+    if (spec.prompt.trimStart().toLowerCase().startsWith('tools:')) {
+      yield {
+        type: 'tool',
+        name: 'Read',
+        detail: `${spec.cwd}/chunking_experiment/run_experiment.py`,
+        id: 'fake-read',
+      };
+      yield { type: 'tool', name: 'Grep', detail: 'sheet_header', id: 'fake-grep' };
+      yield {
+        type: 'tool',
+        name: 'Bash',
+        detail: 'python run_experiment.py --bucket kb-raw',
+        id: 'fake-run',
+      };
+      yield {
+        type: 'tool_result',
+        result: ranOutput(
+          'fake-run',
+          'python',
+          Array.from({ length: 20 }, (_, i) => `processed document ${i + 1}`),
+        ),
+      };
+      yield { type: 'text', text: 'Ran the extractor over the bucket.' };
+    }
+
     if (!question && refused === null) {
       const file = `notes/${slug(spec.prompt)}.md`;
-      await writeInside(spec.cwd, file, `# ${spec.prompt.trim()}\n\nWritten by FakeRunner.\n`);
-      yield { type: 'tool', name: 'Write', detail: file };
+      const body = `# ${spec.prompt.trim()}\n\nWritten by FakeRunner.\n`;
+      await writeInside(spec.cwd, file, body);
+      yield { type: 'tool', name: 'Write', detail: file, id: 'fake-write' };
+      yield { type: 'tool_result', result: wroteFile('fake-write', file, body) };
+    }
+
+    /**
+     * D43: a request starting with "background:" starts a job, ends its turn,
+     * and waits for the job the way a real session does -- until the job ends
+     * (BONSAI_FAKE_BACKGROUND_MS), Finish now, or Stop. Finish now still lets
+     * the run end normally and commit; Stop does not.
+     */
+    /**
+     * D43: "detach:" starts a real process outside any tracking, carrying the
+     * run's marker, and waits the way the real runner does -- by looking for
+     * it -- so the pipeline's detection and its clean-up on Stop are what get
+     * exercised, not a stand-in for them.
+     */
+    if (spec.prompt.trimStart().toLowerCase().startsWith('detach:')) {
+      const seconds = Math.max(1, Number(process.env['BONSAI_FAKE_BACKGROUND_MS'] ?? 4000) / 1000);
+      const shell = spawn('sh', ['-c', `sleep ${seconds} &`], {
+        cwd: spec.cwd,
+        env: { ...process.env, [RUN_MARKER]: spec.runId },
+        stdio: 'ignore',
+        detached: true,
+      });
+      shell.on('error', () => undefined);
+      shell.unref();
+      yield { type: 'tool', name: 'Bash', detail: `nohup sleep ${seconds} &`, id: 'fake-detach' };
+      yield {
+        type: 'tool_result',
+        result: ranOutput('fake-detach', 'nohup', [`started a detached sleep ${seconds}`]),
+      };
+      await abortableDelay(200, spec.signal);
+      for (;;) {
+        if (spec.signal.aborted || spec.finishNow.aborted) break;
+        const detached = await spec.backgroundLeftovers();
+        if (detached.length === 0) break;
+        spec.onActivity({ state: 'waiting', tool: null, background: detached });
+        await abortableDelay(250, spec.signal, spec.finishNow);
+      }
+      if (spec.signal.aborted) return;
+      spec.onActivity({ state: 'working', tool: null, background: [] });
+      yield {
+        type: 'text',
+        text: spec.finishNow.aborted
+          ? 'Stopped waiting for the detached process: you chose Finish now.'
+          : 'The detached process exited.',
+      };
+    }
+
+    if (spec.prompt.trimStart().toLowerCase().startsWith('background:')) {
+      yield {
+        type: 'tool',
+        name: 'Bash',
+        detail: 'sleep (stand-in background job)',
+        id: 'fake-background',
+      };
+      yield {
+        type: 'tool_result',
+        result: ranOutput('fake-background', 'sleep', [
+          'running in the background',
+          'stand-in job · no real work',
+        ]),
+      };
+      spec.onActivity({
+        state: 'waiting',
+        tool: null,
+        background: [
+          {
+            id: 'fake-job',
+            description: 'Stand-in background job',
+            tracked: true,
+            startedAt: new Date().toISOString(),
+          },
+        ],
+      });
+      await abortableDelay(
+        Number(process.env['BONSAI_FAKE_BACKGROUND_MS'] ?? 4000),
+        spec.signal,
+        spec.finishNow,
+      );
+      if (spec.signal.aborted) return;
+      spec.onActivity({ state: 'working', tool: null, background: [] });
+      yield {
+        type: 'text',
+        text: spec.finishNow.aborted
+          ? 'The background job was stopped: you chose Finish now.'
+          : 'The background job finished.',
+      };
     }
 
     /**
@@ -149,34 +296,34 @@ export class FakeRunner implements AgentRunner {
         : `\n## Testing\n\nRan \`${spec.verificationHint ?? 'the check'}\` — FakeRunner did not really run it.\n` +
           `Success criteria: ${spec.successCriteria ?? '(none given)'}\n`;
 
-    await writeInside(
-      spec.cwd,
-      'CONTEXT.md',
+    const context =
       `# Context\n\n${spec.prompt.trim()}\n\n${
         question
           ? 'Answered without changing code.'
           : refused === null
             ? 'Changed code.'
             : `Did not change code: ${refused}`
-      }\n${testing}`,
-    );
-    yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md' };
+      }\n` + testing;
+    await writeInside(spec.cwd, 'CONTEXT.md', context);
+    yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md', id: 'fake-context' };
+    yield { type: 'tool_result', result: wroteFile('fake-context', 'CONTEXT.md', context) };
 
     // D20: cost is captured per run from day one, even when it is fake.
     yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };
   }
 }
 
-function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
-  if (ms <= 0 || signal.aborted) return Promise.resolve();
+/** Waits, unless any of the signals fires first. */
+function abortableDelay(ms: number, ...signals: AbortSignal[]): Promise<void> {
+  if (ms <= 0 || signals.some((signal) => signal.aborted)) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(done, ms);
     function done(): void {
       clearTimeout(timer);
-      signal.removeEventListener('abort', done);
+      for (const signal of signals) signal.removeEventListener('abort', done);
       resolve();
     }
-    signal.addEventListener('abort', done, { once: true });
+    for (const signal of signals) signal.addEventListener('abort', done, { once: true });
   });
 }
 

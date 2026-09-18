@@ -42,6 +42,7 @@ import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
 import { rejectPath } from '../git/seedWorktree.js';
 import { checkoutFor } from './checkout.js';
+import { reviewOf, reviewPatchOf } from './review.js';
 import { discardWorktreeChanges, readWorktreeState } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection } from './connectionGate.js';
@@ -65,15 +66,20 @@ interface Ctx {
  * bug and show the connection screen rather than an error.
  */
 /**
- * Stamps each node with its place in the run queue.
+ * Stamps each node with what this process is doing with it: its place in the
+ * run queue, and what its run is doing right now.
  *
- * Done here rather than in the store because queue position is a fact about
- * this process, not about the tree: the store holds what is true after a
- * restart, and nothing in the queue survives one. Everything the interface
- * receives goes through this, so a card can never show a stale position.
+ * Done here rather than in the store because both are facts about this
+ * process, not about the tree: the store holds what is true after a restart,
+ * and neither survives one. Everything the interface receives goes through
+ * this, so a card can never show a stale position or a finished run as live.
  */
-function withQueue(jobs: RunJobs, nodes: NodeView[]): NodeView[] {
-  return nodes.map((n) => ({ ...n, queuePosition: jobs.queuePosition(n.id) }));
+function withLive(jobs: RunJobs, nodes: NodeView[]): NodeView[] {
+  return nodes.map((n) => ({
+    ...n,
+    queuePosition: jobs.queuePosition(n.id),
+    activity: jobs.activity(n.id),
+  }));
 }
 
 function requireConnection(connection: Connection): void {
@@ -389,7 +395,7 @@ route('GET', '/api/projects/:id/tree', (_req, res, params, { store, jobs }) => {
   if (project === undefined) throw new HttpError(404, 'no such project');
   const body: TreeResponse = {
     project: store.projectView(project),
-    nodes: withQueue(jobs, store.treeView(project.id)),
+    nodes: withLive(jobs, store.treeView(project.id)),
   };
   sendJson(res, 200, body);
 });
@@ -569,7 +575,7 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
   // run is started separately until M3 so the git layer can be driven on its
   // own; `new` is the brief window the state was kept for.
   sendJson(res, 201, {
-    node: withQueue(jobs, store.treeView(projectId)).find((n) => n.id === created.nodeId),
+    node: withLive(jobs, store.treeView(projectId)).find((n) => n.id === created.nodeId),
   });
 });
 
@@ -595,7 +601,7 @@ route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs, 
 route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  const view = withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
+  const view = withLive(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
   const contextMd = await readContextFile(row.worktree_path);
   const project = store.getProject(row.project_id);
   const checkout = checkoutFor(project, row);
@@ -655,7 +661,7 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus, jobs }) 
   sendJson(
     res,
     200,
-    withQueue(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id),
+    withLive(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id),
   );
 });
 
@@ -721,6 +727,22 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   });
 });
 
+/** Review: what this experiment changed, file by file. No patches here. */
+route('GET', '/api/nodes/:id/review', async (_req, res, params, { store }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  sendJson(res, 200, await reviewOf(store, row));
+});
+
+/** One file's patch, for the pane reading it. */
+route('GET', '/api/nodes/:id/review/file', async (req, res, params, { store }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  const path = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path');
+  if (path === null || path === '') throw new HttpError(400, 'path is required');
+  sendJson(res, 200, await reviewPatchOf(store, row, path));
+});
+
 // -- runs --------------------------------------------------------------------
 
 route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, connection }) => {
@@ -753,6 +775,18 @@ route('POST', '/api/nodes/:id/cancel', (_req, res, params, { store, jobs }) => {
   const node = store.getNode(params['id']!);
   if (node === undefined) throw new HttpError(404, 'no such node');
   sendJson(res, 200, { cancelled: jobs.cancel(node.id) });
+});
+
+/**
+ * D43: Finish now. The run stops waiting for background work, stops it, and
+ * ends normally -- so, unlike cancel, what it produced is committed.
+ *
+ * Idempotent like cancel: `finished: false` means there was nothing to finish.
+ */
+route('POST', '/api/nodes/:id/finish', (_req, res, params, { store, jobs }) => {
+  const node = store.getNode(params['id']!);
+  if (node === undefined) throw new HttpError(404, 'no such node');
+  sendJson(res, 200, { finished: jobs.finish(node.id) });
 });
 
 /** Stops every run in a project at once, for when several are in flight. */

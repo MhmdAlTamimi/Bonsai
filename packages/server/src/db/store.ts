@@ -15,9 +15,9 @@ import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
 import { RunStore } from './runStore.js';
 import { Views } from './views.js';
-import type { NodeRow, ProjectRow, RunTotals } from './rows.js';
+import type { NodeRow, ProjectRow, RunEnd, RunTotals } from './rows.js';
 
-export type { NodeRow, ProjectRow, RunTotals };
+export type { NodeRow, ProjectRow, RunEnd, RunTotals };
 export { isUsersOwnCheckout, toLineage } from './rows.js';
 export type { NodeChecks, TestingSource } from './checkStore.js';
 export type { StoredQuestion } from './messageStore.js';
@@ -135,13 +135,8 @@ export class Store {
   createRun(runId: string, nodeId: string): void {
     this.runs.create(runId, nodeId);
   }
-  finishRun(
-    runId: string,
-    status: 'done' | 'cancelled' | 'failed',
-    error: string | null,
-    totals: RunTotals,
-  ): void {
-    this.runs.finish(runId, status, error, totals);
+  finishRun(runId: string, end: RunEnd, totals: RunTotals): void {
+    this.runs.finish(runId, end, totals);
   }
   getRun(runId: string): ReturnType<RunStore['get']> {
     return this.runs.get(runId);

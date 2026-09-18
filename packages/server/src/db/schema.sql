@@ -172,6 +172,19 @@ CREATE TABLE IF NOT EXISTS run (
   stat_files            INTEGER,
   stat_insertions       INTEGER,
   stat_deletions        INTEGER,
+  -- What THIS run changed: its own commit against the commit before it. The
+  -- stat above is the node's running total; this is what the conversation
+  -- shows beside the message that caused it. Null when it committed nothing.
+  run_files             INTEGER,
+  run_added             INTEGER,
+  run_removed           INTEGER,
+  -- D45: why the run ended -- finished, stopped, failed or app_closed -- so
+  -- recovery can say what happened instead of calling everything an
+  -- interruption. Null only while it is running.
+  end_reason            TEXT,
+  -- How many background jobs and detached processes were still running and
+  -- had to be stopped when it ended (Stop, Finish now, or a failure).
+  stopped_background    INTEGER NOT NULL DEFAULT 0,
   -- D31: a failed run is an `interrupted` node plus this. `failed` is not a
   -- sixth node state.
   error         TEXT,

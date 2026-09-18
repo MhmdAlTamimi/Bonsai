@@ -8,6 +8,9 @@ export class GitError extends Error {
     message: string,
     readonly args: readonly string[],
     readonly stderr: string,
+    /** The process exit code, when git ran and exited non-zero. */
+    readonly exitCode: number | null = null,
+    readonly stdout = '',
   ) {
     super(message);
     this.name = 'GitError';
@@ -47,12 +50,27 @@ export async function git(args: readonly string[], cwd: string): Promise<string>
     });
     return stdout;
   } catch (err) {
-    const e = err as { stderr?: string; message?: string };
+    const e = err as { stderr?: string; stdout?: string; message?: string; code?: unknown };
     throw new GitError(
       `git ${args.join(' ')} failed: ${(e.stderr ?? e.message ?? '').trim()}`,
       args,
       e.stderr ?? '',
+      typeof e.code === 'number' ? e.code : null,
+      e.stdout ?? '',
     );
+  }
+}
+
+/**
+ * For `git diff --no-index`, which exits 1 when the two sides differ -- the
+ * only case anyone runs it for. Exit 1 is output, not failure.
+ */
+export async function gitDiffNoIndex(args: readonly string[], cwd: string): Promise<string> {
+  try {
+    return await git(args, cwd);
+  } catch (err) {
+    if (err instanceof GitError && err.exitCode === 1) return err.stdout;
+    throw err;
   }
 }
 
@@ -66,6 +84,8 @@ export interface StatusEntry {
   /** Two-character XY code. '??' means untracked. */
   code: string;
   path: string;
+  /** Where a renamed or copied path came from. */
+  oldPath?: string;
   untracked: boolean;
 }
 
@@ -88,7 +108,11 @@ export async function status(worktreePath: string): Promise<StatusEntry[]> {
     const path = record.slice(3);
     // A rename emits the destination in this record and the source in the
     // next one; consume it so it is not read as its own entry.
-    if (code.startsWith('R') || code.startsWith('C')) i += 1;
+    if (code.startsWith('R') || code.startsWith('C')) {
+      i += 1;
+      out.push({ code, path, oldPath: parts[i] ?? '', untracked: false });
+      continue;
+    }
     out.push({ code, path, untracked: code === '??' });
   }
   return out;

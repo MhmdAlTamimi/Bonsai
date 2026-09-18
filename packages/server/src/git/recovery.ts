@@ -1,3 +1,5 @@
+import type { RecoveryCause } from '@bonsai/shared';
+
 import { git, status } from './exec.js';
 import { CONTEXT_FILE } from './commit.js';
 
@@ -40,7 +42,33 @@ export async function readWorktreeState(worktreePath: string): Promise<WorktreeS
 }
 
 /**
- * The prompt used to resume an interrupted run.
+ * What the agent is told happened, by cause (D45).
+ *
+ * Never "interrupted" about a run that finished: an agent told it was
+ * interrupted believes it, and one that had in fact finished -- while a
+ * process it started kept writing -- stopped instead of looking at the files.
+ */
+function opening(cause: RecoveryCause, error: string | null): string {
+  switch (cause) {
+    case 'stopped':
+      return 'The user stopped your previous run before it finished, and has now asked you to continue it.';
+    case 'failed':
+      return error === null || error.trim() === ''
+        ? 'Your previous run failed before it finished.'
+        : `Your previous run failed before it finished, with this error: ${error.trim().slice(0, 500)}`;
+    case 'app_closed':
+      return 'Bonsai closed while your previous run was in progress, so the run stopped before it finished.';
+    case 'changed_after_finish':
+      return (
+        'Your previous run finished and its work was committed, but files in the working ' +
+        'directory changed after it ended -- most likely a process that run started kept ' +
+        'writing. Those changes have not been committed.'
+      );
+  }
+}
+
+/**
+ * The prompt used to continue from uncommitted work.
  *
  * §6.6: the agent knows what it INTENDED, not what actually landed -- its
  * session ends at the last message it sent, which may be before the write that
@@ -48,26 +76,36 @@ export async function readWorktreeState(worktreePath: string): Promise<WorktreeS
  * this the agent would redo work that already exists, or assume work exists
  * that does not.
  */
-export function resumePrompt(state: WorktreeState, originalPrompt: string): string {
+export function resumePrompt(
+  state: WorktreeState,
+  originalPrompt: string,
+  cause: RecoveryCause,
+  error: string | null = null,
+): string {
+  const afterFinish = cause === 'changed_after_finish';
   if (state.changed.length === 0) {
-    return (
-      `Your previous run was interrupted before it finished, and the working ` +
-      `directory has no uncommitted changes — nothing you did was saved.\n\n` +
-      `Please start again from the beginning:\n\n${originalPrompt}`
-    );
+    return afterFinish
+      ? `${opening(cause, error)}\n\nThe working directory has no uncommitted changes now, so ` +
+          'there is nothing to review. Say so briefly.'
+      : `${opening(cause, error)} The working directory has no uncommitted changes — nothing ` +
+          `you did was saved.\n\nPlease start again from the beginning:\n\n${originalPrompt}`;
   }
 
-  const lines = [
-    'Your previous run was interrupted before it finished. You may have been',
-    'part-way through a change, and your own memory of it ends at your last',
-    'message — which is not necessarily where the work stopped.',
+  const lines = [opening(cause, error)];
+  if (!afterFinish) {
+    lines.push(
+      'You may have been part-way through a change, and your own memory of it ends at your',
+      'last message — which is not necessarily where the work stopped.',
+    );
+  }
+  lines.push(
     '',
     'Here is the ACTUAL state of the working directory right now, which is the',
     'authoritative record of what landed:',
     '',
     `Files with uncommitted changes (${state.changed.length}):`,
     ...state.changed.map((f) => `  ${f}`),
-  ];
+  );
 
   if (state.untracked.length > 0) {
     lines.push(
@@ -81,16 +119,26 @@ export function resumePrompt(state: WorktreeState, originalPrompt: string): stri
     lines.push('', 'Diff of the tracked changes:', '', '```diff', state.patch.trim(), '```');
   }
 
-  lines.push(
-    '',
-    'Read whatever you need to confirm the current state before changing anything,',
-    'then finish the original task. Do not redo work that is already present.',
-    '',
-    'The original task was:',
-    '',
-    originalPrompt,
-  );
-
+  if (afterFinish) {
+    lines.push(
+      '',
+      'Review these changes. Check whether they are the complete, correct output of the work --',
+      'for example results a job finished writing -- or something left half-written. Finish',
+      'anything incomplete and update CONTEXT.md to describe the results. Do not redo work that',
+      'is already present.',
+      '',
+      'For context, the task was:',
+    );
+  } else {
+    lines.push(
+      '',
+      'Read whatever you need to confirm the current state before changing anything,',
+      'then finish the original task. Do not redo work that is already present.',
+      '',
+      'The original task was:',
+    );
+  }
+  lines.push('', originalPrompt);
   return lines.join('\n');
 }
 

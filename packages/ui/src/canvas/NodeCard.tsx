@@ -1,11 +1,14 @@
 import { Icon } from '../Icon.tsx';
-import type { JSX } from 'react';
+import { type JSX, useCallback, useContext, useRef, useState } from 'react';
 import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
-import { CODE_LABEL, CODE_TOOLTIP, codeState } from '../nodeCode.ts';
+import { CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
-import { StopButton } from '../state/RunControls.tsx';
-import { STATUS_LABEL, StatusChip } from '../nodeStatus.tsx';
+import { STATUS_LABEL, StatusChip, nodeStatusTitle } from '../nodeStatus.tsx';
+import { BranchContext } from './branchContext.ts';
+import { CardActionsContext } from './cardActions.ts';
+import { useDismiss } from '../useDismiss.ts';
+import { useStopRun } from '../state/RunControls.tsx';
 
 /**
  * The node card. Renders from FLAGS, never from a node "type" string
@@ -43,11 +46,24 @@ const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
 export function NodeCard({ data, selected }: { data: NodeView; selected: boolean }): JSX.Element {
   const zoom = useStore((s) => s.transform[2]);
   const lod = lodFor(zoom);
+  const branch = useContext(BranchContext);
+  const actions = useContext(CardActionsContext);
+  const [menu, setMenu] = useState(false);
+  const stopping = useStopRun(data);
+  const card = useRef<HTMLDivElement>(null);
+  useDismiss(
+    menu,
+    useCallback(() => setMenu(false), []),
+    card,
+    '.card-more',
+  );
 
   // Dashed border and the conversation glyph mean "ran and wrote nothing", which is
   // only knowable once the run finished. A node that has not run yet gets
   // neither -- see nodeCode.ts.
   const code = codeState(data);
+  const waiting = data.activity?.state === 'waiting';
+  const changes = data.diffStat;
 
   const classes = [
     'card',
@@ -71,6 +87,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
     <div
       className={classes}
       style={dotStyle}
+      ref={card}
       title={`${data.displayName}\n\n${CODE_TOOLTIP[code]}`}
     >
       <Handle type="target" position={RANK_DIR === 'TB' ? Position.Top : Position.Left} />
@@ -80,30 +97,20 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
           <StatusChip
             status={data.status}
             queuePosition={data.queuePosition}
-            lastRunStatus={data.lastRunStatus}
+            lastRunEndReason={data.lastRunEndReason}
+            waiting={waiting}
             compact
           />
         </span>
       ) : (
         <>
           <div className="card-head">
-            {data.positionX !== null && (
-              <span title="Pinned position" role="img" aria-label="Pinned position">
-                <Icon name="pin" />
-              </span>
-            )}
+            <span
+              className={`node-status-dot st-${data.status}`}
+              aria-hidden="true"
+              title={nodeStatusTitle(data)}
+            />
             <span className="card-name">{data.displayName}</span>
-            {/* No diff to show, so say so rather than hiding it. */}
-            {code === 'none' && (
-              <span
-                className="glyph lock"
-                title={CODE_LABEL[code]}
-                role="img"
-                aria-label={CODE_LABEL[code]}
-              >
-                <Icon name="chat" />
-              </span>
-            )}
             {!data.writable && (
               <span
                 className="glyph lock"
@@ -114,60 +121,165 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 <Icon name="lock" />
               </span>
             )}
-            {/* At compact zoom the word is gone, so the glyph carries it. */}
-            {lod === 'compact' && (
-              <StatusChip
-                status={data.status}
-                queuePosition={data.queuePosition}
-                lastRunStatus={data.lastRunStatus}
-                compact
-              />
+            {lod === 'full' && actions !== null && (
+              <button
+                className="card-more nodrag nopan"
+                aria-label={`Actions for ${data.displayName}`}
+                aria-haspopup="menu"
+                aria-expanded={menu}
+                title="Actions"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setMenu((open) => !open);
+                }}
+              >
+                ⋯
+              </button>
             )}
           </div>
+
           {lod === 'full' && (
             <>
-              {data.summaryLine.trim() !== data.displayName.trim() && (
-                <div className="card-summary">{data.summaryLine || <em>No description</em>}</div>
-              )}
+              <div className="card-summary">
+                {data.summaryLine.trim() === data.displayName.trim() ? '' : data.summaryLine}
+              </div>
               <div className="card-foot">
-                {/* On the card as well as in the panel: with several nodes in
-                    flight, the one you want to stop is rarely the one selected,
-                    and stopping it should not cost a click to select it first. */}
                 <StatusChip
                   status={data.status}
                   queuePosition={data.queuePosition}
-                  lastRunStatus={data.lastRunStatus}
+                  lastRunEndReason={data.lastRunEndReason}
+                  waiting={waiting}
                 />
-                <StopButton node={data} />
+                <span className="spacer" />
                 {/*
-                 * The most informative fact available about a node, and the
-                 * card did not show it. Nothing at all for a node that
-                 * committed nothing -- "0 files" reads like a failure, when
-                 * a conversation-only node is a normal and useful outcome.
+                 * The change summary IS the way in: a node that changed
+                 * something always looks like something to read. A node that
+                 * ran and changed nothing says so instead, and offers no
+                 * control. A node that has not run yet claims neither -- see
+                 * nodeCode.ts -- so its foot is the status alone.
+                 *
+                 * The count can be missing on a node that did commit: it is
+                 * measured at commit time, and a run from before that
+                 * measurement existed has none. The way in still opens.
                  */}
-                {data.diffStat !== null && (
-                  <span
-                    className="diffstat"
-                    title={`${data.diffStat.files} file${data.diffStat.files === 1 ? '' : 's'} changed since this node's base`}
+                {data.hasCommits ? (
+                  <button
+                    className="review-control nodrag nopan"
+                    title={
+                      changes === null
+                        ? 'Review this experiment’s changes'
+                        : `Review ${changes.files} changed file${changes.files === 1 ? '' : 's'}`
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      actions?.review(data.id);
+                    }}
                   >
-                    {data.diffStat.files}f <span className="added">+{data.diffStat.added}</span>{' '}
-                    <span className="removed">−{data.diffStat.removed}</span>
-                  </span>
+                    <span className="review-label">Review</span>
+                    {changes !== null && (
+                      <span
+                        className={`review-count${data.status === 'running' ? ' running' : ''}`}
+                      >
+                        +{changes.added.toLocaleString()}
+                      </span>
+                    )}
+                    <span className="review-arrow" aria-hidden="true">
+                      →
+                    </span>
+                  </button>
+                ) : (
+                  code === 'none' && <span className="no-change">no file changes</span>
                 )}
               </div>
             </>
           )}
+
+          {menu && actions !== null && (
+            <div className="menu-panel card-menu nodrag nopan" role="menu">
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  actions.review(data.id);
+                }}
+              >
+                Review changes…
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  actions.branch(data.id);
+                }}
+              >
+                Branch child…
+              </button>
+              {stopping !== null && (
+                <button
+                  role="menuitem"
+                  className="stop-run"
+                  disabled={stopping.busy}
+                  onClick={() => {
+                    setMenu(false);
+                    stopping.stop();
+                  }}
+                >
+                  {stopping.busy ? 'Stopping…' : 'Stop this run'}
+                </button>
+              )}
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  actions.rename(data);
+                }}
+              >
+                Rename…
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  actions.details(data);
+                }}
+              >
+                Experiment details…
+              </button>
+              {data.parentId !== null && (
+                <button
+                  role="menuitem"
+                  className="danger"
+                  onClick={() => {
+                    setMenu(false);
+                    actions.remove(data);
+                  }}
+                >
+                  Delete this experiment…
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
 
-      {/* The source handle IS the create-a-child affordance: drag it into empty
-          canvas and name the child where you dropped it. Sized to be grabbable
-          and marked with a + so it reads as an action rather than a port. */}
+      {/* The source handle IS the create-a-child affordance: click it, or drag
+          it into empty canvas and name the child where you dropped it. */}
       <Handle
         type="source"
         position={RANK_DIR === 'TB' ? Position.Bottom : Position.Right}
-        className="add-child-handle"
-        title="Drag onto empty map to branch an experiment"
+        className="add-child-handle nodrag"
+        role="button"
+        tabIndex={0}
+        aria-label={`Branch an experiment from ${data.displayName}`}
+        title="Branch an experiment — click, or drag onto the map to place it"
+        onClick={() => branch?.(data.id)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || (event.key !== 'Enter' && event.key !== ' ')) return;
+          // The card underneath treats Enter as "select me"; this one is "branch".
+          event.preventDefault();
+          event.stopPropagation();
+          branch?.(data.id);
+        }}
       >
         <Icon name="plus" />
       </Handle>

@@ -84,7 +84,14 @@ export interface SettingsView {
  */
 export const TEXT_SCALES = [100, 115, 130] as const;
 
-export const PANEL_WIDTH = { min: 280, max: 900, default: 420 } as const;
+export const PANEL_WIDTH = { min: 280, max: 900, default: 380 } as const;
+
+/**
+ * How wide the conversation is beside a diff: three quarters of its width on
+ * the canvas. Review is where the diff deserves the room, and every part of
+ * the panel keeps its type size — only the wrap changes.
+ */
+export const REVIEW_WIDTH = 285;
 
 /**
  * How many agents may run at once.
@@ -181,6 +188,15 @@ export interface ProjectView {
   workDir: string;
   /** `sourcePath` and `workDir` joined: the folder to reveal or name. */
   workPath: string | null;
+  /**
+   * The branch the project's own repository is on — `main`, `master`, whatever
+   * an adopted repository uses.
+   *
+   * Null for a project Bonsai created, where the only branches are the
+   * `node/<uuid>` ones an experiment owns, and D33 says those are never shown:
+   * they are generated once, never renamed, and mean nothing to anyone.
+   */
+  branchLabel: string | null;
   setup: ProjectSetupView;
   /** Estimated total across every run in the tree, at API list price. */
   costUsd: number;
@@ -234,7 +250,8 @@ export interface NodeView {
   /** The change description, or the agent's question when status is needs_you. */
   summaryLine: string;
   status: NodeStatus;
-  lastRunStatus?: RunStatus | null;
+  /** Why the newest run ended, or null while it runs or before there is one. */
+  lastRunEndReason: RunEndReason | null;
   createsBranch: boolean;
   writable: boolean;
   frozenReason: FrozenReason | null;
@@ -277,7 +294,50 @@ export interface NodeView {
    * to happen, and nothing else about it differs.
    */
   queuePosition: number | null;
+  /**
+   * What the run is doing right now, or null when nothing is running.
+   *
+   * Derived in memory like `queuePosition`, and for the same reason not a
+   * status: waiting for background work is still `running` -- the run has not
+   * ended, its work has not been committed, and Stop still applies.
+   */
+  activity: RunActivity | null;
   createdAt: string;
+}
+
+/**
+ * The live state of one run (D43).
+ *
+ * A run used to end when the agent's turn ended. That was wrong for any
+ * command still running in the background: Bonsai committed and said
+ * Finished while the experiment kept writing files. Now the run stays open
+ * while that work is live, and this is how the interface says so.
+ */
+export interface RunActivity {
+  /**
+   * working -- the agent is taking a turn.
+   * waiting -- its turn is over, and background work it started is still
+   *            running. The run ends when that work does, or on Finish now.
+   */
+  state: 'working' | 'waiting';
+  /** The tool call in progress, so a long command reads as running rather than stuck. */
+  tool: { name: string; detail: string; startedAt: string } | null;
+  background: BackgroundJob[];
+}
+
+export interface BackgroundJob {
+  id: string;
+  /** The agent's description of a tracked job, or the command line of a detached process. */
+  description: string;
+  /**
+   * true  -- started in the agent's background mode, so the harness knows when
+   *          it ends and wakes the agent.
+   * false -- detached some other way (nohup, a trailing &) and found by Bonsai
+   *          through the run's marker; nothing tells the agent when it ends.
+   */
+  tracked: boolean;
+  /** When Bonsai first saw it. */
+  startedAt: string;
 }
 
 /**
@@ -303,10 +363,23 @@ export interface AgentQuestion {
   }>;
 }
 
+/**
+ * Why a run ended (D45). Recovery is worded by this, because the four need
+ * different words: "you stopped this run" is not "Bonsai closed while it was
+ * working", and neither is an error.
+ */
+export type RunEndReason = 'finished' | 'stopped' | 'failed' | 'app_closed';
+
 export interface RunView {
   id: string;
   nodeId: string;
   status: RunStatus;
+  /** Null while the run is still going. */
+  endReason: RunEndReason | null;
+  /** Background jobs and detached processes that were still running and had to be stopped. */
+  stoppedBackground: number;
+  /** What this run alone changed, against the commit before it. Null when it committed nothing. */
+  change: { files: number; added: number; removed: number } | null;
   startedAt: string;
   endedAt: string | null;
   inputTokens: number;
@@ -341,13 +414,90 @@ export interface RunView {
   toolCalls: number;
   /** Wall-clock, in milliseconds. Null for runs recorded before this existed. */
   durationMs: number | null;
+  /** What went wrong, for a failed run. Stops and app exits say so through `endReason`. */
   error: string | null;
+}
+
+/**
+ * Review: one experiment's changes, as a list of files.
+ *
+ * `A` added · `M` modified · `D` deleted · `R` renamed · `U` in the folder and
+ * not tracked yet. Counts per file, never a patch: the patch for the one file
+ * being read is fetched on its own.
+ */
+export type ReviewStatus = 'A' | 'M' | 'D' | 'R' | 'U';
+
+export interface ReviewFile {
+  path: string;
+  /** Where a renamed file came from. */
+  oldPath?: string;
+  status: ReviewStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  /** True for work in the folder that no commit holds yet. */
+  uncommitted?: boolean;
+}
+
+export interface ReviewView {
+  nodeId: string;
+  displayName: string;
+  /** What the files are compared with, in words. */
+  baseLabel: string;
+  totals: { files: number; added: number; removed: number };
+  files: ReviewFile[];
+}
+
+export interface ReviewFilePatchView {
+  file: ReviewFile;
+  patch: string;
+  /** True when the patch was too large and only its beginning is here. */
+  truncated: boolean;
 }
 
 export interface DiffView {
   files: string[];
   patch: string;
   dirty: string[];
+}
+
+/**
+ * What a tool call produced, kept for the two blocks the conversation draws:
+ * a command with its output, and an edit with its changed lines.
+ *
+ * Captured because a transcript that says only "Bash" and "Edit" cannot answer
+ * "what did it actually run, and what did that change?" -- which is the whole
+ * question a reader has. Trimmed at capture: a command that prints a megabyte
+ * is worth three lines and a count of the rest.
+ */
+export interface ToolDiffLine {
+  kind: 'add' | 'del' | 'context';
+  text: string;
+  /** Line numbers from the file's own patch; absent on the side that has none. */
+  oldLine?: number;
+  newLine?: number;
+}
+
+export interface ToolResultContent {
+  /** The tool call this answers, so the two halves can be drawn as one block. */
+  toolUseId: string;
+  /** Bash, Edit, Write — the tool that ran. */
+  name: string;
+  /** False when the tool reported an error. */
+  ok: boolean;
+  /** A command's output, oldest first and already trimmed. */
+  output?: string[];
+  /** Output lines left out of `output`. */
+  dropped?: number;
+  /** An edit or a write: which file, and what changed in it. */
+  edit?: {
+    path: string;
+    added: number;
+    removed: number;
+    lines: ToolDiffLine[];
+    /** True when more changed lines exist than are kept here. */
+    truncated?: boolean;
+  };
 }
 
 export interface MessageView {
@@ -646,9 +796,13 @@ export type ServerEvent =
       runId: string;
       seq: number;
       text: string;
-      tool?: { name: string; detail: string };
+      tool?: { name: string; detail: string; id?: string };
+      /** What a tool produced, when this delta is a result rather than a call. */
+      toolResult?: ToolResultContent;
     }
   | { type: 'run.question'; nodeId: string; runId: string; questionId: string; text: string }
+  /** At most about once a second per run, so a long command cannot flood the stream. */
+  | { type: 'run.activity'; nodeId: string; runId: string; activity: RunActivity }
   | {
       type: 'run.finished';
       nodeId: string;

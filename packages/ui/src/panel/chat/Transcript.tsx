@@ -1,82 +1,69 @@
-import { type JSX, useEffect, useState } from 'react';
-import type { DiffView, MessageView, RunView } from '@bonsai/shared';
+import { type JSX, useLayoutEffect, useRef, useState } from 'react';
+import type { MessageView, RunView, ToolResultContent } from '@bonsai/shared';
 
-import { describeError } from '../../api/describeError.ts';
-import { api } from '../../api/client.ts';
-import { Diff } from './Diff.tsx';
 import { Markdown } from './Markdown.tsx';
-import { ToolCalls } from './ToolCalls.tsx';
-import { relativeTime, exactTime } from './time.ts';
+import { ToolBlock } from './ToolBlock.tsx';
+import { Disclosure } from './Disclosure.tsx';
+import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
 
 /**
- * The conversation, grouped into the turns that actually happened.
+ * The conversation, as runs.
  *
- * The transcript used to be a flat list of `.msg` divs distinguished only by
- * shade of grey and font size: your prompt in a rounded box, the reply in the
- * dimmer of two greys, and every tool call as its own monospace line at the
- * same indent. Three of the four kinds were left-aligned text at two pixels of
- * padding, separated by a uniform eight-pixel gap, so there was no visible
- * boundary between one exchange and the next.
+ * A run -- one request, the work it caused, the reply -- is what the user
+ * reasons about, what carries a cost, and what produced a change, so it is the
+ * unit here. Inside one, the asymmetry is deliberate: your message is an
+ * object you can see, and the agent's reply is text on the panel, because one
+ * of you is quoting a request and the other is answering at length.
  *
- * The fix is not more styling, it is the right unit. A run -- one prompt, the
- * work it caused, the reply, and the commit it produced -- is what the user
- * reasons about, what carries a cost, and what has a diff. So a run is a block,
- * with its own header, body and footer, and the panel renders a list of those
- * rather than a list of messages. `runId` was already on every message; nothing
- * new had to be stored to do this.
+ * Every tool call is one bounded block, in place, in the order it happened: a
+ * READ is its 30px header alone, a RUN carries the end of its output, an EDIT
+ * the lines that moved. They used to be summarised into "Read ×6 · Grep ×2",
+ * which hid WHICH file was read at the moment it mattered -- and the narration
+ * between bursts, which is the readable part, lost its anchors.
  */
 export function Transcript({
   messages,
   runs,
   pending,
   running,
+  waiting = false,
   onProjectSettings,
 }: {
-  onProjectSettings?: () => void;
   messages: readonly MessageView[];
   runs: readonly RunView[];
   /** Live deltas the persisted transcript has not caught up with. */
   pending: readonly Delta[];
   running: boolean;
+  /** The live run's turn is over and it is waiting for background work (D43). */
+  waiting?: boolean;
+  onProjectSettings?: () => void;
 }): JSX.Element {
-  const runsById = new Map(runs.map((r) => [r.id, r]));
-  const groups = groupByRun(messages);
-  const pendingRunId = pending[0]?.runId ?? null;
-
-  // A run can stream before any of its messages have landed, which would leave
-  // the live text with no turn to sit in. Rare and brief, but it reads as the
-  // output vanishing, so the turn is opened early with nothing in it.
-  if (pendingRunId !== null && !groups.some((g) => g.runId === pendingRunId)) {
-    groups.push({ runId: pendingRunId, messages: [] });
-  }
+  const runsById = new Map(runs.map((run) => [run.id, run]));
+  const numberOf = new Map(runs.map((run, index) => [run.id, index + 1]));
+  const groups = groupByRun([...messages, ...liveMessages(pending)]);
+  const liveRunId = pending.at(-1)?.runId ?? null;
 
   return (
-    <div className="transcript">
+    <div className="thread">
       {groups.map((group) =>
         group.runId === null ? (
-          <details className="setup-activity" key="setup">
-            <summary>Experiment setup</summary>
-            {group.messages.map((message) => (
-              <Said key={message.id} message={message} />
-            ))}
-            {onProjectSettings && (
-              <button className="linkish" onClick={onProjectSettings}>
-                Project setup settings
-              </button>
-            )}
-          </details>
+          <SetupActivity
+            key="setup"
+            messages={group.messages}
+            onProjectSettings={onProjectSettings}
+          />
         ) : (
           <Turn
-            key={group.runId ?? 'unattached'}
+            key={group.runId}
             group={group}
-            run={group.runId === null ? undefined : runsById.get(group.runId)}
-            pending={group.runId === pendingRunId ? pending : []}
+            run={runsById.get(group.runId)}
+            number={numberOf.get(group.runId) ?? null}
             running={
               running &&
-              (group.runId === pendingRunId ||
-                runsById.get(group.runId ?? '')?.status === 'running')
+              (group.runId === liveRunId || runsById.get(group.runId)?.status === 'running')
             }
+            waiting={waiting}
           />
         ),
       )}
@@ -100,205 +87,281 @@ function groupByRun(messages: readonly MessageView[]): Group[] {
   return groups;
 }
 
+/** Live frames, as the messages they will be once the run persists them. */
+function liveMessages(pending: readonly Delta[]): MessageView[] {
+  return pending.map((delta, index) => ({
+    id: `live-${delta.runId}-${delta.seq}-${index}`,
+    nodeId: '',
+    runId: delta.runId,
+    seq: delta.seq,
+    role: delta.seq === 0 ? 'system' : 'assistant',
+    kind: delta.toolResult ? 'tool_result' : delta.tool ? 'tool_use' : 'text',
+    content: delta.toolResult ?? delta.tool ?? delta.text,
+    createdAt: '',
+  }));
+}
+
 function Turn({
   group,
   run,
-  pending,
+  number,
   running,
+  waiting,
 }: {
   group: Group;
   run: RunView | undefined;
-  pending: readonly Delta[];
+  number: number | null;
   running: boolean;
+  waiting: boolean;
 }): JSX.Element {
-  const prompt = group.messages.find((m) => m.role === 'user');
-  const body: MessageView[] = [
-    ...group.messages.filter((m) => m !== prompt),
-    ...pending.map((delta, index): MessageView => ({
-      id: `live-${delta.runId}-${delta.seq}-${index}`,
-      nodeId: '',
-      runId: delta.runId,
-      seq: delta.seq,
-      role: delta.seq === 0 ? 'system' : 'assistant',
-      kind: delta.tool ? 'tool_use' : 'text',
-      content: delta.tool ?? delta.text,
-      createdAt: '',
-    })),
-  ];
-  const [collapsed, setCollapsed] = useState(false);
+  const { prompt, rest } = splitPrompt(group.messages);
+  const parts = compose(rest);
   const when = prompt?.createdAt ?? run?.startedAt ?? null;
 
   return (
-    <article className={`turn ${running ? 'live' : ''}`}>
-      {prompt !== undefined && (
-        <header className="turn-head">
-          <button
-            className="turn-collapse"
-            aria-expanded={!collapsed}
-            onClick={() => setCollapsed((v) => !v)}
-          >
-            {collapsed ? '▸' : '▾'} You
-          </button>
+    <article className={`turn${running ? ' live' : ''}`}>
+      {number !== null && number > 1 && (
+        <div className="run-divider">
+          <span className="run-label">RUN {number}</span>
+          <span className="run-rule" />
           {when !== null && (
-            <time className="turn-when" title={exactTime(when)}>
-              {relativeTime(when)}
+            <time className="run-when" title={exactTime(when)}>
+              {clockTime(when)}
             </time>
           )}
-        </header>
+        </div>
       )}
-      {prompt !== undefined && <div className="turn-prompt">{asText(prompt.content)}</div>}
 
-      <div className="turn-reply" hidden={collapsed}>
-        {segment(body).map((part, i) =>
-          part.kind === 'tools' ? (
-            <ToolCalls key={i} calls={part.messages} live={running} />
-          ) : (
-            part.messages.map((m) => <Said key={m.id} message={m} />)
-          ),
-        )}
+      {prompt !== undefined && <YouSaid message={prompt} />}
 
-        {running && (
-          <div className="working" aria-live="polite">
-            <span className="working-dot" aria-hidden="true" />
-            working&hellip;
-          </div>
-        )}
-      </div>
+      {(parts.length > 0 || running) && (
+        <div className="msg agent">
+          <span className="msg-label">Agent:</span>
+          {parts.map((part, i) =>
+            part.kind === 'block' ? (
+              <ToolBlock
+                key={i}
+                name={part.name}
+                detail={part.detail}
+                result={part.result}
+                live={running && part.result === undefined}
+              />
+            ) : part.kind === 'you' ? (
+              <YouSaid key={i} message={part.message} inline />
+            ) : (
+              <Said key={i} message={part.message} />
+            ),
+          )}
+          {running && (
+            <div className="working" aria-live="polite">
+              <span className="working-dot" aria-hidden="true" />
+              {waiting ? 'waiting for background work' : 'working'}&hellip;
+            </div>
+          )}
+        </div>
+      )}
 
-      {!collapsed && !running && run !== undefined && <TurnFoot run={run} />}
+      {!running && run !== undefined && <RunFoot run={run} />}
     </article>
   );
 }
 
-function Said({ message }: { message: MessageView }): JSX.Element {
-  const text = asText(message.content);
-  if (message.role === 'system') {
-    return (
-      <div className="said system">
-        <pre>{text}</pre>
-      </div>
-    );
-  }
-  return (
-    <div className="said assistant">
-      <Markdown source={text} />
-    </div>
-  );
-}
-
-interface Part {
-  kind: 'tools' | 'prose';
-  messages: MessageView[];
-}
-
 /**
- * Consecutive tool calls, gathered; everything else left where it is.
+ * The request, and everything after it.
  *
- * See ToolCalls for why this is done per run of adjacent calls rather than once
- * per turn: the prose between two bursts of tool use is the part worth reading,
- * and hoisting all the calls to the top would strand it.
+ * Found rather than assumed to be first: a resumed run writes its system note
+ * before the prompt, and the turn still opens with what was asked.
  */
-function segment(messages: readonly MessageView[]): Part[] {
+function splitPrompt(messages: readonly MessageView[]): {
+  prompt: MessageView | undefined;
+  rest: MessageView[];
+} {
+  const index = messages.findIndex((m) => m.role === 'user');
+  if (index === -1) return { prompt: undefined, rest: [...messages] };
+  return { prompt: messages[index], rest: messages.filter((_, i) => i !== index) };
+}
+
+type Part =
+  | { kind: 'said'; message: MessageView }
+  | { kind: 'you'; message: MessageView }
+  | { kind: 'block'; name: string; detail: string; result: ToolResultContent | undefined };
+
+/** Pairs each call with what it produced, and folds the quiet ones together. */
+function compose(messages: readonly MessageView[]): Part[] {
+  const results = new Map<string, ToolResultContent>();
+  for (const message of messages) {
+    if (message.kind !== 'tool_result') continue;
+    const result = message.content as ToolResultContent | null;
+    if (typeof result?.toolUseId === 'string') results.set(result.toolUseId, result);
+  }
+
   const parts: Part[] = [];
   for (const message of messages) {
-    const kind = message.kind === 'tool_use' ? 'tools' : 'prose';
-    const last = parts[parts.length - 1];
-    if (last?.kind === kind) last.messages.push(message);
-    else parts.push({ kind, messages: [message] });
+    if (message.kind === 'tool_result') continue;
+    if (message.kind === 'tool_use') {
+      const call = message.content as { name?: string; detail?: string; id?: string };
+      parts.push({
+        kind: 'block',
+        name: call.name ?? 'tool',
+        detail: call.detail ?? '',
+        result: call.id === undefined ? undefined : results.get(call.id),
+      });
+      continue;
+    }
+    parts.push(message.role === 'user' ? { kind: 'you', message } : { kind: 'said', message });
   }
   return parts;
 }
 
 /**
- * What the run cost and what it produced.
- *
- * Only once the run has ended: a run still in flight has no verdict, and this
- * used to render "answered - no commit" the moment the agent produced its first
- * message, which is a plain lie about a run that is still working.
+ * What happened before the conversation did: the setup commands a new
+ * experiment ran. One disclosure row, the same one blocks use.
  */
-function TurnFoot({ run }: { run: RunView }): JSX.Element | null {
-  if (run.status === 'running') return null;
-
-  if (run.status === 'failed' || run.status === 'cancelled') {
-    return (
-      <footer className="turn-foot failed">
-        {run.status === 'failed' ? 'Failed' : 'Cancelled'}
-        {run.error !== null ? ` — ${run.error}` : ''}
-      </footer>
-    );
-  }
-
-  const seconds = run.durationMs === null ? null : (run.durationMs / 1000).toFixed(1);
-
+function SetupActivity({
+  messages,
+  onProjectSettings,
+}: {
+  messages: readonly MessageView[];
+  onProjectSettings?: () => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
   return (
-    <footer className="turn-foot">
-      <span>Finished</span>
-      {run.commitSha === null ? (
-        <span title="This reply answered without editing files, so it added no commit.">
-          Answered without file changes
-        </span>
-      ) : (
-        <RunDiff runId={run.id} />
+    <div className={`setup-activity${open ? ' open' : ''}`}>
+      <Disclosure open={open} label="Experiment setup" onToggle={() => setOpen((v) => !v)} />
+      {open && (
+        <>
+          {messages.map((message) => (
+            <Said key={message.id} message={message} />
+          ))}
+          {onProjectSettings && (
+            <button className="linkish" onClick={onProjectSettings}>
+              Project setup settings
+            </button>
+          )}
+        </>
       )}
-      <span className="turn-stats">
-        {seconds !== null && <span title="Wall-clock time for this run">{seconds}s</span>}
-        {run.toolCalls > 0 && (
-          <span title={run.toolsOffered?.join(', ') ?? 'Tools offered were not recorded.'}>
-            {run.toolCalls} tool{run.toolCalls === 1 ? '' : 's'}
-          </span>
-        )}
-        {run.model !== null && <span className="turn-model">{run.model}</span>}
-      </span>
-    </footer>
+    </div>
   );
 }
 
-function RunDiff({ runId }: { runId: string }): JSX.Element {
-  const [diff, setDiff] = useState<DiffView | null>(null);
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [retry, setRetry] = useState(0);
+/** Your own words: an object on the panel, labelled, so the thread has two voices. */
+function YouSaid({
+  message,
+  inline = false,
+}: {
+  message: MessageView;
+  inline?: boolean;
+}): JSX.Element {
+  return (
+    <div className={`msg you${inline ? ' inline' : ''}`}>
+      <span className="msg-label">You:</span>
+      <Clamped text={asText(message.content)} />
+    </div>
+  );
+}
 
-  useEffect(() => {
-    if (!open) return;
-    setDiff(null);
-    setError(null);
-    let alive = true;
-    void api
-      .runDiff(runId)
-      .then((d) => alive && setDiff(d))
-      .catch((e: unknown) => {
-        if (alive) setError(describeError(e));
-      });
-    return () => {
-      alive = false;
+/** How many lines of your own request the panel shows before folding the rest. */
+const PROMPT_LINES = 6;
+
+/**
+ * A request, clamped.
+ *
+ * An inherited task runs to twenty lines of boilerplate before it says
+ * anything, and the panel used to open on all of it -- the reply you came to
+ * read pushed off the bottom by the request you already know. Six lines, then
+ * the same disclosure row as everything else.
+ */
+function Clamped({ text }: { text: string }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [hidden, setHidden] = useState(0);
+  const body = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (element === null || open) return;
+    const measure = (): void => {
+      const line = Number.parseFloat(getComputedStyle(element).lineHeight) || 20;
+      setHidden(Math.max(0, Math.round((element.scrollHeight - element.clientHeight) / line)));
     };
-  }, [open, runId, retry]);
+    measure();
+    // The panel is resizable and has three widths, and a rewrap changes how
+    // much is hidden -- so the count is measured again when the box changes.
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, open]);
 
   return (
-    <>
-      <button className="turn-diff-toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span aria-hidden="true">{open ? '▾' : '▸'}</span>{' '}
-        {diff === null
-          ? 'Changes from this run'
-          : `Changes from this run · ${diff.files.length} file(s)`}
-      </button>
-      {open &&
-        diff === null &&
-        (error === null ? (
-          <p role="status">Loading run changes…</p>
-        ) : (
-          <p className="error" role="alert">
-            {error} <button onClick={() => setRetry((n) => n + 1)}>Retry run changes</button>
-          </p>
-        ))}
-      {open && diff !== null && (
-        <div className="turn-diff">
-          <Diff patch={diff.patch} dirty={diff.dirty} />
-        </div>
-      )}
-    </>
+    <div
+      className={`msg-box${open ? ' open' : ''}`}
+      style={{ ['--clamp' as string]: PROMPT_LINES }}
+    >
+      <div className="msg-body" ref={body}>
+        {text}
+      </div>
+      {hidden > 0 && <Disclosure open={open} lines={hidden} onToggle={() => setOpen((v) => !v)} />}
+    </div>
   );
+}
+
+/** Anything said without a box: the agent's prose, or a note from Bonsai. */
+function Said({ message }: { message: MessageView }): JSX.Element {
+  const text = asText(message.content);
+  if (message.role === 'system') return <p className="msg system">{text}</p>;
+  return <Markdown source={text} />;
+}
+
+/**
+ * How a run ended, in one line.
+ *
+ * Time, cost and model when it finished; what happened instead when it did not
+ * (D45). What it CHANGED is deliberately not here -- that is what review is
+ * for, and repeating it under every turn is the redundancy this panel was
+ * rebuilt to remove.
+ */
+function RunFoot({ run }: { run: RunView }): JSX.Element | null {
+  if (run.status === 'running') return null;
+
+  if (run.status === 'failed' || run.status === 'cancelled') {
+    const said =
+      run.endReason === 'app_closed'
+        ? 'Bonsai closed while this run was working'
+        : run.endReason === 'stopped'
+          ? 'You stopped this run'
+          : 'Failed';
+    return (
+      <p className="run-foot failed">
+        {said}
+        {run.error !== null ? ` — ${run.error}` : ''}
+      </p>
+    );
+  }
+
+  const parts = [
+    run.durationMs === null ? null : duration(run.durationMs),
+    run.costUsd > 0 ? `$${run.costUsd.toFixed(2)}` : null,
+    run.model,
+  ].filter((part): part is string => part !== null && part !== '');
+  if (parts.length === 0) return null;
+
+  return (
+    <p className="run-foot">
+      {parts.map((part, i) => (
+        <span key={part}>
+          {i > 0 && <span className="sep">·</span>}
+          {part}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+function duration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
 /** Content is `unknown` on the wire; anything non-string is shown, not hidden. */

@@ -3,8 +3,9 @@ import type { NodeView } from '@bonsai/shared';
 import type { Edge, Node } from 'reactflow';
 import { codeState } from '../nodeCode.ts';
 
-export const CARD_WIDTH = 260;
-export const CARD_HEIGHT = 138;
+/** The card's drawn size, kept in step with `.card` in styles.css. */
+export const CARD_WIDTH = 248;
+export const CARD_HEIGHT = 122;
 
 /**
  * Layout direction. D35 specifies left-to-right; this is top-to-bottom by
@@ -53,15 +54,12 @@ export function layoutTree(
       id: `${n.parentId}->${n.id}`,
       source: n.parentId,
       target: n.id,
-      type: 'smoothstep',
+      type: 'bonsai',
       ariaLabel: `Conversation from ${byId.get(n.parentId)?.displayName ?? 'source'} to ${n.displayName}`,
       // An edge into a node that ran and wrote nothing carries conversation but
       // no code. Drawing that distinction is the whole point of the tree -- but
       // only once the run has finished and the answer is actually known.
-      style:
-        codeState(n) === 'none'
-          ? { stroke: 'var(--edge-dim)', strokeWidth: 1.5, strokeDasharray: '4 4' }
-          : { stroke: 'var(--edge)', strokeWidth: 1.5 },
+      data: { conversationOnly: codeState(n) === 'none' },
     });
   }
 

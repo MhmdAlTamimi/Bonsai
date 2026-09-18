@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { findLeftovers } from './jobs/leftovers.js';
+
 /**
  * One end-to-end pass through the real interface, in a real browser.
  *
@@ -57,6 +59,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
           BONSAI_PORT: String(PORT),
           BONSAI_FAKE_AGENT: '1',
           BONSAI_FAKE_DELAY_MS: '700',
+          // Long enough that a stand-in background job is still running
+          // whenever a test looks; each test ends it with Finish now or Stop.
+          BONSAI_FAKE_BACKGROUND_MS: '60000',
         },
         stdio: 'ignore',
       },
@@ -125,9 +130,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         'a project made by the end-to-end test',
       );
       assert.equal(await session.eval("!!document.querySelector('.checkout-section')"), false);
-      await session.click('.composer-row button');
+      await session.click('.composer-row button.primary');
       await session.waitFor(
-        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row button')?.textContent === 'Send'",
+        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row .send-label')?.textContent === 'Send'",
         { timeoutMs: 10000 },
       );
 
@@ -245,7 +250,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         return window.__fetch(url, init);
       };
     })()`);
-    await session.click('.composer-row button');
+    await session.click('.composer-row button.primary');
     await session.waitFor('!!window.__ack');
     await select('child');
     await session.type('.composer textarea', 'newer child draft');
@@ -302,10 +307,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       runs: unknown[];
     };
     await session.goto(`${BASE}/?project=${projectId}&node=${rootId}`);
-    await session.waitFor("!!document.querySelector('.panel .overflow')");
-    await session.click('.panel .overflow');
+    // Renaming lives on the card's own menu now: it is a property of the node
+    // on the map, not of whichever node the panel happens to be showing.
+    await session.waitFor(`!!document.querySelector('[data-id="${rootId}"] .card-more')`);
+    await session.click(`[data-id="${rootId}"] .card-more`);
     await session.eval(
-      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b => b.textContent.includes('Rename')).click()",
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Rename')).click()",
     );
     await session.type('.dialog input[aria-label="experiment name"]', 'Starting code');
     await session.click('.dialog .primary');
@@ -345,8 +352,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       `(async () => (await (await fetch('/api/nodes/${question.node.id}')).json()).node.status === 'ready')()`,
     );
     await session.goto(`${BASE}/?project=${projectId}&node=${question.node.id}`);
-    await session.waitFor("!!document.querySelector('.panel-actions .branch-child')");
-    await session.click('.panel-actions .branch-child');
+    // Branching is a canvas action now: it creates a node, so it lives on the
+    // card, not in the reply row where it competed with Send.
+    assert.equal(await session.eval("!!document.querySelector('.composer-row .secondary')"), false);
+    await session.click(`[data-id="${question.node.id}"] .card-more`);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Branch child')).click()",
+    );
     await session.waitFor(
       "document.querySelector('.creation-sources')?.textContent.includes('Named approach')",
     );
@@ -376,13 +388,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       'Improve the approach',
     );
     assert.equal(
-      await session.eval("document.querySelector('.composer-row button').textContent"),
+      await session.eval("document.querySelector('.composer-row .send-label').textContent"),
       'Start first run',
     );
     await session.eval('window.fetch = window.__savedFetch');
-    await session.click('.composer-row button');
+    await session.click('.composer-row button.primary');
     await session.waitFor(
-      "document.querySelector('.composer-row button').textContent === 'Send' && !document.querySelector('.panel button.stop')",
+      "document.querySelector('.composer-row .send-label').textContent === 'Send' && !document.querySelector('.panel button.stop')",
     );
     const after = (await (
       await fetch(`${BASE}/api/projects/${projectId}/tree`)
@@ -405,7 +417,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     ).json()) as { projectId: string; masterNodeId: string };
     const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
     const runIds: string[] = [];
-    for (const prompt of ['first-change', 'second-change', 'third-change', '?explain the result']) {
+    for (const prompt of [
+      'first-change',
+      'second-change',
+      'tools: third-change',
+      '?explain the result',
+    ]) {
       const started = (await (
         await fetch(`${nodeUrl}/runs`, {
           method: 'POST',
@@ -427,107 +444,294 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     ).json()) as typeof first;
     assert.ok(!second.files.includes('notes/first-change.md'));
     const combined = (await (await fetch(`${nodeUrl}/diff`)).json()) as typeof first;
-    for (const name of ['first', 'second', 'third'])
-      assert.ok(combined.files.includes(`notes/${name}-change.md`));
+    for (const name of ['first-change', 'second-change', 'tools-third-change'])
+      assert.ok(combined.files.includes(`notes/${name}.md`));
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.turn-diff-toggle')");
+    await session.waitFor("!!document.querySelector('.run-foot')");
+
+    // The panel says who it is and how it ended, without a word of verdict.
     assert.equal(
       await session.eval(
-        "document.querySelector('.panel .st-ready').textContent.includes('Finished')",
+        `document.querySelector('[data-id="${created.masterNodeId}"] .chip').textContent`,
       ),
-      true,
+      'Finished',
     );
     assert.equal(
-      await session.eval("document.querySelector('.panel .st-ready').textContent.includes('✓')"),
+      await session.eval("document.querySelector('.panel-head .run-count').textContent"),
+      '4 runs',
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.panel').textContent.includes('✓')"),
       false,
     );
-    await session.eval(`(() => {
-      window.__originalFetch = window.fetch;
-      window.fetch = (url, init) => String(url).endsWith('/diff')
-        ? new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({error: 'fixture diff unavailable'}), {status: 503})), 250))
-        : window.__originalFetch(url, init);
-    })()`);
-    await session.eval(
-      "document.querySelector('.turn-diff-toggle').scrollIntoView({ block: 'center' })",
-    );
-    await session.click('.turn-diff-toggle');
-    await session.waitFor(
-      "document.querySelector('.turn-diff-toggle').parentElement.textContent.includes('Loading run changes')",
-    );
-    await session.waitFor(
-      "document.querySelector('.panel').textContent.includes('Retry run changes')",
-    );
-    await session.click('.panel-tabs button:last-child');
-    await session.waitFor(
-      "document.querySelector('.experiment-changes').textContent.includes('Retry experiment changes')",
+
+    /*
+     * What the agent did is in the conversation: an EDIT block with the file
+     * it wrote and the lines it added. The whole diff is not repeated here.
+     */
+    await session.waitFor("!!document.querySelector('.tool-block')");
+    assert.equal(
+      await session.eval("document.querySelector('.tool-block .tool-kind').textContent"),
+      'EDIT',
     );
     assert.equal(
       await session.eval(
-        "document.querySelector('.results-panel').textContent.includes('No checks recorded for the latest run')",
+        "Array.from(document.querySelectorAll('.tool-block')).some(b => b.textContent.includes('third-change') && b.querySelector('.dl-add'))",
       ),
       true,
     );
-    await session.eval('window.fetch = window.__originalFetch');
-    await session.eval(
-      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent.includes('Retry experiment')).click()",
+
+    /*
+     * Three kinds of block, one shell. A READ is its header alone; a RUN shows
+     * the END of its output, eight lines of it, with the rest one disclosure
+     * away; an EDIT shows the lines that moved. Every one of them can be
+     * copied, and none of them scrolls.
+     */
+    const kinds = (await session.eval(
+      "JSON.stringify(Array.from(document.querySelectorAll('.tool-block .tool-kind')).map(k => k.textContent))",
+    )) as string;
+    for (const kind of ['READ', 'RUN', 'EDIT']) assert.match(kinds, new RegExp(kind));
+    assert.equal(
+      await session.eval("!!document.querySelector('.kind-read .tool-body')"),
+      false,
+      'a read has no output worth a body',
     );
-    await session.waitFor(
-      "document.querySelector('.experiment-changes').textContent.includes('notes/third-change.md')",
+    assert.equal(
+      await session.eval("document.querySelectorAll('.kind-run .tool-line').length"),
+      8,
+      'eight lines, then the disclosure',
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.kind-run .tool-line .tool-text').textContent"),
+      'processed document 13',
+      'the END of the output: how a command finished is what was asked',
     );
     assert.equal(
       await session.eval(
-        "document.querySelector('.comparison-base').textContent.includes('before this experiment')",
+        "Array.from(document.querySelectorAll('.tool-block')).every(b => b.scrollHeight <= b.clientHeight + 1)",
       ),
       true,
+      'no block scrolls on its own',
     );
+    await session.eval("document.querySelector('.kind-run').scrollIntoView({ block: 'center' })");
+    await session.click('.kind-run .disclosure-row');
+    await session.waitFor("document.querySelectorAll('.kind-run .tool-line').length === 20");
+    assert.match(
+      String(await session.eval("document.querySelector('.kind-run .disclosure-row').textContent")),
+      /Hide 12 lines/,
+    );
+    await session.eval(
+      "document.querySelector('.kind-run .disclosure-row').scrollIntoView({ block: 'center' })",
+    );
+    await session.click('.kind-run .disclosure-row');
+    await session.waitFor("document.querySelectorAll('.kind-run .tool-line').length === 8");
+
+    // Copy is always there, and says so when the clipboard refuses.
+    await session.eval(
+      "window.__copied = null; Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: async (t) => { window.__copied = t; }}})",
+    );
+    await session.eval("document.querySelector('.kind-run').scrollIntoView({ block: 'center' })");
+    await session.click('.kind-run .tool-copy');
+    await session.waitFor("window.__copied === 'python run_experiment.py --bucket kb-raw'", {
+      label: 'the command to be copied — never its output',
+    });
     await session.eval(
       "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
     );
-    await session.eval(
-      "document.querySelector('.results-panel .diff-copy').scrollIntoView({block: 'center'})",
-    );
-    await session.click('.results-panel .diff-copy');
+    await session.eval("document.querySelector('.kind-edit').scrollIntoView({ block: 'center' })");
+    await session.click('.kind-edit .tool-copy');
     await session.waitFor(
-      "document.querySelector('.results-panel .diff').textContent.includes('Could not copy the patch')",
+      "document.querySelector('.kind-edit .tool-copy.failed')?.textContent.includes('Copy failed')",
+      { label: 'a refused copy to say so' },
     );
     await session.eval('delete navigator.clipboard');
-    await session.eval(
-      "Array.from(document.querySelectorAll('.results-panel button')).find(b => b.textContent === 'Expand changes').click()",
-    );
-    await session.waitFor("!!document.querySelector('dialog[open] .dl-number')");
+
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-conversation.png'));
+
+    /*
+     * Nothing about the experiment's FILES or its node facts is in the panel:
+     * the change is read on the review screen, and the facts are in the card's
+     * ⋯ menu. The panel is the conversation and nothing else.
+     */
     assert.equal(
       await session.eval(
-        "document.querySelector('dialog').getBoundingClientRect().width > document.querySelector('.panel').getBoundingClientRect().width",
+        "!!document.querySelector('.result-details, .experiment-changes, .next-run, .checkout-section, .lineage')",
       ),
+      false,
+    );
+    await session.click(`[data-id="${created.masterNodeId}"] .card-more`);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Experiment details')).click()",
+    );
+    await session.waitFor("!!document.querySelector('.dialog .facts')", {
+      label: 'the experiment details dialog',
+    });
+    const facts = String(await session.eval("document.querySelector('.dialog').textContent"));
+    assert.match(facts, /node id/);
+    assert.match(facts, /Goal/);
+    await session.click('.dialog .dialog-actions button');
+    await session.waitFor("!document.querySelector('.dialog')");
+
+    // Settings for a run that has not happened are behind the composer's ⋯.
+    await session.click('.composer-more');
+    await session.waitFor(
+      "document.querySelector('.menu-panel.next-run')?.textContent.includes('Permissions')",
+    );
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await session.waitFor("!document.querySelector('.menu-panel.next-run')");
+  });
+
+  test('review reads an experiment’s changes: a tree, a diff, split and back', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'review',
+          description: 'reviewing changes',
+          location: dataDir,
+          permissionMode: 'acceptEdits',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    for (const prompt of ['first change', 'second change']) {
+      await fetch(`${nodeUrl}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      await session.waitFor(
+        `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+      );
+    }
+
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.panel h2')");
+
+    // Reading the change starts from the card: the change summary in its foot
+    // IS the way in, and the same thing sits in its ⋯ menu.
+    await session.click(`[data-id="${created.masterNodeId}"] .review-control`);
+    await session.waitFor("!!document.querySelector('.review .tree-row.file')", {
+      label: 'the review screen',
+    });
+
+    // The list is files with a status letter, and the first one is already open.
+    assert.match(
+      String(await session.eval("document.querySelector('.tree-totals').textContent")),
+      /3 files/,
+    );
+    assert.equal(await session.eval("document.querySelectorAll('.tree-row.file').length"), 3);
+    await session.waitFor("!!document.querySelector('.diff-line')");
+    assert.equal(
+      await session.eval("!!document.querySelector('.tree-row.selected .row-cap')"),
       true,
+      'the open file is marked in the tree',
     );
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-3-expanded-changes.png'));
-    await session.click('dialog header button');
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-3-results.png'));
-    await session.click('.panel-tabs button:first-child');
-    await session.eval(
-      "Array.from(document.querySelectorAll('.panel button')).find(b => b.textContent === 'Retry run changes').click()",
+    assert.equal(
+      await session.eval("!!document.querySelector('.guide.live, .caret.live')"),
+      true,
+      'its ancestors are lit',
     );
-    await session.waitFor("!!document.querySelector('.turn-diff .diff-file')");
-    await session.click('.panel-tabs button:last-child');
-    await session.eval(`(() => {
-      window.fetch = (url, init) => String(url).endsWith('/diff')
-        ? Promise.resolve(new Response(JSON.stringify({ files: [], patch: '', dirty: ['unfinished-new-file.txt'], baseLabel: 'fixture base' })))
-        : window.__originalFetch(url, init);
-    })()`);
+
+    // Another file loads into the pane.
     await session.eval(
-      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent === 'Refresh changes').click()",
+      "Array.from(document.querySelectorAll('.tree-row.file')).find(r => r.textContent.includes('second-change')).click()",
     );
     await session.waitFor(
-      "document.querySelector('.diff-dirty')?.textContent.includes('unfinished-new-file.txt')",
+      "document.querySelector('.file-identity')?.textContent.includes('second-change')",
     );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-review.png'));
+
+    // Filtering, and `/` to reach it without the mouse.
+    await session.type('.tree-filter input', 'CONTEXT');
+    await session.waitFor("document.querySelectorAll('.tree-row.file').length === 1");
+    await session.type('.tree-filter input', '');
+    await session.waitFor("document.querySelectorAll('.tree-row.file').length === 3");
+    await session.eval("document.querySelector('.review').focus()");
+    await session.send('Input.dispatchKeyEvent', { type: 'keyDown', key: '/', text: '/' });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: '/' });
     assert.equal(
-      await session.eval(
-        "document.querySelector('.results-panel').textContent.includes('No committed changes in this comparison')",
-      ),
+      await session.eval("document.activeElement === document.querySelector('.tree-filter input')"),
       true,
     );
-    await session.eval('window.fetch = window.__originalFetch');
+
+    // Two files side by side, the focused one marked, then back to one.
+    await session.eval("document.querySelectorAll('.view-toggle button')[1].click()");
+    await session.waitFor("document.querySelectorAll('.diff-pane').length === 2");
+    assert.equal(
+      await session.eval(
+        "new Set(Array.from(document.querySelectorAll('.pane-header .path-name')).map(e => e.textContent)).size",
+      ),
+      2,
+      'a comparison, not the same file twice',
+    );
+    assert.equal(await session.eval("!!document.querySelector('.diff-pane.focused')"), true);
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-review-split.png'));
+    await session.eval("document.querySelectorAll('.view-toggle button')[0].click()");
+    await session.waitFor("document.querySelectorAll('.diff-pane').length === 1");
+
+    // The tree is resizable, and stays readable however far it is dragged.
+    const width = () =>
+      session.eval("document.querySelector('.tree-column').getBoundingClientRect().width");
+    assert.equal(await width(), 272);
+    await session.dragTo('.review-body .grip', { x: 5, y: 400 });
+    assert.equal(await width(), 200, 'never narrower than its paths');
+
+    /*
+     * The conversation's width is a property of what you are doing: review
+     * opens with it collapsed to the rail, ⌘\ brings it back at three
+     * quarters of the canvas width, and coming back to review remembers that.
+     */
+    assert.equal(
+      await session.eval("!!document.querySelector('.conversation-rail')"),
+      true,
+      'review opens with the conversation collapsed',
+    );
+    assert.equal(await session.eval("document.querySelector('.panel').offsetWidth"), 0);
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: '\\',
+        code: 'Backslash',
+        modifiers: 4,
+      });
+    await session.waitFor("document.querySelector('.panel').offsetWidth === 285", {
+      label: 'the conversation at its review width',
+    });
+    assert.equal(await session.eval("!!document.querySelector('.conversation-rail')"), false);
+
+    // Esc goes back to the map, which kept its place.
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await session.waitFor(
+      "!document.querySelector('.review') && !!document.querySelector('.card')",
+    );
+
+    // ⏎ on a focused experiment opens the same screen.
+    await session.eval("document.querySelector('.react-flow__node').focus()");
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+    await session.waitFor("!!document.querySelector('.review .tree-row')");
+    await session.waitFor("document.querySelector('.panel').offsetWidth === 285", {
+      label: 'review to remember that the conversation was opened',
+    });
+    await session.click('.review .back');
+    await session.waitFor("!document.querySelector('.review')");
   });
 
   test('partial work remains visible after Keep and Discard requires confirmation', async () => {
@@ -554,7 +758,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const cancelled = await fetch(`${nodeUrl}/cancel`, { method: 'POST' });
     assert.equal(cancelled.ok, true);
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.panel > .recover .partial-review')");
+    await session.waitFor("!!document.querySelector('.panel .recover .partial-review')");
     await session.click('.partial-review summary');
     assert.equal(
       await session.eval(
@@ -562,11 +766,16 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       true,
     );
+    // D45: it says what happened -- the user stopped it -- not "interrupted".
+    assert.match(
+      String(await session.eval("document.querySelector('.recover-headline').textContent")),
+      /You stopped this run\./,
+    );
     await session.eval(
-      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent.trim() === 'Keep partial work').click()",
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent.trim() === 'Leave uncommitted').click()",
     );
     await session.waitFor(
-      "document.querySelector('.recover')?.textContent.includes('Partial work kept — not committed')",
+      "document.querySelector('.recover')?.textContent.includes('Work from the run you stopped is still uncommitted.')",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-partial-work.png'));
     const before = (await (await fetch(nodeUrl)).json()) as { partialWork: { changed: string[] } };
@@ -622,7 +831,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(started.status, 202, await started.text());
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor(
-      "!!document.querySelector('.turn-foot') && !!document.querySelector('.md-table')",
+      "!!document.querySelector('.run-foot') && !!document.querySelector('.md-table')",
     );
     await session.waitFor("document.querySelector('.panel-body').scrollTop > 100");
     await session.eval(
@@ -684,13 +893,17 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       source: `window.__sources = []; const Native = window.EventSource; window.EventSource = class extends Native { constructor(url) { super(url); window.__sources.push(this); } addEventListener(type, listener, options) { super.addEventListener(type, (event) => { if (!window.__dropEvents) listener(event); }, options); } };`,
     });
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    // A live stream says nothing -- the standing health indicator is gone, and
+    // only a gap in it speaks -- so "live" is the absence of the notice.
     await session.waitFor(
-      "!!document.querySelector('.health-live') && !!document.querySelector('.md-table')",
+      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.md-table')",
     );
     await session.eval(
       "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.__dropEvents = true; window.__sources.at(-1).dispatchEvent(new Event('error'));",
     );
-    await session.waitFor("!!document.querySelector('.health-reconnecting')");
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting'))",
+    );
     await fetch(`${nodeUrl}/runs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -703,7 +916,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "window.__dropEvents = false; window.__sources.at(-1).dispatchEvent(new Event('open'));",
     );
     await session.waitFor(
-      "document.querySelector('.transcript')?.textContent.includes('Message written during transport gap')",
+      "document.querySelector('.thread')?.textContent.includes('Message written during transport gap')",
     );
     assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 2);
     assert.ok(
@@ -733,7 +946,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         downloadThroughput: -1,
         uploadThroughput: -1,
       });
-      await session.waitFor("!!document.querySelector('.health-reconnecting')");
+      await session.waitFor(
+        "Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting'))",
+      );
       assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 2);
       await fetch(`${nodeUrl}/runs`, {
         method: 'POST',
@@ -754,7 +969,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       });
     }
     await session.waitFor(
-      "!!document.querySelector('.health-live') && document.querySelectorAll('.turn').length === 3",
+      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && document.querySelectorAll('.turn').length === 3",
     );
   });
 
@@ -803,10 +1018,6 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "!!document.querySelector('.ask input') && document.querySelector('.stop-all')?.textContent.includes('2 runs')",
     );
     assert.equal(await session.eval("!!document.querySelector('.composer-row')"), false);
-    assert.equal(
-      await session.eval(`!!document.querySelector('[data-id="${queued.node.id}"] .stop')`),
-      true,
-    );
     await session.type('.ask input', 'This reason belongs only to the first question');
     await session.eval(
       "window.__originalFetch = window.fetch; window.fetch = (url, init) => String(url).endsWith('/cancel') ? Promise.resolve(new Response(JSON.stringify({ error: 'Stop failed fixture' }), { status: 503 })) : window.__originalFetch(url, init);",
@@ -817,8 +1028,23 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     assert.equal(await session.eval("document.querySelector('.panel .stop').disabled"), false);
     await session.eval('window.fetch = window.__originalFetch');
-    await session.click(`[data-id="${queued.node.id}"] .stop`);
-    await session.waitFor(`!document.querySelector('[data-id="${queued.node.id}"] .stop')`);
+    // A queued experiment is stopped from its own ⋯ menu: the card carries no
+    // standing Stop, so that action lives where the card's other actions do.
+    // Opening the menu selects that card, so the panel comes back to master
+    // afterwards -- and the reason typed into the question survives the trip.
+    await session.click(`[data-id="${queued.node.id}"] .card-more`);
+    assert.equal(
+      await session.eval(`!!document.querySelector('[data-id="${queued.node.id}"] .stop-run')`),
+      true,
+    );
+    await session.click(`[data-id="${queued.node.id}"] .stop-run`);
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${queued.node.id}')).json()).node.status !== 'running')()`,
+      { label: 'the queued run to stop' },
+    );
+    await session.click(`[data-id="${created.masterNodeId}"] .card`);
+    await session.waitFor("!!document.querySelector('.ask input')");
+    await session.type('.ask input', 'This reason belongs only to the first question');
     // Freeze the browser's tree snapshot while another window answers the same question.
     const tree = (await (await fetch(`${BASE}/api/projects/${created.projectId}/tree`)).json()) as {
       nodes: Array<{ id: string; pendingQuestion: { id: string } | null }>;
@@ -986,6 +1212,182 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("!!document.querySelector('.composer-row')");
   });
 
+  /** A project whose master has a stand-in run in flight, and helpers to watch it. */
+  async function projectWithRun(
+    name: string,
+    prompt: string,
+  ): Promise<{
+    projectId: string;
+    masterNodeId: string;
+    nodeUrl: string;
+    runId: string;
+    detail: () => Promise<{
+      node: { status: string };
+      runs: Array<{
+        id: string;
+        status: string;
+        endReason: string | null;
+        stoppedBackground: number;
+        commitSha: string | null;
+      }>;
+    }>;
+  }> {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          description: '',
+          location: dataDir,
+          permissionMode: 'acceptEdits',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const { runId } = (await (
+      await fetch(`${nodeUrl}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+    ).json()) as { runId: string };
+    return {
+      ...created,
+      nodeUrl,
+      runId,
+      detail: async () => (await (await fetch(nodeUrl)).json()) as never,
+    };
+  }
+
+  test('a run waiting for background work says so, and Finish now saves its results', async () => {
+    const run = await projectWithRun('waiting', 'background: train the model');
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor(
+      "document.querySelector('.activity-waiting')?.textContent.includes('Waiting for 1 background job')",
+      { label: 'the waiting strip', timeoutMs: 15000 },
+    );
+
+    // Still running, and said as waiting on the card and in the header alike.
+    assert.equal((await run.detail()).node.status, 'running');
+    assert.match(
+      String(await session.eval("document.querySelector('.activity-jobs').textContent")),
+      /Stand-in background job/,
+    );
+    await session.waitFor(
+      `document.querySelector('[data-id="${run.masterNodeId}"] .chip')?.textContent.includes('Waiting')`,
+      { label: 'the card to say Waiting' },
+    );
+    assert.equal(
+      await session.eval(
+        `document.querySelector('[data-id="${run.masterNodeId}"] .chip').textContent`,
+      ),
+      'Waiting',
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-waiting.png'));
+
+    await session.eval(
+      "Array.from(document.querySelectorAll('.activity-waiting button')).find(b => b.textContent === 'Finish now').click()",
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(run.nodeUrl)})).json()).node.status === 'ready')()`,
+      { label: 'the run to finish', timeoutMs: 15000 },
+    );
+    const last = (await run.detail()).runs.at(-1)!;
+    assert.equal(last.endReason, 'finished', 'finished, not stopped: its results were kept');
+    assert.notEqual(last.commitSha, null);
+    assert.equal(last.stoppedBackground, 1);
+    await session.waitFor(
+      "!document.querySelector('.activity-waiting') && document.querySelector('.conversation-content').textContent.includes('you chose Finish now')",
+    );
+  });
+
+  test('switching experiments or projects, or leaving the page, never stops a run', async () => {
+    const run = await projectWithRun('keeps-running', 'background: a long job');
+    const other = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'elsewhere', description: '', location: dataDir }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const sibling = (
+      (await (
+        await fetch(`${BASE}/api/projects/${run.projectId}/nodes`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            parentId: run.masterNodeId,
+            displayName: 'sibling',
+            description: '',
+          }),
+        })
+      ).json()) as { node: { id: string } }
+    ).node;
+    const stillRunning = async (): Promise<void> => {
+      const detail = await run.detail();
+      assert.equal(detail.node.status, 'running');
+      assert.equal(detail.runs.find((r) => r.id === run.runId)?.status, 'running');
+    };
+
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.activity-waiting')", { timeoutMs: 15000 });
+
+    await session.click(`[data-id="${sibling.id}"]`);
+    await session.waitFor("document.querySelector('.panel h2')?.textContent === 'sibling'");
+    await stillRunning();
+
+    await session.goto(`${BASE}/?project=${other.projectId}&node=${other.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.panel h2')");
+    await stillRunning();
+
+    await session.goto('about:blank');
+    await new Promise((r) => setTimeout(r, 1000));
+    await stillRunning();
+
+    // And coming back, the page learns what it is doing from the tree alone.
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.activity-waiting')", { timeoutMs: 15000 });
+    await stillRunning();
+
+    await fetch(`${run.nodeUrl}/finish`, { method: 'POST' });
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(run.nodeUrl)})).json()).node.status === 'ready')()`,
+      { timeoutMs: 15000 },
+    );
+    assert.equal((await run.detail()).runs.filter((r) => r.status === 'cancelled').length, 0);
+  });
+
+  test('a detached process is waited for, and Stop ends it and says so', async () => {
+    const run = await projectWithRun('detached', 'detach: start the server');
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor(
+      "document.querySelector('.activity-jobs')?.textContent.includes('detached')",
+      { label: 'the detached process to be found', timeoutMs: 15000 },
+    );
+    assert.equal((await findLeftovers(run.runId)).length > 0, true);
+
+    await session.click('.panel .stop');
+    await session.waitFor(
+      "document.querySelector('.recover-headline')?.textContent.includes('You stopped this run.')",
+      {
+        label: 'the recovery notice',
+        timeoutMs: 15000,
+      },
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-stopped.png'));
+    // Nothing the run started outlives it.
+    assert.deepEqual(await findLeftovers(run.runId), []);
+    const last = (await run.detail()).runs.at(-1)!;
+    assert.equal(last.endReason, 'stopped');
+    assert.equal(
+      await session.eval(
+        `document.querySelector('[data-id="${run.masterNodeId}"] .chip').textContent`,
+      ),
+      'Stopped',
+    );
+  });
+
   test('initial connection and project failures offer retry instead of an empty canvas', async () => {
     const script = (await session.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `window.__failConnection = true; window.__failProjects = true; const nativeFetch = window.fetch; window.fetch = (url, init) => (window.__failConnection && String(url) === '/api/connection') || (window.__failProjects && String(url) === '/api/projects') ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable fixture' }), { status: 503 })) : nativeFetch(url, init);`,
@@ -1008,7 +1410,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.waitFor(
         "!!document.querySelector('.card') && !document.querySelector('.tree-notice')",
       );
-      // A narrow canvas still keeps its project menu, server health and settings available.
+      // A narrow canvas still keeps the bar's three parts on the bar.
       await session.send('Emulation.setDeviceMetricsOverride', {
         width: 1100,
         height: 780,
@@ -1017,7 +1419,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       });
       assert.equal(
         await session.eval(
-          "(() => { const bar = document.querySelector('.menubar').getBoundingClientRect(); return ['.project-picker', '.server-health', '.settings-button'].every(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return r.width > 0 && r.left >= bar.left && r.right <= bar.right; }); })()",
+          "(() => { const bar = document.querySelector('.menubar').getBoundingClientRect(); return ['.brand', '.project-picker', '.settings-button'].every(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return r.width > 0 && r.left >= bar.left && r.right <= bar.right; }); })()",
         ),
         true,
       );
@@ -1030,6 +1432,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     }
   });
   test('settings save by scope, diagnostics preview and usage stay reviewable without agent access', async () => {
+    // Spend belongs to the project it was spent on, so Usage is in the
+    // project's own menu rather than holding a permanent seat on the bar.
+    const openUsage = async (): Promise<void> => {
+      await session.click('.project-picker');
+      await session.eval(
+        "Array.from(document.querySelectorAll('.menu-panel [role=menuitem]')).find(b => b.textContent.includes('Usage')).click()",
+      );
+    };
     const created = (await (
       await fetch(`${BASE}/api/projects`, {
         method: 'POST',
@@ -1132,7 +1542,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).runs.at(-1)?.status === 'done')()`,
     );
-    await session.click('.usage-button');
+    await openUsage();
     await session.waitFor("!!document.querySelector('.usage-totals')");
     assert.equal(
       await session.eval(
@@ -1158,10 +1568,10 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       );
       await session.type('.composer textarea', 'keep this draft');
       assert.equal(
-        await session.eval("document.querySelector('.composer-row button').disabled"),
+        await session.eval("document.querySelector('.composer-row button.primary').disabled"),
         true,
       );
-      await session.click('.usage-button');
+      await openUsage();
       await session.waitFor("!!document.querySelector('.usage-totals')");
       await session.click('[aria-label="Close usage"]');
       await session.click('.settings-button');
@@ -1177,7 +1587,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         'keep this draft',
       );
       assert.equal(
-        await session.eval("document.querySelector('.composer-row button').disabled"),
+        await session.eval("document.querySelector('.composer-row button.primary').disabled"),
         false,
       );
     } finally {
@@ -1260,7 +1670,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor(
-      "!!document.querySelector('.branch-child') && !!document.querySelector('.card')",
+      "!!document.querySelector('.add-child-handle') && !!document.querySelector('.card')",
     );
     await session.send('Emulation.setDeviceMetricsOverride', {
       width: 1280,
@@ -1308,7 +1718,22 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.positionX === null)()`,
     );
     await session.type('.composer textarea', 'Retain this draft across views');
-    await session.click('.branch-child');
+    // The map's + is a button: a click opens the branch dialog without a drag.
+    await session.click('.add-child-handle');
+    await session.waitFor('!!document.querySelector(\'dialog[aria-label="Branch experiment"]\')');
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
+    );
+    await session.waitFor('!document.querySelector(\'dialog[aria-label="Branch experiment"]\')');
+    // And the keyboard: Enter on the focused + does the same.
+    await session.eval("document.querySelector('.add-child-handle').focus()");
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
     await session.waitFor(
       "document.activeElement?.getAttribute('aria-label') === 'experiment name'",
     );
@@ -1353,7 +1778,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.eval(
       "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
     );
-    await session.waitFor("document.activeElement?.classList.contains('branch-child')");
+    await session.waitFor("document.activeElement?.classList.contains('add-child-handle')");
     /**
      * Canvas hints: one trigger, three ways out, and nothing inside that
      * repeats the trigger's job. The old "Map key" panel carried its own
@@ -1413,13 +1838,16 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     // Wide: collapsing the panel must leave a control that DOES something. The
     // segmented switch used to render here with Map pressed and inert.
-    await session.click('.hide-panel');
+    await session.click('.panel .collapse');
     await session.waitFor(
-      "document.querySelector('.app').classList.contains('panel-hidden') && document.querySelectorAll('.view-switch button').length === 1",
+      "document.querySelector('.app').classList.contains('panel-hidden') && !!document.querySelector('.conversation-rail')",
     );
     assert.equal(
-      await session.eval("document.querySelector('.view-switch button').textContent"),
-      'Show experiment',
+      await session.eval(
+        "document.querySelector('.conversation-rail').getBoundingClientRect().width",
+      ),
+      46,
+      'the conversation collapses to its rail rather than vanishing',
     );
     // A collapsed panel stays collapsed when another experiment is chosen: a
     // collapse that reopens on the next click is not a collapse.
@@ -1428,7 +1856,8 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.eval("document.querySelector('.app').classList.contains('panel-hidden')"),
       true,
     );
-    await session.click('.view-switch button');
+    // The rail itself is the way back.
+    await session.click('.conversation-rail');
     await session.waitFor("!document.querySelector('.app').classList.contains('panel-hidden')");
     // Back to master, whose draft the narrow checks below follow across views.
     await session.click('.react-flow__node:first-child');
@@ -1439,7 +1868,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       const luminance = c => c.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
       const ratio = (a,b) => { const x=luminance(rgb(a)), y=luminance(rgb(b)); return Math.round((Math.max(x,y)+.05)/(Math.min(x,y)+.05)*100)/100; };
       const results = [];
-      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button', '.branch-child', '.card-name', '.chip']) {
+      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button.primary', '.panel-meta', '.card-name', '.chip']) {
         const el=document.querySelector(selector), style=getComputedStyle(el);
         let parent=el, bg='rgb(13, 14, 17)';
         while(parent) { const candidate=getComputedStyle(parent).backgroundColor; if(candidate.startsWith('rgb(')) {bg=candidate;break;} parent=parent.parentElement; }
@@ -1500,7 +1929,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // Waited for rather than asserted outright: the assertion is about the
     // settled layout, and a viewport change has not reflowed on the next tick.
     await session.waitFor(
-      "document.querySelector('.composer-row button').getBoundingClientRect().bottom <= 720",
+      "document.querySelector('.composer-row button.primary').getBoundingClientRect().bottom <= 720",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-800-large.png'));
     // Narrow: one view at a time, chosen with a two-state segmented switch.
@@ -1569,7 +1998,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       assert.ok(
         Number(
           await session.eval(
-            "document.querySelector('.branch-child').getBoundingClientRect().right",
+            "document.querySelector('.composer-row button.primary').getBoundingClientRect().right",
           ),
         ) <= width,
       );
@@ -1612,12 +2041,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     assert.ok(Number(await session.eval("document.querySelector('.panel-body').clientHeight")) > 0);
     await session.eval(
-      "document.querySelector('.composer-row button').scrollIntoView({block:'nearest'})",
+      "document.querySelector('.composer-row button.primary').scrollIntoView({block:'nearest'})",
     );
     assert.ok(
       Number(
         await session.eval(
-          "document.querySelector('.composer-row button').getBoundingClientRect().bottom",
+          "document.querySelector('.composer-row button.primary').getBoundingClientRect().bottom",
         ),
       ) <= 361,
     );

@@ -1,6 +1,6 @@
-import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo, type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
-import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
+import { PANEL_WIDTH, REVIEW_WIDTH, type NodeView } from '@bonsai/shared';
 
 import { RunAvailability } from './state/RunAvailability.ts';
 import { api } from './api/client.ts';
@@ -9,6 +9,11 @@ import { useSelection } from './state/selection.ts';
 import { useConnection } from './state/useConnection.ts';
 import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
+import { ConversationRail } from './panel/ConversationRail.tsx';
+import { Review } from './review/Review.tsx';
+import { RenameDialog } from './panel/node/RenameDialog.tsx';
+import { ExperimentDetails } from './panel/node/DetailsDialog.tsx';
+import { useNodeActions } from './panel/node/useNodeActions.ts';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
 import { useWorkspaceView } from './state/useWorkspaceView.ts';
@@ -74,6 +79,21 @@ export function App(): JSX.Element {
     );
   }, [settings?.textScale]);
   useAddressBar({ projectId, nodeId: selection.primary });
+  /**
+   * ⌘\ (Ctrl+\) collapses the conversation and brings it back — the one
+   * shortcut in the workspace, because the panel is the thing you hide to
+   * look at the map and want back a second later.
+   */
+  const toggleConversation = view.toggleExperiment;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== '\\' || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      toggleConversation();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleConversation]);
   const live = useRunStream(projectId, projectTree.refresh);
   /**
    * Re-read the credential when a run reports a failure, and not otherwise.
@@ -95,6 +115,37 @@ export function App(): JSX.Element {
     onError: report,
     refresh: projectTree.refresh,
   });
+
+  /**
+   * The experiment actions a card's ⋯ offers. They live here because the cards
+   * are drawn by the canvas and the dialogs they open belong to the window,
+   * not to any one card.
+   */
+  const [renaming, setRenaming] = useState<NodeView | null>(null);
+  const [detailing, setDetailing] = useState<NodeView | null>(null);
+  const nodeActions = useNodeActions(projectTree.refresh, (message) => {
+    if (message !== null) report(message);
+  });
+  const cardActions = useMemo(
+    () => ({
+      branch: (nodeId: string) => {
+        const node = tree?.nodes.find((n) => n.id === nodeId);
+        if (node !== undefined)
+          child.begin({ parentId: node.id, parentName: node.displayName, position: null });
+      },
+      review: (nodeId: string) => {
+        selectExperiment(nodeId);
+        setReviewing(true);
+      },
+      rename: setRenaming,
+      details: setDetailing,
+      remove: (node: NodeView) => void nodeActions.remove(node),
+    }),
+    // `child.begin` and the tree change identity on every refetch; the actions
+    // only need to be rebuilt when the tree does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tree, nodeActions.remove],
+  );
 
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'app' | 'project'>('app');
@@ -126,6 +177,43 @@ export function App(): JSX.Element {
   }, [tree, arrivedAt.nodeId, selection]);
 
   const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
+
+  /**
+   * Review is a full-screen replacement for the map, not an overlay: reading a
+   * change is the whole job while you are doing it. The map keeps its own
+   * viewport underneath, hidden.
+   */
+  const [reviewing, setReviewing] = useState(false);
+  useEffect(() => {
+    if (selected === null) setReviewing(false);
+  }, [selected]);
+
+  /**
+   * How wide the conversation is, and whether it is open at all, is a property
+   * of WHAT YOU ARE DOING.
+   *
+   * On the canvas the graph has width to spare and the thread is the point, so
+   * the panel is open at its saved width. In review the diff is why you came,
+   * so it starts collapsed to the rail and opens to three quarters of that
+   * width — and each mode remembers what you last did to it, so review does not
+   * keep re-collapsing something you deliberately opened.
+   */
+  const mode: 'canvas' | 'review' = reviewing ? 'review' : 'canvas';
+  const [reviewWidth, setReviewWidth] = useState(REVIEW_WIDTH);
+  const canvasWidth = settings?.panelWidth ?? PANEL_WIDTH.default;
+  const openByMode = useRef<Record<'canvas' | 'review', boolean>>({ canvas: true, review: false });
+  const lastMode = useRef(mode);
+  const { experimentOpen, narrow, showExperiment, showMap } = view;
+  useEffect(() => {
+    if (lastMode.current === mode) return;
+    openByMode.current[lastMode.current] = experimentOpen;
+    lastMode.current = mode;
+    // Narrow windows show one thing at a time; the mode's default would fight
+    // the Map/Experiment switch the user is steering with.
+    if (narrow) return;
+    if (openByMode.current[mode]) showExperiment();
+    else showMap();
+  }, [mode, experimentOpen, narrow, showExperiment, showMap]);
 
   if (connection.state === 'unknown' && projects.length === 0)
     return (
@@ -164,7 +252,9 @@ export function App(): JSX.Element {
   return (
     <RunAvailability.Provider value={connection.state === 'connected'}>
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
-        <div className={`app${view.experimentOpen ? '' : ' panel-hidden'}`}>
+        <div
+          className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}`}
+        >
           {/*
            * Two controls, not one dressed as two.
            *
@@ -173,13 +263,12 @@ export function App(): JSX.Element {
            * says why, when nothing is selected -- a full-width panel reading
            * "select an experiment" is worse than the map it replaced.
            *
-           * WIDE: they are side by side, so there is nothing to switch. A
-           * collapsed panel gets one button that brings it back. The switch
-           * used to render here too, which left Map pressed and doing nothing:
-           * a control whose only state is the state you are already in.
+           * WIDE: they are side by side, so there is nothing to switch, and a
+           * collapsed conversation keeps its own rail (see ConversationRail)
+           * rather than a floating button over the map.
            */}
           <nav className="view-switch" aria-label="Workspace view">
-            {view.narrow ? (
+            {view.narrow && (
               <>
                 <button
                   className="segment"
@@ -198,19 +287,20 @@ export function App(): JSX.Element {
                   Experiment
                 </button>
               </>
-            ) : (
-              <button className="show-panel" onClick={view.showExperiment}>
-                Show experiment
-              </button>
             )}
           </nav>
-          <div className="canvas">
+          {reviewing && selected !== null && (
+            <Review
+              node={selected}
+              revision={`${selected.status}:${selected.lastRunEndReason}:${JSON.stringify(selected.diffStat)}`}
+              onBack={() => setReviewing(false)}
+            />
+          )}
+          <div className="canvas" hidden={reviewing}>
             <MenuBar
               project={tree?.project ?? null}
               projects={projects}
               settings={settings}
-              connection={connection}
-              health={live.health}
               onError={report}
               onOpenProject={(id) => {
                 selection.clear();
@@ -283,7 +373,8 @@ export function App(): JSX.Element {
                   .then(projectTree.refresh)
                   .catch((e: unknown) => report(describeError(e)));
               }}
-              onDropOnPane={child.begin}
+              onBranch={child.begin}
+              actions={cardActions}
             />
           </div>
 
@@ -320,11 +411,21 @@ export function App(): JSX.Element {
             />
           )}
 
+          {!view.narrow && !view.experimentOpen && (
+            <ConversationRail name={selected?.displayName ?? null} onOpen={view.showExperiment} />
+          )}
+
           <PanelResizer
-            width={settings?.panelWidth ?? PANEL_WIDTH.default}
+            width={reviewing ? reviewWidth : canvasWidth}
             min={PANEL_WIDTH.min}
             max={PANEL_WIDTH.max}
             onCommit={(panelWidth) => {
+              // A width dragged in review belongs to review, and only for this
+              // session: the saved width is the one the canvas reads.
+              if (reviewing) {
+                setReviewWidth(panelWidth);
+                return;
+              }
               // Fire and forget: the width is already applied to the CSS variable,
               // so a failed save costs this session nothing and the next one a
               // default. Not worth a banner.
@@ -347,6 +448,7 @@ export function App(): JSX.Element {
               if (selected !== null) child.clearStartError(selected.id);
             }}
             stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
+            liveActivity={selected === null ? null : (live.activity[selected.id] ?? null)}
             streamRevision={live.revision}
             visible={view.experimentOpen}
             narrow={view.narrow}
@@ -356,11 +458,19 @@ export function App(): JSX.Element {
             /* The panel does not own a second, weaker version of this form any
            more -- it opens the one dialog, with no position, and dagre places
            the node. */
-            onCreateChild={(parent) =>
-              child.begin({ parentId: parent.id, parentName: parent.displayName, position: null })
-            }
           />
 
+          {renaming !== null && (
+            <RenameDialog
+              node={renaming}
+              onClose={() => setRenaming(null)}
+              onChanged={projectTree.refresh}
+            />
+          )}
+          {detailing !== null && (
+            <ExperimentDetails node={detailing} onClose={() => setDetailing(null)} />
+          )}
+          {nodeActions.confirmDialog}
           {confirm.dialog}
         </div>
       </RunControls>

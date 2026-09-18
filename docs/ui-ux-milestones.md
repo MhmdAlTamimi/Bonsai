@@ -16,7 +16,8 @@ changes. Merge and push only after that review. Do not start the next milestone 
 | 3. Make results easy to judge | `codex/milestone-3-judge-results` | F11–F12, F14–F17 | Accepted by owner; merged and pushed |
 | 4. Make ongoing work dependable | `codex/milestone-4-dependable-runs` | F18–F21, F25–F26 | Accepted by owner; merged and pushed |
 | 5. Clarify controls and settings | `codex/milestone-5-controls-settings` | F22–F24, F27–F29 | Accepted; merged and pushed as `55332e8` |
-| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Implemented; ready for owner review |
+| 6. Finish the visual experience | `codex/milestone-6-visual-experience` | F30–F38 | Accepted; merged locally as `4061c1f` |
+| 7. Review changes clearly, and runs that end when the work ends | `codex/milestone-7-changes-and-runs` | Owner feedback, D43–D45 | Phase 1 implemented; ready for owner review |
 
 ## Milestone 1 review
 
@@ -274,3 +275,122 @@ Restart with `npm start` so backend and interface match.
 System-health findings, fixes, measured limits and verification are recorded in
 [the milestone 6 health review](reports/milestone-6-health-review-2026-09-15.md).
 No dependencies were added. Merge and push only after the owner's review.
+
+## Milestone 7 review
+
+Branch: `codex/milestone-7-changes-and-runs`, from local `main` after milestone 6 was merged as `4061c1f`.
+Nothing is pushed. The owner reviews each phase before the next one starts.
+
+| Phase | What | State |
+| --- | --- | --- |
+| 1. Runs end when the work ends | D43, D45: waiting for background work, Finish now, leftover processes, end reasons, recovery by cause | Reviewed and accepted |
+| 2. Changes tab and floating diff windows (D44) | Conversation · Changes · Summary tabs, a file tree, in-app diff windows | **Withdrawn.** Not approved; reverted in full, D44 struck from the log |
+
+The owner then supplied a design — an HTML reference and a README — for the panel, the review of a node's
+changes, and the canvas. It replaces phase 2 and is being built in steps, each reviewable on its own:
+
+| Step | What | State |
+| --- | --- | --- |
+| 1. Revert phase 2 | The tabs, the diff windows and the change API they needed | Done |
+| 2. Tool results | What each command printed and each edit changed, captured from the SDK, so RUN and EDIT blocks are real | Implemented |
+| 3. Conversation panel | The design's `5a`: identity, meta line, You/Agent messages, run dividers, tool blocks, composer, collapsed rail | Implemented |
+| 4. Review screen | The design's `5c`/`9a`: file tree, diff panes, split, grips, conversation docked at 285 | Implemented |
+| 5. Canvas | The design's `5b`/`6a`: top bar, node cards with the Review control, elbow edges, one control cluster | Implemented |
+| 6. Docs | D46 and this checklist | Implemented |
+| 7. Conversation panel | D47: what leaves the panel, and what is bounded inside it | Implemented |
+
+### Phase 1 — what to look at
+
+- **A long command reads as work.** Above the composer, a running experiment says what it is doing and for how
+  long — `Running uv sync · 1m 12s` — instead of "Agent working…". Setup commands show the same way.
+- **A run waits for its background work (D43).** When the agent's turn ends with a background job still running,
+  the experiment stays **Running**; the card and the header say **Waiting**, and the panel lists each job with how
+  long it has run. The run ends — and commits — when the work does, however long that is. A process started with
+  `nohup … &` is found too, marked **detached**, and the agent is told when it exits.
+- **Finish now** ends the wait: it stops the jobs and ends the run normally, so what is there is committed.
+  **Stop** still cancels, and nothing the run started keeps running afterwards; the conversation says what was
+  stopped.
+- **Recovery says what happened (D45).** "You stopped this run." / "The run failed." (with the error) /
+  "Bonsai closed while this run was working." / "Files changed after this run finished." The buttons are
+  **Continue from these files**, **Leave uncommitted** and **Discard…** — or **Run it again** / **Dismiss** when
+  nothing was written, and **Ask the agent to review them** after a finished run. The agent receives the same
+  story: a finished run is never described to it as interrupted. Card chips say **Stopped** or **Failed**
+  rather than "Cancelled".
+- **Switching never stops a run.** Selecting another experiment, opening another project, leaving the page or
+  reloading all leave a run going; a browser test now checks all four.
+
+Try: rerun the chunking experiment that exposed this. `uv sync` and the batch run should keep it Running/Waiting
+until the work truly finishes, then commit the outputs in that run. Also start something long and press Finish now;
+start something and press Stop, and check the notice reads "You stopped this run". Without a credential, the stand-in agent
+(`BONSAI_FAKE_AGENT=1 BONSAI_FAKE_BACKGROUND_MS=60000 npm start`) reaches these states from requests starting
+`background:` (a tracked job) or `detach:` (a nohup-style process). Restart with `npm start` so backend and interface match.
+
+Verified against the real SDK with `scripts/probe-agent-runs.mjs` (paid, opt-in): a tracked job keeps the run open
+and wakes the agent; Finish now ends it in seconds; Stop leaves no process; a job detached inside a script is found,
+waited for, and reported to the agent. No dependencies were added.
+
+### The design rebuild (D46) — what to look at
+
+- **The panel is the conversation, and nothing else.** No tabs. The header is the experiment: a status dot, its
+  name, how many runs, and one line saying what it inherited and what it changed — `from master · 183 files
+  +17,604`. Runs are the unit below it: a divider names each one, your message is an object you can see, the
+  agent's reply is text on the panel, and the run's footer is its time, cost and model.
+- **A tool call shows its work.** A command is a **RUN** block with what it printed and its exit code; an edit is
+  an **EDIT** block with the file and its changed lines, green and red, numbered. Everything else — reading,
+  searching — folds into one dim line (`Read ×6 · Grep ×2`), because a run makes forty of those and none of them
+  is the story. Output is capped, so a 10,000-line log cannot take over the panel.
+- **Checks, lineage, details and Use outside Bonsai are still there**, folded under the conversation as *Result
+  details*, so nothing was lost with the tabs.
+- **Review is a screen, not a tab.** Open it from a card's **Review +N →** or its ⋯ menu, or by pressing ⏎ on a
+  focused card. A file tree on the left with status letters and per-file counts; the diff beside it; **Split**
+  shows two files at once, with the focused pane marked; `/` jumps to the filter, Esc goes back to the map, which
+  kept its place. The conversation stays docked at the right edge and collapses to a rail with **⌘\**.
+- **The canvas carries what you steer by.** A card is its name, a status dot, its description, the state as a
+  word, and the change summary as the way into review. Nothing to review means no control at all, so the card
+  tells you whether there is anything to look at. Its ⋯ menu holds Review, Branch child, Rename, Delete — and
+  **Stop this run** while it is running, which is where the card's Stop button went.
+- **The top bar is three things**: the mark, the project menu and settings. The agent's model, the server-health
+  dot and the Usage button are gone from it — Usage is in the project menu, and a broken stream says so as a
+  notice rather than sitting there saying "live" all day.
+- **Master's card counts its change.** It used to say "no file changes" however much it had written, because
+  master pins no base; it now measures from the commit before its first modifying run, which is what review
+  already showed.
+- **Contrast.** The design's dimmest steps are below 4.5:1 where they carry text, so the ink ramp is lifted for
+  those steps and left alone for gutters and separators. Say if you would rather have the design's exact values.
+
+Try it at 1280×720, in a narrow window and with enlarged text: read a run with a long command in it; open review
+on an experiment with several files, split two files, drag the tree wider, collapse the conversation with ⌘\ and
+bring it back; stop a running experiment from its card menu; rename from the card; and check that a
+question-only experiment says "no file changes" while master says what it wrote. Without a credential,
+`BONSAI_FAKE_AGENT=1 npm start` reaches all of it. Restart with `npm start` so backend and interface match.
+
+### Step 7 — the conversation panel (D47)
+
+The owner's second design pass, against the panel this time: it answers one question — **what was asked, what
+the agent did, what it said** — and everything else it was carrying has a better home.
+
+- **What left, and where it went.** Result details, the experiment-wide file list and *Compared with* are gone
+  entirely: that view **is** the review screen. Node facts, the goal and lineage are in the card's ⋯ as
+  **Experiment details**. Recorded checks and **Use this code outside Bonsai** are in the review screen's own ⋯.
+  Next-run settings are behind the composer's ⋯. **Branch child** has left the reply row — branching creates a
+  node, so it is a canvas action.
+- **One bounded block for machine output.** READ, RUN and EDIT share one shell: kind, target, what it came to,
+  and a copy button that is always there. A read is its header alone. A command shows the **last** eight lines of
+  its output — where a command says how it went — and an edit the lines that moved. Nothing scrolls inside a
+  block, nothing wraps, and the rest is one disclosure away.
+- **One disclosure.** The same 24px caret row everywhere: a block's overflow, a request past its six-line clamp,
+  a table past six rows, and the experiment setup. No native disclosures left in the thread.
+- **One scroll.** The thread. The composer's box grows with the draft to five lines and then scrolls inside
+  itself, so Send is never pushed out of the window — the single exception, and the reason for it.
+- **Copy** yields what you would type again: the command for RUN, the path for READ, the patch fragment for EDIT
+  — never the output. It says so when the clipboard refuses.
+- **Jump to latest** is a pill floating over the thread rather than a row that pushed the composer down while
+  you read.
+- **The conversation's width follows what you are doing.** 380 on the canvas; collapsed to the 46px rail when
+  review opens, because the diff is why you came; 285 when ⌘\ or the rail brings it back. Each mode remembers
+  what you last did to it, and a width dragged in review stays in review. The seam between panels is 8px of void
+  with a grip in it, and the review bar spans the whole window with everything else below it.
+
+Try: a run with a long command in it (`tools:` with the stand-in agent) — open the RUN block's disclosure, copy
+the command, and check nothing inside the block scrolls; a long request, which should clamp to six lines; ⌘\ in
+review and on the canvas; and the card's ⋯ → Experiment details for the facts that used to sit under the thread.

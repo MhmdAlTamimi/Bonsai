@@ -68,11 +68,11 @@ export function useLaidOutNodes(
     }
     return laid.edges.map((edge) => ({
       ...edge,
-      style: {
-        ...edge.style,
-        ...(path.has(edge.target) && path.has(edge.source)
-          ? { stroke: 'var(--focus)', strokeWidth: 2.5 }
-          : {}),
+      data: {
+        ...(edge.data as Record<string, unknown> | undefined),
+        // The path through the selected experiment's ancestors: solid and
+        // accented, so the branch you are working along reads at a glance.
+        live: path.has(edge.target) && path.has(edge.source),
       },
     }));
   }, [laid, nodes, selectedId]);

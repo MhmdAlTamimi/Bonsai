@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useRef, useState } from 'react';
-import type { ConnectionStatus, ProjectView, SettingsView } from '@bonsai/shared';
+import type { ProjectView, SettingsView } from '@bonsai/shared';
 import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
@@ -7,18 +7,18 @@ import { Logo } from '../Logo.tsx';
 import { useDismiss } from '../useDismiss.ts';
 
 /**
- * The application menu.
+ * The top bar: who this is, which project, and the way into settings.
  *
- * Replaces the model/effort strip, which was a settings control wearing a
- * toolbar's clothes. Project and Settings both need a home now, and the two
- * pickers belong inside Settings rather than permanently on the canvas.
+ * Deliberately almost empty. It used to carry the project menu, a Usage
+ * button, a server-health indicator and the agent's model as a button — four
+ * standing claims on the eye for things that change rarely or say the same
+ * thing twice. Usage moved into the project's own menu; the agent's state is
+ * said loudly, as a banner, exactly when it is not working.
  */
 export function MenuBar({
   project,
   projects,
   settings,
-  connection,
-  health,
   onError,
   onOpenProject,
   onStart,
@@ -29,8 +29,6 @@ export function MenuBar({
   project: ProjectView | null;
   projects: Array<{ id: string; name: string }>;
   settings: SettingsView | null;
-  connection: ConnectionStatus;
-  health: 'connecting' | 'live' | 'reconnecting';
   onError: (message: string) => void;
   onOpenProject: (id: string) => void;
   /** Opens the start screen on one of its two halves. */
@@ -55,9 +53,10 @@ export function MenuBar({
   return (
     <div className="menubar" ref={barRef}>
       <span className="brand">
-        <Logo size={36} />
+        <Logo size={22} />
         <span>Bonsai</span>
       </span>
+      <span className="bar-divider" aria-hidden="true" />
 
       <div className="menu project-menu">
         <button
@@ -79,7 +78,6 @@ export function MenuBar({
           }}
           onClick={() => setOpen(open === 'project' ? null : 'project')}
         >
-          <span className="project-picker-label">Project</span>
           <span className="project-picker-name">{project?.name ?? 'Choose project'}</span>
           <Icon name="chevronDown" />
         </button>
@@ -174,6 +172,20 @@ export function MenuBar({
             </button>
 
             <div className="menu-sep" />
+            {/* Spend lives with the project it belongs to, rather than taking
+                a permanent seat on the bar. */}
+            <button
+              role="menuitem"
+              disabled={project === null}
+              onClick={() => {
+                setOpen(null);
+                onOpenUsage();
+              }}
+            >
+              Usage and cost…
+            </button>
+
+            <div className="menu-sep" />
             <div className="menu-label">Recent</div>
             {recent.length === 0 ? (
               <div className="menu-empty">No other projects</div>
@@ -208,25 +220,18 @@ export function MenuBar({
         )}
       </div>
 
+      {/*
+       * The repository's own branch, when there is one to name. A project
+       * Bonsai created has only `node/<uuid>` branches, which D33 keeps out of
+       * sight -- so it shows nothing rather than something meaningless.
+       */}
+      {project?.branchLabel != null && (
+        <span className="branch-pill" title="The branch this project's folder is on">
+          {project.branchLabel}
+        </span>
+      )}
+
       <span className="menubar-spacer" />
-      <button className="menu-title usage-button" disabled={project === null} onClick={onOpenUsage}>
-        Usage
-      </button>
-      <span
-        className={`server-health health-${health}`}
-        role="status"
-        title="Connection to the local Bonsai server"
-      >
-        <span className="conn-dot" />
-        {health === 'live' ? 'Live' : health === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
-      </span>
-      <button
-        className={`conn conn-${connection.state}`}
-        onClick={onOpenSettings}
-        title={`Agent connection: ${connection.state}. Open settings.`}
-      >
-        {connection.model ?? connection.state.replace('_', ' ')}
-      </button>
       <button
         className="menu-title settings-button"
         aria-label="Settings"

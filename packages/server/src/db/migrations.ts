@@ -126,6 +126,31 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'project', 'work_dir', "TEXT NOT NULL DEFAULT ''");
     },
   },
+  {
+    version: 14,
+    name: 'run: why it ended, what it stopped, and what it alone changed',
+    up: (db) => {
+      addColumn(db, 'run', 'run_files', 'INTEGER');
+      addColumn(db, 'run', 'run_added', 'INTEGER');
+      addColumn(db, 'run', 'run_removed', 'INTEGER');
+      addColumn(db, 'run', 'end_reason', 'TEXT');
+      addColumn(db, 'run', 'stopped_background', 'INTEGER NOT NULL DEFAULT 0');
+      // Older runs said why they ended only in prose, and only sometimes. The
+      // app-exit wording is the one message that meant something different
+      // from its status; every other ended run is read from its status alone.
+      const appExit = hasColumn(db, 'run', 'error')
+        ? `WHEN error = 'the app exited while this run was in flight' THEN 'app_closed'`
+        : '';
+      db.exec(
+        `UPDATE run SET end_reason = CASE
+           ${appExit}
+           WHEN status = 'done' THEN 'finished'
+           WHEN status = 'cancelled' THEN 'stopped'
+           ELSE 'failed' END
+         WHERE status != 'running' AND end_reason IS NULL`,
+      );
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

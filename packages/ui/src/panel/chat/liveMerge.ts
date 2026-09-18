@@ -1,3 +1,5 @@
+import type { ToolResultContent } from '@bonsai/shared';
+
 /**
  * Which live deltas the persisted transcript has not caught up with.
  *
@@ -39,7 +41,9 @@ export interface Delta {
   /** 1-based within its run; 0 for output that is never persisted. */
   seq: number;
   text: string;
-  tool?: { name: string; detail: string };
+  tool?: { name: string; detail: string; id?: string };
+  /** What a tool produced, when this frame is a result rather than a call. */
+  toolResult?: ToolResultContent;
 }
 
 /** The fields of a persisted message this needs, and no more. */

@@ -1,4 +1,4 @@
-import type { AgentQuestion } from '@bonsai/shared';
+import type { AgentQuestion, BackgroundJob, RunActivity, ToolResultContent } from '@bonsai/shared';
 
 /**
  * D14e: agent invocation sits behind one interface, so swapping the model or
@@ -74,7 +74,31 @@ export interface RunSpec {
    * given null must still not pretend the user answered.
    */
   askChoices: ((request: ChoiceRequest) => Promise<ChoiceDecision>) | null;
+  /** Stop: end the run now, and stop what it started. The run is cancelled. */
   signal: AbortSignal;
+  /**
+   * Finish now (D43): stop waiting for background work, stop it, and end the
+   * run the ordinary way -- so it commits, unlike Stop.
+   *
+   * A run stays open while work the agent started in the background is still
+   * live, however long that takes; there is deliberately no timeout, because
+   * a training run and a dev server look the same from here. This is how the
+   * user ends the second kind.
+   */
+  finishNow: AbortSignal;
+  /**
+   * Told what the run is doing whenever that changes: the tool in progress,
+   * and whether it is waiting for background work. A callback rather than a
+   * RunEvent because it changes while no event is due -- a job ending while
+   * the agent is idle is exactly when the interface most needs to hear.
+   */
+  onActivity: (activity: RunActivity) => void;
+  /**
+   * Processes this run started that the harness is not tracking -- detached
+   * with nohup, setsid or a trailing & -- and that are still running. Found by
+   * the run's marker, so the runner stays unaware of how (D43).
+   */
+  backgroundLeftovers: () => Promise<BackgroundJob[]>;
 }
 
 /** Questions the agent wants answered, exactly as it asked them. */
@@ -109,7 +133,9 @@ export type PermissionDecision = { allow: true } | { allow: false; reason: strin
 
 export type RunEvent =
   | { type: 'text'; text: string }
-  | { type: 'tool'; name: string; detail: string }
+  | { type: 'tool'; name: string; detail: string; id?: string }
+  /** What a tool produced: a command's output, or an edit's changed lines. */
+  | { type: 'tool_result'; result: ToolResultContent }
   | { type: 'session'; sessionId: string }
   /** Which model the run is actually using, and which credential is paying. */
   | { type: 'model'; model: string; apiKeySource?: string; tools?: string[] }
