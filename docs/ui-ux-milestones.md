@@ -297,6 +297,7 @@ changes, and the canvas. It replaces phase 2 and is being built in steps, each r
 | 4. Review screen | The design's `5c`/`9a`: file tree, diff panes, split, grips, conversation docked at 285 | Implemented |
 | 5. Canvas | The design's `5b`/`6a`: top bar, node cards with the Review control, elbow edges, one control cluster | Implemented |
 | 6. Docs | D46 and this checklist | Implemented |
+| 7. Conversation panel | D47: what leaves the panel, and what is bounded inside it | Implemented |
 
 ### Phase 1 — what to look at
 
@@ -362,3 +363,34 @@ on an experiment with several files, split two files, drag the tree wider, colla
 bring it back; stop a running experiment from its card menu; rename from the card; and check that a
 question-only experiment says "no file changes" while master says what it wrote. Without a credential,
 `BONSAI_FAKE_AGENT=1 npm start` reaches all of it. Restart with `npm start` so backend and interface match.
+
+### Step 7 — the conversation panel (D47)
+
+The owner's second design pass, against the panel this time: it answers one question — **what was asked, what
+the agent did, what it said** — and everything else it was carrying has a better home.
+
+- **What left, and where it went.** Result details, the experiment-wide file list and *Compared with* are gone
+  entirely: that view **is** the review screen. Node facts, the goal and lineage are in the card's ⋯ as
+  **Experiment details**. Recorded checks and **Use this code outside Bonsai** are in the review screen's own ⋯.
+  Next-run settings are behind the composer's ⋯. **Branch child** has left the reply row — branching creates a
+  node, so it is a canvas action.
+- **One bounded block for machine output.** READ, RUN and EDIT share one shell: kind, target, what it came to,
+  and a copy button that is always there. A read is its header alone. A command shows the **last** eight lines of
+  its output — where a command says how it went — and an edit the lines that moved. Nothing scrolls inside a
+  block, nothing wraps, and the rest is one disclosure away.
+- **One disclosure.** The same 24px caret row everywhere: a block's overflow, a request past its six-line clamp,
+  a table past six rows, and the experiment setup. No native disclosures left in the thread.
+- **One scroll.** The thread. The composer's box grows with the draft to five lines and then scrolls inside
+  itself, so Send is never pushed out of the window — the single exception, and the reason for it.
+- **Copy** yields what you would type again: the command for RUN, the path for READ, the patch fragment for EDIT
+  — never the output. It says so when the clipboard refuses.
+- **Jump to latest** is a pill floating over the thread rather than a row that pushed the composer down while
+  you read.
+- **The conversation's width follows what you are doing.** 380 on the canvas; collapsed to the 46px rail when
+  review opens, because the diff is why you came; 285 when ⌘\ or the rail brings it back. Each mode remembers
+  what you last did to it, and a width dragged in review stays in review. The seam between panels is 8px of void
+  with a grip in it, and the review bar spans the whole window with everything else below it.
+
+Try: a run with a long command in it (`tools:` with the stand-in agent) — open the RUN block's disclosure, copy
+the command, and check nothing inside the block scrolls; a long request, which should clamp to six lines; ⌘\ in
+review and on the canvas; and the card's ⋯ → Experiment details for the facts that used to sit under the thread.
