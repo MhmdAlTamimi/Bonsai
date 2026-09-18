@@ -42,6 +42,7 @@ import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
 import { rejectPath } from '../git/seedWorktree.js';
 import { checkoutFor } from './checkout.js';
+import { reviewOf, reviewPatchOf } from './review.js';
 import { discardWorktreeChanges, readWorktreeState } from '../git/recovery.js';
 import type { Settings } from '../settings.js';
 import { Connection } from './connectionGate.js';
@@ -724,6 +725,22 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
         ? 'The code before this experiment’s first modifying run'
         : `The inherited code snapshot from ${source?.displayName ?? 'its source experiment'}`,
   });
+});
+
+/** Review: what this experiment changed, file by file. No patches here. */
+route('GET', '/api/nodes/:id/review', async (_req, res, params, { store }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  sendJson(res, 200, await reviewOf(store, row));
+});
+
+/** One file's patch, for the pane reading it. */
+route('GET', '/api/nodes/:id/review/file', async (req, res, params, { store }) => {
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  const path = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path');
+  if (path === null || path === '') throw new HttpError(400, 'path is required');
+  sendJson(res, 200, await reviewPatchOf(store, row, path));
 });
 
 // -- runs --------------------------------------------------------------------

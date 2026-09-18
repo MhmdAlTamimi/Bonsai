@@ -31,6 +31,7 @@ export function Canvas({
   onToggleSelect,
   onMoved,
   onBranch,
+  onReview,
   onAutomatic,
 }: {
   nodes: readonly NodeView[];
@@ -41,6 +42,8 @@ export function Canvas({
   onMoved: (nodeId: string, position: { x: number; y: number }) => void;
   /** A card's `+`: clicked or pressed, or dragged out and released over empty canvas. */
   onBranch: (target: BranchTarget) => void;
+  /** Enter on a focused experiment: open its changes for review (D46). */
+  onReview: (nodeId: string) => void;
 }): JSX.Element {
   const selected = nodes.find((node) => node.id === selectedId);
   const { flowNodes, edges, onNodesChange } = useLaidOutNodes(nodes, selectedId);
@@ -134,6 +137,8 @@ export function Canvas({
           if (id) {
             event.preventDefault();
             onSelect(id);
+            // Space chooses an experiment; Enter goes on to read its changes.
+            if (event.key === 'Enter') onReview(id);
           }
         }}
         maxZoom={MAX_ZOOM}

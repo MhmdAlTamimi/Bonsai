@@ -402,6 +402,43 @@ export interface RunView {
   error: string | null;
 }
 
+/**
+ * Review: one experiment's changes, as a list of files.
+ *
+ * `A` added · `M` modified · `D` deleted · `R` renamed · `U` in the folder and
+ * not tracked yet. Counts per file, never a patch: the patch for the one file
+ * being read is fetched on its own.
+ */
+export type ReviewStatus = 'A' | 'M' | 'D' | 'R' | 'U';
+
+export interface ReviewFile {
+  path: string;
+  /** Where a renamed file came from. */
+  oldPath?: string;
+  status: ReviewStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  /** True for work in the folder that no commit holds yet. */
+  uncommitted?: boolean;
+}
+
+export interface ReviewView {
+  nodeId: string;
+  displayName: string;
+  /** What the files are compared with, in words. */
+  baseLabel: string;
+  totals: { files: number; added: number; removed: number };
+  files: ReviewFile[];
+}
+
+export interface ReviewFilePatchView {
+  file: ReviewFile;
+  patch: string;
+  /** True when the patch was too large and only its beginning is here. */
+  truncated: boolean;
+}
+
 export interface DiffView {
   files: string[];
   patch: string;

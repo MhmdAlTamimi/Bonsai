@@ -95,8 +95,16 @@ export function Composer({
           className="primary"
           onClick={onSend}
           disabled={!canRun || busy || sending || value.trim() === ''}
+          aria-label={initial ? 'Start first run' : 'Send'}
         >
-          {sending ? (initial ? 'Starting…' : 'Sending…') : initial ? 'Start first run' : 'Send'}
+          <span className="send-label">
+            {sending ? (initial ? 'Starting…' : 'Sending…') : initial ? 'Start first run' : 'Send'}
+          </span>
+          {/* Shown instead of the label when the panel is too narrow to hold
+              a hint and two buttons — the design's other composer. */}
+          <span className="send-arrow" aria-hidden="true">
+            ↑
+          </span>
         </button>
       </div>
     </div>

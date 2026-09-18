@@ -132,7 +132,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       assert.equal(await session.eval("!!document.querySelector('.checkout-section')"), false);
       await session.click('.composer-row button.primary');
       await session.waitFor(
-        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row button.primary')?.textContent === 'Send'",
+        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row .send-label')?.textContent === 'Send'",
         { timeoutMs: 10000 },
       );
 
@@ -386,13 +386,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       'Improve the approach',
     );
     assert.equal(
-      await session.eval("document.querySelector('.composer-row button.primary').textContent"),
+      await session.eval("document.querySelector('.composer-row .send-label').textContent"),
       'Start first run',
     );
     await session.eval('window.fetch = window.__savedFetch');
     await session.click('.composer-row button.primary');
     await session.waitFor(
-      "document.querySelector('.composer-row button.primary').textContent === 'Send' && !document.querySelector('.panel button.stop')",
+      "document.querySelector('.composer-row .send-label').textContent === 'Send' && !document.querySelector('.panel button.stop')",
     );
     const after = (await (
       await fetch(`${BASE}/api/projects/${projectId}/tree`)
@@ -536,6 +536,131 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "document.querySelector('.experiment-changes').textContent.includes('notes/third-change.md')",
     );
+  });
+
+  test('review reads an experiment’s changes: a tree, a diff, split and back', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'review',
+          description: 'reviewing changes',
+          location: dataDir,
+          permissionMode: 'acceptEdits',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    for (const prompt of ['first change', 'second change']) {
+      await fetch(`${nodeUrl}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      await session.waitFor(
+        `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+      );
+    }
+
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.panel h2')");
+
+    // Reading the change is in the experiment's menu, and on ⏎ over its card.
+    await session.click('.panel .overflow');
+    await session.waitFor("!!document.querySelector('.menu-panel')");
+    await session.eval(
+      "Array.from(document.querySelectorAll('.menu-panel [role=menuitem]')).find(b => b.textContent.includes('Review')).click()",
+    );
+    await session.waitFor("!!document.querySelector('.review .tree-row.file')", {
+      label: 'the review screen',
+    });
+
+    // The list is files with a status letter, and the first one is already open.
+    assert.match(
+      String(await session.eval("document.querySelector('.tree-totals').textContent")),
+      /3 files/,
+    );
+    assert.equal(await session.eval("document.querySelectorAll('.tree-row.file').length"), 3);
+    await session.waitFor("!!document.querySelector('.diff-line')");
+    assert.equal(
+      await session.eval("!!document.querySelector('.tree-row.selected .row-cap')"),
+      true,
+      'the open file is marked in the tree',
+    );
+    assert.equal(
+      await session.eval("!!document.querySelector('.guide.live, .caret.live')"),
+      true,
+      'its ancestors are lit',
+    );
+
+    // Another file loads into the pane.
+    await session.eval(
+      "Array.from(document.querySelectorAll('.tree-row.file')).find(r => r.textContent.includes('second-change')).click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.file-identity')?.textContent.includes('second-change')",
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-review.png'));
+
+    // Filtering, and `/` to reach it without the mouse.
+    await session.type('.tree-filter input', 'CONTEXT');
+    await session.waitFor("document.querySelectorAll('.tree-row.file').length === 1");
+    await session.type('.tree-filter input', '');
+    await session.waitFor("document.querySelectorAll('.tree-row.file').length === 3");
+    await session.eval("document.querySelector('.review').focus()");
+    await session.send('Input.dispatchKeyEvent', { type: 'keyDown', key: '/', text: '/' });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: '/' });
+    assert.equal(
+      await session.eval("document.activeElement === document.querySelector('.tree-filter input')"),
+      true,
+    );
+
+    // Two files side by side, the focused one marked, then back to one.
+    await session.eval("document.querySelectorAll('.view-toggle button')[1].click()");
+    await session.waitFor("document.querySelectorAll('.diff-pane').length === 2");
+    assert.equal(
+      await session.eval(
+        "new Set(Array.from(document.querySelectorAll('.pane-header .path-name')).map(e => e.textContent)).size",
+      ),
+      2,
+      'a comparison, not the same file twice',
+    );
+    assert.equal(await session.eval("!!document.querySelector('.diff-pane.focused')"), true);
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-review-split.png'));
+    await session.eval("document.querySelectorAll('.view-toggle button')[0].click()");
+    await session.waitFor("document.querySelectorAll('.diff-pane').length === 1");
+
+    // The tree is resizable, and stays readable however far it is dragged.
+    const width = () =>
+      session.eval("document.querySelector('.tree-column').getBoundingClientRect().width");
+    assert.equal(await width(), 272);
+    await session.dragTo('.review-body .grip', { x: 5, y: 400 });
+    assert.equal(await width(), 200, 'never narrower than its paths');
+
+    // Esc goes back to the map, which kept its place.
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await session.waitFor(
+      "!document.querySelector('.review') && !!document.querySelector('.card')",
+    );
+
+    // ⏎ on a focused experiment opens the same screen.
+    await session.eval("document.querySelector('.react-flow__node').focus()");
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+    await session.waitFor("!!document.querySelector('.review .tree-row')");
+    await session.click('.review .back');
+    await session.waitFor("!document.querySelector('.review')");
   });
 
   test('partial work remains visible after Keep and Discard requires confirmation', async () => {

@@ -11,6 +11,8 @@ import type {
   DiffView,
   MessageView,
   RecoverAction,
+  ReviewFilePatchView,
+  ReviewView,
   SettingsView,
   UpdateSettingsRequest,
   ProjectView,
@@ -141,6 +143,16 @@ export const api = {
     }>('/api/projects/adopt', { method: 'POST', body: JSON.stringify(body) }),
 
   diff: (nodeId: string) => json<NodeDiffView>(`/api/nodes/${nodeId}/diff`),
+
+  /** Review: what an experiment changed, file by file. Counts only, never patches. */
+  review: (nodeId: string, signal?: AbortSignal) =>
+    json<ReviewView>(`/api/nodes/${nodeId}/review`, { signal }),
+
+  /** One file's patch, for the pane reading it. */
+  reviewFile: (nodeId: string, path: string, signal?: AbortSignal) =>
+    json<ReviewFilePatchView>(`/api/nodes/${nodeId}/review/file?path=${encodeURIComponent(path)}`, {
+      signal,
+    }),
 
   runDiff: (runId: string) => json<DiffView>(`/api/runs/${runId}/diff`),
 

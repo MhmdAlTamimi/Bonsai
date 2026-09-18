@@ -10,6 +10,7 @@ import { useConnection } from './state/useConnection.ts';
 import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
 import { ConversationRail } from './panel/ConversationRail.tsx';
+import { Review } from './review/Review.tsx';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
 import { useWorkspaceView } from './state/useWorkspaceView.ts';
@@ -143,6 +144,16 @@ export function App(): JSX.Element {
 
   const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
 
+  /**
+   * Review is a full-screen replacement for the map, not an overlay: reading a
+   * change is the whole job while you are doing it. The map keeps its own
+   * viewport underneath, hidden.
+   */
+  const [reviewing, setReviewing] = useState(false);
+  useEffect(() => {
+    if (selected === null) setReviewing(false);
+  }, [selected]);
+
   if (connection.state === 'unknown' && projects.length === 0)
     return (
       <div className="app single">
@@ -180,7 +191,9 @@ export function App(): JSX.Element {
   return (
     <RunAvailability.Provider value={connection.state === 'connected'}>
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
-        <div className={`app${view.experimentOpen ? '' : ' panel-hidden'}`}>
+        <div
+          className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}`}
+        >
           {/*
            * Two controls, not one dressed as two.
            *
@@ -215,7 +228,14 @@ export function App(): JSX.Element {
               </>
             )}
           </nav>
-          <div className="canvas">
+          {reviewing && selected !== null && (
+            <Review
+              node={selected}
+              revision={`${selected.status}:${selected.lastRunEndReason}:${JSON.stringify(selected.diffStat)}`}
+              onBack={() => setReviewing(false)}
+            />
+          )}
+          <div className="canvas" hidden={reviewing}>
             <MenuBar
               project={tree?.project ?? null}
               projects={projects}
@@ -295,6 +315,10 @@ export function App(): JSX.Element {
                   .catch((e: unknown) => report(describeError(e)));
               }}
               onBranch={child.begin}
+              onReview={(nodeId) => {
+                selectExperiment(nodeId);
+                setReviewing(true);
+              }}
             />
           </div>
 
@@ -372,6 +396,7 @@ export function App(): JSX.Element {
             /* The panel does not own a second, weaker version of this form any
            more -- it opens the one dialog, with no position, and dagre places
            the node. */
+            onReview={() => setReviewing(true)}
             onCreateChild={(parent) =>
               child.begin({ parentId: parent.id, parentName: parent.displayName, position: null })
             }

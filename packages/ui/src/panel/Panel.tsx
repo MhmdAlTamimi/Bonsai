@@ -34,6 +34,7 @@ export function Panel({
   onHide,
   onChanged,
   onCreateChild,
+  onReview,
   startError,
   onRunStarted,
   visible,
@@ -51,6 +52,8 @@ export function Panel({
   onChanged: () => void;
   /** Opens the one create-a-child dialog. See NewChildDialog. */
   onCreateChild: (node: NodeView) => void;
+  /** Open this experiment's changes for review (D46). */
+  onReview: () => void;
   startError: string | null;
   onRunStarted: () => void;
   /**
@@ -88,6 +91,7 @@ export function Panel({
       onProjectSettings={onProjectSettings}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
+      onReview={onReview}
       startError={startError}
       onRunStarted={onRunStarted}
     />
@@ -104,6 +108,7 @@ function NodePanel({
   onHide,
   onChanged,
   onCreateChild,
+  onReview,
   startError,
   onRunStarted,
   visible,
@@ -118,6 +123,8 @@ function NodePanel({
   onHide: () => void;
   onChanged: () => void;
   onCreateChild: (node: NodeView) => void;
+  /** Open this experiment's changes for review (D46). */
+  onReview: () => void;
   startError: string | null;
   onRunStarted: () => void;
   visible: boolean;
@@ -210,6 +217,7 @@ function NodePanel({
         </button>
         <OverflowMenu
           busy={actions.busy}
+          onReview={onReview}
           onBranch={() => onCreateChild(node)}
           onRename={() => setRenaming(true)}
           onDelete={node.parentId === null ? undefined : () => void actions.remove()}
@@ -464,11 +472,13 @@ function latestRunOutcome(run: RunView | undefined, activity: RunActivity | null
  */
 function OverflowMenu({
   busy,
+  onReview,
   onBranch,
   onDelete,
   onRename,
 }: {
   busy: boolean;
+  onReview: () => void;
   onBranch: () => void;
   onDelete?: () => void;
   onRename: () => void;
@@ -523,6 +533,17 @@ function OverflowMenu({
             if (event.key === 'Tab') setOpen(false);
           }}
         >
+          {/* Reading the change is the first thing anyone does with a
+              finished experiment, so it leads the menu. */}
+          <button
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onReview();
+            }}
+          >
+            Review changes…
+          </button>
           {/*
            * Branching lives here and on the map's `+`, not as a full-width
            * button: it took a row of the panel for something done from the
