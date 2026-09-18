@@ -1619,127 +1619,6 @@ body.resizing .panel-resizer {
   line-height: 1;
 }
 
-/* ---- diff ---------------------------------------------------------------- */
-
-/*
- * Coloured and grouped by file. This is the artefact the node exists to
- * produce, and it used to render as one undifferentiated block of text -- worse
- * than `git diff` in a terminal, which at least colours the lines.
- */
-.diff {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-}
-.diff-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  font-size: var(--fs-xs);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-.diff-summary .added,
-.diff-counts .added {
-  color: var(--ok);
-}
-.diff-summary .removed,
-.diff-counts .removed {
-  color: var(--err);
-}
-.diff-copy {
-  margin-left: auto;
-}
-.diff-file {
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--bg);
-}
-.diff-file-head {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  background: var(--surface-2);
-  border: none;
-  border-radius: 0;
-  padding: 5px 9px;
-  text-align: left;
-  font: var(--fs-code) var(--mono);
-  color: var(--text-dim);
-}
-.diff-file-head:hover:not(:disabled) {
-  background: var(--surface-3);
-  border-color: transparent;
-}
-.diff-caret {
-  flex: none;
-  font-size: var(--fs-2xs);
-}
-.diff-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.diff-counts {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
-.diff-body {
-  overflow-x: auto;
-  padding: 4px 0;
-}
-/* `min-width: 100%` so a short line's tint still spans the full column, and
-   `width: max-content` so a long one is reachable by scrolling rather than
-   clipped. */
-.dl {
-  display: flex;
-  width: max-content;
-  min-width: 100%;
-  font: var(--fs-code)/1.5 var(--mono);
-  white-space: pre;
-}
-.dl-mark {
-  flex: none;
-  width: 16px;
-  text-align: center;
-  user-select: none;
-  color: var(--muted);
-}
-.dl-text {
-  padding-right: var(--s3);
-}
-.dl-add {
-  background: color-mix(in srgb, var(--ok) 13%, transparent);
-  color: color-mix(in srgb, var(--ok) 55%, var(--text));
-}
-.dl-del {
-  background: color-mix(in srgb, var(--err) 13%, transparent);
-  color: color-mix(in srgb, var(--err) 55%, var(--text));
-}
-.dl-add .dl-mark {
-  color: var(--ok);
-}
-.dl-del .dl-mark {
-  color: var(--err);
-}
-.dl-hunk {
-  background: var(--surface-2);
-  color: var(--muted);
-}
-.dl-context {
-  color: var(--text-dim);
-}
-.dl-meta {
-  color: var(--muted);
-  font-style: italic;
-}
-
 /* ---- composer ------------------------------------------------------------ */
 
 /*
@@ -2185,7 +2064,7 @@ label.check {
 .picker-bar input {
   flex: 1;
   min-width: 0;
-  font: var(--fs-code) var(--mono);
+  font: var(--fs-code) / 1.45 var(--mono);
 }
 .picker-bar button {
   flex: none;
@@ -2309,18 +2188,6 @@ button.destructive:hover:not(:disabled) {
 .results-checks h3:not(:first-child) { margin-top: 12px; }
 .evidence-source, .comparison-base { color: var(--text-dim); overflow-wrap: anywhere; }
 .testing-notes { padding: 12px; border-left: 2px solid var(--line-strong); background: var(--surface-2); }
-.diff-path { white-space: normal; overflow-wrap: anywhere; }
-.diff-file-head { flex-wrap: wrap; font-size: var(--fs-xs); padding: 10px; }
-.diff-operation { font-family: inherit; font-size: var(--fs-xs); color: var(--text-dim); }
-.diff-summary { flex-wrap: wrap; }
-.diff-dirty { padding: 12px; border: 1px solid var(--st-interrupted); border-radius: var(--r-md); }
-.diff-dirty ul { margin: 8px 0; padding-left: 20px; overflow-wrap: anywhere; }
-.dl { font-size: var(--fs-xs); line-height: 1.65; }
-.dl-number { flex: none; width: 4ch; padding-right: 6px; text-align: right; color: var(--muted); user-select: none; font-variant-numeric: tabular-nums; }
-.diff-dialog { width: min(68rem, 94vw); max-height: 90vh; padding: 24px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface); color: var(--text); overflow: auto; }
-.diff-dialog::backdrop { background: rgb(0 0 0 / .65); }
-.diff-dialog > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; position: sticky; top: -24px; background: var(--surface); padding: 12px 0; z-index: 1; }
-.diff-dialog .dl { font-size: var(--fs-lg); }
 /* Keep creation's submit action reachable when optional goals lengthen the form. */
 
 /* The bar's two interactive parts: the project name, which is a menu, and the
@@ -2421,7 +2288,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
    notice -- because the composer must never leave the window. */
 .panel-foot { max-height: 48%; overflow-y: auto; }
 .dialog { width: min(36rem, 94vw); max-height: 90dvh; flex-shrink: 0; }
-.dialog.diff-dialog { width: min(68rem, 96vw); }
 .dialog .dialog-actions { flex-wrap: wrap; }
 .dialog-actions button { min-height: 36px; }
 .dialog .dialog-close { min-width: 32px; min-height: 32px; }
@@ -2601,7 +2467,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .activity-waiting .activity-line { font-weight: 600; }
 .activity-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s1); }
 .activity-jobs li { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; font-size: var(--fs-xs); }
-.activity-jobs code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--fs-code)/1.4 var(--mono); }
+.activity-jobs code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--fs-code)/1.45 var(--mono); }
 .activity-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
 .activity-actions .hint { margin: 0; flex: 1 1 14rem; }
 
@@ -2635,7 +2501,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .back { display: inline-flex; align-items: center; gap: var(--s2); height: var(--h-control); padding: 0 11px 0 9px; border: 0; border-radius: var(--r-8); background: var(--surface-3); color: var(--ink-2); font-family: inherit; font-size: var(--t-row); font-weight: 500; }
 .back:hover:not(:disabled) { background: var(--control-hover); }
 .back > span:first-child { color: var(--muted); font-size: var(--t-code); }
-.keycap { padding: 2px 5px; border-radius: var(--r-4); background: var(--rail-idle); font: var(--t-nano) / 1.2 var(--mono); color: var(--muted-3); }
+.keycap { padding: 1px 5px; border-radius: var(--r-4); background: var(--rail-idle); font: var(--t-nano) / 1.45 var(--mono); color: var(--muted-3); }
 .review-status { flex: none; display: inline-flex; align-items: center; gap: 6px; height: var(--h-plus); padding: 0 9px; border-radius: var(--r-7); background: var(--surface-3); font-size: var(--t-meta); color: var(--ink-4); }
 .status-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--st-new); }
 .status-dot.st-running { background: var(--st-running); }

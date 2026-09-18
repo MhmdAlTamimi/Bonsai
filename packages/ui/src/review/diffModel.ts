@@ -7,7 +7,7 @@
  * `git diff` in a terminal, which at least colours the lines.
  *
  * Parsing only, no JSX, so it is testable under Node's type stripping without a
- * browser (see diffModel.test.ts). Diff.tsx renders the result.
+ * browser (see diffModel.test.ts). DiffPane.tsx renders the result.
  *
  * This reads git's own output and nothing else. It does not know a repository
  * exists, cannot ask for one, and is handed a string the server produced --

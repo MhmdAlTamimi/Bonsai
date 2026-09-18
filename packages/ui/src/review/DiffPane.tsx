@@ -1,7 +1,7 @@
 import { type JSX, useMemo } from 'react';
 import type { ReviewFile } from '@bonsai/shared';
 
-import { parsePatch } from '../panel/chat/diffModel.ts';
+import { parsePatch } from './diffModel.ts';
 
 /**
  * One file's diff.
