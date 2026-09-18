@@ -109,6 +109,9 @@ export class Views {
       sourcePath: row.source_path,
       workDir: row.work_dir ?? '',
       workPath: row.source_path === null ? null : workDirIn(row.source_path, row.work_dir),
+      // Only the user's own repository has a branch worth naming: an adopted
+      // project sits on theirs, and a created one has only node branches (D33).
+      branchLabel: row.source_kind === 'adopted' ? row.protected_branch : null,
       setup: {
         copyFiles: parseStringArray(row.copy_files) ?? [],
         setupCommand: row.setup_command,

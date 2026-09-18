@@ -307,10 +307,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       runs: unknown[];
     };
     await session.goto(`${BASE}/?project=${projectId}&node=${rootId}`);
-    await session.waitFor("!!document.querySelector('.panel .overflow')");
-    await session.click('.panel .overflow');
+    // Renaming lives on the card's own menu now: it is a property of the node
+    // on the map, not of whichever node the panel happens to be showing.
+    await session.waitFor(`!!document.querySelector('[data-id="${rootId}"] .card-more')`);
+    await session.click(`[data-id="${rootId}"] .card-more`);
     await session.eval(
-      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b => b.textContent.includes('Rename')).click()",
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Rename')).click()",
     );
     await session.type('.dialog input[aria-label="experiment name"]', 'Starting code');
     await session.click('.dialog .primary');
@@ -350,13 +352,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       `(async () => (await (await fetch('/api/nodes/${question.node.id}')).json()).node.status === 'ready')()`,
     );
     await session.goto(`${BASE}/?project=${projectId}&node=${question.node.id}`);
-    // Branching from the panel is in the experiment's menu now, not a
-    // full-width button.
-    await session.click('.panel header .overflow');
-    await session.waitFor("!!document.querySelector('.menu-panel')");
-    await session.eval(
-      "Array.from(document.querySelectorAll('.menu-panel [role=menuitem]')).find(b => b.textContent === 'Branch experiment…').click()",
-    );
+    // Branching from the panel is a compact control beside Send now, not a
+    // full-width button under the composer.
+    await session.click('.composer-row button.secondary');
     await session.waitFor(
       "document.querySelector('.creation-sources')?.textContent.includes('Named approach')",
     );
@@ -566,12 +564,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor("!!document.querySelector('.panel h2')");
 
-    // Reading the change is in the experiment's menu, and on ⏎ over its card.
-    await session.click('.panel .overflow');
-    await session.waitFor("!!document.querySelector('.menu-panel')");
-    await session.eval(
-      "Array.from(document.querySelectorAll('.menu-panel [role=menuitem]')).find(b => b.textContent.includes('Review')).click()",
-    );
+    // Reading the change starts from the card: the change summary in its foot
+    // IS the way in, and the same thing sits in its ⋯ menu.
+    await session.click(`[data-id="${created.masterNodeId}"] .review-control`);
     await session.waitFor("!!document.querySelector('.review .tree-row.file')", {
       label: 'the review screen',
     });
@@ -822,13 +817,17 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       source: `window.__sources = []; const Native = window.EventSource; window.EventSource = class extends Native { constructor(url) { super(url); window.__sources.push(this); } addEventListener(type, listener, options) { super.addEventListener(type, (event) => { if (!window.__dropEvents) listener(event); }, options); } };`,
     });
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    // A live stream says nothing -- the standing health indicator is gone, and
+    // only a gap in it speaks -- so "live" is the absence of the notice.
     await session.waitFor(
-      "!!document.querySelector('.health-live') && !!document.querySelector('.md-table')",
+      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.md-table')",
     );
     await session.eval(
       "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.__dropEvents = true; window.__sources.at(-1).dispatchEvent(new Event('error'));",
     );
-    await session.waitFor("!!document.querySelector('.health-reconnecting')");
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting'))",
+    );
     await fetch(`${nodeUrl}/runs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -871,7 +870,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         downloadThroughput: -1,
         uploadThroughput: -1,
       });
-      await session.waitFor("!!document.querySelector('.health-reconnecting')");
+      await session.waitFor(
+        "Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting'))",
+      );
       assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 2);
       await fetch(`${nodeUrl}/runs`, {
         method: 'POST',
@@ -892,7 +893,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       });
     }
     await session.waitFor(
-      "!!document.querySelector('.health-live') && document.querySelectorAll('.turn').length === 3",
+      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && document.querySelectorAll('.turn').length === 3",
     );
   });
 
@@ -941,10 +942,6 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "!!document.querySelector('.ask input') && document.querySelector('.stop-all')?.textContent.includes('2 runs')",
     );
     assert.equal(await session.eval("!!document.querySelector('.composer-row')"), false);
-    assert.equal(
-      await session.eval(`!!document.querySelector('[data-id="${queued.node.id}"] .stop')`),
-      true,
-    );
     await session.type('.ask input', 'This reason belongs only to the first question');
     await session.eval(
       "window.__originalFetch = window.fetch; window.fetch = (url, init) => String(url).endsWith('/cancel') ? Promise.resolve(new Response(JSON.stringify({ error: 'Stop failed fixture' }), { status: 503 })) : window.__originalFetch(url, init);",
@@ -955,8 +952,23 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     assert.equal(await session.eval("document.querySelector('.panel .stop').disabled"), false);
     await session.eval('window.fetch = window.__originalFetch');
-    await session.click(`[data-id="${queued.node.id}"] .stop`);
-    await session.waitFor(`!document.querySelector('[data-id="${queued.node.id}"] .stop')`);
+    // A queued experiment is stopped from its own ⋯ menu: the card carries no
+    // standing Stop, so that action lives where the card's other actions do.
+    // Opening the menu selects that card, so the panel comes back to master
+    // afterwards -- and the reason typed into the question survives the trip.
+    await session.click(`[data-id="${queued.node.id}"] .card-more`);
+    assert.equal(
+      await session.eval(`!!document.querySelector('[data-id="${queued.node.id}"] .stop-run')`),
+      true,
+    );
+    await session.click(`[data-id="${queued.node.id}"] .stop-run`);
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${queued.node.id}')).json()).node.status !== 'running')()`,
+      { label: 'the queued run to stop' },
+    );
+    await session.click(`[data-id="${created.masterNodeId}"] .card`);
+    await session.waitFor("!!document.querySelector('.ask input')");
+    await session.type('.ask input', 'This reason belongs only to the first question');
     // Freeze the browser's tree snapshot while another window answers the same question.
     const tree = (await (await fetch(`${BASE}/api/projects/${created.projectId}/tree`)).json()) as {
       nodes: Array<{ id: string; pendingQuestion: { id: string } | null }>;
@@ -1322,7 +1334,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.waitFor(
         "!!document.querySelector('.card') && !document.querySelector('.tree-notice')",
       );
-      // A narrow canvas still keeps its project menu, server health and settings available.
+      // A narrow canvas still keeps the bar's three parts on the bar.
       await session.send('Emulation.setDeviceMetricsOverride', {
         width: 1100,
         height: 780,
@@ -1331,7 +1343,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       });
       assert.equal(
         await session.eval(
-          "(() => { const bar = document.querySelector('.menubar').getBoundingClientRect(); return ['.project-picker', '.server-health', '.settings-button'].every(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return r.width > 0 && r.left >= bar.left && r.right <= bar.right; }); })()",
+          "(() => { const bar = document.querySelector('.menubar').getBoundingClientRect(); return ['.brand', '.project-picker', '.settings-button'].every(selector => { const r = document.querySelector(selector).getBoundingClientRect(); return r.width > 0 && r.left >= bar.left && r.right <= bar.right; }); })()",
         ),
         true,
       );
@@ -1344,6 +1356,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     }
   });
   test('settings save by scope, diagnostics preview and usage stay reviewable without agent access', async () => {
+    // Spend belongs to the project it was spent on, so Usage is in the
+    // project's own menu rather than holding a permanent seat on the bar.
+    const openUsage = async (): Promise<void> => {
+      await session.click('.project-picker');
+      await session.eval(
+        "Array.from(document.querySelectorAll('.menu-panel [role=menuitem]')).find(b => b.textContent.includes('Usage')).click()",
+      );
+    };
     const created = (await (
       await fetch(`${BASE}/api/projects`, {
         method: 'POST',
@@ -1446,7 +1466,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).runs.at(-1)?.status === 'done')()`,
     );
-    await session.click('.usage-button');
+    await openUsage();
     await session.waitFor("!!document.querySelector('.usage-totals')");
     assert.equal(
       await session.eval(
@@ -1475,7 +1495,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         await session.eval("document.querySelector('.composer-row button.primary').disabled"),
         true,
       );
-      await session.click('.usage-button');
+      await openUsage();
       await session.waitFor("!!document.querySelector('.usage-totals')");
       await session.click('[aria-label="Close usage"]');
       await session.click('.settings-button');
@@ -1902,7 +1922,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       assert.ok(
         Number(
           await session.eval(
-            "document.querySelector('.panel header .overflow').getBoundingClientRect().right",
+            "document.querySelector('.composer-row button.primary').getBoundingClientRect().right",
           ),
         ) <= width,
       );

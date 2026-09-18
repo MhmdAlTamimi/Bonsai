@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo, type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
 
@@ -11,6 +11,8 @@ import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
 import { ConversationRail } from './panel/ConversationRail.tsx';
 import { Review } from './review/Review.tsx';
+import { RenameDialog } from './panel/node/RenameDialog.tsx';
+import { useNodeActions } from './panel/node/useNodeActions.ts';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
 import { useWorkspaceView } from './state/useWorkspaceView.ts';
@@ -112,6 +114,35 @@ export function App(): JSX.Element {
     onError: report,
     refresh: projectTree.refresh,
   });
+
+  /**
+   * The experiment actions a card's ⋯ offers. They live here because the cards
+   * are drawn by the canvas and the dialogs they open belong to the window,
+   * not to any one card.
+   */
+  const [renaming, setRenaming] = useState<NodeView | null>(null);
+  const nodeActions = useNodeActions(projectTree.refresh, (message) => {
+    if (message !== null) report(message);
+  });
+  const cardActions = useMemo(
+    () => ({
+      branch: (nodeId: string) => {
+        const node = tree?.nodes.find((n) => n.id === nodeId);
+        if (node !== undefined)
+          child.begin({ parentId: node.id, parentName: node.displayName, position: null });
+      },
+      review: (nodeId: string) => {
+        selectExperiment(nodeId);
+        setReviewing(true);
+      },
+      rename: setRenaming,
+      remove: (node: NodeView) => void nodeActions.remove(node),
+    }),
+    // `child.begin` and the tree change identity on every refetch; the actions
+    // only need to be rebuilt when the tree does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tree, nodeActions.remove],
+  );
 
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'app' | 'project'>('app');
@@ -240,8 +271,6 @@ export function App(): JSX.Element {
               project={tree?.project ?? null}
               projects={projects}
               settings={settings}
-              connection={connection}
-              health={live.health}
               onError={report}
               onOpenProject={(id) => {
                 selection.clear();
@@ -315,10 +344,7 @@ export function App(): JSX.Element {
                   .catch((e: unknown) => report(describeError(e)));
               }}
               onBranch={child.begin}
-              onReview={(nodeId) => {
-                selectExperiment(nodeId);
-                setReviewing(true);
-              }}
+              actions={cardActions}
             />
           </div>
 
@@ -396,12 +422,19 @@ export function App(): JSX.Element {
             /* The panel does not own a second, weaker version of this form any
            more -- it opens the one dialog, with no position, and dagre places
            the node. */
-            onReview={() => setReviewing(true)}
             onCreateChild={(parent) =>
               child.begin({ parentId: parent.id, parentName: parent.displayName, position: null })
             }
           />
 
+          {renaming !== null && (
+            <RenameDialog
+              node={renaming}
+              onClose={() => setRenaming(null)}
+              onChanged={projectTree.refresh}
+            />
+          )}
+          {nodeActions.confirmDialog}
           {confirm.dialog}
         </div>
       </RunControls>

@@ -75,6 +75,19 @@ export function RunControls({
   return <Context.Provider value={{ stopping, errors, stop }}>{children}</Context.Provider>;
 }
 
+/**
+ * Stopping, for a surface that is not a button of its own.
+ *
+ * The card carries no standing Stop any more -- the design leaves it the name,
+ * the state and the way into review -- so its ⋯ menu offers the same action,
+ * and it is the same pending-until-confirmed stop the panel uses.
+ */
+export function useStopRun(node: NodeView): { stop: () => void; busy: boolean } | null {
+  const controls = useContext(Context);
+  if (controls === null || !hasActiveJob(node)) return null;
+  return { stop: () => controls.stop(node.id), busy: controls.stopping.has(node.id) };
+}
+
 export function StopButton({ node }: { node: NodeView }): JSX.Element | null {
   const controls = useContext(Context);
   if (!controls || !hasActiveJob(node)) return null;

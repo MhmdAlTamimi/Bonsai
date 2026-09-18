@@ -15,15 +15,18 @@ import { useConfirm } from '../../ConfirmDialog.tsx';
  * Creating a child used to live here too, backing a second, weaker version of
  * the new-child form. It does not any more: there is one creation dialog and
  * the panel opens it (see Panel.tsx and NewChildDialog.tsx).
+ *
+ * The node is an argument rather than bound at the hook, because the same
+ * actions are reached from two places now: the panel, for the experiment it is
+ * showing, and a card's ⋯ on the map, for whichever card it belongs to.
  */
 export function useNodeActions(
-  node: NodeView,
   onChanged: () => void,
   onError: (message: string | null) => void,
 ): {
   busy: boolean;
-  recover: (action: RecoverAction) => Promise<void>;
-  remove: () => Promise<void>;
+  recover: (node: NodeView, action: RecoverAction) => Promise<void>;
+  remove: (node: NodeView) => Promise<void>;
   /** Render this in the panel; null unless something is being confirmed. */
   confirmDialog: JSX.Element | null;
 } {
@@ -31,7 +34,7 @@ export function useNodeActions(
   const confirm = useConfirm();
   const setError = onError;
 
-  const recover = async (action: RecoverAction): Promise<void> => {
+  const recover = async (node: NodeView, action: RecoverAction): Promise<void> => {
     setError(null);
     setBusy(true);
     try {
@@ -68,7 +71,7 @@ export function useNodeActions(
    * is irreversible and destroys paid, unreproducible work. The impact is
    * fetched and stated before asking -- the cheap part of B9, worth having now.
    */
-  const remove = async (): Promise<void> => {
+  const remove = async (node: NodeView): Promise<void> => {
     setError(null);
     try {
       const impact = await api.deletionImpact(node.id);

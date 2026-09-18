@@ -181,6 +181,15 @@ export interface ProjectView {
   workDir: string;
   /** `sourcePath` and `workDir` joined: the folder to reveal or name. */
   workPath: string | null;
+  /**
+   * The branch the project's own repository is on — `main`, `master`, whatever
+   * an adopted repository uses.
+   *
+   * Null for a project Bonsai created, where the only branches are the
+   * `node/<uuid>` ones an experiment owns, and D33 says those are never shown:
+   * they are generated once, never renamed, and mean nothing to anyone.
+   */
+  branchLabel: string | null;
   setup: ProjectSetupView;
   /** Estimated total across every run in the tree, at API list price. */
   costUsd: number;

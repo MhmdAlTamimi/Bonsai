@@ -8,10 +8,13 @@ import { Icon } from '../Icon.tsx';
 import { CanvasHints } from './CanvasHints.tsx';
 import { MAX_ZOOM, MIN_ZOOM } from './zoom.ts';
 import { NodeCard } from './NodeCard.tsx';
+import { BonsaiEdge } from './BonsaiEdge.tsx';
 import { BranchContext } from './branchContext.ts';
+import { CardActionsContext, type CardActions } from './cardActions.ts';
 import { useLaidOutNodes } from './useLaidOutNodes.ts';
 
 const nodeTypes = { bonsai: NodeCard };
+const edgeTypes = { bonsai: BonsaiEdge };
 
 export interface BranchTarget {
   parentId: string;
@@ -31,7 +34,7 @@ export function Canvas({
   onToggleSelect,
   onMoved,
   onBranch,
-  onReview,
+  actions,
   onAutomatic,
 }: {
   nodes: readonly NodeView[];
@@ -42,8 +45,8 @@ export function Canvas({
   onMoved: (nodeId: string, position: { x: number; y: number }) => void;
   /** A card's `+`: clicked or pressed, or dragged out and released over empty canvas. */
   onBranch: (target: BranchTarget) => void;
-  /** Enter on a focused experiment: open its changes for review (D46). */
-  onReview: (nodeId: string) => void;
+  /** What a card's own controls do: review, branch, rename, delete. */
+  actions: CardActions;
 }): JSX.Element {
   const selected = nodes.find((node) => node.id === selectedId);
   const { flowNodes, edges, onNodesChange } = useLaidOutNodes(nodes, selectedId);
@@ -99,120 +102,123 @@ export function Canvas({
     });
 
   return (
-    <BranchContext.Provider value={branchFrom}>
-      <ReactFlow
-        nodes={flowNodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onConnectStart={(_event, params: { nodeId: string | null }) => {
-          dragSource.current = params.nodeId;
-        }}
-        onConnectEnd={onConnectEnd}
-        nodeTypes={nodeTypes}
-        onNodeClick={onNodeClick}
-        onNodeDragStop={(_event, node) => onMoved(node.id, node.position)}
-        /**
-         * A click is not a drag, and pinning is a deliberate act.
-         *
-         * React Flow's threshold defaults to 0, so a plain mousedown/mouseup on a
-         * card started and ended a drag -- which fired onNodeDragStop and wrote a
-         * position. Selecting an experiment therefore pinned it, silently: from
-         * then on the layout never moved it again, and "Automatic position"
-         * appeared for a node nobody had dragged. Four pixels of slop is enough
-         * that an ordinary click never crosses it.
-         */
-        nodeDragThreshold={4}
-        // Deliberately NOT clearing the selection on a pane click. The panel
-        // is the primary workspace (§7), and emptying it because a click
-        // landed between two cards loses your place for no gain -- selecting
-        // another node replaces it anyway.
-        minZoom={MIN_ZOOM}
-        nodesConnectable
-        connectOnClick={false}
-        onKeyDownCapture={(event) => {
-          if (event.nativeEvent.isComposing || !['Enter', ' '].includes(event.key)) return;
-          const target = event.target as HTMLElement;
-          if (!target.classList.contains('react-flow__node')) return;
-          const id = target.dataset['id'];
-          if (id) {
-            event.preventDefault();
-            onSelect(id);
-            // Space chooses an experiment; Enter goes on to read its changes.
-            if (event.key === 'Enter') onReview(id);
-          }
-        }}
-        maxZoom={MAX_ZOOM}
-        fitView
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background gap={24} size={1} />
-        {/*
-         * One control family, replacing React Flow's own Controls.
-         *
-         * Its buttons came with their own size, radius, border and hover, and sat
-         * in a separate stack in the corner -- so the canvas had two toolbars
-         * that looked like they belonged to different applications, and zooming
-         * lived in one while everything else lived in the other. These are the
-         * app's buttons, in the app's sizes, in one bar.
-         */}
-        <div className="canvas-tools" role="toolbar" aria-label="Canvas controls">
-          <div className="tool-group">
-            <button
-              className="canvas-tool icon-only"
-              aria-label="Zoom out"
-              title="Zoom out"
-              disabled={zoom <= MIN_ZOOM + 0.001}
-              onClick={() => zoomOut({ duration: 0 })}
-            >
-              <Icon name="minus" />
-            </button>
-            {/*
-             * The zoom level, and the way back to 100%.
-             *
-             * Worth showing rather than inferring: cards thin to a name and then
-             * to a dot as you zoom out (D35), and "the nodes disappeared" is what
-             * that looks like without a number to explain it. Pressing it is the
-             * reset -- a separate reset button would be a third control for
-             * something this one already names.
-             */}
-            <button
-              className="canvas-tool zoom-level"
-              title="Reset the zoom to 100%"
-              onClick={() => zoomTo(1, { duration: 0 })}
-            >
-              {Math.round(zoom * 100)}%
-            </button>
-            <button
-              className="canvas-tool icon-only"
-              aria-label="Zoom in"
-              title="Zoom in"
-              disabled={zoom >= MAX_ZOOM - 0.001}
-              onClick={() => zoomIn({ duration: 0 })}
-            >
-              <Icon name="plus" />
-            </button>
-          </div>
-          <button
-            className="canvas-tool"
-            title="Fit the whole tree on screen"
-            onClick={() => fitView({ padding: 0.2, maxZoom: 1, duration: 0 })}
-          >
-            <Icon name="fit" />
-            <span>Fit canvas</span>
-          </button>
-          <CanvasHints />
-          {selected?.positionX != null && (
+    <CardActionsContext.Provider value={actions}>
+      <BranchContext.Provider value={branchFrom}>
+        <ReactFlow
+          nodes={flowNodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onConnectStart={(_event, params: { nodeId: string | null }) => {
+            dragSource.current = params.nodeId;
+          }}
+          onConnectEnd={onConnectEnd}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodeClick={onNodeClick}
+          onNodeDragStop={(_event, node) => onMoved(node.id, node.position)}
+          /**
+           * A click is not a drag, and pinning is a deliberate act.
+           *
+           * React Flow's threshold defaults to 0, so a plain mousedown/mouseup on a
+           * card started and ended a drag -- which fired onNodeDragStop and wrote a
+           * position. Selecting an experiment therefore pinned it, silently: from
+           * then on the layout never moved it again, and "Automatic position"
+           * appeared for a node nobody had dragged. Four pixels of slop is enough
+           * that an ordinary click never crosses it.
+           */
+          nodeDragThreshold={4}
+          // Deliberately NOT clearing the selection on a pane click. The panel
+          // is the primary workspace (§7), and emptying it because a click
+          // landed between two cards loses your place for no gain -- selecting
+          // another node replaces it anyway.
+          minZoom={MIN_ZOOM}
+          nodesConnectable
+          connectOnClick={false}
+          onKeyDownCapture={(event) => {
+            if (event.nativeEvent.isComposing || !['Enter', ' '].includes(event.key)) return;
+            const target = event.target as HTMLElement;
+            if (!target.classList.contains('react-flow__node')) return;
+            const id = target.dataset['id'];
+            if (id) {
+              event.preventDefault();
+              onSelect(id);
+              // Space chooses an experiment; Enter goes on to read its changes.
+              if (event.key === 'Enter') actions.review(id);
+            }
+          }}
+          maxZoom={MAX_ZOOM}
+          fitView
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background gap={24} size={1} />
+          {/*
+           * One control family, replacing React Flow's own Controls.
+           *
+           * Its buttons came with their own size, radius, border and hover, and sat
+           * in a separate stack in the corner -- so the canvas had two toolbars
+           * that looked like they belonged to different applications, and zooming
+           * lived in one while everything else lived in the other. These are the
+           * app's buttons, in the app's sizes, in one bar.
+           */}
+          <div className="canvas-tools" role="toolbar" aria-label="Canvas controls">
+            <div className="tool-group">
+              <button
+                className="canvas-tool icon-only"
+                aria-label="Zoom out"
+                title="Zoom out"
+                disabled={zoom <= MIN_ZOOM + 0.001}
+                onClick={() => zoomOut({ duration: 0 })}
+              >
+                <Icon name="minus" />
+              </button>
+              {/*
+               * The zoom level, and the way back to 100%.
+               *
+               * Worth showing rather than inferring: cards thin to a name and then
+               * to a dot as you zoom out (D35), and "the nodes disappeared" is what
+               * that looks like without a number to explain it. Pressing it is the
+               * reset -- a separate reset button would be a third control for
+               * something this one already names.
+               */}
+              <button
+                className="canvas-tool zoom-level"
+                title="Reset the zoom to 100%"
+                onClick={() => zoomTo(1, { duration: 0 })}
+              >
+                {Math.round(zoom * 100)}%
+              </button>
+              <button
+                className="canvas-tool icon-only"
+                aria-label="Zoom in"
+                title="Zoom in"
+                disabled={zoom >= MAX_ZOOM - 0.001}
+                onClick={() => zoomIn({ duration: 0 })}
+              >
+                <Icon name="plus" />
+              </button>
+            </div>
             <button
               className="canvas-tool"
-              title="Let the layout place this experiment again"
-              onClick={() => onAutomatic(selected.id)}
+              title="Fit the whole tree on screen"
+              onClick={() => fitView({ padding: 0.2, maxZoom: 1, duration: 0 })}
             >
-              <Icon name="automatic" />
-              <span>Automatic position</span>
+              <Icon name="fit" />
+              <span>Fit canvas</span>
             </button>
-          )}
-        </div>
-      </ReactFlow>
-    </BranchContext.Provider>
+            <CanvasHints />
+            {selected?.positionX != null && (
+              <button
+                className="canvas-tool"
+                title="Let the layout place this experiment again"
+                onClick={() => onAutomatic(selected.id)}
+              >
+                <Icon name="automatic" />
+                <span>Automatic position</span>
+              </button>
+            )}
+          </div>
+        </ReactFlow>
+      </BranchContext.Provider>
+    </CardActionsContext.Provider>
   );
 }

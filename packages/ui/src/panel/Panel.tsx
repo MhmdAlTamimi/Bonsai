@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { type JSX, useEffect, useRef, useState } from 'react';
 import type { NodeDetail, NodeView, ProjectView, RunActivity, RunView } from '@bonsai/shared';
 
 import { NextRunInfo } from './NextRunInfo.tsx';
@@ -7,7 +7,6 @@ import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { ExperimentChanges } from './node/ExperimentChanges.tsx';
 import { Checks } from './node/Checks.tsx';
-import { RenameDialog } from './node/RenameDialog.tsx';
 import { Checkout } from './node/Checkout.tsx';
 import { Details } from './node/Details.tsx';
 import { Lineage } from './node/Lineage.tsx';
@@ -21,7 +20,6 @@ import { Transcript } from './chat/Transcript.tsx';
 import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
 import type { Delta } from './chat/liveMerge.ts';
-import { useDismiss } from '../useDismiss.ts';
 
 /** One selected experiment: fixed identity/actions, reading area, and composer. */
 export function Panel({
@@ -34,7 +32,6 @@ export function Panel({
   onHide,
   onChanged,
   onCreateChild,
-  onReview,
   startError,
   onRunStarted,
   visible,
@@ -52,8 +49,6 @@ export function Panel({
   onChanged: () => void;
   /** Opens the one create-a-child dialog. See NewChildDialog. */
   onCreateChild: (node: NodeView) => void;
-  /** Open this experiment's changes for review (D46). */
-  onReview: () => void;
   startError: string | null;
   onRunStarted: () => void;
   /**
@@ -91,7 +86,6 @@ export function Panel({
       onProjectSettings={onProjectSettings}
       onChanged={onChanged}
       onCreateChild={onCreateChild}
-      onReview={onReview}
       startError={startError}
       onRunStarted={onRunStarted}
     />
@@ -108,7 +102,6 @@ function NodePanel({
   onHide,
   onChanged,
   onCreateChild,
-  onReview,
   startError,
   onRunStarted,
   visible,
@@ -123,14 +116,11 @@ function NodePanel({
   onHide: () => void;
   onChanged: () => void;
   onCreateChild: (node: NodeView) => void;
-  /** Open this experiment's changes for review (D46). */
-  onReview: () => void;
   startError: string | null;
   onRunStarted: () => void;
   visible: boolean;
   narrow: boolean;
 }): JSX.Element {
-  const [renaming, setRenaming] = useState(false);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
@@ -147,7 +137,7 @@ function NodePanel({
     onChanged();
   };
   const [error, setError] = useState<string | null>(null);
-  const actions = useNodeActions(node, changed, setError);
+  const actions = useNodeActions(changed, setError);
   const chat = useChat(
     node,
     stream,
@@ -215,13 +205,6 @@ function NodePanel({
           <span aria-hidden="true">›</span>
           <span className="collapse-bar" aria-hidden="true" />
         </button>
-        <OverflowMenu
-          busy={actions.busy}
-          onReview={onReview}
-          onBranch={() => onCreateChild(node)}
-          onRename={() => setRenaming(true)}
-          onDelete={node.parentId === null ? undefined : () => void actions.remove()}
-        />
         <div className="spacer" />
         <span className="node-dot" title={nodeStatusTitle(node)} aria-hidden="true" />
         <h2 title={node.displayName}>{node.displayName}</h2>
@@ -349,7 +332,7 @@ function NodePanel({
               isYourFolder={isYourFolder}
               busy={actions.busy}
               partialWork={detail?.partialWork ?? null}
-              onRecover={(action) => void actions.recover(action)}
+              onRecover={(action) => void actions.recover(node, action)}
             />
           )}
         {!chat.busy && detail?.nextRunSettings && (
@@ -385,9 +368,6 @@ function NodePanel({
         )}
       </div>
 
-      {renaming && (
-        <RenameDialog node={node} onClose={() => setRenaming(false)} onChanged={changed} />
-      )}
       {actions.confirmDialog}
     </aside>
   );
@@ -460,131 +440,4 @@ function latestRunOutcome(run: RunView | undefined, activity: RunActivity | null
         ? 'Waiting for background work — results are saved when it ends.'
         : 'In progress — no completed result yet.';
   }
-}
-
-/**
- * Delete, out of thumb's reach.
- *
- * It used to be a lowercase link eight pixels from Stop: irreversible,
- * cascading to every descendant, and styled as the least prominent control in
- * the header -- so the confirmation existed to catch a misclick the layout was
- * inviting. Behind a menu it takes a deliberate second action to reach.
- */
-function OverflowMenu({
-  busy,
-  onReview,
-  onBranch,
-  onDelete,
-  onRename,
-}: {
-  busy: boolean;
-  onReview: () => void;
-  onBranch: () => void;
-  onDelete?: () => void;
-  onRename: () => void;
-}): JSX.Element {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useDismiss(
-    open,
-    useCallback(() => setOpen(false), []),
-    ref,
-    '.overflow',
-  );
-
-  useEffect(() => {
-    if (!open) return;
-    const frame = requestAnimationFrame(() =>
-      ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus(),
-    );
-    return () => cancelAnimationFrame(frame);
-  }, [open]);
-
-  return (
-    <div className="menu" ref={ref}>
-      <button
-        className="overflow"
-        onClick={() => setOpen((v) => !v)}
-        aria-label="More actions"
-        aria-expanded={open}
-        aria-haspopup="menu"
-      >
-        <Icon name="more" />
-      </button>
-      {open && (
-        <div
-          className="menu-panel right"
-          role="menu"
-          onKeyDown={(event) => {
-            const items = Array.from(
-              event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
-            );
-            const index = items.indexOf(document.activeElement as HTMLButtonElement);
-            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-              event.preventDefault();
-              items[
-                event.key === 'Home'
-                  ? 0
-                  : event.key === 'End'
-                    ? items.length - 1
-                    : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
-              ]?.focus();
-            }
-            if (event.key === 'Tab') setOpen(false);
-          }}
-        >
-          {/* Reading the change is the first thing anyone does with a
-              finished experiment, so it leads the menu. */}
-          <button
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onReview();
-            }}
-          >
-            Review changes…
-          </button>
-          {/*
-           * Branching lives here and on the map's `+`, not as a full-width
-           * button: it took a row of the panel for something done from the
-           * map. The trigger takes focus first, so a dialog closed without
-           * creating anything gives the keyboard back to this menu.
-           */}
-          <button
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              ref.current?.querySelector<HTMLButtonElement>('.overflow')?.focus();
-              onBranch();
-            }}
-          >
-            Branch experiment…
-          </button>
-          <button
-            role="menuitem"
-            disabled={busy}
-            onClick={() => {
-              setOpen(false);
-              onRename();
-            }}
-          >
-            Rename experiment…
-          </button>
-          {onDelete !== undefined && (
-            <button
-              className="danger"
-              role="menuitem"
-              disabled={busy}
-              onClick={() => {
-                setOpen(false);
-                onDelete();
-              }}
-            >
-              Delete this experiment…
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
