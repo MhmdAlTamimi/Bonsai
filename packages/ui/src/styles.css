@@ -44,6 +44,9 @@
   --control-strong-hover: #2b303b;
   --node: #14171b;
   --tool-block: #101216;
+  /* The canvas grid: a 2px dot every 24px. Passed to React Flow from
+     Canvas.tsx, which writes it as an SVG fill. */
+  --canvas-dot: rgba(255, 255, 255, 0.075);
 
   /* Hairlines are for dividing content inside one surface, not panels. */
   --line: rgba(255, 255, 255, 0.06);
@@ -2570,8 +2573,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 /* D46: the canvas surface and its one control cluster. */
-.react-flow__pane, .react-flow, .canvas { background: var(--canvas); }
-.react-flow__background { background: var(--canvas); }
+/* The canvas is painted on the surface BEHIND the dot grid. Painting the pane
+   too covered the grid: the pane sits over the background SVG. */
+.react-flow, .canvas { background: var(--canvas); }
 /* The zoom control sits in the corner as one object, in the design's shape:
    two square buttons with the level between them. Fit, hints and Automatic
    position keep it company as the same family. */

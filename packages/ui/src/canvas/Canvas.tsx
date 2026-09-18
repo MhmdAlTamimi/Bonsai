@@ -7,6 +7,9 @@ import { Icon } from '../Icon.tsx';
 
 import { CanvasHints } from './CanvasHints.tsx';
 import { MAX_ZOOM, MIN_ZOOM } from './zoom.ts';
+
+/** The canvas grid, in step with `--canvas-dot` in styles.css. */
+const CANVAS_DOT = 'rgba(255, 255, 255, 0.075)';
 import { NodeCard } from './NodeCard.tsx';
 import { BonsaiEdge } from './BonsaiEdge.tsx';
 import { BranchContext } from './branchContext.ts';
@@ -150,7 +153,12 @@ export function Canvas({
           fitView
           proOptions={{ hideAttribution: true }}
         >
-          <Background gap={24} size={1} />
+          {/* The dot grid: what tells you this is a surface you move on rather
+              than a page, and the only thing that shows it moving when you pan
+              an empty area. Colour passed rather than themed, because React
+              Flow writes it as an SVG fill attribute, where Chrome does not
+              resolve a CSS variable. */}
+          <Background gap={24} size={2} color={CANVAS_DOT} />
           {/*
            * One control family, replacing React Flow's own Controls.
            *
