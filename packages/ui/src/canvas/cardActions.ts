@@ -13,6 +13,7 @@ export interface CardActions {
   branch: (nodeId: string) => void;
   review: (nodeId: string) => void;
   rename: (node: NodeView) => void;
+  details: (node: NodeView) => void;
   remove: (node: NodeView) => void;
 }
 

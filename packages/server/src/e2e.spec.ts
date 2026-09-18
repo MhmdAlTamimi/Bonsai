@@ -352,9 +352,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       `(async () => (await (await fetch('/api/nodes/${question.node.id}')).json()).node.status === 'ready')()`,
     );
     await session.goto(`${BASE}/?project=${projectId}&node=${question.node.id}`);
-    // Branching from the panel is a compact control beside Send now, not a
-    // full-width button under the composer.
-    await session.click('.composer-row button.secondary');
+    // Branching is a canvas action now: it creates a node, so it lives on the
+    // card, not in the reply row where it competed with Send.
+    assert.equal(await session.eval("!!document.querySelector('.composer-row .secondary')"), false);
+    await session.click(`[data-id="${question.node.id}"] .card-more`);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Branch child')).click()",
+    );
     await session.waitFor(
       "document.querySelector('.creation-sources')?.textContent.includes('Named approach')",
     );
@@ -473,67 +477,42 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-conversation.png'));
 
-    // Result details are closed until asked for, and nothing inside opens by itself.
-    assert.equal(await session.eval("!!document.querySelector('.experiment-changes')"), false);
-    await session.eval("document.querySelector('.result-details summary').click()");
-    await session.waitFor("!!document.querySelector('.experiment-changes .diff-file')");
-    assert.equal(
-      await session.eval("document.querySelectorAll('.experiment-changes .dl').length"),
-      0,
-      'no file expands by itself',
-    );
+    /*
+     * Nothing about the experiment's FILES or its node facts is in the panel:
+     * the change is read on the review screen, and the facts are in the card's
+     * ⋯ menu. The panel is the conversation and nothing else.
+     */
     assert.equal(
       await session.eval(
-        "document.querySelector('.experiment-changes').textContent.includes('notes/third-change.md')",
+        "!!document.querySelector('.result-details, .experiment-changes, .next-run, .checkout-section, .lineage')",
       ),
-      true,
+      false,
     );
-    await session.eval("document.querySelector('.experiment-changes .diff-file-head').click()");
-    await session.waitFor("document.querySelectorAll('.experiment-changes .dl').length > 0");
-    assert.equal(
-      await session.eval(
-        "document.querySelector('.comparison-base').textContent.includes('before this experiment')",
-      ),
-      true,
+    await session.click(`[data-id="${created.masterNodeId}"] .card-more`);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Experiment details')).click()",
     );
-    assert.equal(
-      await session.eval(
-        "document.querySelector('.result-details').textContent.includes('No checks recorded for the latest run')",
-      ),
-      true,
-    );
+    await session.waitFor("!!document.querySelector('.dialog .facts')", {
+      label: 'the experiment details dialog',
+    });
+    const facts = String(await session.eval("document.querySelector('.dialog').textContent"));
+    assert.match(facts, /node id/);
+    assert.match(facts, /Goal/);
+    await session.click('.dialog .dialog-actions button');
+    await session.waitFor("!document.querySelector('.dialog')");
 
-    // Copy patch says so when the clipboard refuses.
-    await session.eval(
-      "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
-    );
-    await session.eval("document.querySelector('.diff-copy').scrollIntoView({block: 'center'})");
-    await session.click('.diff-copy');
+    // Settings for a run that has not happened are behind the composer's ⋯.
+    await session.click('.composer-more');
     await session.waitFor(
-      "document.querySelector('.experiment-changes').textContent.includes('Could not copy the patch')",
+      "document.querySelector('.menu-panel.next-run')?.textContent.includes('Permissions')",
     );
-    await session.eval('delete navigator.clipboard');
-
-    // A failing fetch offers a retry rather than an empty panel.
-    await session.eval(`(() => {
-      window.__originalFetch = window.fetch;
-      window.fetch = (url, init) => String(url).endsWith('/diff')
-        ? Promise.resolve(new Response(JSON.stringify({error: 'fixture diff unavailable'}), {status: 503}))
-        : window.__originalFetch(url, init);
-    })()`);
-    await session.eval(
-      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent === 'Refresh changes').click()",
-    );
-    await session.waitFor(
-      "document.querySelector('.experiment-changes').textContent.includes('Retry experiment changes')",
-    );
-    await session.eval('window.fetch = window.__originalFetch');
-    await session.eval(
-      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent.includes('Retry experiment')).click()",
-    );
-    await session.waitFor(
-      "document.querySelector('.experiment-changes').textContent.includes('notes/third-change.md')",
-    );
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await session.waitFor("!document.querySelector('.menu-panel.next-run')");
   });
 
   test('review reads an experiment’s changes: a tree, a diff, split and back', async () => {

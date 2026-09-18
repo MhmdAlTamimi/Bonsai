@@ -20,9 +20,8 @@ export function Checkout({
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
 
   return (
-    <details className="disclosure checkout-section">
-      <summary>Use this code outside Bonsai</summary>
-      <p className="hint">Optional: open the committed result in your own editor or terminal.</p>
+    <section className="checkout-section" aria-label="Use this code outside Bonsai">
+      <p className="hint">Open the committed result in your own editor or terminal.</p>
       <div className="row">
         <code className="checkout">{command}</code>
         <button
@@ -38,6 +37,6 @@ export function Checkout({
         </button>
       </div>
       {hint != null && <p className="hint">{hint}</p>}
-    </details>
+    </section>
   );
 }

@@ -1,6 +1,14 @@
 import type { JSX } from 'react';
 import type { NextRunSettings } from '@bonsai/shared';
 import { PERMISSIONS } from './AgentFields.tsx';
+
+/**
+ * What a run that has not happened yet would use.
+ *
+ * Only the creation dialog shows this now: there it is part of the decision
+ * being made. In the conversation it described a future run in the middle of
+ * the past ones, so it moved into the composer's ⋯ (see Composer).
+ */
 export function NextRunInfo({
   value,
   onSettings,

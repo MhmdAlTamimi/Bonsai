@@ -1,15 +1,8 @@
 import { type JSX, useEffect, useRef, useState } from 'react';
-import type { NodeDetail, NodeView, ProjectView, RunActivity, RunView } from '@bonsai/shared';
+import type { NodeDetail, NodeView, ProjectView, RunActivity } from '@bonsai/shared';
 
-import { NextRunInfo } from './NextRunInfo.tsx';
-import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
-import { ExperimentChanges } from './node/ExperimentChanges.tsx';
-import { Checks } from './node/Checks.tsx';
-import { Checkout } from './node/Checkout.tsx';
-import { Details } from './node/Details.tsx';
-import { Lineage } from './node/Lineage.tsx';
 import { Recovery } from './node/Recovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
 import { nodeStatusTitle } from '../nodeStatus.tsx';
@@ -31,7 +24,6 @@ export function Panel({
   onProjectSettings,
   onHide,
   onChanged,
-  onCreateChild,
   startError,
   onRunStarted,
   visible,
@@ -47,8 +39,6 @@ export function Panel({
   onProjectSettings: () => void;
   onHide: () => void;
   onChanged: () => void;
-  /** Opens the one create-a-child dialog. See NewChildDialog. */
-  onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
   /**
@@ -85,7 +75,6 @@ export function Panel({
       narrow={narrow}
       onProjectSettings={onProjectSettings}
       onChanged={onChanged}
-      onCreateChild={onCreateChild}
       startError={startError}
       onRunStarted={onRunStarted}
     />
@@ -101,7 +90,6 @@ function NodePanel({
   onProjectSettings,
   onHide,
   onChanged,
-  onCreateChild,
   startError,
   onRunStarted,
   visible,
@@ -115,7 +103,6 @@ function NodePanel({
   onProjectSettings: () => void;
   onHide: () => void;
   onChanged: () => void;
-  onCreateChild: (node: NodeView) => void;
   startError: string | null;
   onRunStarted: () => void;
   visible: boolean;
@@ -254,75 +241,69 @@ function NodePanel({
        * just above the reply box, and a short thread leaves its space at the
        * top rather than floating above nothing.
        */}
-      <div className="panel-body" ref={reading.scrollRef} onScroll={reading.onScroll}>
-        <div ref={reading.contentRef} className="conversation-content">
-          {node.status === 'new' && (
-            <section className="start">
-              <h3>Ready for the first run</h3>
-              <p className="hint">
-                Creating this experiment has not run the agent. Edit the request below, then choose
-                Start first run.
-              </p>
-            </section>
-          )}
+      <div className="panel-scroll">
+        <div className="panel-body" ref={reading.scrollRef} onScroll={reading.onScroll}>
+          <div ref={reading.contentRef} className="conversation-content">
+            {node.status === 'new' && (
+              <section className="start">
+                <h3>Ready for the first run</h3>
+                <p className="hint">
+                  Creating this experiment has not run the agent. Edit the request below, then
+                  choose Start first run.
+                </p>
+              </section>
+            )}
 
-          {(detail === null || detailError !== null) &&
-            (detailError === null ? (
-              <p role="status">Loading experiment details…</p>
-            ) : (
+            {(detail === null || detailError !== null) &&
+              (detailError === null ? (
+                <p role="status">Loading experiment details…</p>
+              ) : (
+                <p className="error" role="alert">
+                  {detailError}{' '}
+                  <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
+                </p>
+              ))}
+            {chat.loading && !chat.loaded && <p role="status">Loading conversation…</p>}
+            {chat.error !== null && (
               <p className="error" role="alert">
-                {detailError}{' '}
-                <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
-              </p>
-            ))}
-          {chat.loading && !chat.loaded && <p role="status">Loading conversation…</p>}
-          {chat.error !== null && (
-            <p className="error" role="alert">
-              {chat.loaded && 'Showing previously loaded conversation. '}
-              {chat.error} <button onClick={chat.retry}>Retry conversation</button>
-            </p>
-          )}
-          {chat.loaded &&
-            chat.error === null &&
-            chat.messages.length === 0 &&
-            chat.pending.length === 0 &&
-            !chat.busy && (
-              <p className="muted chat-empty">
-                No conversation yet. Ask for a change, or ask a question.
+                {chat.loaded && 'Showing previously loaded conversation. '}
+                {chat.error} <button onClick={chat.retry}>Retry conversation</button>
               </p>
             )}
-          {(chat.messages.length > 0 || chat.pending.length > 0) && (
-            <Transcript
-              messages={chat.messages}
-              runs={runs}
-              pending={chat.pending}
-              running={chat.running}
-              waiting={activity?.state === 'waiting'}
-              onProjectSettings={onProjectSettings}
-            />
-          )}
-
-          {detail !== null && runs.length > 0 && (
-            <ResultDetails
-              node={node}
-              detail={detail}
-              runs={runs}
-              activity={activity}
-              isYourFolder={isYourFolder}
-              revision={`${revision}:${runs.at(-1)?.id ?? ''}:${runs.at(-1)?.status ?? ''}`}
-              onError={setError}
-            />
-          )}
+            {chat.loaded &&
+              chat.error === null &&
+              chat.messages.length === 0 &&
+              chat.pending.length === 0 &&
+              !chat.busy && (
+                <p className="muted chat-empty">
+                  No conversation yet. Ask for a change, or ask a question.
+                </p>
+              )}
+            {(chat.messages.length > 0 || chat.pending.length > 0) && (
+              <Transcript
+                messages={chat.messages}
+                runs={runs}
+                pending={chat.pending}
+                running={chat.running}
+                waiting={activity?.state === 'waiting'}
+                onProjectSettings={onProjectSettings}
+              />
+            )}
+          </div>
         </div>
+        {/*
+         * A pill over the thread, not a row in the footer: a full-width button
+         * under the conversation pushed the composer down while you were
+         * reading, and this is only true while you are away from the bottom.
+         */}
+        {reading.away && (
+          <button className="jump-latest" onClick={reading.jump}>
+            {reading.unread ? 'New output · Jump ↓' : 'Jump to latest ↓'}
+          </button>
+        )}
       </div>
 
       <div className="panel-foot">
-        {reading.away && (
-          <button className="jump-latest" onClick={reading.jump}>
-            {reading.unread ? 'New output · Jump to latest' : 'Jump to latest'}
-            <Icon name="arrowDown" />
-          </button>
-        )}
         {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
           node.status !== 'running' &&
           node.status !== 'needs_you' && (
@@ -335,9 +316,6 @@ function NodePanel({
               onRecover={(action) => void actions.recover(node, action)}
             />
           )}
-        {!chat.busy && detail?.nextRunSettings && (
-          <NextRunInfo value={detail.nextRunSettings} onSettings={onProjectSettings} />
-        )}
         {error !== null && (
           <p className="error" role="alert">
             {error} <button onClick={() => setError(null)}>Dismiss</button>
@@ -363,7 +341,8 @@ function NodePanel({
             value={chat.prompt}
             onChange={chat.setPrompt}
             onSend={chat.send}
-            onBranch={node.writable ? () => onCreateChild(node) : undefined}
+            nextRun={chat.busy ? null : (detail?.nextRunSettings ?? null)}
+            onProjectSettings={onProjectSettings}
           />
         )}
       </div>
@@ -371,73 +350,4 @@ function NodePanel({
       {actions.confirmDialog}
     </aside>
   );
-}
-
-/**
- * Everything about the result that is not the conversation: how the last run
- * ended, the checks, what it changed, where it came from, and how to open it
- * outside Bonsai.
- *
- * Closed until asked for, and at the end of the thread rather than above the
- * composer. All of it is reference -- true whether or not you are looking at
- * it -- and the panel is for reading the conversation.
- */
-function ResultDetails({
-  node,
-  detail,
-  runs,
-  activity,
-  isYourFolder,
-  revision,
-  onError,
-}: {
-  node: NodeView;
-  detail: NodeDetail;
-  runs: readonly RunView[];
-  activity: RunActivity | null;
-  isYourFolder: boolean;
-  revision: string;
-  onError: (message: string | null) => void;
-}): JSX.Element {
-  const [open, setOpen] = useState(false);
-  return (
-    <details className="result-details" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>Result details</summary>
-      {open && (
-        <>
-          <p className="result-outcome">{latestRunOutcome(runs.at(-1), activity)}</p>
-          <Checks node={node} detail={detail} />
-          <ExperimentChanges node={node} revision={revision} />
-          <Lineage lineage={detail.lineage} />
-          <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
-          {detail.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
-            <Checkout
-              command={detail.checkoutCommand}
-              hint={detail.checkoutHint}
-              onError={onError}
-            />
-          )}
-        </>
-      )}
-    </details>
-  );
-}
-
-/** The latest run in one line, by why it ended (D45) -- or what it is doing. */
-function latestRunOutcome(run: RunView | undefined, activity: RunActivity | null): string {
-  if (run === undefined) return 'No runs recorded yet.';
-  switch (run.endReason) {
-    case 'finished':
-      return `Finished — ${run.commitSha === null ? 'answered without file changes' : 'files changed'}.`;
-    case 'stopped':
-      return 'You stopped this run — review any uncommitted work.';
-    case 'failed':
-      return 'Failed — review the conversation and any uncommitted work.';
-    case 'app_closed':
-      return 'Bonsai closed while this run was working — review any uncommitted work.';
-    case null:
-      return activity?.state === 'waiting'
-        ? 'Waiting for background work — results are saved when it ends.'
-        : 'In progress — no completed result yet.';
-  }
 }

@@ -1,6 +1,8 @@
-import { type JSX, useEffect, useRef, useState } from 'react';
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { useCanRun } from '../../state/RunAvailability.ts';
-import type { NodeView } from '@bonsai/shared';
+import type { NextRunSettings, NodeView } from '@bonsai/shared';
+import { PERMISSIONS } from '../AgentFields.tsx';
+import { useDismiss } from '../../useDismiss.ts';
 
 /** One submission surface, with a compact question entry for read-only experiments. */
 export function Composer({
@@ -10,7 +12,8 @@ export function Composer({
   value,
   onChange,
   onSend,
-  onBranch,
+  nextRun,
+  onProjectSettings,
 }: {
   node: NodeView;
   /** A run is in flight, or the node is parked on a question. */
@@ -19,8 +22,9 @@ export function Composer({
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
-  /** Branch a child from here, beside Send: the other thing a reply can become. */
-  onBranch?: () => void;
+  /** What the next run would use, behind the row's ⋯ — settings, not conversation. */
+  nextRun?: NextRunSettings | null;
+  onProjectSettings?: () => void;
 }): JSX.Element {
   const canRun = useCanRun();
   const initial = node.status === 'new';
@@ -82,15 +86,7 @@ export function Composer({
               ? '⏎ send · ⇧⏎ newline'
               : 'Reconnect the agent to send'}
         </span>
-        {onBranch !== undefined && (
-          <button
-            className="secondary"
-            onClick={onBranch}
-            title="Start a child experiment from this one, leaving this result intact"
-          >
-            Branch child
-          </button>
-        )}
+        {nextRun != null && <NextRun value={nextRun} onProjectSettings={onProjectSettings} />}
         <button
           className="primary"
           onClick={onSend}
@@ -107,6 +103,80 @@ export function Composer({
           </span>
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * What the next run would use, one ⋯ away from the box that starts it.
+ *
+ * It used to be a disclosure parked under the thread, where it described a run
+ * that had not happened yet in the middle of the ones that had. Nothing is
+ * decided here: the menu says what is set and offers the settings that set it.
+ */
+function NextRun({
+  value,
+  onProjectSettings,
+}: {
+  value: NextRunSettings;
+  onProjectSettings?: () => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const holder = useRef<HTMLDivElement>(null);
+  useDismiss(
+    open,
+    useCallback(() => setOpen(false), []),
+    holder,
+    '[aria-haspopup]',
+  );
+  return (
+    <div className="menu composer-menu" ref={holder}>
+      <button
+        className="composer-more"
+        aria-label="Settings for the next run"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={`Next run · ${value.model ?? 'Agent default'}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div className="menu-panel right up next-run" role="menu">
+          <div className="menu-label">Next run</div>
+          <dl>
+            <div>
+              <dt>Model</dt>
+              <dd>
+                {value.model ?? 'Agent default'} <small>{value.modelSource}</small>
+              </dd>
+            </div>
+            <div>
+              <dt>Effort</dt>
+              <dd>
+                {value.effort ?? 'Agent default'} <small>{value.effortSource}</small>
+              </dd>
+            </div>
+            <div>
+              <dt>Permissions</dt>
+              <dd>
+                {PERMISSIONS[value.permissionMode]} <small>{value.permissionSource}</small>
+              </dd>
+            </div>
+          </dl>
+          {onProjectSettings && (
+            <button
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onProjectSettings();
+              }}
+            >
+              Project settings…
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

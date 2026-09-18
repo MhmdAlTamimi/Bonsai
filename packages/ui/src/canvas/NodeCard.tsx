@@ -236,6 +236,15 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               >
                 Rename…
               </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  actions.details(data);
+                }}
+              >
+                Experiment details…
+              </button>
               {data.parentId !== null && (
                 <button
                   role="menuitem"

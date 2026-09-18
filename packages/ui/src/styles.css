@@ -1075,6 +1075,13 @@ body.resizing .panel-resizer {
   font-size: var(--t-row);
 }
 
+/* The scroll region and the one thing that floats over it. */
+.panel-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .panel-body {
   flex: 1;
   min-height: 0;
@@ -1106,35 +1113,33 @@ body.resizing .panel-resizer {
   gap: 10px;
   padding: var(--s4);
 }
-.jump-latest {
-  width: 100%;
-  color: var(--accent-text);
-}
-
 /*
- * Reference rather than conversation: how the run ended, its checks, what it
- * changed, where it came from. Closed until asked for, at the end of the
- * thread — all of it stays true whether or not you are reading it.
+ * A pill, floating over the thread it belongs to.
+ *
+ * Anchored to the scroll region rather than to the panel floor: a composer
+ * that grows with a long draft would otherwise run into it, and a full-width
+ * button in the footer pushed the whole conversation up while you read.
  */
-.result-details {
-  border-top: 1px solid var(--line);
-  padding-top: var(--s3);
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--h-pill);
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(109, 93, 246, 0.92);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  font: 600 var(--t-micro) / 1.45 var(--mono);
+  color: #fff;
 }
-.result-details > summary {
-  cursor: pointer;
-  color: var(--muted-3);
-  font-size: var(--t-row);
-}
-.result-details > summary:hover {
-  color: var(--text-dim);
-}
-.result-details > *:not(summary) {
-  margin-top: var(--s4);
-}
-.result-outcome {
-  margin: var(--s3) 0 0;
-  color: var(--text-dim);
-  font-size: var(--t-body);
+.jump-latest:hover:not(:disabled) {
+  background: var(--accent);
 }
 
 /* The rail: the collapsed conversation, and the way back to it. */
@@ -1793,6 +1798,65 @@ body.resizing .panel-resizer {
   left: auto;
   right: 0;
 }
+/* A menu that opens upward, for a control sitting on the panel's floor. */
+.menu-panel.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+/* The two ghost ⋯ controls: one on the composer row, one on the review bar.
+   Same shape as every other icon-only control in the family. */
+.composer-more,
+.review-more {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-control);
+  height: var(--h-control);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-8);
+  background: transparent;
+  color: var(--muted-3);
+  font-size: var(--t-body);
+  line-height: 1;
+}
+.composer-more:hover:not(:disabled),
+.review-more:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--text);
+}
+.composer-menu,
+.review-menu {
+  flex: none;
+  position: relative;
+}
+/* What the next run would use: a reference table, not a set of choices. */
+.menu-panel.next-run {
+  min-width: 15rem;
+  padding: 5px 5px 6px;
+}
+.menu-panel.next-run dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 4px 0 6px;
+  padding: 0 9px;
+  font-size: var(--t-meta);
+  color: var(--muted-2);
+}
+.menu-panel.next-run dl > div {
+  display: contents;
+}
+.menu-panel.next-run dd {
+  margin: 0;
+  color: var(--text-dim);
+}
+.menu-panel.next-run small {
+  display: block;
+  color: var(--dim);
+  font-size: var(--t-nano);
+}
 
 /* The agent has stopped and wants an answer. Carries the needs_you colour, so
    the box and the card's chip read as the same event. */
@@ -1888,11 +1952,20 @@ body.resizing .panel-resizer {
   border-bottom: none;
   padding-bottom: 0;
 }
+/* The way out stays reachable however long the dialog is: a dialog that
+   scrolls must not scroll its own Close off the bottom. */
 .dialog-actions {
+  position: sticky;
+  bottom: calc(var(--s5) * -1);
+  z-index: 2;
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--s2);
   justify-content: flex-end;
+  margin: 0 calc(var(--s5) * -1) calc(var(--s5) * -1);
+  padding: var(--s3) var(--s5);
+  background: var(--surface);
 }
 .dialog-actions .hint {
   flex: 1;
@@ -2174,7 +2247,6 @@ button.destructive:hover:not(:disabled) {
 .diff-dialog > header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; position: sticky; top: -24px; background: var(--surface); padding: 12px 0; z-index: 1; }
 .diff-dialog .dl { font-size: var(--fs-lg); }
 /* Keep creation's submit action reachable when optional goals lengthen the form. */
-.dialog[aria-label="Branch experiment"] .dialog-actions { position: sticky; bottom: -24px; margin: 0 -24px -24px; padding: 12px 24px; background: var(--surface); border-top: 1px solid var(--line); z-index: 2; flex-shrink: 0; }
 
 /* The bar's two interactive parts: the project name, which is a menu, and the
    settings gear. Everything else that used to live here -- transport health,
@@ -2194,7 +2266,6 @@ button.destructive:hover:not(:disabled) {
 .stop-control { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .stop-error { font-size: var(--fs-xs); max-width: 230px; white-space: normal; }
 .conversation-content { display: flow-root; }
-.jump-latest { width: 100%; margin-bottom: 8px; color: var(--focus); }
 .activity { margin: 0 0 8px; color: var(--text-dim); font-size: var(--fs-xs); }
 .permission-details { margin: 10px 0; }
 .permission-details pre { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -2234,8 +2305,6 @@ dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px
 .settings-dialog .save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .save-feedback { overflow-wrap: anywhere; }
 .diagnostics textarea { width: 100%; min-height: 260px; font: var(--fs-code)/1.6 var(--mono); resize: vertical; }
-.next-run { font-size: var(--fs-xs); padding: 10px 0; color: var(--muted); }
-.next-run summary { cursor: pointer; }
 .next-run dl > div { display: contents; }
 .next-run dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 14px 0; }
 .next-run dd { margin: 0; color: var(--text); }
@@ -2306,7 +2375,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .icon { width: 1em; height: 1em; display: inline-block; vertical-align: -.12em; flex: none; }
 /* Buttons that are only an icon: a square target, not a line of text. */
 .dialog-close, .hide-panel, .overflow, .picker-bar button { display: inline-flex; align-items: center; justify-content: center; }
-.jump-latest { display: flex; align-items: center; justify-content: center; gap: var(--s2); }
 .project-picker > .icon { grid-column: 2; grid-row: 1 / 3; align-self: center; margin-left: var(--s3); color: var(--muted); }
 /* The one width where the canvas and the panel stop both being useful.
    Kept in step with NARROW_MAX in state/useWorkspaceView.ts. */
@@ -2472,6 +2540,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .status-dot.st-needs_you { background: var(--st-needs); }
 .status-dot.st-ready { background: var(--st-ready); }
 .status-dot.st-interrupted { background: var(--st-interrupted); }
+/* Node facts and recorded checks: read in a dialog now, not under the thread. */
+.facts-section h3, .checks h3 { margin: 14px 0 6px; font-size: var(--t-row); font-weight: 600; color: var(--muted-2); }
+.facts-section h3:first-child, .checks h3:first-child { margin-top: 0; }
+.facts-section .stream { max-height: 16rem; overflow: auto; }
 /* The file being read: one path in two weights, no gap between them. */
 .file-identity, .pane-header { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; font: var(--t-row) / 1.45 var(--mono); font-variant-numeric: tabular-nums; }
 .path-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-3); }

@@ -12,6 +12,7 @@ import { useRunStream } from './state/useRunStream.ts';
 import { ConversationRail } from './panel/ConversationRail.tsx';
 import { Review } from './review/Review.tsx';
 import { RenameDialog } from './panel/node/RenameDialog.tsx';
+import { ExperimentDetails } from './panel/node/DetailsDialog.tsx';
 import { useNodeActions } from './panel/node/useNodeActions.ts';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
@@ -121,6 +122,7 @@ export function App(): JSX.Element {
    * not to any one card.
    */
   const [renaming, setRenaming] = useState<NodeView | null>(null);
+  const [detailing, setDetailing] = useState<NodeView | null>(null);
   const nodeActions = useNodeActions(projectTree.refresh, (message) => {
     if (message !== null) report(message);
   });
@@ -136,6 +138,7 @@ export function App(): JSX.Element {
         setReviewing(true);
       },
       rename: setRenaming,
+      details: setDetailing,
       remove: (node: NodeView) => void nodeActions.remove(node),
     }),
     // `child.begin` and the tree change identity on every refetch; the actions
@@ -422,9 +425,6 @@ export function App(): JSX.Element {
             /* The panel does not own a second, weaker version of this form any
            more -- it opens the one dialog, with no position, and dagre places
            the node. */
-            onCreateChild={(parent) =>
-              child.begin({ parentId: parent.id, parentName: parent.displayName, position: null })
-            }
           />
 
           {renaming !== null && (
@@ -433,6 +433,9 @@ export function App(): JSX.Element {
               onClose={() => setRenaming(null)}
               onChanged={projectTree.refresh}
             />
+          )}
+          {detailing !== null && (
+            <ExperimentDetails node={detailing} onClose={() => setDetailing(null)} />
           )}
           {nodeActions.confirmDialog}
           {confirm.dialog}

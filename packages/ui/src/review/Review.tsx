@@ -6,6 +6,7 @@ import { DiffPane } from './DiffPane.tsx';
 import { Grip } from './Grip.tsx';
 import { ReviewTree } from './ReviewTree.tsx';
 import { buildTree, fileAfter, rowsOf } from './fileTree.ts';
+import { ReviewMenu } from './ReviewMenu.tsx';
 import { useFilePatch, useReview } from './useReview.ts';
 
 /** The tree never goes below this, or the paths stop being readable. */
@@ -40,6 +41,7 @@ export function Review({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [treeWidth, setTreeWidth] = useState(272);
   const [paneSplit, setPaneSplit] = useState(0.5);
+  const [error, setError] = useState<string | null>(null);
   const root = useRef<HTMLDivElement>(null);
 
   // A different experiment is a different change: nothing carries over.
@@ -144,7 +146,13 @@ export function Review({
             {files.length > 1 && <ViewToggle split={false} onChange={toggleSplit} />}
           </>
         )}
+        {node !== null && <ReviewMenu node={node} revision={revision} onError={setError} />}
       </header>
+      {error !== null && (
+        <p className="error review-error" role="alert">
+          {error} <button onClick={() => setError(null)}>Dismiss</button>
+        </p>
+      )}
 
       <div className="review-body">
         <div className="tree-column" style={{ width: `${treeWidth}px` }}>
