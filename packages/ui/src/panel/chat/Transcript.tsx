@@ -1,8 +1,9 @@
-import type { JSX } from 'react';
+import { type JSX, useLayoutEffect, useRef, useState } from 'react';
 import type { MessageView, RunView, ToolResultContent } from '@bonsai/shared';
 
 import { Markdown } from './Markdown.tsx';
 import { ToolBlock } from './ToolBlock.tsx';
+import { Disclosure } from './Disclosure.tsx';
 import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
 
@@ -47,17 +48,11 @@ export function Transcript({
     <div className="thread">
       {groups.map((group) =>
         group.runId === null ? (
-          <details className="setup-activity" key="setup">
-            <summary>Experiment setup</summary>
-            {group.messages.map((message) => (
-              <Said key={message.id} message={message} />
-            ))}
-            {onProjectSettings && (
-              <button className="linkish" onClick={onProjectSettings}>
-                Project setup settings
-              </button>
-            )}
-          </details>
+          <SetupActivity
+            key="setup"
+            messages={group.messages}
+            onProjectSettings={onProjectSettings}
+          />
         ) : (
           <Turn
             key={group.runId}
@@ -218,6 +213,37 @@ function compose(messages: readonly MessageView[]): Part[] {
   return parts;
 }
 
+/**
+ * What happened before the conversation did: the setup commands a new
+ * experiment ran. One disclosure row, the same one blocks use.
+ */
+function SetupActivity({
+  messages,
+  onProjectSettings,
+}: {
+  messages: readonly MessageView[];
+  onProjectSettings?: () => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`setup-activity${open ? ' open' : ''}`}>
+      <Disclosure open={open} label="Experiment setup" onToggle={() => setOpen((v) => !v)} />
+      {open && (
+        <>
+          {messages.map((message) => (
+            <Said key={message.id} message={message} />
+          ))}
+          {onProjectSettings && (
+            <button className="linkish" onClick={onProjectSettings}>
+              Project setup settings
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Your own words: an object on the panel, labelled, so the thread has two voices. */
 function YouSaid({
   message,
@@ -229,7 +255,52 @@ function YouSaid({
   return (
     <div className={`msg you${inline ? ' inline' : ''}`}>
       <span className="msg-label">You:</span>
-      <div className="msg-body">{asText(message.content)}</div>
+      <Clamped text={asText(message.content)} />
+    </div>
+  );
+}
+
+/** How many lines of your own request the panel shows before folding the rest. */
+const PROMPT_LINES = 6;
+
+/**
+ * A request, clamped.
+ *
+ * An inherited task runs to twenty lines of boilerplate before it says
+ * anything, and the panel used to open on all of it -- the reply you came to
+ * read pushed off the bottom by the request you already know. Six lines, then
+ * the same disclosure row as everything else.
+ */
+function Clamped({ text }: { text: string }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const [hidden, setHidden] = useState(0);
+  const body = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (element === null || open) return;
+    const measure = (): void => {
+      const line = Number.parseFloat(getComputedStyle(element).lineHeight) || 20;
+      setHidden(Math.max(0, Math.round((element.scrollHeight - element.clientHeight) / line)));
+    };
+    measure();
+    // The panel is resizable and has three widths, and a rewrap changes how
+    // much is hidden -- so the count is measured again when the box changes.
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text, open]);
+
+  return (
+    <div
+      className={`msg-box${open ? ' open' : ''}`}
+      style={{ ['--clamp' as string]: PROMPT_LINES }}
+    >
+      <div className="msg-body" ref={body}>
+        {text}
+      </div>
+      {hidden > 0 && <Disclosure open={open} lines={hidden} onToggle={() => setOpen((v) => !v)} />}
     </div>
   );
 }

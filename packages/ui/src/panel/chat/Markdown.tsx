@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react';
 
 import { parseMarkdown, type Block, type Inline } from './markdown.ts';
+import { Disclosure } from './Disclosure.tsx';
 
 /**
  * An agent reply, rendered as the markdown it is.
@@ -45,32 +46,7 @@ function BlockView({ block }: { block: Block }): JSX.Element {
     case 'code':
       return <CodeBlock text={block.text} lang={block.lang} />;
     case 'table':
-      return (
-        <div className="md-table" tabIndex={0} role="region" aria-label="Table">
-          <table>
-            <thead>
-              <tr>
-                {block.header.map((cell, i) => (
-                  <th key={i}>
-                    <InlineList content={cell} />
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {block.rows.map((row, i) => (
-                <tr key={i}>
-                  {row.map((cell, j) => (
-                    <td key={j}>
-                      <InlineList content={cell} />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      );
+      return <MdTable header={block.header} rows={block.rows} />;
     case 'list': {
       const Tag = block.ordered ? 'ol' : 'ul';
       return (
@@ -140,6 +116,52 @@ function InlineView({ node }: { node: Inline }): JSX.Element {
         </a>
       );
   }
+}
+
+/** How many rows a table shows before the rest is one disclosure away. */
+const TABLE_ROWS = 6;
+
+/**
+ * A table, bounded like everything else in the panel.
+ *
+ * It used to be its own scroll region -- a scroller inside the panel's one
+ * scroller, which is a trap: the wheel stops working where you happen to be
+ * pointing. It clips to six rows instead and opens on the same row a tool
+ * block uses.
+ */
+function MdTable({ header, rows }: { header: Inline[][]; rows: Inline[][][] }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const hidden = Math.max(0, rows.length - TABLE_ROWS);
+  const shown = open ? rows : rows.slice(0, TABLE_ROWS);
+  return (
+    <div className="md-table">
+      <table>
+        <thead>
+          <tr>
+            {header.map((cell, i) => (
+              <th key={i}>
+                <InlineList content={cell} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((row, i) => (
+            <tr key={i}>
+              {row.map((cell, j) => (
+                <td key={j}>
+                  <InlineList content={cell} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {hidden > 0 && (
+        <Disclosure open={open} lines={hidden} unit="row" onToggle={() => setOpen((v) => !v)} />
+      )}
+    </div>
+  );
 }
 
 function CodeBlock({ text, lang }: { text: string; lang: string | null }): JSX.Element {
