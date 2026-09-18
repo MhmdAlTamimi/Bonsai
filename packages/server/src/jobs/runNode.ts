@@ -48,6 +48,7 @@ import { branchNameFor } from '../git/repo.js';
 import { readWorktreeState, resumePrompt } from '../git/recovery.js';
 import { runCommand, summarise } from '../exec/command.js';
 import { status } from '../git/exec.js';
+import { parentSnapshot } from '../git/diff.js';
 import { findLeftovers, roots, stopLeftovers } from './leftovers.js';
 
 /**
@@ -956,7 +957,7 @@ export class RunJobs {
             branchName: node.branch_name ?? branchNameFor(nodeId),
             message: commitMessageFor(node.display_name, node.description),
             fallbackContext: contextFallback(node.display_name, prompt),
-            baseCommit: node.base_commit,
+            baseCommit: await this.baseFor(node),
           });
 
       const commitSha = outcome.commit;
@@ -1117,6 +1118,22 @@ export class RunJobs {
         `still running when the run ended: ${stopped.map((p) => describeProcess(p.command)).join(' · ')}`,
     });
     return stopped.length;
+  }
+
+  /**
+   * What this node's change is measured against.
+   *
+   * A child pins its base when it is created. Master pins nothing, so its
+   * change starts at the commit before its first modifying run -- the same
+   * range the review screen uses, so the card's count and the review's file
+   * list can never disagree.
+   */
+  private async baseFor(node: NodeRow): Promise<string | null> {
+    if (node.base_commit !== null) return node.base_commit;
+    const first = this.store.listRuns(node.id).find((run) => run.commitSha !== null);
+    return first?.commitSha == null
+      ? null
+      : await parentSnapshot(node.worktree_path, first.commitSha);
   }
 
   /** How a cancelled run ended: stopped by the user, or cut off by the app closing (D45). */

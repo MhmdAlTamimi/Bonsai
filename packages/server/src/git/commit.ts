@@ -109,6 +109,8 @@ export async function commitRunOutput(opts: {
   await git(['commit', '-m', message], worktreePath);
 
   const commit = await gitLine(['rev-parse', 'HEAD'], worktreePath);
+  const parent = await parentSnapshot(worktreePath, commit);
+  const ownStat = await diffStat(worktreePath, parent, commit);
 
   return {
     committed: true,
@@ -118,8 +120,12 @@ export async function commitRunOutput(opts: {
     // Measured HERE, once, while git is already open on this worktree. Doing
     // it while building the tree view would mean shelling out per node on
     // every refetch, which happens after every run of every sibling.
-    stat: opts.baseCommit == null ? null : await diffStat(worktreePath, opts.baseCommit, commit),
-    ownStat: await diffStat(worktreePath, await parentSnapshot(worktreePath, commit), commit),
+    //
+    // No base means this is the node's FIRST commit -- master starts with
+    // none, and the caller pins one from this commit's parent afterwards -- so
+    // what this commit changed is also the whole of what the node changed.
+    stat: opts.baseCommit == null ? ownStat : await diffStat(worktreePath, opts.baseCommit, commit),
+    ownStat,
   };
 }
 

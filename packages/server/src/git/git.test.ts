@@ -455,6 +455,41 @@ describe('diff stats (2.3)', () => {
     assert.deepEqual(second.stat, { files: 2, insertions: 4, deletions: 0 });
   });
 
+  test('master pins no base, so its change is measured from before its first run', async () => {
+    const project = await createProject(store, {
+      name: 'p',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const master = store.getNode(project.masterNodeId)!;
+    assert.equal(master.base_commit, null, 'master has nothing pinned to measure against');
+    const repoPath = store.getProject(project.projectId)!.repo_path;
+    const commit = async (files: Record<string, string>, baseCommit: string | null) => {
+      for (const [path, content] of Object.entries(files)) {
+        await writeFile(join(master.worktree_path, path), content, 'utf8');
+      }
+      return commitRunOutput({
+        repoPath,
+        worktreePath: master.worktree_path,
+        branchName: master.branch_name ?? branchNameFor(master.id),
+        message: 'work',
+        baseCommit,
+      });
+    };
+
+    // The first commit: with no base, what it changed IS the node's change,
+    // rather than the null that used to leave master's card saying nothing.
+    const first = await commit({ 'a.txt': 'one\ntwo\n' }, null);
+    assert.deepEqual(first.stat, { files: 1, insertions: 2, deletions: 0 });
+
+    // Later runs measure from the commit before that first one -- the same
+    // range the review screen uses -- so the number stays cumulative.
+    const base = await parentSnapshot(master.worktree_path, first.commit!);
+    const second = await commit({ 'a.txt': 'one\ntwo\nthree\n', 'b.txt': 'x\n' }, base);
+    assert.deepEqual(second.stat, { files: 2, insertions: 4, deletions: 0 });
+  });
+
   test('a run that commits nothing has no stat', async () => {
     const project = await createProject(store, {
       name: 'p',
