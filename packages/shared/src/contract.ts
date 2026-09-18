@@ -87,6 +87,13 @@ export const TEXT_SCALES = [100, 115, 130] as const;
 export const PANEL_WIDTH = { min: 280, max: 900, default: 380 } as const;
 
 /**
+ * How wide the conversation is beside a diff: three quarters of its width on
+ * the canvas. Review is where the diff deserves the room, and every part of
+ * the panel keeps its type size — only the wrap changes.
+ */
+export const REVIEW_WIDTH = 285;
+
+/**
  * How many agents may run at once.
  *
  * "Run several experiments in parallel" is the product, so this is not a

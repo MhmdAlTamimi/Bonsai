@@ -1,8 +1,11 @@
-import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { type JSX, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useCanRun } from '../../state/RunAvailability.ts';
 import type { NextRunSettings, NodeView } from '@bonsai/shared';
 import { PERMISSIONS } from '../AgentFields.tsx';
 import { useDismiss } from '../../useDismiss.ts';
+
+/** How many lines the box grows to before it scrolls inside itself. */
+const MAX_LINES = 5;
 
 /** One submission surface, with a compact question entry for read-only experiments. */
 export function Composer({
@@ -31,6 +34,22 @@ export function Composer({
   const frozen = !node.writable;
   const [open, setOpen] = useState(!frozen);
   const ref = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * The box grows with the draft, to five lines, and then scrolls inside
+   * itself — the one place in the panel allowed its own scroll, because Send
+   * must never be pushed out of the window by something you are typing.
+   */
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (box === null) return;
+    const style = getComputedStyle(box);
+    const line = Number.parseFloat(style.lineHeight) || 20;
+    const padding =
+      Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom) || 0;
+    box.style.height = 'auto';
+    box.style.height = `${Math.min(box.scrollHeight, Math.round(line * MAX_LINES + padding))}px`;
+  }, [value, open]);
 
   // Re-collapse when moving to another frozen node, so the panel does not stay
   // expanded because of a decision made about a different node.
@@ -73,7 +92,7 @@ export function Composer({
           }
         }}
         placeholder={initial ? 'Describe what the first run should do…' : placeholder(node, busy)}
-        rows={2}
+        rows={1}
         aria-label="message"
       />
       <div className="composer-row">

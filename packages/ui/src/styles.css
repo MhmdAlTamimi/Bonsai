@@ -199,6 +199,8 @@
   --conversation-rail: 46px;
   --tree-width: 272px;
   --panel-width: var(--conversation-docked);
+  /* The gap between two panels: void, never a rule. */
+  --seam: 8px;
   font-size: calc(16px * var(--text-scale, 1));
   color-scheme: dark;
 }
@@ -477,7 +479,7 @@ button.stop:hover:not(:disabled) {
 
 .app {
   display: grid;
-  grid-template-columns: 1fr 1px var(--panel-width);
+  grid-template-columns: 1fr var(--seam) var(--panel-width);
   height: 100vh;
 }
 .app.single {
@@ -496,24 +498,38 @@ button.stop:hover:not(:disabled) {
   display: none;
 }
 
+/*
+ * The seam between the canvas and the conversation: 8px of void carrying a
+ * grip, not a 1px rule. Panels separate by surface value; a hairline between
+ * them is what made the old app read as boxes inside boxes.
+ */
 .panel-resizer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: col-resize;
-  background: var(--line);
+  background: transparent;
   border: none;
   padding: 0;
-  position: relative;
-  border-radius: 0;
+  border-radius: var(--r-5);
 }
 .panel-resizer::after {
   content: '';
-  position: absolute;
-  inset: 0 -5px;
+  width: 2px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--rail-idle);
 }
 .panel-resizer:hover,
 .panel-resizer:focus-visible {
-  background: var(--accent);
+  background: rgba(109, 93, 246, 0.12);
   outline: none;
   box-shadow: none;
+}
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after {
+  background: var(--accent);
 }
 body.resizing {
   cursor: col-resize;
@@ -1157,9 +1173,6 @@ body.resizing .panel-resizer {
 .conversation-rail:hover {
   background: #171a1f;
 }
-.conversation-rail .spacer {
-  flex: 1;
-}
 .rail-chip {
   display: inline-flex;
   align-items: center;
@@ -1175,24 +1188,19 @@ body.resizing .panel-resizer {
   height: 1px;
   background: var(--line-strong);
 }
-.rail-who {
-  display: inline-flex;
+/* The panel's name, set vertically down the rail: clipped rather than
+   wrapped, so a short window loses letters and never the shape. */
+.rail-label {
+  flex: 1;
+  min-height: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: var(--h-plus);
-  height: var(--h-plus);
-  border-radius: var(--r-7);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1.45;
-}
-.rail-who.you {
-  background: var(--control-hover);
-  color: var(--ink-4);
-}
-.rail-who.agent {
-  background: var(--accent-soft);
-  color: var(--accent-text);
+  overflow: hidden;
+  writing-mode: vertical-rl;
+  font: 600 var(--t-nano) / 1.45 var(--mono);
+  letter-spacing: 0.14em;
+  color: var(--dim);
 }
 .rail-key {
   flex: none;
@@ -1744,9 +1752,13 @@ body.resizing .panel-resizer {
   flex-direction: column;
   gap: 10px;
 }
+/* 64 tall at rest, including its padding — box-sizing is what keeps the
+   composer 136 rather than 162 — and grown from script to at most five lines
+   (see Composer.tsx), which is why it does not resize by hand. */
 .composer textarea {
+  box-sizing: border-box;
   min-height: 64px;
-  padding: var(--s3) 14px;
+  padding: 13px 14px;
   border: 0;
   border-radius: var(--r-10);
   background: var(--surface-3);
@@ -1754,7 +1766,8 @@ body.resizing .panel-resizer {
   font-family: inherit;
   font-size: var(--t-body);
   line-height: 1.6;
-  resize: vertical;
+  resize: none;
+  overflow-y: auto;
 }
 .composer textarea::placeholder {
   color: var(--muted-3);
@@ -2413,7 +2426,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dialog-actions button { min-height: 36px; }
 .dialog .dialog-close { min-width: 32px; min-height: 32px; }
 .dialog[aria-label="Branch experiment"] .dialog-actions > .hint { flex-basis: 100%; }
-.app { grid-template-columns: minmax(440px, 1fr) 1px min(var(--panel-width), calc(100vw - 441px)); height: 100dvh; overflow: hidden; }
+.app { grid-template-columns: minmax(440px, 1fr) var(--seam) min(var(--panel-width), calc(100vw - 441px)); height: 100dvh; overflow: hidden; }
 .app.single { grid-template-columns: 1fr; }
 /* Collapsed: the conversation keeps a 46px rail rather than vanishing, so the
    seam stays where it was and the way back is in the place it went. */
@@ -2429,7 +2442,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Wide only, and scoped by a media query rather than by a class: the narrow
    rules below are less specific than `.app.panel-hidden >`, so a floating
    switch would have won there too and covered the canvas controls. */
+/*
+ * Review, wide: the bar spans the WHOLE window and everything else starts
+ * below it. `.review` dissolves into the app grid so its bar can do that —
+ * a panel header breaking the bar in two is what made the old screen read as
+ * two applications side by side.
+ */
 @media (min-width: 901px) {
+  .app.review-mode {
+    grid-template-rows: var(--h-bar) minmax(0, 1fr);
+  }
+  .app.review-mode > .review {
+    display: contents;
+  }
+  .app.review-mode .review-bar {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .app.review-mode .review-body {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .app.review-mode > .panel-resizer,
+  .app.review-mode > .panel,
+  .app.review-mode > .conversation-rail {
+    grid-row: 2;
+  }
 }
 .view-switch button { min-height: var(--control-h); border-radius: var(--r-md); }
 .hide-panel { min-width: 32px; min-height: 32px; }
@@ -2588,9 +2626,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
  * void and by surface value, never by a rule.
  */
 .review { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--void); }
-.app.review-mode { grid-template-columns: minmax(0, 1fr) 1px var(--conversation-review); }
-.app.review-mode > .panel-resizer { visibility: hidden; }
-.app.review-mode.panel-hidden { grid-template-columns: minmax(0, 1fr) var(--conversation-rail); }
+.app.review-mode.panel-hidden, .app.panel-hidden { grid-template-columns: minmax(0, 1fr) var(--conversation-rail); }
 
 .review-bar { flex: none; display: flex; align-items: center; gap: 10px; height: var(--h-bar); padding: 0 10px 0 var(--s2); background: var(--surface); }
 .review-bar h1 { flex: none; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-title); font-weight: 600; line-height: 1.45; color: var(--text); }

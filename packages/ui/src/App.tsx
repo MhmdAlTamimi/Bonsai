@@ -1,6 +1,6 @@
 import { useMemo, type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
-import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
+import { PANEL_WIDTH, REVIEW_WIDTH, type NodeView } from '@bonsai/shared';
 
 import { RunAvailability } from './state/RunAvailability.ts';
 import { api } from './api/client.ts';
@@ -187,6 +187,33 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (selected === null) setReviewing(false);
   }, [selected]);
+
+  /**
+   * How wide the conversation is, and whether it is open at all, is a property
+   * of WHAT YOU ARE DOING.
+   *
+   * On the canvas the graph has width to spare and the thread is the point, so
+   * the panel is open at its saved width. In review the diff is why you came,
+   * so it starts collapsed to the rail and opens to three quarters of that
+   * width — and each mode remembers what you last did to it, so review does not
+   * keep re-collapsing something you deliberately opened.
+   */
+  const mode: 'canvas' | 'review' = reviewing ? 'review' : 'canvas';
+  const [reviewWidth, setReviewWidth] = useState(REVIEW_WIDTH);
+  const canvasWidth = settings?.panelWidth ?? PANEL_WIDTH.default;
+  const openByMode = useRef<Record<'canvas' | 'review', boolean>>({ canvas: true, review: false });
+  const lastMode = useRef(mode);
+  const { experimentOpen, narrow, showExperiment, showMap } = view;
+  useEffect(() => {
+    if (lastMode.current === mode) return;
+    openByMode.current[lastMode.current] = experimentOpen;
+    lastMode.current = mode;
+    // Narrow windows show one thing at a time; the mode's default would fight
+    // the Map/Experiment switch the user is steering with.
+    if (narrow) return;
+    if (openByMode.current[mode]) showExperiment();
+    else showMap();
+  }, [mode, experimentOpen, narrow, showExperiment, showMap]);
 
   if (connection.state === 'unknown' && projects.length === 0)
     return (
@@ -389,10 +416,16 @@ export function App(): JSX.Element {
           )}
 
           <PanelResizer
-            width={settings?.panelWidth ?? PANEL_WIDTH.default}
+            width={reviewing ? reviewWidth : canvasWidth}
             min={PANEL_WIDTH.min}
             max={PANEL_WIDTH.max}
             onCommit={(panelWidth) => {
+              // A width dragged in review belongs to review, and only for this
+              // session: the saved width is the one the canvas reads.
+              if (reviewing) {
+                setReviewWidth(panelWidth);
+                return;
+              }
               // Fire and forget: the width is already applied to the CSS variable,
               // so a failed save costs this session nothing and the next one a
               // default. Not worth a banner.

@@ -683,6 +683,29 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.dragTo('.review-body .grip', { x: 5, y: 400 });
     assert.equal(await width(), 200, 'never narrower than its paths');
 
+    /*
+     * The conversation's width is a property of what you are doing: review
+     * opens with it collapsed to the rail, ⌘\ brings it back at three
+     * quarters of the canvas width, and coming back to review remembers that.
+     */
+    assert.equal(
+      await session.eval("!!document.querySelector('.conversation-rail')"),
+      true,
+      'review opens with the conversation collapsed',
+    );
+    assert.equal(await session.eval("document.querySelector('.panel').offsetWidth"), 0);
+    for (const type of ['keyDown', 'keyUp'])
+      await session.send('Input.dispatchKeyEvent', {
+        type,
+        key: '\\',
+        code: 'Backslash',
+        modifiers: 4,
+      });
+    await session.waitFor("document.querySelector('.panel').offsetWidth === 285", {
+      label: 'the conversation at its review width',
+    });
+    assert.equal(await session.eval("!!document.querySelector('.conversation-rail')"), false);
+
     // Esc goes back to the map, which kept its place.
     await session.send('Input.dispatchKeyEvent', {
       type: 'keyDown',
@@ -704,6 +727,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         windowsVirtualKeyCode: 13,
       });
     await session.waitFor("!!document.querySelector('.review .tree-row')");
+    await session.waitFor("document.querySelector('.panel').offsetWidth === 285", {
+      label: 'review to remember that the conversation was opened',
+    });
     await session.click('.review .back');
     await session.waitFor("!document.querySelector('.review')");
   });
