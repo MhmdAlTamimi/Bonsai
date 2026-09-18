@@ -283,9 +283,20 @@ Nothing is pushed. The owner reviews each phase before the next one starts.
 
 | Phase | What | State |
 | --- | --- | --- |
-| 1. Runs end when the work ends | D43, D45: waiting for background work, Finish now, leftover processes, end reasons, recovery by cause | Implemented; ready for owner review |
-| 2. Changes | Conversation · Changes · Summary tabs, a file tree, floating in-app diff windows (D44) | Not started |
-| 3. Conversation and branching | Per-run change chips, collapsible prompts, Summary tab, branch from ⋯ and a clickable `+` | Not started |
+| 1. Runs end when the work ends | D43, D45: waiting for background work, Finish now, leftover processes, end reasons, recovery by cause | Reviewed and accepted |
+| 2. Changes tab and floating diff windows (D44) | Conversation · Changes · Summary tabs, a file tree, in-app diff windows | **Withdrawn.** Not approved; reverted in full, D44 struck from the log |
+
+The owner then supplied a design — an HTML reference and a README — for the panel, the review of a node's
+changes, and the canvas. It replaces phase 2 and is being built in steps, each reviewable on its own:
+
+| Step | What | State |
+| --- | --- | --- |
+| 1. Revert phase 2 | The tabs, the diff windows and the change API they needed | Done |
+| 2. Tool results | What each command printed and each edit changed, captured from the SDK, so RUN and EDIT blocks are real | Implemented |
+| 3. Conversation panel | The design's `5a`: identity, meta line, You/Agent messages, run dividers, tool blocks, composer, collapsed rail | Implemented |
+| 4. Review screen | The design's `5c`/`9a`: file tree, diff panes, split, grips, conversation docked at 285 | Implemented |
+| 5. Canvas | The design's `5b`/`6a`: top bar, node cards with the Review control, elbow edges, one control cluster | Implemented |
+| 6. Docs | D46 and this checklist | Implemented |
 
 ### Phase 1 — what to look at
 
@@ -316,3 +327,38 @@ start something and press Stop, and check the notice reads "You stopped this run
 Verified against the real SDK with `scripts/probe-agent-runs.mjs` (paid, opt-in): a tracked job keeps the run open
 and wakes the agent; Finish now ends it in seconds; Stop leaves no process; a job detached inside a script is found,
 waited for, and reported to the agent. No dependencies were added.
+
+### The design rebuild (D46) — what to look at
+
+- **The panel is the conversation, and nothing else.** No tabs. The header is the experiment: a status dot, its
+  name, how many runs, and one line saying what it inherited and what it changed — `from master · 183 files
+  +17,604`. Runs are the unit below it: a divider names each one, your message is an object you can see, the
+  agent's reply is text on the panel, and the run's footer is its time, cost and model.
+- **A tool call shows its work.** A command is a **RUN** block with what it printed and its exit code; an edit is
+  an **EDIT** block with the file and its changed lines, green and red, numbered. Everything else — reading,
+  searching — folds into one dim line (`Read ×6 · Grep ×2`), because a run makes forty of those and none of them
+  is the story. Output is capped, so a 10,000-line log cannot take over the panel.
+- **Checks, lineage, details and Use outside Bonsai are still there**, folded under the conversation as *Result
+  details*, so nothing was lost with the tabs.
+- **Review is a screen, not a tab.** Open it from a card's **Review +N →** or its ⋯ menu, or by pressing ⏎ on a
+  focused card. A file tree on the left with status letters and per-file counts; the diff beside it; **Split**
+  shows two files at once, with the focused pane marked; `/` jumps to the filter, Esc goes back to the map, which
+  kept its place. The conversation stays docked at the right edge and collapses to a rail with **⌘\**.
+- **The canvas carries what you steer by.** A card is its name, a status dot, its description, the state as a
+  word, and the change summary as the way into review. Nothing to review means no control at all, so the card
+  tells you whether there is anything to look at. Its ⋯ menu holds Review, Branch child, Rename, Delete — and
+  **Stop this run** while it is running, which is where the card's Stop button went.
+- **The top bar is three things**: the mark, the project menu and settings. The agent's model, the server-health
+  dot and the Usage button are gone from it — Usage is in the project menu, and a broken stream says so as a
+  notice rather than sitting there saying "live" all day.
+- **Master's card counts its change.** It used to say "no file changes" however much it had written, because
+  master pins no base; it now measures from the commit before its first modifying run, which is what review
+  already showed.
+- **Contrast.** The design's dimmest steps are below 4.5:1 where they carry text, so the ink ramp is lifted for
+  those steps and left alone for gutters and separators. Say if you would rather have the design's exact values.
+
+Try it at 1280×720, in a narrow window and with enlarged text: read a run with a long command in it; open review
+on an experiment with several files, split two files, drag the tree wider, collapse the conversation with ⌘\ and
+bring it back; stop a running experiment from its card menu; rename from the card; and check that a
+question-only experiment says "no file changes" while master says what it wrote. Without a credential,
+`BONSAI_FAKE_AGENT=1 npm start` reaches all of it. Restart with `npm start` so backend and interface match.
