@@ -7,19 +7,20 @@ export function Composer({
   node,
   busy,
   sending,
-  emphasised,
   value,
   onChange,
   onSend,
+  onBranch,
 }: {
   node: NodeView;
   /** A run is in flight, or the node is parked on a question. */
   busy: boolean;
   sending: boolean;
-  emphasised: boolean;
   value: string;
   onChange: (value: string) => void;
   onSend: () => void;
+  /** Branch a child from here, beside Send: the other thing a reply can become. */
+  onBranch?: () => void;
 }): JSX.Element {
   const canRun = useCanRun();
   const initial = node.status === 'new';
@@ -68,7 +69,7 @@ export function Composer({
           }
         }}
         placeholder={initial ? 'Describe what the first run should do…' : placeholder(node, busy)}
-        rows={3}
+        rows={2}
         aria-label="message"
       />
       <div className="composer-row">
@@ -78,11 +79,20 @@ export function Composer({
               ? 'Read only — questions only'
               : 'Frozen — questions only'
             : canRun
-              ? 'Enter to send'
+              ? '↵ send · ⇧↵ newline'
               : 'Reconnect the agent to send'}
         </span>
+        {onBranch !== undefined && (
+          <button
+            className="secondary"
+            onClick={onBranch}
+            title="Start a child experiment from this one, leaving this result intact"
+          >
+            Branch child
+          </button>
+        )}
         <button
-          className={emphasised ? 'primary' : ''}
+          className="primary"
           onClick={onSend}
           disabled={!canRun || busy || sending || value.trim() === ''}
         >

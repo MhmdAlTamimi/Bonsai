@@ -31,6 +31,8 @@ export function useWorkspaceView(): {
   experimentOpen: boolean;
   showMap: () => void;
   showExperiment: () => void;
+  /** ⌘\: hide the conversation, or bring it back. */
+  toggleExperiment: () => void;
   /**
    * Called when the user picks an experiment. On a narrow window that IS the
    * request to look at it; on a wide one the panel is already there, and a
@@ -68,6 +70,7 @@ export function useWorkspaceView(): {
     experimentOpen,
     showMap: useCallback(() => setExperimentOpen(false), []),
     showExperiment: useCallback(() => setExperimentOpen(true), []),
+    toggleExperiment: useCallback(() => setExperimentOpen((open) => !open), []),
     selected: useCallback(() => {
       // On a narrow window nothing else would change on screen, so choosing an
       // experiment and looking at it are the same gesture.

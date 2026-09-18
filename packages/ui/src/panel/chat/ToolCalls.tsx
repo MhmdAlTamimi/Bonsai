@@ -2,61 +2,35 @@ import { type JSX, useState } from 'react';
 import type { MessageView } from '@bonsai/shared';
 
 /**
- * A run of consecutive tool calls, collapsed to one line.
+ * The tool calls that are not the story: reads, searches, listings.
  *
- * This is the single biggest change to how a transcript reads. A real run makes
- * twenty to forty tool calls, and every one of them used to be its own line of
- * 11px monospace at the same indent as the agent's prose -- so the reply you
- * actually wanted to read was a few sentences scattered through a wall of
- * `Read`, `Edit` and `Bash`.
+ * A real run makes twenty to forty of them, and every one used to be its own
+ * monospace line at the same indent as the reply you were trying to read. They
+ * are one dim line now -- "Read ×6 · Grep ×2" -- which is what a reader needs
+ * from them: how much looking happened before the change. The detail is one
+ * click away and stays closed until asked for.
  *
- * Consecutive calls only, deliberately. Hoisting every tool call in the run into
- * one block at the top would be tidier and would destroy the narration: the
- * agent says what it is about to do, does it, then says what it found, and that
- * order is the readable part.
- *
- * Technical details stay collapsed until opened by the reader.
+ * Commands and edits are not here: they carry what they produced, so they are
+ * blocks of their own (see ToolBlock).
  */
-export function ToolCalls({
-  calls,
-  live,
-}: {
-  calls: readonly MessageView[];
-  /** Whether the run these belong to is still going. */
-  live: boolean;
-}): JSX.Element {
-  const [pinned, setPinned] = useState<boolean | null>(null);
-  const open = pinned ?? false;
-
+export function QuietTools({ calls }: { calls: readonly MessageView[] }): JSX.Element {
+  const [open, setOpen] = useState(false);
   return (
-    <div className={`tools ${open ? 'open' : ''}`}>
-      <button
-        className="tools-head"
-        onClick={() => setPinned(!open)}
-        aria-expanded={open}
-        title={open ? 'Hide the tool calls' : 'Show what it did'}
-      >
-        <span className="tools-caret" aria-hidden="true">
-          {open ? '▾' : '▸'}
-        </span>
-        <span>
-          {live ? 'Activity · ' : ''}
-          {calls.length} tool call{calls.length === 1 ? '' : 's'}
-        </span>
-        {!open && <span className="tools-names">{summarise(calls)}</span>}
+    <div className={`quiet-tools${open ? ' open' : ''}`}>
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span aria-hidden="true">{open ? '▾' : '▸'}</span>
+        {summarise(calls)}
       </button>
       {open && (
-        <ol className="tools-list">
+        <ol>
           {calls.map((call) => {
             const tool = call.content as { name?: string; detail?: string };
             return (
               <li key={call.id}>
-                <span className="tool-name">{tool.name ?? 'tool'}</span>
-                {tool.detail !== undefined && tool.detail !== '' && (
-                  <span className="tool-detail" title={tool.detail}>
-                    {tool.detail}
-                  </span>
-                )}
+                <span className="quiet-name">{tool.name ?? 'tool'}</span>
+                <span className="quiet-detail" title={tool.detail}>
+                  {tool.detail}
+                </span>
               </li>
             );
           })}
@@ -66,11 +40,7 @@ export function ToolCalls({
   );
 }
 
-/**
- * "Read ×6 · Edit ×4 · Bash ×2" -- what the collapsed line has to say to be
- * worth collapsing to. A run that never used Write explains itself instantly,
- * which is the question this data was captured to answer.
- */
+/** "Read ×6 · Grep ×2": how much looking happened, in the width of one line. */
 function summarise(calls: readonly MessageView[]): string {
   const counts = new Map<string, number>();
   for (const call of calls) {
@@ -79,7 +49,6 @@ function summarise(calls: readonly MessageView[]): string {
   }
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
     .map(([name, n]) => (n === 1 ? name : `${name} ×${n}`))
     .join(' · ');
 }

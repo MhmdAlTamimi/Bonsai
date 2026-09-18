@@ -25,41 +25,95 @@
  */
 
 :root {
-  /* Neutrals. A single ramp, so surfaces stack predictably. */
-  --bg: #0d0e11;
-  --surface: #15171b;
-  --surface-2: #1c1f25;
-  --surface-3: #23272e;
-  --line: #262a31;
-  --line-strong: #343943;
-  --text: #e9ebef;
-  --text-dim: #b0b6c0;
-  --muted: #9aa3b1;
+  /*
+   * SURFACES SEPARATE BY VALUE, NEVER BY A RULE.
+   *
+   * void behind everything, canvas for the map and the diff, panel for every
+   * panel, control for anything you can press. A 1px structural line between
+   * two panels is what made the old app read as boxes inside boxes; the seam
+   * is 8px of void instead.
+   */
+  --void: #0b0c0e;
+  --bg: var(--void);
+  --canvas: #0e0f12;
+  --surface: #131519;
+  --surface-2: #15181c;
+  --surface-3: #1b1e24;
+  --control-hover: #23262d;
+  --control-strong: #242832;
+  --control-strong-hover: #2b303b;
+  --node: #14171b;
+  --tool-block: #101216;
+
+  /* Hairlines are for dividing content inside one surface, not panels. */
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --rail-idle: rgba(255, 255, 255, 0.07);
+  --rail-live: rgba(109, 93, 246, 0.42);
 
   /*
-   * The accent, used for the primary action and the selection ring only.
-   * Violet rather than blue on purpose: `running` is blue, and an accent that
-   * matched it would make every selected node look like it was working.
+   * One ink ramp. Each step has a job: prose, secondary labels, metadata,
+   * then the greys that are structure rather than text.
+   */
+  --text: #eceef2;
+  --ink-2: #dfe3ea;
+  --text-dim: #b8c0cc;
+  --ink-4: #8b93a0;
+  --ink-5: #858d9a;
+  /*
+   * The design's lower ramp, lifted where it carries words.
+   *
+   * Its dimmest inks are 2:1 to 3.9:1 on the panel, and everything below
+   * --dim here is TEXT you are meant to read: hints, metadata, cost lines,
+   * tool labels. Small text at 3:1 is not readable for a lot of people, and
+   * this project tests 4.5:1 (4.6). So the steps that carry words are raised
+   * to clear it, and the ones that carry structure -- line-number gutters and
+   * `·` separators, which repeat information already on screen -- keep the
+   * design's values.
+   */
+  --muted: #9aa3b1;
+  --muted-2: #8b93a0;
+  --muted-3: #828b99;
+  --muted-4: #767f8d;
+  --dim: #6b7482;
+  --dim-2: #5f6874;
+  --dim-3: #4b525c;
+
+  /*
+   * ONE ACCENT, ONE JOB. The primary action, the selection, and the live path
+   * through the tree. Green, amber and red are status only, never decoration.
    */
   --accent: #6d5df6;
-  --accent-hover: #7160ef;
+  --accent-hover: #7d70f8;
+  --accent-text: #9d91f8;
+  --accent-text-dim: #c9c2ff;
   --accent-fg: #ffffff;
-  --accent-soft: #6d5df633;
-
-  /* Status. Distinct hues, but never the only signal — see .chip. */
-  --st-new: #9aa3b1;
-  --st-running: #4c9aff;
-  --st-needs: #d9a441;
-  --st-ready: #a8b4c2;
-  --st-interrupted: #f0663f;
+  --accent-soft: rgba(109, 93, 246, 0.16);
 
   --ok: #3fb950;
-  --warn: var(--st-needs);
-  --err: #ff7055;
-  --edge: #3a4150;
-  --edge-dim: #2a3040;
+  --err: #f0563a;
+  --running: #e3a008;
+  --warn: var(--running);
 
-  /* One spacing scale. */
+  /* Status is never colour alone -- every one has a glyph and a word (4.6). */
+  --st-new: var(--muted-4);
+  --st-running: var(--running);
+  --st-needs: var(--accent-text);
+  --st-ready: var(--ok);
+  --st-interrupted: var(--err);
+
+  --edge: rgba(255, 255, 255, 0.13);
+  --edge-dim: rgba(255, 255, 255, 0.08);
+  --edge-live: rgba(109, 93, 246, 0.55);
+
+  /* Diff tints: a wash on the row, never a border or a bar. */
+  --diff-add-row: rgba(63, 185, 80, 0.06);
+  --diff-add-inline: rgba(63, 185, 80, 0.09);
+  --diff-del-inline: rgba(240, 86, 58, 0.09);
+  --diff-text: #d3dbd6;
+  --diff-text-del: #d8c8c4;
+
+  /* One spacing scale, on an 8px step. */
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
@@ -67,51 +121,84 @@
   --s5: 24px;
   --s6: 32px;
 
-  --r-sm: 5px;
-  --r-md: 8px;
-  --r-lg: 12px;
+  /* Radii, largest to smallest: window, node, panel, control, row, chip. */
+  --r-14: 14px;
+  --r-12: 12px;
+  --r-10: 10px;
+  --r-8: 8px;
+  --r-7: 7px;
+  --r-6: 6px;
+  --r-5: 5px;
+  --r-4: 4px;
+  --r-sm: var(--r-5);
+  --r-md: var(--r-8);
+  --r-lg: var(--r-12);
 
   --shadow: 0 8px 24px rgb(0 0 0 / 0.35);
   --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.5);
+  --shadow-card: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 6px 18px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: inset 0 0 0 1px rgba(255, 255, 255, 0.13), 0 10px 26px rgba(0, 0, 0, 0.46);
+  --shadow-selected: 0 0 0 1.5px #6d5df6, 0 14px 34px -10px rgba(109, 93, 246, 0.5),
+    0 6px 18px rgba(0, 0, 0, 0.42);
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 
   /*
-   * ONE TYPE SCALE. Eight steps, and nothing sets a size that is not one of
-   * them.
+   * TWO TYPE FAMILIES, SEVEN STEPS.
    *
-   * There were fourteen distinct sizes between 12px and 20.5px, half of them
-   * differing by half a pixel from a neighbour -- 12.5 next to 13 next to 13.5,
-   * 15 next to 15.5 -- which is not a hierarchy, it is noise that costs a
-   * decision every time a rule is written. The audit's direction (F30) is
-   * roughly 14-15px for primary reading and 12-13px for secondary, and these
-   * are the steps that land on it.
-   *
-   * Every step is in rem, so the whole scale moves together with the text-size
+   * Every step is in rem, so the whole scale moves with the text-size
    * preference: --text-scale multiplies the root size and nothing else has to
-   * know. Pixel equivalents below are at 100%.
+   * know. Pixel equivalents are at 100%.
+   *
+   * Never set line-height: 1 on mono -- underscores and descenders clip. 1.45
+   * is the floor, and every step below assumes it.
    */
-  --fs-2xs: 0.75rem; /* 12.0 - badges, timestamps, uppercase labels */
-  --fs-xs: 0.8125rem; /* 13.0 - secondary text: hints, errors, metadata */
-  --fs-sm: 0.875rem; /* 14.0 - dense interface text */
-  --fs-md: 0.90625rem; /* 14.5 - primary reading. The body default. */
-  --fs-lg: 0.9375rem; /* 15.0 - transcript prose, the longest reading */
-  --fs-xl: 1.125rem; /* 18.0 - panel and dialog headings */
-  --fs-2xl: 1.28125rem; /* 20.5 - page headings */
-  --fs-3xl: 1.46875rem; /* 23.5 - the one number on the usage screen */
+  --t-title: 0.8125rem; /* 13.0 - panel title, node and screen identity */
+  --t-body: 0.78125rem; /* 12.5 - message body, node title */
+  --t-code: 0.75rem; /* 12.0 - diff line text */
+  --t-row: 0.71875rem; /* 11.5 - tree rows, paths, labels */
+  --t-meta: 0.6875rem; /* 11.0 - metadata rows, status pills */
+  --t-micro: 0.65625rem; /* 10.5 - cost lines, review pill, tool-block lines */
+  --t-nano: 0.625rem; /* 10.0 - git status letter, RUN / EDIT labels */
+
   /*
-   * Code gets its own step rather than sharing --fs-xs. A monospace face reads
-   * smaller than the sans beside it at the same pixel size, so code set to
-   * match secondary text looked cramped next to it.
+   * The older scale, still used by the screens this redesign has not reached
+   * yet -- settings, the start screen, dialogs. They keep working unchanged
+   * while the three redesigned surfaces use the steps above.
    */
-  --fs-code: 0.84375rem; /* 13.5 */
+  --fs-2xs: 0.75rem;
+  --fs-xs: 0.8125rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 0.90625rem;
+  --fs-lg: 0.9375rem;
+  --fs-xl: 1.125rem;
+  --fs-2xl: 1.28125rem;
+  --fs-3xl: 1.46875rem;
+  --fs-code: 0.84375rem;
 
-  /* One height for every control in the canvas family, and for the workspace
-     switch that joins it on a narrow window. In rem so it grows with the
-     text-size preference rather than clipping the label inside it. */
-  --control-h: 2.25rem;
+  /*
+   * Heights, in rem for the same reason as the type: a row that does not grow
+   * with its text clips it. Pixel equivalents at 100%.
+   */
+  --h-bar: 3.25rem; /* 52 - top bar, panel header */
+  --h-send: 2.75rem; /* 44 - composer send */
+  --h-file: 2.25rem; /* 36 - diff file header */
+  --h-hunk: 2rem; /* 32 - hunk header */
+  --h-control: 1.875rem; /* 30 - control, tool-block header */
+  --h-ghost: 1.75rem; /* 28 - ghost icon button */
+  --h-row: 1.625rem; /* 26 - tree row */
+  --h-pill: 1.5rem; /* 24 - status pill, segment */
+  --h-plus: 1.375rem; /* 22 - node + button, small pill */
+  --h-diff: 1.3125rem; /* 21 - diff line */
+  --h-tool-line: 1.25rem; /* 20 - tool-block line */
+  --control-h: var(--h-control);
 
-  --panel-width: 420px;
+  /* The conversation's three widths, and the tree's. */
+  --conversation-docked: 380px;
+  --conversation-review: 285px;
+  --conversation-rail: 46px;
+  --tree-width: 272px;
+  --panel-width: var(--conversation-docked);
   font-size: calc(16px * var(--text-scale, 1));
   color-scheme: dark;
 }
@@ -775,327 +862,381 @@ body.resizing .panel-resizer {
 /* ---- panel --------------------------------------------------------------- */
 
 /*
- * One scrolling region, and a composer that never leaves.
+ * The conversation.
  *
- * The panel used to scroll AND contain a transcript that scrolled inside it, so
- * the wheel did different things two centimetres apart and a long conversation
- * was read through a 48vh letterbox. Now the shell is a fixed column: header,
- * scrolling body, pinned foot. `min-height: 0` on the body is what actually
- * makes it scroll rather than stretch its parent -- a flex item's default
- * minimum size is its content.
+ * Three widths and one shape: 380 docked beside the map, 285 in review, 46 as
+ * a rail. The curve is on the LEFT only — the panel is flush to the window's
+ * right edge, and a radius there would float it off the edge it belongs to.
+ *
+ * A fixed column: identity, meta, the thread, the composer. Only the thread
+ * scrolls, and it is anchored to the composer, so the newest turn sits just
+ * above the reply box and a short thread leaves its space at the top.
  */
 .panel {
-  border-left: none;
-  background: var(--surface);
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--surface);
+  border-radius: var(--r-10) 0 0 var(--r-10);
 }
 .panel.empty {
-  align-items: center;
   justify-content: center;
   gap: var(--s2);
-  padding: var(--s4);
+  padding: var(--s5);
   text-align: center;
-  color: var(--muted);
 }
-/* Child combinator, deliberately: a turn has its own <header> and <footer>, and
-   a descendant selector here would style those too. */
-.panel > header {
+
+.panel-head {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--s2);
-  padding: var(--s4) var(--s4) var(--s3);
-  border-bottom: 1px solid var(--line);
+  gap: 9px;
+  height: var(--h-bar);
+  padding: 0 var(--s4) 0 10px;
 }
+.panel-head .spacer {
+  flex: 1;
+}
+.panel-head h2 {
+  flex: none;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 var(--t-title) / 1.45 inherit;
+  color: var(--text);
+}
+.panel-head .run-count {
+  flex: none;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--muted-3);
+  font-variant-numeric: tabular-nums;
+}
+/* The status, as a dot beside the name: the word is in its title, and every
+   state that needs more than a dot says more of its own accord — a question
+   box, a recovery notice, the activity strip. */
+.node-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--st-new);
+}
+.node-dot.st-running {
+  background: var(--st-running);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-running) 18%, transparent);
+}
+.node-dot.st-needs_you {
+  background: var(--st-needs);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-needs) 18%, transparent);
+}
+.node-dot.st-ready {
+  background: var(--st-ready);
+}
+.node-dot.st-interrupted {
+  background: var(--st-interrupted);
+}
+
+/* The collapse control reads as the edge it collapses toward. */
+.collapse {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: var(--h-ghost);
+  height: var(--h-ghost);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-7);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-code);
+}
+.collapse:hover:not(:disabled) {
+  background: #1f232a;
+  color: var(--text-dim);
+}
+.collapse-bar {
+  width: 1.5px;
+  height: 12px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.panel-meta {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0 var(--s4) 14px;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--muted-3);
+  font-variant-numeric: tabular-nums;
+}
+.panel-meta .sep,
+.run-foot .sep {
+  color: var(--dim-3);
+}
+.panel-meta .no-change {
+  color: var(--muted-4);
+}
+
 .panel > .note {
   flex: none;
-  margin: var(--s3) var(--s4) 0;
+  margin: 0 var(--s4) var(--s3);
+  padding: var(--s2) 10px;
+  border-radius: var(--r-8);
+  background: var(--surface-2);
+  color: var(--ink-4);
+  font-size: var(--t-row);
 }
+
 .panel-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--s4);
+  overflow-anchor: none;
+  padding: 0 var(--s4);
+}
+/* Anchored to the composer: the thread grows upward from the reply box. */
+.conversation-content {
   display: flex;
   flex-direction: column;
-  gap: var(--s4);
+  justify-content: flex-end;
+  min-height: 100%;
+  gap: var(--s5);
 }
+.chat-empty {
+  color: var(--muted-3);
+  font-size: var(--t-body);
+}
+.start h3 {
+  margin: 0 0 var(--s2);
+  font-size: var(--t-title);
+}
+
 .panel-foot {
   flex: none;
-  padding: var(--s3) var(--s4) var(--s4);
-  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: var(--s2);
+  gap: 10px;
+  padding: var(--s4);
 }
-.panel h2 {
-  overflow: hidden;
-  overflow-wrap: anywhere;
-  white-space: normal;
-  max-height: 7em;
-  overflow-y: auto;
-}
-.panel h3 {
-  margin-bottom: var(--s2);
-}
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  flex: none;
-}
-.panel section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-}
-.panel code {
-  background: var(--surface-2);
-  border-radius: 3px;
-  padding: 1px 4px;
+.jump-latest {
+  width: 100%;
+  color: var(--accent-text);
 }
 
-.note {
-  margin: 0;
-  padding: var(--s2) var(--s3);
-  font-size: var(--fs-xs);
-  line-height: 1.5;
-  color: var(--text-dim);
-  background: var(--surface-2);
-  border-left: 2px solid var(--line-strong);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
-}
-.note.attention {
-  border-left-color: var(--warn);
-}
-
-.facts {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.facts > div {
-  display: grid;
-  grid-template-columns: 76px 1fr;
-  gap: var(--s2);
-  align-items: baseline;
-}
-.facts dt {
-  color: var(--muted);
-  font-size: var(--fs-xs);
-}
-.facts dd {
-  margin: 0;
-  font-size: var(--fs-xs);
-  color: var(--text-dim);
-}
-
-.stream {
-  margin: 0;
-  max-height: 220px;
-  overflow: auto;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: var(--s2) var(--s3);
-  font: var(--fs-code)/1.55 var(--mono);
-  white-space: pre-wrap;
-  color: var(--text-dim);
-}
-
-.checks .stream {
-  min-height: 0;
-  max-height: 180px;
-}
-
-.checkout {
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  white-space: nowrap;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  padding: 5px 8px;
-  font: var(--fs-code) var(--mono);
-  color: var(--text-dim);
-}
-
-.disclosure {
+/*
+ * Reference rather than conversation: how the run ended, its checks, what it
+ * changed, where it came from. Closed until asked for, at the end of the
+ * thread — all of it stays true whether or not you are reading it.
+ */
+.result-details {
   border-top: 1px solid var(--line);
   padding-top: var(--s3);
 }
-.disclosure > summary {
+.result-details > summary {
   cursor: pointer;
-  color: var(--muted);
-  font-size: var(--fs-xs);
-  list-style: none;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  color: var(--muted-3);
+  font-size: var(--t-row);
 }
-.disclosure > summary::-webkit-details-marker {
-  display: none;
+.result-details > summary:hover {
+  color: var(--text-dim);
 }
-.disclosure > summary::before {
-  content: '›';
-  display: inline-block;
-  transition: transform 0.12s;
+.result-details > *:not(summary) {
+  margin-top: var(--s4);
 }
-.disclosure[open] > summary::before {
-  transform: rotate(90deg);
-}
-.disclosure > summary:hover {
-  color: var(--text);
-}
-.disclosure[open] > summary {
-  margin-bottom: var(--s3);
-}
-.disclosure > *:not(summary) {
-  margin-bottom: var(--s2);
+.result-outcome {
+  margin: var(--s3) 0 0;
+  color: var(--text-dim);
+  font-size: var(--t-body);
 }
 
-/* ---- transcript ---------------------------------------------------------- */
-
-/*
- * A run is the unit, not a message.
- *
- * The old transcript was a flat list of divs distinguished only by shade of
- * grey and font size: your prompt in a rounded box that looked exactly like the
- * composer below it, the reply in the DIMMER of the two greys, and every tool
- * call as its own monospace line at the same indent. A turn is a block now,
- * with a header, a body and a footer, and a rule between one and the next.
- */
-.transcript {
+/* The rail: the collapsed conversation, and the way back to it. */
+.conversation-rail {
   display: flex;
   flex-direction: column;
-  gap: var(--s4);
+  align-items: center;
+  gap: 10px;
+  width: var(--conversation-rail);
+  padding: 7px 0 var(--s3);
+  border: 0;
+  border-radius: var(--r-10) 0 0 var(--r-10);
+  background: var(--surface);
+}
+.conversation-rail:hover {
+  background: #171a1f;
+}
+.conversation-rail .spacer {
+  flex: 1;
+}
+.rail-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-control);
+  height: var(--h-control);
+  border-radius: var(--r-8);
+  background: var(--surface-3);
+  color: var(--muted);
+}
+.rail-hairline {
+  width: 16px;
+  height: 1px;
+  background: var(--line-strong);
+}
+.rail-who {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-plus);
+  height: var(--h-plus);
+  border-radius: var(--r-7);
+  font: 600 9px/1.45 inherit;
+}
+.rail-who.you {
+  background: var(--control-hover);
+  color: var(--ink-4);
+}
+.rail-who.agent {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.rail-key {
+  flex: none;
+  padding-bottom: var(--s1);
+  font: 9.5px/1.45 var(--mono);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* ---- thread -------------------------------------------------------------- */
+
+/*
+ * Asymmetric on purpose: your message is an object, the agent's reply is text
+ * on the panel. One of you is quoting a request; the other is answering at
+ * length, and a container around prose only makes it harder to read.
+ */
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
 }
 .turn {
   display: flex;
   flex-direction: column;
-  gap: var(--s2);
-  padding-bottom: var(--s4);
-  border-bottom: 1px solid var(--line);
+  gap: var(--s5);
 }
-.turn:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.turn-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s2);
-}
-.turn-who {
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.turn-when {
-  font-size: var(--fs-2xs);
-  color: var(--muted);
-  cursor: help;
-}
-/* A rule, not a bubble. The bubble was the same surface, radius and padding as
-   a textarea, so a message you had already sent looked like one you could type
-   into -- with the real composer a few centimetres below it. */
-.turn-prompt {
-  border-left: 2px solid var(--line-strong);
-  padding-left: var(--s3);
-  color: var(--text);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.turn-reply {
+.msg {
   display: flex;
   flex-direction: column;
-  gap: var(--s3);
+  gap: 7px;
+  min-width: 0;
 }
-/* The agent's answer is the thing you are waiting for, and it used to be set
-   dimmer than your own prompt. */
-.said.assistant {
-  color: var(--text);
-  font-size: var(--fs-sm);
-  line-height: 1.6;
-}
-.said.streaming {
-  color: var(--text);
-  font-size: var(--fs-sm);
-  line-height: 1.6;
-}
-.said.system {
+.msg-label {
+  font: 600 var(--t-row) / 1.45 inherit;
   color: var(--muted);
 }
-.said.system pre {
-  margin: 0;
-  white-space: pre-wrap;
+.msg.agent > .msg-label {
+  color: var(--accent-text);
+}
+.msg.you > .msg-body {
+  padding: var(--s3) 14px;
+  border-radius: var(--r-10);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font-size: var(--t-body);
+  line-height: 1.65;
+  text-wrap: pretty;
   overflow-wrap: anywhere;
-  font: var(--fs-code)/1.5 var(--mono);
+  white-space: pre-wrap;
 }
-
-/*
- * Toggle left, stats right, diff on its own line beneath.
- *
- * `order` rather than a wrapper div, because RunDiff renders the toggle and the
- * expanded patch as one fragment -- so in DOM order the diff sits BETWEEN the
- * toggle and the stats, and a plain wrapping flex row stranded the duration and
- * cost underneath the patch.
- */
-.turn-foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  font-size: var(--fs-xs);
-  color: var(--muted);
-}
-.turn-foot > .turn-stats {
-  order: 1;
-}
-.turn-foot > .turn-diff {
-  order: 2;
-}
-.turn-foot.failed {
-  color: var(--err);
-}
-.turn-stats {
-  display: flex;
-  align-items: center;
+.msg.agent {
   gap: var(--s3);
+  color: var(--ink-2);
+  font-size: var(--t-body);
+  line-height: 1.7;
+}
+.msg.system {
+  margin: 0;
+  color: var(--muted-3);
+  font-size: var(--t-row);
+  overflow-wrap: anywhere;
+}
+.run-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font: var(--t-micro) / 1.45 var(--mono);
+  color: var(--muted-3);
   font-variant-numeric: tabular-nums;
 }
-.turn-model {
-  font: var(--fs-code) var(--mono);
+.run-foot.failed {
+  color: var(--err);
+  overflow-wrap: anywhere;
 }
-.turn-diff-toggle {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--text-dim);
-  font-size: var(--fs-xs);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+.run-foot .sep {
+  margin-right: var(--s2);
 }
-.turn-diff-toggle:hover:not(:disabled) {
-  background: none;
-  border-color: transparent;
-  color: var(--text);
+
+/* A run is named where it starts, not boxed: one label, one rule, one time. */
+.run-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-.turn-diff {
-  width: 100%;
+.run-label {
+  font: var(--t-meta) / 1.45 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--muted-3);
+}
+.run-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.run-when {
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--dim);
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--muted-3);
+  font-size: var(--t-row);
+}
+.working-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--st-running);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.setup-activity {
+  border-radius: var(--r-10);
+  background: var(--surface-2);
+  padding: var(--s3);
+}
+.setup-activity summary {
+  cursor: pointer;
+  color: var(--muted-3);
+  font-size: var(--t-row);
 }
 
 /* ---- markdown ------------------------------------------------------------ */
@@ -1162,112 +1303,155 @@ body.resizing .panel-resizer {
   font: inherit;
 }
 
-/* ---- tool calls ---------------------------------------------------------- */
+/* ---- tool blocks --------------------------------------------------------- */
 
 /*
- * Collapsed, because a real run makes twenty to forty of these and the few
- * sentences worth reading were scattered through them.
+ * What the agent ran, and what it changed.
+ *
+ * A block for work that produced something — a command with its output, an
+ * edit with its lines — and one dim line for the reading and searching that
+ * did not. A run makes forty calls; four of them are the story.
  */
-.tools {
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+.tool-block {
+  border-radius: var(--r-10);
+  background: var(--tool-block);
+  overflow: hidden;
 }
-.tools-head {
-  width: 100%;
+.tool-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-width: 0;
-  background: none;
-  border: none;
-  border-radius: var(--r-md);
-  padding: 5px 9px;
-  text-align: left;
-  font-size: var(--fs-xs);
-  color: var(--muted);
-}
-.tools-head:hover:not(:disabled) {
+  gap: 9px;
+  height: var(--h-control);
+  padding: 0 var(--s3);
   background: var(--surface-2);
-  border-color: transparent;
-  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
-.tools-caret {
-  font-size: var(--fs-2xs);
+.tool-kind {
   flex: none;
+  font: var(--t-nano) / 1.45 var(--mono);
+  color: var(--muted-3);
+  letter-spacing: 0.06em;
 }
-.tools-names {
+.tool-subject {
   flex: 1;
   min-width: 0;
-  font: var(--fs-code) var(--mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: right;
-}
-.tools-list {
-  margin: 0;
-  padding: 0 9px 7px 24px;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-/* The gap IS the fix for tool lines rendering as `writenotes/file.md`: the two
-   spans were adjacent with nothing between them. */
-.tools-list li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--s2);
-  min-width: 0;
-  font: var(--fs-code) var(--mono);
-}
-.tool-name {
-  flex: none;
+  font: var(--t-meta) / 1.45 var(--mono);
   color: var(--text-dim);
 }
-.tool-detail {
+.tool-head .added,
+.tool-head .removed {
+  flex: none;
+  font: var(--t-micro) / 1.45 var(--mono);
+}
+.tool-body {
+  padding: 7px 0 9px;
+}
+.tool-line {
+  display: flex;
+  align-items: center;
+  height: var(--h-tool-line);
+  padding: 0 var(--s3);
+}
+.tool-gutter {
+  flex: none;
+  width: 13px;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--dim-2);
+}
+.tool-num {
+  flex: none;
+  width: 34px;
+  padding-right: 9px;
+  text-align: right;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--dim-2);
+  font-variant-numeric: tabular-nums;
+}
+.tool-sign {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--dim-2);
+}
+.tool-text {
+  flex: 1;
   min-width: 0;
-  color: var(--muted);
+  overflow: hidden;
+  white-space: pre;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--muted-2);
+}
+.tool-line.dl-add {
+  background: var(--diff-add-inline);
+}
+.tool-line.dl-del {
+  background: var(--diff-del-inline);
+}
+.tool-line.dl-add .tool-sign {
+  color: var(--ok);
+}
+.tool-line.dl-del .tool-sign {
+  color: var(--err);
+}
+.tool-line.dl-add .tool-text {
+  color: var(--diff-text);
+}
+.tool-line.dl-del .tool-text {
+  color: var(--diff-text-del);
+}
+.tool-text.muted {
+  color: var(--dim);
+}
+.tool-more {
+  margin: var(--s1) var(--s3) 0;
+  font: var(--t-micro) / 1.45 var(--mono);
+  color: var(--dim);
+}
+
+.quiet-tools > button {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted-3);
+  font: var(--t-micro) / 1.45 var(--mono);
+  text-align: left;
+}
+.quiet-tools > button:hover:not(:disabled) {
+  background: none;
+  color: var(--text-dim);
+}
+.quiet-tools ol {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0 0 0 var(--s3);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.quiet-tools li {
+  display: flex;
+  gap: var(--s2);
+  min-width: 0;
+  font: var(--t-micro) / 1.45 var(--mono);
+}
+.quiet-name {
+  flex: none;
+  color: var(--muted-3);
+}
+.quiet-detail {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.working {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: var(--fs-xs);
-  color: var(--muted);
-}
-.working-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--st-running);
-  animation: pulse 1.3s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 0.3;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .working-dot {
-    animation: none;
-  }
-}
-
-.chat-empty {
-  color: var(--muted);
-  font-size: var(--fs-xs);
-  text-align: center;
-  padding: var(--s4) 0;
+  color: var(--dim);
 }
 
 /* ---- diff ---------------------------------------------------------------- */
@@ -1393,13 +1577,32 @@ body.resizing .panel-resizer {
 
 /* ---- composer ------------------------------------------------------------ */
 
+/*
+ * The reply box never leaves. Enter sends, Shift+Enter is a newline, and the
+ * two things a reply can become — a message to this experiment, or a child
+ * from it — sit side by side.
+ */
 .composer {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
 }
 .composer textarea {
-  min-height: 62px;
+  min-height: 64px;
+  padding: var(--s3) 14px;
+  border: 0;
+  border-radius: var(--r-10);
+  background: var(--surface-3);
+  color: var(--ink-2);
+  font: var(--t-body) / 1.6 inherit;
+  resize: vertical;
+}
+.composer textarea::placeholder {
+  color: var(--muted-3);
+}
+.composer textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .composer-row {
   display: flex;
@@ -1408,12 +1611,26 @@ body.resizing .panel-resizer {
 }
 .composer-row .hint {
   flex: 1;
+  min-width: 0;
+  font: var(--t-micro) / 1.45 var(--mono);
+  color: var(--muted-3);
 }
-/*
- * Frozen nodes get one line instead of a disabled three-row box explaining that
- * it is disabled. Most nodes in a tree are frozen, so this is the common case,
- * not the exception.
- */
+.composer-row button {
+  height: var(--h-control);
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-8);
+  font: 500 var(--t-row) / 1.45 inherit;
+}
+.composer-row button.secondary {
+  padding: 0 var(--s3);
+  background: var(--surface-3);
+  color: var(--text-dim);
+}
+.composer-row button.secondary:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--text);
+}
 .composer.collapsed {
   flex-direction: row;
   align-items: center;
@@ -1421,13 +1638,11 @@ body.resizing .panel-resizer {
 }
 .composer-open {
   flex: 1;
-  text-align: left;
-  color: var(--muted);
-  background: var(--surface-2);
-  border-color: var(--line);
-}
-.composer-open:hover:not(:disabled) {
-  color: var(--text-dim);
+  justify-content: flex-start;
+  height: var(--h-send);
+  border-radius: var(--r-10);
+  background: var(--surface-3);
+  color: var(--muted-3);
 }
 
 /* ---- panel actions ------------------------------------------------------- */
@@ -1833,7 +2048,6 @@ button.destructive:hover:not(:disabled) {
 }
 
 /* Recovery stays visible while history scrolls. File review has a bounded viewport. */
-.panel > .recover { flex-shrink: 0; margin: 8px 16px; }
 .partial-review[open] { max-height: 30vh; overflow: auto; }
 .partial-review li { overflow-wrap: anywhere; }
 
@@ -1845,11 +2059,6 @@ button.destructive:hover:not(:disabled) {
 .checkout-section .checkout { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Results have a separate reading surface; conversation stays focused on runs. */
-.panel-tabs { display: flex; flex: none; gap: 4px; padding: 6px 16px; border-bottom: 1px solid var(--line); }
-.panel-tabs button { flex: 1; background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 6px; }
-.panel-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); background: var(--surface-2); }
-.panel-body[hidden] { display: none; }
-.result-peek { font-size: var(--fs-md); color: var(--text-dim); border-bottom: 1px solid var(--line); padding-bottom: 12px; }
 .results-panel { gap: 24px; }
 .results-panel > section, .results-checks { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 .results-panel p { margin: 4px 0; font-size: var(--fs-md); line-height: 1.65; }
@@ -1895,13 +2104,10 @@ button.destructive:hover:not(:disabled) {
 .stop-control { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .stop-error { font-size: var(--fs-xs); max-width: 230px; white-space: normal; }
 .conversation-content { display: flow-root; }
-.panel-body { overflow-anchor: none; }
 .jump-latest { width: 100%; margin-bottom: 8px; color: var(--focus); }
 .activity { margin: 0 0 8px; color: var(--text-dim); font-size: var(--fs-xs); }
 .permission-details { margin: 10px 0; }
 .permission-details pre { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
-.turn-collapse { background: none; border: none; padding: 0; color: var(--text-dim); font-weight: 600; }
-.turn-reply[hidden] { display: none; }
 .md-table { overflow-x: auto; margin: 12px 0; }
 .md-table table { border-collapse: collapse; width: 100%; font-size: inherit; }
 .md-table th, .md-table td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; }
@@ -1924,8 +2130,6 @@ button.destructive:hover:not(:disabled) {
 .ask label.stacked { display: flex; flex-direction: column; gap: 6px; }
 .ask input { width: 100%; min-width: 0; }
 .ask .permission-details { margin: 2px 0; }
-.panel > header { flex-wrap: wrap; }
-.panel .header-right { max-width: 100%; min-width: 0; flex-wrap: wrap; }
 
 /* Focused settings and usage tasks use native modal focus containment. */
 dialog.dialog { color: var(--text); margin: auto; }
@@ -1970,16 +2174,12 @@ dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px
 .agent-fields { display: flex; flex-direction: column; gap: 12px; }
 .settings-tabs button[aria-pressed="true"] { box-shadow: inset 0 -2px var(--accent); }
 .settings-sections > h4 { margin-bottom: 18px; }
-.setup-activity { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin: 12px 0; }
-.setup-activity summary { cursor: pointer; color: var(--text-dim); }
 
 
 /* Milestone 6: clear reading hierarchy and narrow-window composition. */
 :root { --focus: #b3aaff; --control-line: #777f90; }
 button, input, select, textarea { border-color: var(--control-line); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; box-shadow: none; }
-.panel h2 { white-space: normal; overflow-wrap: anywhere; }
-.panel-body { padding: 20px; }
 .chat-text, .said, .md { font-size: var(--fs-lg); line-height: 1.7; }
 .panel-foot { max-height: 48%; overflow-y: auto; }
 .dialog { width: min(36rem, 94vw); max-height: 90dvh; flex-shrink: 0; }
@@ -1990,7 +2190,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dialog[aria-label="Branch experiment"] .dialog-actions > .hint { flex-basis: 100%; }
 .app { grid-template-columns: minmax(440px, 1fr) 1px min(var(--panel-width), calc(100vw - 441px)); height: 100dvh; overflow: hidden; }
 .app.single { grid-template-columns: 1fr; }
-.app.panel-hidden { grid-template-columns: 1fr; }
+/* Collapsed: the conversation keeps a 46px rail rather than vanishing, so the
+   seam stays where it was and the way back is in the place it went. */
+.app.panel-hidden { grid-template-columns: minmax(0, 1fr) var(--conversation-rail); }
 .app.panel-hidden > .panel, .app.panel-hidden > .panel-resizer { display: none; }
 /* Map and Experiment: two controls, not one dressed as two.
    WIDE -- both views are on screen, so there is nothing to switch; a collapsed
@@ -2003,10 +2205,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
    rules below are less specific than `.app.panel-hidden >`, so a floating
    switch would have won there too and covered the canvas controls. */
 @media (min-width: 901px) {
-  .app.panel-hidden > .view-switch { display: flex; position: fixed; bottom: 20px; right: 20px; z-index: 5; }
 }
 .view-switch button { min-height: var(--control-h); border-radius: var(--r-md); }
-.view-switch .show-panel { box-shadow: var(--shadow); }
 .hide-panel { min-width: 32px; min-height: 32px; }
 /* ONE ICON FAMILY. Every glyph in the app is a 24px-grid stroke of the same
    weight from Icon.tsx, sized in em so it tracks the text beside it and the
@@ -2033,7 +2233,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .app > .canvas, .app > .panel { flex: 1; min-height: 0; width: 100%; }
   .app:not(.panel-hidden) > .canvas { display: none; }
   .app.panel-hidden > .canvas { display: block; }
-  .panel > header { padding: 14px 16px; }
   .dialog label { grid-template-columns: 1fr; gap: 8px; }
   .dialog label > :not(:first-child) { grid-column: 1; }
   .menubar { left: 10px; right: 10px; max-width: calc(100% - 20px); }

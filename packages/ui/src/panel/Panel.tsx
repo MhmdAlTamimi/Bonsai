@@ -13,12 +13,11 @@ import { Details } from './node/Details.tsx';
 import { Lineage } from './node/Lineage.tsx';
 import { Recovery } from './node/Recovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
-import { StatusChip } from '../nodeStatus.tsx';
+import { STATUS_LABEL, nodeStatusTitle } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
 import { ActivityStrip } from './chat/ActivityStrip.tsx';
 import { Composer } from './chat/Composer.tsx';
 import { Transcript } from './chat/Transcript.tsx';
-import { StopButton } from '../state/RunControls.tsx';
 import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
 import type { Delta } from './chat/liveMerge.ts';
@@ -124,12 +123,6 @@ function NodePanel({
   visible: boolean;
   narrow: boolean;
 }): JSX.Element {
-  const [view, setView] = useState<'conversation' | 'results'>('conversation');
-  const [resultsSeen, setResultsSeen] = useState(false);
-  const changeView = (next: 'conversation' | 'results'): void => {
-    setView(next);
-    if (next === 'results') setResultsSeen(true);
-  };
   const [renaming, setRenaming] = useState(false);
   const [detail, setDetail] = useState<NodeDetail | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -183,9 +176,9 @@ function NodePanel({
   const reading = useReadingPosition(
     `${node.projectId}:${node.id}`,
     chat.loaded && detail !== null,
-    // Both conditions, because both take the layout box away: the other tab is
-    // showing, or the whole panel is off screen behind the map.
-    visible && view === 'conversation',
+    // A hidden panel has no layout box, and a scroll position does not survive
+    // losing one, so the thread restores itself when it comes back.
+    visible,
     `${chat.messages.length}:${chat.pending.length}:${streamRevision}`,
   );
 
@@ -196,43 +189,70 @@ function NodePanel({
    */
   const isYourFolder = node.frozenReason === 'your_folder';
 
+  const source = detail?.lineage.codeFrom?.displayName ?? null;
+
   return (
     <aside className="panel">
-      <header>
+      {/*
+       * Identity on the right, controls on the left: the name is what you
+       * read, and it sits against the edge the panel is docked to, so the eye
+       * finds it in the same place whatever the width.
+       */}
+      <header className="panel-head">
+        <button
+          className="collapse"
+          aria-label={narrow ? 'Back to map' : 'Collapse the conversation'}
+          title={narrow ? 'Back to map' : 'Collapse the conversation (⌘\\)'}
+          onClick={onHide}
+        >
+          <span aria-hidden="true">›</span>
+          <span className="collapse-bar" aria-hidden="true" />
+        </button>
+        <OverflowMenu
+          busy={actions.busy}
+          onBranch={() => onCreateChild(node)}
+          onRename={() => setRenaming(true)}
+          onDelete={node.parentId === null ? undefined : () => void actions.remove()}
+        />
+        <div className="spacer" />
+        <span
+          className={`node-dot st-${node.status}`}
+          title={nodeStatusTitle(node)}
+          aria-label={STATUS_LABEL[node.status]}
+        />
         <h2 title={node.displayName}>{node.displayName}</h2>
-        <div className="header-right">
-          <button
-            className="hide-panel"
-            aria-label={narrow ? 'Back to map' : 'Hide experiment panel'}
-            title={narrow ? 'Back to map' : 'Hide this panel and show the whole map'}
-            onClick={onHide}
-          >
-            <Icon name="close" />
-          </button>
-          {/* A node parked on a question is still holding an agent and a
-              concurrency slot, so it needs the same way out as a running one. */}
-          <StopButton node={node} />
-          <StatusChip
-            status={node.status}
-            queuePosition={node.queuePosition}
-            lastRunEndReason={node.lastRunEndReason}
-            waiting={activity?.state === 'waiting'}
-          />
-          <OverflowMenu
-            busy={actions.busy}
-            onBranch={() => onCreateChild(node)}
-            onRename={() => setRenaming(true)}
-            onDelete={node.parentId === null ? undefined : () => void actions.remove()}
-          />
-        </div>
+        <span className="run-count">
+          {runs.length} run{runs.length === 1 ? '' : 's'}
+        </span>
       </header>
+
+      <p className="panel-meta">
+        {source !== null && (
+          <>
+            <span>from {source}</span>
+            <span className="sep">·</span>
+          </>
+        )}
+        {node.diffStat === null ? (
+          <span className="no-change">no file changes</span>
+        ) : (
+          <>
+            <span>
+              {node.diffStat.files} file{node.diffStat.files === 1 ? '' : 's'}
+            </span>
+            <span className="added">+{node.diffStat.added.toLocaleString()}</span>
+            {node.diffStat.removed > 0 && (
+              <span className="removed">−{node.diffStat.removed.toLocaleString()}</span>
+            )}
+          </>
+        )}
+      </p>
 
       {isYourFolder && (
         <p className="note" title={project?.sourcePath ?? undefined}>
           Your own folder — read only. Branch a child to make changes.
         </p>
       )}
-
       {detail?.baseIsPinnedBehindLiveWalk === true && (
         <p
           className="note"
@@ -242,65 +262,12 @@ function NodePanel({
         </p>
       )}
 
-      {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
-        node.status !== 'running' &&
-        node.status !== 'needs_you' && (
-          <Recovery
-            node={node}
-            runs={runs}
-            isYourFolder={isYourFolder}
-            busy={actions.busy}
-            partialWork={detail?.partialWork ?? null}
-            onRecover={(action) => void actions.recover(action)}
-          />
-        )}
-
       {/*
-       * The one scrolling region. The transcript used to scroll inside this,
-       * which scrolled inside the panel, so the wheel did different things two
-       * centimetres apart. Everything that is read scrolls together; only the
-       * composer is pinned, because a reply box you have to scroll to find is a
-       * reply box you stop using.
+       * One scrolling region, anchored to the composer: the newest turn sits
+       * just above the reply box, and a short thread leaves its space at the
+       * top rather than floating above nothing.
        */}
-      <div className="panel-tabs" role="tablist" aria-label="Experiment view">
-        {(['conversation', 'results'] as const).map((tab, index) => (
-          <button
-            key={tab}
-            role="tab"
-            id={`tab-${node.id}-${tab}`}
-            aria-controls={`view-${node.id}-${tab}`}
-            aria-selected={view === tab}
-            tabIndex={view === tab ? 0 : -1}
-            onClick={() => changeView(tab)}
-            onKeyDown={(e) => {
-              if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                e.preventDefault();
-                const next =
-                  e.key === 'Home'
-                    ? 'conversation'
-                    : e.key === 'End'
-                      ? 'results'
-                      : index === 0
-                        ? 'results'
-                        : 'conversation';
-                changeView(next);
-                document.getElementById(`tab-${node.id}-${next}`)?.focus();
-              }
-            }}
-          >
-            {tab === 'conversation' ? 'Conversation' : 'Results & changes'}
-          </button>
-        ))}
-      </div>
-      <div
-        className="panel-body"
-        ref={reading.scrollRef}
-        onScroll={reading.onScroll}
-        hidden={view !== 'conversation'}
-        role="tabpanel"
-        id={`view-${node.id}-conversation`}
-        aria-labelledby={`tab-${node.id}-conversation`}
-      >
+      <div className="panel-body" ref={reading.scrollRef} onScroll={reading.onScroll}>
         <div ref={reading.contentRef} className="conversation-content">
           {node.status === 'new' && (
             <section className="start">
@@ -347,69 +314,42 @@ function NodePanel({
               onProjectSettings={onProjectSettings}
             />
           )}
+
+          {detail !== null && runs.length > 0 && (
+            <ResultDetails
+              node={node}
+              detail={detail}
+              runs={runs}
+              activity={activity}
+              isYourFolder={isYourFolder}
+              revision={`${revision}:${runs.at(-1)?.id ?? ''}:${runs.at(-1)?.status ?? ''}`}
+              onError={setError}
+            />
+          )}
         </div>
       </div>
 
-      <div
-        className="panel-body results-panel"
-        hidden={view !== 'results'}
-        role="tabpanel"
-        id={`view-${node.id}-results`}
-        aria-labelledby={`tab-${node.id}-results`}
-      >
-        {resultsSeen && (
-          <>
-            {detailError !== null && detail !== null && (
-              <p className="error" role="alert">
-                Results may be out of date. {detailError}{' '}
-                <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
-              </p>
-            )}
-            {detail === null ? (
-              detailError === null ? (
-                <p role="status">Loading results…</p>
-              ) : (
-                <p className="error" role="alert">
-                  {detailError}{' '}
-                  <button onClick={() => setRevision((n) => n + 1)}>Retry results</button>
-                </p>
-              )
-            ) : (
-              <>
-                <section className="result-outcome">
-                  <h3>Latest run</h3>
-                  <p>{latestRunOutcome(runs.at(-1), activity)}</p>
-                </section>
-                <Checks node={node} detail={detail} />
-                <Lineage lineage={detail.lineage} />
-              </>
-            )}
-            <ExperimentChanges
-              node={node}
-              revision={`${revision}:${runs.at(-1)?.id ?? ''}:${runs.at(-1)?.status ?? ''}`}
-            />
-            <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
-
-            {detail?.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
-              <Checkout
-                command={detail.checkoutCommand}
-                hint={detail.checkoutHint}
-                onError={setError}
-              />
-            )}
-          </>
-        )}
-      </div>
-
       <div className="panel-foot">
-        {!chat.busy && detail?.nextRunSettings && (
-          <NextRunInfo value={detail.nextRunSettings} onSettings={onProjectSettings} />
-        )}
-        {view === 'conversation' && reading.away && (
+        {reading.away && (
           <button className="jump-latest" onClick={reading.jump}>
             {reading.unread ? 'New output · Jump to latest' : 'Jump to latest'}
             <Icon name="arrowDown" />
           </button>
+        )}
+        {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
+          node.status !== 'running' &&
+          node.status !== 'needs_you' && (
+            <Recovery
+              node={node}
+              runs={runs}
+              isYourFolder={isYourFolder}
+              busy={actions.busy}
+              partialWork={detail?.partialWork ?? null}
+              onRecover={(action) => void actions.recover(action)}
+            />
+          )}
+        {!chat.busy && detail?.nextRunSettings && (
+          <NextRunInfo value={detail.nextRunSettings} onSettings={onProjectSettings} />
         )}
         {error !== null && (
           <p className="error" role="alert">
@@ -433,10 +373,10 @@ function NodePanel({
             node={node}
             busy={chat.busy}
             sending={chat.sending}
-            emphasised
             value={chat.prompt}
             onChange={chat.setPrompt}
             onSend={chat.send}
+            onBranch={node.writable ? () => onCreateChild(node) : undefined}
           />
         )}
       </div>
@@ -446,6 +386,56 @@ function NodePanel({
       )}
       {actions.confirmDialog}
     </aside>
+  );
+}
+
+/**
+ * Everything about the result that is not the conversation: how the last run
+ * ended, the checks, what it changed, where it came from, and how to open it
+ * outside Bonsai.
+ *
+ * Closed until asked for, and at the end of the thread rather than above the
+ * composer. All of it is reference -- true whether or not you are looking at
+ * it -- and the panel is for reading the conversation.
+ */
+function ResultDetails({
+  node,
+  detail,
+  runs,
+  activity,
+  isYourFolder,
+  revision,
+  onError,
+}: {
+  node: NodeView;
+  detail: NodeDetail;
+  runs: readonly RunView[];
+  activity: RunActivity | null;
+  isYourFolder: boolean;
+  revision: string;
+  onError: (message: string | null) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className="result-details" open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>Result details</summary>
+      {open && (
+        <>
+          <p className="result-outcome">{latestRunOutcome(runs.at(-1), activity)}</p>
+          <Checks node={node} detail={detail} />
+          <ExperimentChanges node={node} revision={revision} />
+          <Lineage lineage={detail.lineage} />
+          <Details node={node} detail={detail} runs={runs} isYourFolder={isYourFolder} />
+          {detail.checkoutCommand != null && runs.some((run) => run.commitSha !== null) && (
+            <Checkout
+              command={detail.checkoutCommand}
+              hint={detail.checkoutHint}
+              onError={onError}
+            />
+          )}
+        </>
+      )}
+    </details>
   );
 }
 

@@ -130,9 +130,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         'a project made by the end-to-end test',
       );
       assert.equal(await session.eval("!!document.querySelector('.checkout-section')"), false);
-      await session.click('.composer-row button');
+      await session.click('.composer-row button.primary');
       await session.waitFor(
-        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row button')?.textContent === 'Send'",
+        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row button.primary')?.textContent === 'Send'",
         { timeoutMs: 10000 },
       );
 
@@ -250,7 +250,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         return window.__fetch(url, init);
       };
     })()`);
-    await session.click('.composer-row button');
+    await session.click('.composer-row button.primary');
     await session.waitFor('!!window.__ack');
     await select('child');
     await session.type('.composer textarea', 'newer child draft');
@@ -386,13 +386,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       'Improve the approach',
     );
     assert.equal(
-      await session.eval("document.querySelector('.composer-row button').textContent"),
+      await session.eval("document.querySelector('.composer-row button.primary').textContent"),
       'Start first run',
     );
     await session.eval('window.fetch = window.__savedFetch');
-    await session.click('.composer-row button');
+    await session.click('.composer-row button.primary');
     await session.waitFor(
-      "document.querySelector('.composer-row button').textContent === 'Send' && !document.querySelector('.panel button.stop')",
+      "document.querySelector('.composer-row button.primary').textContent === 'Send' && !document.querySelector('.panel button.stop')",
     );
     const after = (await (
       await fetch(`${BASE}/api/projects/${projectId}/tree`)
@@ -440,42 +440,92 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     for (const name of ['first', 'second', 'third'])
       assert.ok(combined.files.includes(`notes/${name}-change.md`));
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.turn-diff-toggle')");
+    await session.waitFor("!!document.querySelector('.run-foot')");
+
+    // The panel says who it is and how it ended, without a word of verdict.
+    assert.equal(
+      await session.eval("document.querySelector('.panel .node-dot').getAttribute('aria-label')"),
+      'Finished',
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.panel-head .run-count').textContent"),
+      '4 runs',
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.panel').textContent.includes('✓')"),
+      false,
+    );
+
+    /*
+     * What the agent did is in the conversation: an EDIT block with the file
+     * it wrote and the lines it added. The whole diff is not repeated here.
+     */
+    await session.waitFor("!!document.querySelector('.tool-block')");
+    assert.equal(
+      await session.eval("document.querySelector('.tool-block .tool-kind').textContent"),
+      'EDIT',
+    );
     assert.equal(
       await session.eval(
-        "document.querySelector('.panel .st-ready').textContent.includes('Finished')",
+        "Array.from(document.querySelectorAll('.tool-block')).some(b => b.textContent.includes('third-change') && b.querySelector('.dl-add'))",
+      ),
+      true,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-conversation.png'));
+
+    // Result details are closed until asked for, and nothing inside opens by itself.
+    assert.equal(await session.eval("!!document.querySelector('.experiment-changes')"), false);
+    await session.eval("document.querySelector('.result-details summary').click()");
+    await session.waitFor("!!document.querySelector('.experiment-changes .diff-file')");
+    assert.equal(
+      await session.eval("document.querySelectorAll('.experiment-changes .dl').length"),
+      0,
+      'no file expands by itself',
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.experiment-changes').textContent.includes('notes/third-change.md')",
+      ),
+      true,
+    );
+    await session.eval("document.querySelector('.experiment-changes .diff-file-head').click()");
+    await session.waitFor("document.querySelectorAll('.experiment-changes .dl').length > 0");
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.comparison-base').textContent.includes('before this experiment')",
       ),
       true,
     );
     assert.equal(
-      await session.eval("document.querySelector('.panel .st-ready').textContent.includes('✓')"),
-      false,
+      await session.eval(
+        "document.querySelector('.result-details').textContent.includes('No checks recorded for the latest run')",
+      ),
+      true,
     );
+
+    // Copy patch says so when the clipboard refuses.
+    await session.eval(
+      "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
+    );
+    await session.eval("document.querySelector('.diff-copy').scrollIntoView({block: 'center'})");
+    await session.click('.diff-copy');
+    await session.waitFor(
+      "document.querySelector('.experiment-changes').textContent.includes('Could not copy the patch')",
+    );
+    await session.eval('delete navigator.clipboard');
+
+    // A failing fetch offers a retry rather than an empty panel.
     await session.eval(`(() => {
       window.__originalFetch = window.fetch;
       window.fetch = (url, init) => String(url).endsWith('/diff')
-        ? new Promise(resolve => setTimeout(() => resolve(new Response(JSON.stringify({error: 'fixture diff unavailable'}), {status: 503})), 250))
+        ? Promise.resolve(new Response(JSON.stringify({error: 'fixture diff unavailable'}), {status: 503}))
         : window.__originalFetch(url, init);
     })()`);
     await session.eval(
-      "document.querySelector('.turn-diff-toggle').scrollIntoView({ block: 'center' })",
+      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent === 'Refresh changes').click()",
     );
-    await session.click('.turn-diff-toggle');
-    await session.waitFor(
-      "document.querySelector('.turn-diff-toggle').parentElement.textContent.includes('Loading run changes')",
-    );
-    await session.waitFor(
-      "document.querySelector('.panel').textContent.includes('Retry run changes')",
-    );
-    await session.click('.panel-tabs button:last-child');
     await session.waitFor(
       "document.querySelector('.experiment-changes').textContent.includes('Retry experiment changes')",
-    );
-    assert.equal(
-      await session.eval(
-        "document.querySelector('.results-panel').textContent.includes('No checks recorded for the latest run')",
-      ),
-      true,
     );
     await session.eval('window.fetch = window.__originalFetch');
     await session.eval(
@@ -484,60 +534,6 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "document.querySelector('.experiment-changes').textContent.includes('notes/third-change.md')",
     );
-    assert.equal(
-      await session.eval(
-        "document.querySelector('.comparison-base').textContent.includes('before this experiment')",
-      ),
-      true,
-    );
-    await session.eval(
-      "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
-    );
-    await session.eval(
-      "document.querySelector('.results-panel .diff-copy').scrollIntoView({block: 'center'})",
-    );
-    await session.click('.results-panel .diff-copy');
-    await session.waitFor(
-      "document.querySelector('.results-panel .diff').textContent.includes('Could not copy the patch')",
-    );
-    await session.eval('delete navigator.clipboard');
-    await session.eval(
-      "Array.from(document.querySelectorAll('.results-panel button')).find(b => b.textContent === 'Expand changes').click()",
-    );
-    await session.waitFor("!!document.querySelector('dialog[open] .dl-number')");
-    assert.equal(
-      await session.eval(
-        "document.querySelector('dialog').getBoundingClientRect().width > document.querySelector('.panel').getBoundingClientRect().width",
-      ),
-      true,
-    );
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-3-expanded-changes.png'));
-    await session.click('dialog header button');
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-3-results.png'));
-    await session.click('.panel-tabs button:first-child');
-    await session.eval(
-      "Array.from(document.querySelectorAll('.panel button')).find(b => b.textContent === 'Retry run changes').click()",
-    );
-    await session.waitFor("!!document.querySelector('.turn-diff .diff-file')");
-    await session.click('.panel-tabs button:last-child');
-    await session.eval(`(() => {
-      window.fetch = (url, init) => String(url).endsWith('/diff')
-        ? Promise.resolve(new Response(JSON.stringify({ files: [], patch: '', dirty: ['unfinished-new-file.txt'], baseLabel: 'fixture base' })))
-        : window.__originalFetch(url, init);
-    })()`);
-    await session.eval(
-      "Array.from(document.querySelectorAll('.experiment-changes button')).find(b => b.textContent === 'Refresh changes').click()",
-    );
-    await session.waitFor(
-      "document.querySelector('.diff-dirty')?.textContent.includes('unfinished-new-file.txt')",
-    );
-    assert.equal(
-      await session.eval(
-        "document.querySelector('.results-panel').textContent.includes('No committed changes in this comparison')",
-      ),
-      true,
-    );
-    await session.eval('window.fetch = window.__originalFetch');
   });
 
   test('partial work remains visible after Keep and Discard requires confirmation', async () => {
@@ -564,7 +560,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const cancelled = await fetch(`${nodeUrl}/cancel`, { method: 'POST' });
     assert.equal(cancelled.ok, true);
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.panel > .recover .partial-review')");
+    await session.waitFor("!!document.querySelector('.panel .recover .partial-review')");
     await session.click('.partial-review summary');
     assert.equal(
       await session.eval(
@@ -637,7 +633,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(started.status, 202, await started.text());
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor(
-      "!!document.querySelector('.turn-foot') && !!document.querySelector('.md-table')",
+      "!!document.querySelector('.run-foot') && !!document.querySelector('.md-table')",
     );
     await session.waitFor("document.querySelector('.panel-body').scrollTop > 100");
     await session.eval(
@@ -718,7 +714,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "window.__dropEvents = false; window.__sources.at(-1).dispatchEvent(new Event('open'));",
     );
     await session.waitFor(
-      "document.querySelector('.transcript')?.textContent.includes('Message written during transport gap')",
+      "document.querySelector('.thread')?.textContent.includes('Message written during transport gap')",
     );
     assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 2);
     assert.ok(
@@ -1067,9 +1063,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       `document.querySelector('[data-id="${run.masterNodeId}"] .chip')?.textContent.includes('Waiting')`,
       { label: 'the card to say Waiting' },
     );
-    assert.match(
-      String(await session.eval("document.querySelector('.panel header .chip').textContent")),
-      /Waiting/,
+    assert.equal(
+      await session.eval("document.querySelector('.panel .node-dot').getAttribute('aria-label')"),
+      'Running',
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-waiting.png'));
 
@@ -1154,7 +1150,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     assert.equal((await findLeftovers(run.runId)).length > 0, true);
 
-    await session.click('.panel header button.stop');
+    await session.click('.panel .stop');
     await session.waitFor(
       "document.querySelector('.recover-headline')?.textContent.includes('You stopped this run.')",
       {
@@ -1167,9 +1163,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.deepEqual(await findLeftovers(run.runId), []);
     const last = (await run.detail()).runs.at(-1)!;
     assert.equal(last.endReason, 'stopped');
-    assert.match(
-      String(await session.eval("document.querySelector('.panel header .chip').textContent")),
-      /Stopped/,
+    assert.equal(
+      await session.eval("document.querySelector('.panel .node-dot').getAttribute('aria-label')"),
+      'Interrupted',
     );
   });
 
@@ -1345,7 +1341,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       );
       await session.type('.composer textarea', 'keep this draft');
       assert.equal(
-        await session.eval("document.querySelector('.composer-row button').disabled"),
+        await session.eval("document.querySelector('.composer-row button.primary').disabled"),
         true,
       );
       await session.click('.usage-button');
@@ -1364,7 +1360,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         'keep this draft',
       );
       assert.equal(
-        await session.eval("document.querySelector('.composer-row button').disabled"),
+        await session.eval("document.querySelector('.composer-row button.primary').disabled"),
         false,
       );
     } finally {
@@ -1615,13 +1611,16 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     // Wide: collapsing the panel must leave a control that DOES something. The
     // segmented switch used to render here with Map pressed and inert.
-    await session.click('.hide-panel');
+    await session.click('.panel .collapse');
     await session.waitFor(
-      "document.querySelector('.app').classList.contains('panel-hidden') && document.querySelectorAll('.view-switch button').length === 1",
+      "document.querySelector('.app').classList.contains('panel-hidden') && !!document.querySelector('.conversation-rail')",
     );
     assert.equal(
-      await session.eval("document.querySelector('.view-switch button').textContent"),
-      'Show experiment',
+      await session.eval(
+        "document.querySelector('.conversation-rail').getBoundingClientRect().width",
+      ),
+      46,
+      'the conversation collapses to its rail rather than vanishing',
     );
     // A collapsed panel stays collapsed when another experiment is chosen: a
     // collapse that reopens on the next click is not a collapse.
@@ -1630,7 +1629,8 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.eval("document.querySelector('.app').classList.contains('panel-hidden')"),
       true,
     );
-    await session.click('.view-switch button');
+    // The rail itself is the way back.
+    await session.click('.conversation-rail');
     await session.waitFor("!document.querySelector('.app').classList.contains('panel-hidden')");
     // Back to master, whose draft the narrow checks below follow across views.
     await session.click('.react-flow__node:first-child');
@@ -1641,7 +1641,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       const luminance = c => c.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
       const ratio = (a,b) => { const x=luminance(rgb(a)), y=luminance(rgb(b)); return Math.round((Math.max(x,y)+.05)/(Math.min(x,y)+.05)*100)/100; };
       const results = [];
-      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button', '.panel-tabs button', '.card-name', '.chip']) {
+      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button.primary', '.panel-meta', '.card-name', '.chip']) {
         const el=document.querySelector(selector), style=getComputedStyle(el);
         let parent=el, bg='rgb(13, 14, 17)';
         while(parent) { const candidate=getComputedStyle(parent).backgroundColor; if(candidate.startsWith('rgb(')) {bg=candidate;break;} parent=parent.parentElement; }
@@ -1702,7 +1702,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // Waited for rather than asserted outright: the assertion is about the
     // settled layout, and a viewport change has not reflowed on the next tick.
     await session.waitFor(
-      "document.querySelector('.composer-row button').getBoundingClientRect().bottom <= 720",
+      "document.querySelector('.composer-row button.primary').getBoundingClientRect().bottom <= 720",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-800-large.png'));
     // Narrow: one view at a time, chosen with a two-state segmented switch.
@@ -1814,12 +1814,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     assert.ok(Number(await session.eval("document.querySelector('.panel-body').clientHeight")) > 0);
     await session.eval(
-      "document.querySelector('.composer-row button').scrollIntoView({block:'nearest'})",
+      "document.querySelector('.composer-row button.primary').scrollIntoView({block:'nearest'})",
     );
     assert.ok(
       Number(
         await session.eval(
-          "document.querySelector('.composer-row button').getBoundingClientRect().bottom",
+          "document.querySelector('.composer-row button.primary').getBoundingClientRect().bottom",
         ),
       ) <= 361,
     );

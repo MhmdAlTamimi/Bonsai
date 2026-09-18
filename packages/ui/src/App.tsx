@@ -9,6 +9,7 @@ import { useSelection } from './state/selection.ts';
 import { useConnection } from './state/useConnection.ts';
 import { useProjectTree } from './state/useProjectTree.ts';
 import { useRunStream } from './state/useRunStream.ts';
+import { ConversationRail } from './panel/ConversationRail.tsx';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
 import { useChildCreation } from './state/useChildCreation.ts';
 import { useWorkspaceView } from './state/useWorkspaceView.ts';
@@ -74,6 +75,21 @@ export function App(): JSX.Element {
     );
   }, [settings?.textScale]);
   useAddressBar({ projectId, nodeId: selection.primary });
+  /**
+   * ⌘\ (Ctrl+\) collapses the conversation and brings it back — the one
+   * shortcut in the workspace, because the panel is the thing you hide to
+   * look at the map and want back a second later.
+   */
+  const toggleConversation = view.toggleExperiment;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== '\\' || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      toggleConversation();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleConversation]);
   const live = useRunStream(projectId, projectTree.refresh);
   /**
    * Re-read the credential when a run reports a failure, and not otherwise.
@@ -173,13 +189,12 @@ export function App(): JSX.Element {
            * says why, when nothing is selected -- a full-width panel reading
            * "select an experiment" is worse than the map it replaced.
            *
-           * WIDE: they are side by side, so there is nothing to switch. A
-           * collapsed panel gets one button that brings it back. The switch
-           * used to render here too, which left Map pressed and doing nothing:
-           * a control whose only state is the state you are already in.
+           * WIDE: they are side by side, so there is nothing to switch, and a
+           * collapsed conversation keeps its own rail (see ConversationRail)
+           * rather than a floating button over the map.
            */}
           <nav className="view-switch" aria-label="Workspace view">
-            {view.narrow ? (
+            {view.narrow && (
               <>
                 <button
                   className="segment"
@@ -198,10 +213,6 @@ export function App(): JSX.Element {
                   Experiment
                 </button>
               </>
-            ) : (
-              <button className="show-panel" onClick={view.showExperiment}>
-                Show experiment
-              </button>
             )}
           </nav>
           <div className="canvas">
@@ -318,6 +329,10 @@ export function App(): JSX.Element {
               onCancel={child.cancel}
               onCreate={child.create}
             />
+          )}
+
+          {!view.narrow && !view.experimentOpen && (
+            <ConversationRail name={selected?.displayName ?? null} onOpen={view.showExperiment} />
           )}
 
           <PanelResizer

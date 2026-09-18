@@ -39,11 +39,12 @@ export function appendDelta(list: readonly Delta[], delta: Delta): readonly Delt
   }
 
   const last = list.at(-1);
+  const structured = (d: Delta): boolean => d.tool !== undefined || d.toolResult !== undefined;
   const open =
     delta.seq === 0 &&
-    delta.tool === undefined &&
+    !structured(delta) &&
     last?.seq === 0 &&
-    last.tool === undefined &&
+    !structured(last) &&
     last.runId === delta.runId
       ? last
       : null;

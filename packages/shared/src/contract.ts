@@ -84,7 +84,7 @@ export interface SettingsView {
  */
 export const TEXT_SCALES = [100, 115, 130] as const;
 
-export const PANEL_WIDTH = { min: 280, max: 900, default: 420 } as const;
+export const PANEL_WIDTH = { min: 280, max: 900, default: 380 } as const;
 
 /**
  * How many agents may run at once.

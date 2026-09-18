@@ -1,6 +1,6 @@
 import { type JSX, useState } from 'react';
 import { Dialog } from '../../Dialog.tsx';
-import { parsePatch, patchTotals, shouldExpand, type DiffFile } from './diffModel.ts';
+import { parsePatch, patchTotals, type DiffFile } from './diffModel.ts';
 
 /** One patch, with file operations, line references, and a wider reading view. */
 export function Diff({
@@ -48,8 +48,11 @@ export function Diff({
               </button>
             )}
           </div>
+          {/* Every file starts closed. Opening the first few by index made
+              reaching the last file of a large change a scroll past all the
+              others, and re-opened them on every refetch. */}
           {files.map((file, i) => (
-            <FileBlock key={`${file.path}-${i}`} file={file} startOpen={shouldExpand(file, i)} />
+            <FileBlock key={`${file.path}-${i}`} file={file} startOpen={false} />
           ))}
         </>
       )}

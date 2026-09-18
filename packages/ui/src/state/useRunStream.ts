@@ -109,6 +109,7 @@ export function useRunStream(
               seq: event.seq,
               text: event.text,
               ...(event.tool ? { tool: event.tool } : {}),
+              ...(event.toolResult ? { toolResult: event.toolResult } : {}),
             });
             break;
           case 'run.error':

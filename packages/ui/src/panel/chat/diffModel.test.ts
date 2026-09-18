@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { parsePatch, patchTotals, shouldExpand, type DiffFile } from './diffModel.ts';
+import { parsePatch, patchTotals } from './diffModel.ts';
 
 const TWO_FILES = [
   'diff --git a/cli.py b/cli.py',
@@ -130,23 +130,6 @@ test('a patch with no git header still yields one file', () => {
   const files = parsePatch(['@@ -1 +1 @@', '-a', '+b'].join('\n'));
   assert.equal(files.length, 1);
   assert.equal(files[0]?.added, 1);
-});
-
-function fileOf(lineCount: number, binary = false): DiffFile {
-  return {
-    path: 'x',
-    added: lineCount,
-    removed: 0,
-    binary,
-    lines: Array.from({ length: lineCount }, () => ({ kind: 'add' as const, text: 'x' })),
-  };
-}
-
-test('small early files open; long ones and later ones stay collapsed', () => {
-  assert.equal(shouldExpand(fileOf(20), 0), true);
-  assert.equal(shouldExpand(fileOf(500), 0), false);
-  assert.equal(shouldExpand(fileOf(20), 9), false);
-  assert.equal(shouldExpand(fileOf(0, true), 0), false);
 });
 
 test('file operations and line numbers describe additions, deletions and renames', () => {

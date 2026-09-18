@@ -4,6 +4,7 @@ import type { NodeView, RunActivity } from '@bonsai/shared';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 import { Icon } from '../../Icon.tsx';
+import { StopButton } from '../../state/RunControls.tsx';
 import { describeTool, since, waitingHeadline } from './activity.ts';
 
 /**
@@ -29,12 +30,28 @@ export function ActivityStrip({
     if (activity?.state !== 'waiting') setFinishing(false);
   }, [activity?.state]);
 
+  /*
+   * A run parked on a question is still holding an agent and a concurrency
+   * slot, so it needs the same way out as a working one. The question box
+   * says what is being asked; this says the run is still yours to stop.
+   */
+  if (node.status === 'needs_you') {
+    return (
+      <div className="activity activity-line">
+        <span role="status">Waiting for your answer</span>
+        <div className="spacer" />
+        <StopButton node={node} />
+      </div>
+    );
+  }
   if (node.status !== 'running') return null;
   if (node.queuePosition !== null) {
     return (
-      <p className="activity" role="status">
-        Queued · position {node.queuePosition}
-      </p>
+      <div className="activity activity-line">
+        <span role="status">Queued · position {node.queuePosition}</span>
+        <div className="spacer" />
+        <StopButton node={node} />
+      </div>
     );
   }
 
@@ -76,7 +93,8 @@ export function ActivityStrip({
             The run ends, and its results are saved, when this work does. Finish now stops it and
             saves what is there.
           </p>
-          <button onClick={finish} disabled={finishing}>
+          <StopButton node={node} />
+          <button className="secondary" onClick={finish} disabled={finishing}>
             {finishing ? 'Finishing…' : 'Finish now'}
           </button>
         </div>
@@ -86,14 +104,16 @@ export function ActivityStrip({
 
   const tool = activity?.tool ?? null;
   return (
-    <p className="activity activity-line">
+    <div className="activity activity-line">
       <span role="status">{tool === null ? 'Agent working…' : describeTool(tool)}</span>
       {tool !== null && (
         <span className="activity-meta" aria-hidden="true">
           {since(tool.startedAt, now)}
         </span>
       )}
-    </p>
+      <div className="spacer" />
+      <StopButton node={node} />
+    </div>
   );
 }
 

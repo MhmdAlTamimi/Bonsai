@@ -169,17 +169,3 @@ export function patchTotals(files: readonly DiffFile[]): {
     removed: files.reduce((n, f) => n + f.removed, 0),
   };
 }
-
-/**
- * Whether a file should start open.
- *
- * A node's whole diff can be thousands of lines, and rendering all of it
- * expanded is both unreadable and slow. Small files open; large ones and any
- * file past the first few collapse to a header the user can click. The
- * thresholds are deliberately generous -- most single-node experiments are
- * small, and collapsing a 20-line change would be officious.
- */
-export function shouldExpand(file: DiffFile, index: number): boolean {
-  if (file.binary) return false;
-  return index < 4 && file.lines.length <= 120;
-}
