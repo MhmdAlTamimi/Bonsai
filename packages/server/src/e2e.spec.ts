@@ -417,7 +417,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     ).json()) as { projectId: string; masterNodeId: string };
     const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
     const runIds: string[] = [];
-    for (const prompt of ['first-change', 'second-change', 'third-change', '?explain the result']) {
+    for (const prompt of [
+      'first-change',
+      'second-change',
+      'tools: third-change',
+      '?explain the result',
+    ]) {
       const started = (await (
         await fetch(`${nodeUrl}/runs`, {
           method: 'POST',
@@ -439,8 +444,8 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     ).json()) as typeof first;
     assert.ok(!second.files.includes('notes/first-change.md'));
     const combined = (await (await fetch(`${nodeUrl}/diff`)).json()) as typeof first;
-    for (const name of ['first', 'second', 'third'])
-      assert.ok(combined.files.includes(`notes/${name}-change.md`));
+    for (const name of ['first-change', 'second-change', 'tools-third-change'])
+      assert.ok(combined.files.includes(`notes/${name}.md`));
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor("!!document.querySelector('.run-foot')");
 
@@ -475,6 +480,72 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       true,
     );
+
+    /*
+     * Three kinds of block, one shell. A READ is its header alone; a RUN shows
+     * the END of its output, eight lines of it, with the rest one disclosure
+     * away; an EDIT shows the lines that moved. Every one of them can be
+     * copied, and none of them scrolls.
+     */
+    const kinds = (await session.eval(
+      "JSON.stringify(Array.from(document.querySelectorAll('.tool-block .tool-kind')).map(k => k.textContent))",
+    )) as string;
+    for (const kind of ['READ', 'RUN', 'EDIT']) assert.match(kinds, new RegExp(kind));
+    assert.equal(
+      await session.eval("!!document.querySelector('.kind-read .tool-body')"),
+      false,
+      'a read has no output worth a body',
+    );
+    assert.equal(
+      await session.eval("document.querySelectorAll('.kind-run .tool-line').length"),
+      8,
+      'eight lines, then the disclosure',
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.kind-run .tool-line .tool-text').textContent"),
+      'processed document 13',
+      'the END of the output: how a command finished is what was asked',
+    );
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.tool-block')).every(b => b.scrollHeight <= b.clientHeight + 1)",
+      ),
+      true,
+      'no block scrolls on its own',
+    );
+    await session.eval("document.querySelector('.kind-run').scrollIntoView({ block: 'center' })");
+    await session.click('.kind-run .disclosure-row');
+    await session.waitFor("document.querySelectorAll('.kind-run .tool-line').length === 20");
+    assert.match(
+      String(await session.eval("document.querySelector('.kind-run .disclosure-row').textContent")),
+      /Hide 12 lines/,
+    );
+    await session.eval(
+      "document.querySelector('.kind-run .disclosure-row').scrollIntoView({ block: 'center' })",
+    );
+    await session.click('.kind-run .disclosure-row');
+    await session.waitFor("document.querySelectorAll('.kind-run .tool-line').length === 8");
+
+    // Copy is always there, and says so when the clipboard refuses.
+    await session.eval(
+      "window.__copied = null; Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: async (t) => { window.__copied = t; }}})",
+    );
+    await session.eval("document.querySelector('.kind-run').scrollIntoView({ block: 'center' })");
+    await session.click('.kind-run .tool-copy');
+    await session.waitFor("window.__copied === 'python run_experiment.py --bucket kb-raw'", {
+      label: 'the command to be copied — never its output',
+    });
+    await session.eval(
+      "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
+    );
+    await session.eval("document.querySelector('.kind-edit').scrollIntoView({ block: 'center' })");
+    await session.click('.kind-edit .tool-copy');
+    await session.waitFor(
+      "document.querySelector('.kind-edit .tool-copy.failed')?.textContent.includes('Copy failed')",
+      { label: 'a refused copy to say so' },
+    );
+    await session.eval('delete navigator.clipboard');
+
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-conversation.png'));
 
     /*

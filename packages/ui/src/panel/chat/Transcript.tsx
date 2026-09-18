@@ -2,7 +2,6 @@ import type { JSX } from 'react';
 import type { MessageView, RunView, ToolResultContent } from '@bonsai/shared';
 
 import { Markdown } from './Markdown.tsx';
-import { QuietTools } from './ToolCalls.tsx';
 import { ToolBlock } from './ToolBlock.tsx';
 import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
@@ -16,10 +15,11 @@ import type { Delta } from './liveMerge.ts';
  * object you can see, and the agent's reply is text on the panel, because one
  * of you is quoting a request and the other is answering at length.
  *
- * Tool calls are two classes. A command or an edit is a block showing what it
- * produced, because that is the work. Everything else -- reading, searching --
- * is one dim line, because a run makes forty of those and none of them is the
- * story.
+ * Every tool call is one bounded block, in place, in the order it happened: a
+ * READ is its 30px header alone, a RUN carries the end of its output, an EDIT
+ * the lines that moved. They used to be summarised into "Read ×6 · Grep ×2",
+ * which hid WHICH file was read at the moment it mattered -- and the narration
+ * between bursts, which is the readable part, lost its anchors.
  */
 export function Transcript({
   messages,
@@ -75,9 +75,6 @@ export function Transcript({
     </div>
   );
 }
-
-/** Tools whose work is worth a block of its own; everything else is one quiet line. */
-const LOUD = new Set(['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 interface Group {
   runId: string | null;
@@ -154,8 +151,6 @@ function Turn({
                 result={part.result}
                 live={running && part.result === undefined}
               />
-            ) : part.kind === 'quiet' ? (
-              <QuietTools key={i} calls={part.calls} />
             ) : part.kind === 'you' ? (
               <YouSaid key={i} message={part.message} inline />
             ) : (
@@ -194,8 +189,7 @@ function splitPrompt(messages: readonly MessageView[]): {
 type Part =
   | { kind: 'said'; message: MessageView }
   | { kind: 'you'; message: MessageView }
-  | { kind: 'block'; name: string; detail: string; result: ToolResultContent | undefined }
-  | { kind: 'quiet'; calls: MessageView[] };
+  | { kind: 'block'; name: string; detail: string; result: ToolResultContent | undefined };
 
 /** Pairs each call with what it produced, and folds the quiet ones together. */
 function compose(messages: readonly MessageView[]): Part[] {
@@ -211,15 +205,12 @@ function compose(messages: readonly MessageView[]): Part[] {
     if (message.kind === 'tool_result') continue;
     if (message.kind === 'tool_use') {
       const call = message.content as { name?: string; detail?: string; id?: string };
-      const name = call.name ?? 'tool';
-      const result = call.id === undefined ? undefined : results.get(call.id);
-      if (LOUD.has(name) || result !== undefined) {
-        parts.push({ kind: 'block', name, detail: call.detail ?? '', result });
-      } else {
-        const last = parts.at(-1);
-        if (last?.kind === 'quiet') last.calls.push(message);
-        else parts.push({ kind: 'quiet', calls: [message] });
-      }
+      parts.push({
+        kind: 'block',
+        name: call.name ?? 'tool',
+        detail: call.detail ?? '',
+        result: call.id === undefined ? undefined : results.get(call.id),
+      });
       continue;
     }
     parts.push(message.role === 'user' ? { kind: 'you', message } : { kind: 'said', message });

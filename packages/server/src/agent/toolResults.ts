@@ -15,9 +15,14 @@ import type { ToolDiffLine, ToolResultContent } from '@bonsai/shared';
  * stopped working.
  */
 
-/** Output lines kept per command, and changed lines kept per edit. */
-export const MAX_OUTPUT_LINES = 12;
-export const MAX_EDIT_LINES = 24;
+/**
+ * Output lines kept per command, and changed lines kept per edit.
+ *
+ * The block shows eight and keeps the rest one disclosure away, so these are
+ * how deep that disclosure can go -- not how much is shown.
+ */
+export const MAX_OUTPUT_LINES = 40;
+export const MAX_EDIT_LINES = 40;
 /** Each line is trimmed to this, so one very long line cannot carry a file. */
 export const MAX_LINE_CHARS = 400;
 
@@ -41,7 +46,12 @@ export function toolResultFrom(
   return null;
 }
 
-/** A command: its output, newest information last, trimmed to a readable few lines. */
+/**
+ * A command: the END of its output, which is where a command says how it went.
+ *
+ * The first lines of a build are its banner; the last are the error, the
+ * summary or the count. When something has to go, it is the banner.
+ */
 function ran(
   toolUseId: string,
   name: string,
@@ -51,7 +61,7 @@ function ran(
   const stdout = typeof output['stdout'] === 'string' ? output['stdout'] : '';
   const stderr = typeof output['stderr'] === 'string' ? output['stderr'] : '';
   const lines = [...split(stdout), ...split(stderr)];
-  const kept = lines.slice(0, MAX_OUTPUT_LINES).map(clip);
+  const kept = lines.slice(-MAX_OUTPUT_LINES).map(clip);
   return {
     toolUseId,
     name,

@@ -34,7 +34,8 @@ describe('what a tool produced', () => {
     });
     assert.equal(result?.output?.length, MAX_OUTPUT_LINES);
     assert.equal(result?.dropped, 500 - MAX_OUTPUT_LINES);
-    assert.equal(result?.output?.[0], 'line 0');
+    // The END of the output: how a command finished is what it was asked.
+    assert.equal(result?.output?.at(-1), 'line 499');
   });
 
   test('a very long line is trimmed rather than stored whole', () => {

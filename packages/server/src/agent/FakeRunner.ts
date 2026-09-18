@@ -37,7 +37,8 @@ export const FAKE_QUESTION: AgentQuestion = {
  * Plus prefixes for paths that need a user in the loop: "choose:" asks a
  * question (D42); "background:" leaves a tracked job running after its turn,
  * and "detach:" a process started the way `nohup … &` starts one, so the run
- * waits for either (D43).
+ * waits for either (D43). "tools:" makes the three kinds of tool block — a
+ * read, a search and a command with more output than a block shows.
  *
  * That single rule is enough to exercise the emergent model end to end: the
  * same creation flow produces a node with a branch or a node without one, and
@@ -136,6 +137,36 @@ export class FakeRunner implements AgentRunner {
         type: 'text',
         text: refused === null ? 'Going ahead.' : `Told not to: ${refused}`,
       };
+    }
+
+    /**
+     * The three kinds of block, for looking at the conversation itself: a
+     * READ with nothing to show, another read of a different shape, and a RUN
+     * whose output is longer than the eight lines a block draws.
+     */
+    if (spec.prompt.trimStart().toLowerCase().startsWith('tools:')) {
+      yield {
+        type: 'tool',
+        name: 'Read',
+        detail: `${spec.cwd}/chunking_experiment/run_experiment.py`,
+        id: 'fake-read',
+      };
+      yield { type: 'tool', name: 'Grep', detail: 'sheet_header', id: 'fake-grep' };
+      yield {
+        type: 'tool',
+        name: 'Bash',
+        detail: 'python run_experiment.py --bucket kb-raw',
+        id: 'fake-run',
+      };
+      yield {
+        type: 'tool_result',
+        result: ranOutput(
+          'fake-run',
+          'python',
+          Array.from({ length: 20 }, (_, i) => `processed document ${i + 1}`),
+        ),
+      };
+      yield { type: 'text', text: 'Ran the extractor over the bucket.' };
     }
 
     if (!question && refused === null) {
