@@ -79,7 +79,7 @@ export function Composer({
               ? 'Read only — questions only'
               : 'Frozen — questions only'
             : canRun
-              ? '↵ send · ⇧↵ newline'
+              ? '⏎ send · ⇧⏎ newline'
               : 'Reconnect the agent to send'}
         </span>
         {onBranch !== undefined && (

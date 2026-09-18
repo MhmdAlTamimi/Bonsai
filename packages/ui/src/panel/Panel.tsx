@@ -13,7 +13,7 @@ import { Details } from './node/Details.tsx';
 import { Lineage } from './node/Lineage.tsx';
 import { Recovery } from './node/Recovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
-import { STATUS_LABEL, nodeStatusTitle } from '../nodeStatus.tsx';
+import { nodeStatusTitle } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
 import { ActivityStrip } from './chat/ActivityStrip.tsx';
 import { Composer } from './chat/Composer.tsx';
@@ -215,11 +215,7 @@ function NodePanel({
           onDelete={node.parentId === null ? undefined : () => void actions.remove()}
         />
         <div className="spacer" />
-        <span
-          className={`node-dot st-${node.status}`}
-          title={nodeStatusTitle(node)}
-          aria-label={STATUS_LABEL[node.status]}
-        />
+        <span className="node-dot" title={nodeStatusTitle(node)} aria-hidden="true" />
         <h2 title={node.displayName}>{node.displayName}</h2>
         <span className="run-count">
           {runs.length} run{runs.length === 1 ? '' : 's'}

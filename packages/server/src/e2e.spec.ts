@@ -444,7 +444,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
 
     // The panel says who it is and how it ended, without a word of verdict.
     assert.equal(
-      await session.eval("document.querySelector('.panel .node-dot').getAttribute('aria-label')"),
+      await session.eval(
+        `document.querySelector('[data-id="${created.masterNodeId}"] .chip').textContent`,
+      ),
       'Finished',
     );
     assert.equal(
@@ -1064,8 +1066,10 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       { label: 'the card to say Waiting' },
     );
     assert.equal(
-      await session.eval("document.querySelector('.panel .node-dot').getAttribute('aria-label')"),
-      'Running',
+      await session.eval(
+        `document.querySelector('[data-id="${run.masterNodeId}"] .chip').textContent`,
+      ),
+      'Waiting',
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-waiting.png'));
 
@@ -1164,8 +1168,10 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const last = (await run.detail()).runs.at(-1)!;
     assert.equal(last.endReason, 'stopped');
     assert.equal(
-      await session.eval("document.querySelector('.panel .node-dot').getAttribute('aria-label')"),
-      'Interrupted',
+      await session.eval(
+        `document.querySelector('[data-id="${run.masterNodeId}"] .chip').textContent`,
+      ),
+      'Stopped',
     );
   });
 

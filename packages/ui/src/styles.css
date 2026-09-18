@@ -905,7 +905,9 @@ body.resizing .panel-resizer {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 600 var(--t-title) / 1.45 inherit;
+  font-size: var(--t-title);
+  font-weight: 600;
+  line-height: 1.45;
   color: var(--text);
 }
 .panel-head .run-count {
@@ -914,29 +916,21 @@ body.resizing .panel-resizer {
   color: var(--muted-3);
   font-variant-numeric: tabular-nums;
 }
-/* The status, as a dot beside the name: the word is in its title, and every
-   state that needs more than a dot says more of its own accord — a question
-   box, a recovery notice, the activity strip. */
+/*
+ * The dot beside the name is IDENTITY: this thread, haloed in the accent, the
+ * same mark the selected node carries on the map.
+ *
+ * It is deliberately not the status. Status belongs where it is actionable —
+ * on the card, in the activity strip above the composer, in the recovery
+ * notice — each time with a word beside it rather than a hue alone (4.6).
+ */
 .node-dot {
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: var(--st-new);
-}
-.node-dot.st-running {
-  background: var(--st-running);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-running) 18%, transparent);
-}
-.node-dot.st-needs_you {
-  background: var(--st-needs);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-needs) 18%, transparent);
-}
-.node-dot.st-ready {
-  background: var(--st-ready);
-}
-.node-dot.st-interrupted {
-  background: var(--st-interrupted);
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(109, 93, 246, 0.18);
 }
 
 /* The collapse control reads as the edge it collapses toward. */
@@ -1010,7 +1004,7 @@ body.resizing .panel-resizer {
   flex-direction: column;
   justify-content: flex-end;
   min-height: 100%;
-  gap: var(--s5);
+  gap: 20px;
 }
 .chat-empty {
   color: var(--muted-3);
@@ -1099,7 +1093,9 @@ body.resizing .panel-resizer {
   width: var(--h-plus);
   height: var(--h-plus);
   border-radius: var(--r-7);
-  font: 600 9px/1.45 inherit;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 .rail-who.you {
   background: var(--control-hover);
@@ -1127,12 +1123,12 @@ body.resizing .panel-resizer {
 .thread {
   display: flex;
   flex-direction: column;
-  gap: var(--s5);
+  gap: 20px;
 }
 .turn {
   display: flex;
   flex-direction: column;
-  gap: var(--s5);
+  gap: 20px;
 }
 .msg {
   display: flex;
@@ -1141,7 +1137,9 @@ body.resizing .panel-resizer {
   min-width: 0;
 }
 .msg-label {
-  font: 600 var(--t-row) / 1.45 inherit;
+  font-size: var(--t-row);
+  font-weight: 600;
+  line-height: 1.45;
   color: var(--muted);
 }
 .msg.agent > .msg-label {
@@ -1159,7 +1157,7 @@ body.resizing .panel-resizer {
   white-space: pre-wrap;
 }
 .msg.agent {
-  gap: var(--s3);
+  gap: 7px;
   color: var(--ink-2);
   font-size: var(--t-body);
   line-height: 1.7;
@@ -1285,6 +1283,11 @@ body.resizing .panel-resizer {
   color: var(--text);
   text-underline-offset: 2px;
 }
+.md p code,
+.md li code {
+  font: var(--t-row) / 1.5 var(--mono);
+  color: var(--text-dim);
+}
 /* A fenced block is the reason this renderer exists: code in a reply used to
    arrive as unindented, unmonospaced, wrapped-mid-token prose. */
 .md-code {
@@ -1402,6 +1405,9 @@ body.resizing .panel-resizer {
 }
 .tool-line.dl-del .tool-text {
   color: var(--diff-text-del);
+}
+.tool-line:last-of-type .tool-text {
+  color: var(--text-dim);
 }
 .tool-text.muted {
   color: var(--dim);
@@ -1594,7 +1600,9 @@ body.resizing .panel-resizer {
   border-radius: var(--r-10);
   background: var(--surface-3);
   color: var(--ink-2);
-  font: var(--t-body) / 1.6 inherit;
+  font-family: inherit;
+  font-size: var(--t-body);
+  line-height: 1.6;
   resize: vertical;
 }
 .composer textarea::placeholder {
@@ -1620,7 +1628,10 @@ body.resizing .panel-resizer {
   padding: 0 14px;
   border: 0;
   border-radius: var(--r-8);
-  font: 500 var(--t-row) / 1.45 inherit;
+  font-family: inherit;
+  font-size: var(--t-row);
+  font-weight: 500;
+  line-height: 1.45;
 }
 .composer-row button.secondary {
   padding: 0 var(--s3);
