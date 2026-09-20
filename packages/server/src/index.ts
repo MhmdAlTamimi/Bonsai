@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 
 import { loadConfig } from './config.js';
 import { openDatabase } from './db/open.js';
-import { seedDemoProject } from './db/seed.js';
 import { Store } from './db/store.js';
 import { EventBus } from './api/events.js';
 import { handleApi } from './api/router.js';
@@ -79,19 +78,11 @@ void connection.check().then((status) => {
   });
 });
 
-// D31: any run still marked `running` in the database died with the process,
-// because nothing survives the exit. Recovery itself lands in M4; noticing is
-// cheap and belongs here from the start.
+// Mark unfinished runs for recovery. A crashed host may leave external processes;
+// this database transition does not prove that those processes stopped.
 const orphaned = store.markOrphanedRunsInterrupted();
 if (orphaned > 0) {
   process.stdout.write(`[bonsai] marked ${orphaned} interrupted run(s) from a previous session\n`);
-}
-
-// Projects can be created for real now, so the seed is opt-in rather than
-// automatic -- a seeded tree has fake commit shas and no worktrees behind it.
-if (process.env['BONSAI_SEED'] === '1' && store.listProjects().length === 0) {
-  const id = seedDemoProject(db, config.reposRoot);
-  process.stdout.write(`[bonsai] seeded fake demo project ${id} (no git behind it)\n`);
 }
 
 const UI_DIST = resolve(fileURLToPath(new URL('../../ui/dist', import.meta.url)));

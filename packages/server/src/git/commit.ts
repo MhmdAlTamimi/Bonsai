@@ -1,5 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { assertGitState, type GitState } from './ownership.js';
+import { OperationConflict } from '../domain/errors.js';
 
 import { git, gitLine, status } from './exec.js';
 import { parentSnapshot } from './diff.js';
@@ -61,14 +63,22 @@ export async function commitRunOutput(opts: {
   fallbackContext?: string;
   /** The node's pinned base, to measure the cumulative change against. */
   baseCommit?: string | null;
+  expectedState?: GitState;
+  contextFile?: string;
 }): Promise<CommitOutcome> {
   const { worktreePath, branchName, message } = opts;
 
+  if (opts.expectedState) await assertGitState(worktreePath, opts.expectedState);
+  const onBranch = await currentBranch(worktreePath);
+  if (onBranch !== null && onBranch !== branchName) {
+    throw new OperationConflict('The experiment is on an unexpected branch. Work is preserved.');
+  }
+  const contextFile = opts.contextFile ?? CONTEXT_FILE;
   const entries = await status(worktreePath);
-  const changed = entries.filter((e) => e.path !== CONTEXT_FILE);
+  const changed = entries.filter((e) => e.path !== contextFile);
 
   if (changed.length === 0) {
-    await revertContextFile(worktreePath, entries);
+    await revertContextFile(worktreePath, entries, contextFile);
     return {
       committed: false,
       commit: null,
@@ -89,16 +99,17 @@ export async function commitRunOutput(opts: {
    * agent leaves none the app writes a plain one from what it knows. The
    * agent's own version is always preferred when there is one.
    */
-  if (opts.fallbackContext !== undefined && !entries.some((e) => e.path === CONTEXT_FILE)) {
-    const tracked = await isTracked(worktreePath, CONTEXT_FILE);
+  if (opts.fallbackContext !== undefined && !entries.some((e) => e.path === contextFile)) {
+    const tracked = await isTracked(worktreePath, contextFile);
     if (!tracked) {
-      await writeFile(join(worktreePath, CONTEXT_FILE), opts.fallbackContext, 'utf8');
+      await writeFile(join(worktreePath, contextFile), opts.fallbackContext, 'utf8');
     }
   }
 
+  if (opts.expectedState) await assertGitState(worktreePath, opts.expectedState);
+
   // Detached until now. Creating the branch here, at the moment of the first
   // commit, is the whole point: the ref is deferred, not chosen up front.
-  const onBranch = await currentBranch(worktreePath);
   if (onBranch === null) {
     await git(['switch', '-c', branchName], worktreePath);
   }
@@ -110,6 +121,13 @@ export async function commitRunOutput(opts: {
 
   const commit = await gitLine(['rev-parse', 'HEAD'], worktreePath);
   const parent = await parentSnapshot(worktreePath, commit);
+  if (opts.expectedState) {
+    if (parent !== opts.expectedState.head)
+      throw new OperationConflict(
+        'The saved commit has an unexpected parent. Work is preserved for inspection.',
+      );
+    await assertGitState(worktreePath, { ...opts.expectedState, head: commit, branch: branchName });
+  }
   const ownStat = await diffStat(worktreePath, parent, commit);
 
   return {
@@ -164,14 +182,15 @@ export async function diffStat(cwd: string, from: string, to: string): Promise<D
 async function revertContextFile(
   worktreePath: string,
   entries: ReadonlyArray<{ path: string; untracked: boolean }>,
+  contextFile: string,
 ): Promise<void> {
-  const context = entries.find((e) => e.path === CONTEXT_FILE);
+  const context = entries.find((e) => e.path === contextFile);
   if (context === undefined) return;
 
   if (context.untracked) {
-    await git(['clean', '-f', '--', CONTEXT_FILE], worktreePath);
+    await git(['clean', '-f', '--', contextFile], worktreePath);
   } else {
-    await git(['restore', '--', CONTEXT_FILE], worktreePath);
+    await git(['restore', '--', contextFile], worktreePath);
   }
 }
 

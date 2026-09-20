@@ -57,8 +57,8 @@ export class ClaudeSdkRunner implements AgentRunner {
     spec.finishNow.addEventListener('abort', finish, { once: true });
 
     const options: Options = {
-      // D17: the worktree is the isolation boundary. Every node has one,
-      // including the conversation-only ones.
+      // Every current node has a checkout; cwd selects where the agent starts.
+      // This does not restrict host access.
       cwd: spec.cwd,
       abortController: controller,
 
@@ -169,20 +169,33 @@ export class ClaudeSdkRunner implements AgentRunner {
           if (main) session.turnStarted();
           for (const block of message.message.content) {
             if (block.type === 'text' && block.text.trim() !== '') {
-              yield { type: 'text', text: block.text };
+              yield {
+                type: 'text',
+                text: main
+                  ? block.text
+                  : `[Subagent · ${message.parent_tool_use_id}]\n\n${block.text}`,
+              };
             } else if (block.type === 'tool_use') {
               const detail = describeToolInput(block.input);
               if (main) session.toolStarted(block.id, block.name, detail);
               calledTools.set(block.id, block.name);
-              yield { type: 'tool', name: block.name, detail, id: block.id };
+              yield {
+                type: 'tool',
+                name: block.name,
+                detail,
+                id: block.id,
+                ...(!main && message.parent_tool_use_id
+                  ? { parentToolUseId: message.parent_tool_use_id }
+                  : {}),
+              };
             }
           }
         } else if (message.type === 'user') {
           const content = message.message.content;
-          if (message.parent_tool_use_id === null && Array.isArray(content)) {
+          if (Array.isArray(content)) {
             for (const block of content) {
               if (block.type !== 'tool_result') continue;
-              session.toolFinished(block.tool_use_id);
+              if (message.parent_tool_use_id === null) session.toolFinished(block.tool_use_id);
               /**
                * What the tool actually did, from the harness's structured
                * output rather than from the text handed to the model: the
@@ -295,7 +308,10 @@ async function stopJobs(live: SessionQuery | null, session: SessionActivity): Pr
  */
 export function permissionOptions(
   spec: RunSpec,
-): Pick<Options, 'permissionMode' | 'allowedTools' | 'canUseTool' | 'hooks'> {
+): Pick<
+  Options,
+  'permissionMode' | 'allowedTools' | 'canUseTool' | 'hooks' | 'allowDangerouslySkipPermissions'
+> {
   if (spec.readOnly) {
     return {
       // Whatever the project chose. `acceptEdits` and `bypassPermissions`
@@ -308,6 +324,9 @@ export function permissionOptions(
   return {
     permissionMode: spec.permissionMode as PermissionMode,
     canUseTool: gate(spec),
+    ...(spec.permissionMode === 'bypassPermissions'
+      ? { allowDangerouslySkipPermissions: true }
+      : {}),
     // D19/D30: the app owns git. Read-only git stays available for recovery.
     hooks: { PreToolUse: [gitGuardHook()] },
   };
@@ -484,9 +503,14 @@ export function gate(spec: RunSpec): CanUseTool {
  * ("actually, use a set here") should not quietly drop the definition of done.
  */
 function promptWithCriteria(spec: RunSpec): string {
-  if (spec.successCriteria === null && spec.verificationHint === null) return spec.prompt;
+  const instruction = spec.readOnly
+    ? 'This run is read-only. Read/search and answer questions only; do not write notes or run commands. Explain any check that needs a writable experiment.'
+    : `Write run notes only when files changed, at ${spec.contextPath ?? 'CONTEXT.md at the repository root'}. This path is independent of your current working directory.`;
+  const prompt = `${spec.prompt}\n\nBonsai run context: ${instruction}`;
+  if (spec.readOnly || (spec.successCriteria === null && spec.verificationHint === null))
+    return prompt;
 
-  const parts = [spec.prompt, '', '---', '', 'Definition of done for this node:'];
+  const parts = [prompt, '', '---', '', 'Definition of done for this node:'];
   if (spec.successCriteria !== null) parts.push('', `What should be true: ${spec.successCriteria}`);
   if (spec.verificationHint !== null) parts.push('', `How to check it: ${spec.verificationHint}`);
   parts.push(
@@ -501,18 +525,25 @@ function promptWithCriteria(spec: RunSpec): string {
 
 const SYSTEM_APPEND = `
 You are working inside one node of Bonsai, a tree of coding experiments. This
-directory is your own git worktree and nothing you do here affects any other node.
+directory is the working directory for this experiment. A worktree is not a
+security sandbox. Stay within this experiment and do not modify the original
+checkout, other experiments, shared Git metadata, or Bonsai application files.
+If another experiment is needed, explain why and ask the user to create a node.
+If external files or services need changes, explain the proposed action and
+give the user steps to execute themselves. Scoped external execution is not yet
+supported by Bonsai; do not perform the external change yourself.
 
 Bonsai owns git. Do not commit, branch, check out, merge, or reset — those are
-blocked, and the app commits your work for you when you finish. Read-only git
-(status, diff, log) is available and useful.
+managed by Bonsai. The app commits your work when the run finishes. A Git
+command guard detects common violations but is not a sandbox. In writable
+runs you may use read-only git (status, diff, log). Read-only runs have no shell.
 
-When you have changed files, write a short CONTEXT.md in the working directory
+When you have changed files, write short notes at the notes path supplied in the run context
 as your final action: what you were asked for, what you did, and anything a
 later node continuing from here should know. If you only answered a question and
 changed no files, do not create CONTEXT.md.
 
-If the message gives you a definition of done, run the check yourself and add a
+If this is a writable run and the message gives you a definition of done, run the check and add a
 \`## Testing\` section to CONTEXT.md recording the command you ran and what it
 actually printed. Report a failure as a failure — a node that honestly says the
 tests fail is far more useful than one that says it verified something it did

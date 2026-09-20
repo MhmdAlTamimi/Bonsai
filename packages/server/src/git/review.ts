@@ -1,8 +1,7 @@
-import { readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { workingTreeSnapshot } from './snapshot.js';
 import type { ReviewFile, ReviewStatus } from '@bonsai/shared';
 
-import { git, gitDiffNoIndex, status } from './exec.js';
+import { git, gitPatch, status } from './exec.js';
 
 /**
  * What an experiment changed, as review reads it: one list of files with a
@@ -27,21 +26,31 @@ const DIFF = [
 
 /** A single file's patch beyond this is cut, and says so. */
 export const MAX_PATCH_BYTES = 2 * 1024 * 1024;
-/** Untracked files larger than this are listed without counting their lines. */
-const MAX_COUNTED_BYTES = 10 * 1024 * 1024;
 
 export async function reviewFiles(
   worktree: string,
   range: { base: string; head: string } | null,
 ): Promise<ReviewFile[]> {
-  const committed = range === null ? [] : await committedFiles(worktree, range);
-  const uncommitted = await uncommittedFiles(worktree);
-
-  // A file changed in a commit AND since is shown once, in the state it is in
-  // now: the working tree is what the next run will see.
-  const byPath = new Map(committed.map((file) => [file.path, file]));
-  for (const file of uncommitted) byPath.set(file.path, file);
-  return [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const dirty = await status(worktree);
+  const head = dirty.length === 0 ? (range?.head ?? 'HEAD') : await workingTreeSnapshot(worktree);
+  const files = await committedFiles(worktree, { base: range?.base ?? 'HEAD', head });
+  return files
+    .map((file) => {
+      const entry = dirty.find(
+        (item) =>
+          item.path === file.path || item.path === file.oldPath || item.oldPath === file.path,
+      );
+      return {
+        ...file,
+        ...(entry === undefined
+          ? {}
+          : {
+              uncommitted: true,
+              ...(entry.untracked && file.status === 'A' ? { status: 'U' as const } : {}),
+            }),
+      };
+    })
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 async function committedFiles(
@@ -59,56 +68,20 @@ async function committedFiles(
   }));
 }
 
-/** What is in the folder and not committed, untracked files included (D31). */
-async function uncommittedFiles(worktree: string): Promise<ReviewFile[]> {
-  const entries = await status(worktree);
-  if (entries.length === 0) return [];
-  const numbers = parseNumstat(await git([...DIFF, '--numstat', '-z', 'HEAD', '--'], worktree));
-
-  return Promise.all(
-    entries.map(async (entry): Promise<ReviewFile> => {
-      const counts = entry.untracked
-        ? await countLines(join(worktree, entry.path))
-        : (numbers.get(entry.path) ?? { additions: 0, deletions: 0, binary: false });
-      return {
-        path: entry.path,
-        ...(entry.oldPath === undefined ? {} : { oldPath: entry.oldPath }),
-        status: entry.untracked ? 'U' : letterFor(entry.code),
-        uncommitted: true,
-        ...counts,
-      };
-    }),
-  );
-}
-
-/** One file's patch: from the commits for committed work, from the folder otherwise. */
+/** Review always compares the inherited base with the complete current snapshot. */
 export async function reviewFilePatch(
   worktree: string,
   range: { base: string; head: string } | null,
   file: ReviewFile,
 ): Promise<{ patch: string; truncated: boolean }> {
   const paths = file.oldPath === undefined ? [file.path] : [file.oldPath, file.path];
-  if (file.status === 'U') {
-    // Untracked: there is no "before", so the file is diffed against nothing.
-    return cap(
-      await gitDiffNoIndex(
-        [
-          '-c',
-          'core.quotepath=false',
-          'diff',
-          '--no-ext-diff',
-          '--no-index',
-          '--',
-          '/dev/null',
-          file.path,
-        ],
-        worktree,
-      ),
-    );
-  }
-  if (file.uncommitted === true) return cap(await git([...DIFF, 'HEAD', '--', ...paths], worktree));
-  if (range === null) return { patch: '', truncated: false };
-  return cap(await git([...DIFF, range.base, range.head, '--', ...paths], worktree));
+  const dirty = await status(worktree);
+  const head = dirty.length === 0 ? (range?.head ?? 'HEAD') : await workingTreeSnapshot(worktree);
+  return gitPatch(
+    [...DIFF, range?.base ?? 'HEAD', head, '--', ...paths],
+    worktree,
+    MAX_PATCH_BYTES,
+  );
 }
 
 export function totalsOf(files: readonly ReviewFile[]): {
@@ -180,33 +153,4 @@ function letterFor(code: string): ReviewStatus {
   if (code.startsWith('R')) return 'R';
   if (code.includes('A')) return 'A';
   return 'M';
-}
-
-function cap(patch: string): { patch: string; truncated: boolean } {
-  if (Buffer.byteLength(patch) <= MAX_PATCH_BYTES) return { patch, truncated: false };
-  const cut = patch.slice(0, MAX_PATCH_BYTES);
-  return { patch: cut.slice(0, Math.max(0, cut.lastIndexOf('\n') + 1)), truncated: true };
-}
-
-/** Lines in a new file, which git has no numstat for until it is tracked. */
-async function countLines(
-  path: string,
-): Promise<{ additions: number; deletions: number; binary: boolean }> {
-  try {
-    const info = await stat(path);
-    if (!info.isFile() || info.size > MAX_COUNTED_BYTES) {
-      return { additions: 0, deletions: 0, binary: false };
-    }
-    const content = await readFile(path);
-    // The same test git uses: a NUL in the first 8000 bytes means binary.
-    if (content.subarray(0, 8000).includes(0)) {
-      return { additions: 0, deletions: 0, binary: true };
-    }
-    let lines = 0;
-    for (const byte of content) if (byte === 10) lines += 1;
-    if (content.length > 0 && content[content.length - 1] !== 10) lines += 1;
-    return { additions: lines, deletions: 0, binary: false };
-  } catch {
-    return { additions: 0, deletions: 0, binary: false };
-  }
 }

@@ -229,7 +229,8 @@ describe('the run queue', () => {
 
   /** Lets the dispatched jobs get past their (empty) setup phase. */
   async function tick(): Promise<void> {
-    await new Promise((r) => setTimeout(r, 20));
+    for (let i = 0; i < 300 && runner.started < 3; i += 1)
+      await new Promise((r) => setTimeout(r, 10));
   }
 
   test('five runs with a cap of three: three run, two queue', async () => {
@@ -258,6 +259,7 @@ describe('the run queue', () => {
     const ids = await fiveChildren();
     for (const id of ids) jobs.start(id, 'slow');
 
+    await tick();
     jobs.cancel(ids[0]!);
     for (let i = 0; i < 200 && runner.started < 4; i += 1) {
       await new Promise((r) => setTimeout(r, 10));

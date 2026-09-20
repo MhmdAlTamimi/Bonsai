@@ -267,3 +267,35 @@ describe('a question from the agent', () => {
     ]);
   });
 });
+
+for (const mode of ['default', 'plan', 'acceptEdits', 'bypassPermissions']) {
+  test(`writable ${mode} supplies the expected SDK bypass opt-in`, () => {
+    const options = permissionOptions(spec({ permissionMode: mode }));
+    assert.equal(options.permissionMode, mode);
+    assert.equal(options.allowDangerouslySkipPermissions === true, mode === 'bypassPermissions');
+    const readOnly = permissionOptions(spec({ permissionMode: mode, readOnly: true }));
+    assert.notEqual(readOnly.allowDangerouslySkipPermissions, true);
+  });
+}
+
+for (const mode of ['acceptEdits', 'bypassPermissions', 'plan']) {
+  test(`${mode} callback approves ordinary requests; SDK mode restrictions are separate`, async () => {
+    const options = permissionOptions(spec({ permissionMode: mode }));
+    assert.equal((await decide(options, 'Bash')).behavior, 'allow');
+  });
+}
+test('default mode routes mutating requests through the user gate', async () => {
+  const calls: string[] = [];
+  const options = permissionOptions(
+    spec({
+      permissionMode: 'default',
+      ask: (request) => {
+        calls.push(request.toolName);
+        return Promise.resolve({ allow: false, reason: 'declined' });
+      },
+    }),
+  );
+  assert.equal((await decide(options, 'Read')).behavior, 'allow');
+  assert.equal((await decide(options, 'Bash')).behavior, 'deny');
+  assert.deepEqual(calls, ['Bash']);
+});

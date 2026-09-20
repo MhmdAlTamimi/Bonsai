@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, lstat, rm, rmdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 import type { PermissionMode } from '@bonsai/shared';
@@ -15,6 +15,9 @@ import {
 import { resolveBaseCommit } from './domain/lineage.js';
 import { toLineage } from './db/store.js';
 import { adoptDirectory, snapshotUncommitted, suggestProjectName } from './git/adopt.js';
+import { assertGitState, expectedGitState } from './git/ownership.js';
+import { gitLine } from './git/exec.js';
+import { OperationConflict } from './domain/errors.js';
 import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
 
 /**
@@ -58,28 +61,50 @@ export async function createProject(
       ? null
       : await prepareNewDirectory(input.location, input.name, input.expectedPath);
 
-  const project = store.createProject(input);
-  const { rootCommit } = await createRepo(project.repo_path);
+  let project: ProjectRow;
+  try {
+    project = store.createProject(input);
+  } catch (error) {
+    if (chosen !== null) await rmdir(chosen);
+    throw error;
+  }
+  let checkout: string | null = null;
+  try {
+    const { rootCommit } = await createRepo(project.repo_path);
 
-  // D24: master is a real branch and the only node that starts attached to one.
-  // Its head commit exists before its worktree does -- that ordering is forced
-  // by git and is what makes the lineage walk total (see lineage.ts).
-  const master = store.createNode({
-    projectId: project.id,
-    parentId: null,
-    displayName: DEFAULT_BRANCH,
-    description: input.description,
-    rootCommit,
-    rootBranchName: DEFAULT_BRANCH,
-    ...(chosen === null ? {} : { worktreePath: chosen }),
-  });
+    // D24: master is a real branch and the only node that starts attached to one.
+    // Its head commit exists before its worktree does -- that ordering is forced
+    // by git and is what makes the lineage walk total (see lineage.ts).
+    const master = store.createNode({
+      projectId: project.id,
+      parentId: null,
+      displayName: DEFAULT_BRANCH,
+      description: input.description,
+      rootCommit,
+      rootBranchName: DEFAULT_BRANCH,
+      ...(chosen === null ? {} : { worktreePath: chosen }),
+    });
 
-  await addBranchWorktree(project.repo_path, master.worktree_path, DEFAULT_BRANCH);
-  // Recorded now rather than at insert because the default path contains the
-  // node's own id. This is the path "reveal in file manager" opens, for created
-  // and adopted projects alike.
-  store.setProjectSourcePath(project.id, master.worktree_path);
-  return { projectId: project.id, masterNodeId: master.id, path: master.worktree_path };
+    await addBranchWorktree(project.repo_path, master.worktree_path, DEFAULT_BRANCH);
+    checkout = master.worktree_path;
+    // Recorded now rather than at insert because the default path contains the
+    // node's own id. This is the path "reveal in file manager" opens, for created
+    // and adopted projects alike.
+    store.setProjectSourcePath(project.id, master.worktree_path);
+    return { projectId: project.id, masterNodeId: master.id, path: master.worktree_path };
+  } catch (error) {
+    try {
+      if (checkout !== null) await removeWorktree(project.repo_path, checkout);
+      if (chosen !== null && (await pathExists(chosen))) await rmdir(chosen);
+      await rm(dirname(project.repo_path), { recursive: true, force: true });
+      store.deleteProject(project.id);
+    } catch (cleanup) {
+      throw new Error(
+        `Project creation failed; retained project ${project.id} for recovery: ${String(error)}. Cleanup: ${String(cleanup)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -96,7 +121,7 @@ export async function previewNewDirectory(location: string, name: string): Promi
 
   const base = slugify(name);
   let target = join(parent, base);
-  for (let n = 2; await isNonEmpty(target); n += 1) {
+  for (let n = 2; await pathExists(target); n += 1) {
     if (n > 99) throw new Error(`Could not find a free folder name in ${parent}`);
     target = join(parent, `${base}-${n}`);
   }
@@ -114,15 +139,17 @@ async function prepareNewDirectory(
     throw new Error(
       'The destination changed. Review the folder again before creating the project.',
     );
-  await mkdir(target, { recursive: true });
+  await mkdir(target);
   return target;
 }
 
-async function isNonEmpty(path: string): Promise<boolean> {
+async function pathExists(path: string): Promise<boolean> {
   try {
-    return (await readdir(path)).length > 0;
-  } catch {
-    return false; // does not exist, or is not readable -- mkdir will decide
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
   }
 }
 
@@ -209,16 +236,22 @@ export async function adoptProject(
     },
   });
 
-  const master = store.createNode({
-    projectId: project.id,
-    parentId: null,
-    displayName: adopted.branch,
-    description: input.description,
-    rootCommit: base,
-    rootBranchName: adopted.branch,
-    // The user's own directory, not a worktree Bonsai created.
-    worktreePath: adopted.repoPath,
-  });
+  let master: NodeRow;
+  try {
+    master = store.createNode({
+      projectId: project.id,
+      parentId: null,
+      displayName: adopted.branch,
+      description: input.description,
+      rootCommit: base,
+      rootBranchName: adopted.branch,
+      // The user's own directory, not a worktree Bonsai created.
+      worktreePath: adopted.repoPath,
+    });
+  } catch (error) {
+    store.deleteProject(project.id);
+    throw error;
+  }
 
   return {
     projectId: project.id,
@@ -260,41 +293,59 @@ export async function createChildNode(
   const baseCommit = resolveBaseCommit(toLineage(parent));
 
   const node = store.createNode(input);
-  await addDetachedWorktree(project.repo_path, node.worktree_path, baseCommit);
+  let createdWorktree = false;
+  try {
+    await addDetachedWorktree(project.repo_path, node.worktree_path, baseCommit);
+    createdWorktree = true;
 
-  /**
-   * D37: the agent works in the project's chosen subdirectory of the worktree.
-   *
-   * Created here because `git worktree add` checks out TRACKED files only, so a
-   * working directory whose contents are all gitignored -- a build output
-   * folder, a scratch area -- would not exist in a fresh worktree and the agent
-   * would have nowhere to start. An empty directory is invisible to git, so
-   * making it changes nothing about what a run commits.
-   */
-  const workingDir = workDirIn(node.worktree_path, project.work_dir);
-  if (workingDir !== node.worktree_path) await mkdir(workingDir, { recursive: true });
+    /**
+     * D37: the agent works in the project's chosen subdirectory of the worktree.
+     *
+     * Created here because `git worktree add` checks out TRACKED files only, so a
+     * working directory whose contents are all gitignored -- a build output
+     * folder, a scratch area -- would not exist in a fresh worktree and the agent
+     * would have nowhere to start. An empty directory is invisible to git, so
+     * making it changes nothing about what a run commits.
+     */
+    const workingDir = workDirIn(node.worktree_path, project.work_dir);
+    if (workingDir !== node.worktree_path) await mkdir(workingDir, { recursive: true });
 
-  /**
-   * The worktree is checked out; now give it what git left behind.
-   *
-   * Copying happens HERE, synchronously, because it is a handful of small
-   * files and the node should never be visible without them. The SETUP COMMAND
-   * does not: `npm install` on a cold cache takes minutes, and holding the
-   * HTTP response open for that would freeze the canvas at the exact moment
-   * the user is watching it. It runs instead as the first phase of the node's
-   * first run, where it is asynchronous, cancellable and visible -- and still,
-   * as required, complete before the agent starts.
-   */
-  const seeded =
-    project.source_path === null
-      ? []
-      : await seedFiles({
-          sourceDir: project.source_path,
-          targetDir: node.worktree_path,
-          files: store.projectView(project).setup.copyFiles,
-        });
+    /**
+     * The worktree is checked out; now give it what git left behind.
+     *
+     * Copying happens HERE, synchronously, because it is a handful of small
+     * files and the node should never be visible without them. The SETUP COMMAND
+     * does not: `npm install` on a cold cache takes minutes, and holding the
+     * HTTP response open for that would freeze the canvas at the exact moment
+     * the user is watching it. It runs instead as the first phase of the node's
+     * first run, where it is asynchronous, cancellable and visible -- and still,
+     * as required, complete before the agent starts.
+     */
+    const seeded =
+      project.source_path === null
+        ? []
+        : await seedFiles({
+            sourceDir: project.source_path,
+            targetDir: node.worktree_path,
+            files: store.projectView(project).setup.copyFiles,
+          });
 
-  return { nodeId: node.id, baseCommit, seeded };
+    return { nodeId: node.id, baseCommit, seeded };
+  } catch (error) {
+    try {
+      if (createdWorktree) await removeWorktree(project.repo_path, node.worktree_path);
+      else if (await pathExists(node.worktree_path))
+        throw new Error(
+          `Worktree allocation left a directory at ${node.worktree_path}; inspect it before deleting this node.`,
+        );
+      store.deleteNode(node.id);
+    } catch (cleanup) {
+      throw new Error(
+        `Node creation failed; retained node ${node.id} for recovery: ${String(error)}. Cleanup: ${String(cleanup)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 /**
@@ -336,11 +387,12 @@ function ownsWorktree(project: ProjectRow, node: NodeRow): boolean {
  * The rule is now positive rather than exclusionary: Bonsai deletes a branch
  * only when it is one Bonsai creates, and those are always `node/<uuid>`.
  */
-function ownsBranch(project: ProjectRow, branch: string | null): branch is string {
+function ownsBranch(project: ProjectRow, node: NodeRow): boolean {
+  const branch = node.branch_name;
   if (branch === null) return false;
   if (branch === project.protected_branch) return false;
   if (project.source_kind === 'created' && branch === DEFAULT_BRANCH) return false;
-  return branch.startsWith('node/');
+  return branch === branchNameFor(node.id);
 }
 
 /**
@@ -356,16 +408,13 @@ export async function deleteNodeTree(store: Store, nodeId: string): Promise<numb
   // Collect before deleting: the rows are gone once the cascade fires.
   const doomed = store.descendantsOf(nodeId);
 
+  for (const row of doomed) await verifyDeletion(project, row);
   for (const row of doomed) {
     if (ownsWorktree(project, row)) {
       await removeWorktree(project.repo_path, row.worktree_path);
     }
-    if (ownsBranch(project, row.branch_name)) {
-      await deleteBranch(project.repo_path, row.branch_name);
-    } else if (row.branch_name === null) {
-      // A node that never committed has no branch, but the name it would have
-      // taken is deterministic -- and is unambiguously Bonsai's.
-      await deleteBranch(project.repo_path, branchNameFor(row.id));
+    if (ownsBranch(project, row)) {
+      await deleteBranch(project.repo_path, row.branch_name!);
     }
   }
 
@@ -395,12 +444,13 @@ export async function deleteProjectTree(
 
   const nodes = store.listNodes(projectId);
 
+  for (const node of nodes) await verifyDeletion(project, node);
   for (const node of nodes) {
     if (ownsWorktree(project, node)) {
       await removeWorktree(project.repo_path, node.worktree_path);
     }
-    if (project.source_kind === 'adopted' && ownsBranch(project, node.branch_name)) {
-      await deleteBranch(project.repo_path, node.branch_name);
+    if (project.source_kind === 'adopted' && ownsBranch(project, node)) {
+      await deleteBranch(project.repo_path, node.branch_name!);
     }
   }
 
@@ -486,6 +536,36 @@ export function projectDeletionImpact(
             : []),
         ],
     keepsDirectory: adopted ? project.source_path : null,
-    branches: adopted ? nodes.filter((n) => ownsBranch(project, n.branch_name)).length : 0,
+    branches: adopted ? nodes.filter((n) => ownsBranch(project, n)).length : 0,
   };
+}
+
+/** Check the whole deletion set before changing anything. External drift is preserved. */
+async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void> {
+  if (!ownsWorktree(project, node)) return;
+  if (
+    node.branch_name !== null &&
+    node.branch_name !== branchNameFor(node.id) &&
+    !(
+      project.source_kind === 'created' &&
+      node.parent_id === null &&
+      node.branch_name === DEFAULT_BRANCH
+    )
+  ) {
+    throw new OperationConflict(
+      'This branch is not owned by this Bonsai node. Nothing was deleted.',
+    );
+  }
+  const expected = await expectedGitState(project.repo_path, node);
+  if (await pathExists(node.worktree_path)) await assertGitState(node.worktree_path, expected);
+  if (node.branch_name !== null) {
+    const head = await gitLine(
+      ['rev-parse', '--verify', `refs/heads/${node.branch_name}`],
+      project.repo_path,
+    );
+    if (head !== expected.head)
+      throw new OperationConflict(
+        'The recorded branch changed outside Bonsai. Nothing was deleted.',
+      );
+  }
 }

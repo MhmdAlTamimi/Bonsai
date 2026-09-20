@@ -18,9 +18,7 @@ CREATE TABLE IF NOT EXISTS project (
   -- Pinned per project so changing future storage never relocates existing work.
   scratch_path            TEXT,
   default_model           TEXT,
-  -- Non-interactive until the ask-user mechanism lands: with no needs_you
-  -- there is nobody to answer a permission prompt, and a run would stall with
-  -- no timeout and no visible cause.
+  -- Writable-run default. Explicit default mode uses the pending-question UI.
   default_permission_mode TEXT NOT NULL DEFAULT 'acceptEdits',
   -- D32: reasoning effort, alongside model, as a project-level setting. The
   -- single biggest lever on what a run costs after the model itself.

@@ -186,7 +186,7 @@ describe('a run and its background work', () => {
     const run = start();
     const session = await run.session;
     await until(() => session.received.length === 1, 'the prompt to arrive');
-    assert.deepEqual(session.received, ['train the model']);
+    assert.match(session.received[0]!, /^train the model\n\nBonsai run context:/);
 
     session.emit(say('Done.'), turnOver(0.01));
     await run.done;
@@ -299,6 +299,10 @@ describe('a run and its background work', () => {
     await drained();
 
     session.emit(say('subagent progress', 'toolu_parent'));
+    await drained();
+    assert.ok(
+      run.events.some((e) => e.type === 'text' && e.text.includes('[Subagent · toolu_parent]')),
+    );
     await drained();
     assert.equal(run.activity.at(-1)?.state, 'waiting');
 

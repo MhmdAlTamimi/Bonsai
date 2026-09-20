@@ -6,16 +6,10 @@ export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
-    readonly milestone?: string,
   ) {
     super(message);
     this.name = 'HttpError';
   }
-}
-
-/** A route that exists in the contract but whose milestone has not landed. */
-export function notYet(milestone: string, what: string): never {
-  throw new HttpError(501, `${what} lands in ${milestone}`, milestone);
 }
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -34,7 +28,6 @@ export function sendError(res: ServerResponse, err: unknown): void {
   }
   if (err instanceof HttpError) {
     const body: ApiError = { error: err.message };
-    if (err.milestone !== undefined) body.milestone = err.milestone;
     sendJson(res, err.status, body);
     return;
   }

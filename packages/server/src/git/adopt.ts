@@ -1,3 +1,4 @@
+import { workingTreeSnapshot } from './snapshot.js';
 import { readdir, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
@@ -167,6 +168,10 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
       repoRoot,
       workDir: relativeWorkDir(repoRoot, full),
       branch: branch === '' ? null : branch,
+      blockedReason:
+        branch === ''
+          ? 'This repository has a detached HEAD. Choose an existing branch in your Git tools before opening it in Bonsai; Bonsai will not move your branches.'
+          : null,
       headCommit: head,
       dirtyFiles: (await status(repoRoot)).length,
     };
@@ -250,12 +255,9 @@ export async function adoptDirectory(path: string): Promise<AdoptedRepo> {
 
   const workDir = relativeWorkDir(repoRoot, full);
 
-  let branch = await gitLine(['branch', '--show-current'], repoRoot);
+  const branch = await gitLine(['branch', '--show-current'], repoRoot);
   if (branch === '') {
-    // Detached HEAD: put the user back on a named branch, because every node
-    // Bonsai creates needs a branch to exist alongside.
-    branch = 'main';
-    await git(['checkout', '-B', branch], repoRoot);
+    throw new Error('Choose an existing branch before adopting this repository.');
   }
 
   let head: string;
@@ -273,18 +275,14 @@ export async function adoptDirectory(path: string): Promise<AdoptedRepo> {
   return { repoPath: repoRoot, workDir, branch, headCommit: head, initialised };
 }
 
-/**
- * A commit object for the current uncommitted state, belonging to no branch.
- *
- * Lets nodes branch from work in progress without Bonsai committing anything to
- * the user's branch. `git stash create` builds the commit and leaves the
- * working tree exactly as it was.
- */
+/** Snapshot tracked and untracked, nonignored files without touching the user's index or refs. */
 export async function snapshotUncommitted(repoPath: string): Promise<string | null> {
-  const dirty = await status(repoPath);
-  if (dirty.length === 0) return null;
-  const sha = await gitLine(['stash', 'create', 'Bonsai: uncommitted work at import'], repoPath);
-  return sha === '' ? null : sha;
+  if ((await status(repoPath)).length === 0) return null;
+  const head = await gitLine(['rev-parse', 'HEAD'], repoPath);
+  const tree = await workingTreeSnapshot(repoPath);
+  return (
+    await git(['commit-tree', tree, '-p', head, '-m', 'Bonsai: working snapshot'], repoPath)
+  ).trim();
 }
 
 export function suggestProjectName(path: string): string {

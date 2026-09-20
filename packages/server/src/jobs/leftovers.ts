@@ -39,6 +39,7 @@ export interface MarkedProcess {
 export async function findLeftovers(
   runId: string,
   self: number = process.pid,
+  includeDescendants = false,
 ): Promise<MarkedProcess[]> {
   const table =
     process.platform === 'linux'
@@ -59,7 +60,7 @@ export async function findLeftovers(
     }
     return false;
   };
-  return table.marked.filter((p) => p.pid !== self && !descends(p.pid));
+  return table.marked.filter((p) => p.pid !== self && (includeDescendants || !descends(p.pid)));
 }
 
 /**
@@ -79,7 +80,7 @@ export function roots(processes: readonly MarkedProcess[]): MarkedProcess[] {
  * Returns what was running when it was called, one entry per piece of work.
  */
 export async function stopLeftovers(runId: string, graceMs = 3_000): Promise<MarkedProcess[]> {
-  const found = await findLeftovers(runId);
+  const found = await findLeftovers(runId, process.pid, true);
   if (found.length === 0) return [];
   for (const p of found) signal(p.pid, 'SIGTERM');
 
@@ -87,10 +88,16 @@ export async function stopLeftovers(runId: string, graceMs = 3_000): Promise<Mar
   let remaining = found;
   while (remaining.length > 0 && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 100));
-    remaining = await findLeftovers(runId);
+    remaining = await findLeftovers(runId, process.pid, true);
   }
   for (const p of remaining) signal(p.pid, 'SIGKILL');
-  return roots(found);
+  for (let i = 0; i < 10; i += 1) {
+    if ((await findLeftovers(runId, process.pid, true)).length === 0) return roots(found);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(
+    'Background process cleanup could not be confirmed. Check the experiment’s processes before continuing.',
+  );
 }
 
 function signal(pid: number, name: NodeJS.Signals): void {

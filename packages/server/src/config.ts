@@ -12,7 +12,7 @@ export interface Config {
   /** Where per-project bare repos and worktrees live. */
   reposRoot: string;
   defaultModel: string | null;
-  /** Non-interactive until the ask-user mechanism lands. */
+  /** Default SDK permission mode for writable runs. */
   defaultPermissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
 }
 

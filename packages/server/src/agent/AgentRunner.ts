@@ -1,21 +1,13 @@
 import type { AgentQuestion, BackgroundJob, RunActivity, ToolResultContent } from '@bonsai/shared';
 
-/**
- * D14e: agent invocation sits behind one interface, so swapping the model or
- * the harness is cheap.
- *
- * M2 ships FakeRunner as the only implementation, which is deliberate: the git
- * layer is the subtlest part of the product and testing it without agent
- * latency or cost is much faster. M3 adds ClaudeSdkRunner and changes nothing
- * else -- the pipeline below this interface already commits, branches and walks
- * lineage exactly as it will in production.
- */
-
+/** Runner boundary shared by the real SDK adapter and deterministic test runner. */
 export interface RunSpec {
   runId: string;
   nodeId: string;
-  /** The node's worktree. The isolation boundary (D17). */
+  /** The agent's working directory inside the experiment checkout; not a sandbox. */
   cwd: string;
+  /** Repository-root notes path, independent of the selected working subdirectory. */
+  contextPath?: string;
   prompt: string;
   /**
    * D16: the session to continue from, or null for a node with no ancestry to
@@ -133,7 +125,7 @@ export type PermissionDecision = { allow: true } | { allow: false; reason: strin
 
 export type RunEvent =
   | { type: 'text'; text: string }
-  | { type: 'tool'; name: string; detail: string; id?: string }
+  | { type: 'tool'; name: string; detail: string; id?: string; parentToolUseId?: string }
   /** What a tool produced: a command's output, or an edit's changed lines. */
   | { type: 'tool_result'; result: ToolResultContent }
   | { type: 'session'; sessionId: string }

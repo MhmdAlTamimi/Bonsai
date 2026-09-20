@@ -75,12 +75,21 @@ export class MessageStore {
     return Number(row.seq);
   }
 
-  /** The last thing the user actually asked for on this node. */
+  /**
+   * First user message of the latest attributed run, excluding later answers.
+   * Legacy messages without a run cannot be distinguished safely: return null
+   * so recovery uses the node description instead of an arbitrary reply.
+   */
   lastUserPrompt(nodeId: string): string | null {
     const row = this.db
       .prepare(
         `SELECT content_json FROM message
-         WHERE node_id = ? AND role = 'user' ORDER BY seq DESC LIMIT 1`,
+         WHERE node_id = ? AND role = 'user' AND kind = 'text'
+           AND run_id IS NOT NULL
+           AND seq = (SELECT MIN(first.seq) FROM message first
+             WHERE first.node_id = message.node_id AND first.run_id = message.run_id
+               AND first.role = 'user')
+         ORDER BY seq DESC LIMIT 1`,
       )
       .get(nodeId) as unknown as { content_json: string } | undefined;
     if (row === undefined) return null;

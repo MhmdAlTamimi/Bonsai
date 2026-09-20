@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 /**
  * Running a project's own commands, in a node's worktree.
  *
- * Used twice: once at node creation, to run the project's setup command before
+ * Used twice: once at the first writable run, to run the project's setup command before
  * the agent starts, and later on demand from the panel. The two are the same
  * machinery with different callers, so this is the shared piece rather than
  * two implementations that drift.
@@ -57,12 +57,25 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
   const timeoutMs = options.timeoutMs ?? 15 * 60_000;
   const startedAt = Date.now();
 
+  if (options.signal?.aborted === true)
+    return {
+      command,
+      cwd,
+      exitCode: null,
+      signal: 'SIGTERM',
+      stdout: '',
+      stderr: 'Cancelled before starting.',
+      durationMs: 0,
+      timedOut: false,
+      ok: false,
+    };
   return new Promise<CommandResult>((resolve) => {
     const child = spawn(command, {
       cwd,
       shell: true,
       env: { ...process.env, ...options.env, CI: '1' },
       windowsHide: true,
+      detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -70,6 +83,27 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
     let stderr = '';
     let timedOut = false;
     let settled = false;
+    let cancelled = false;
+    let killTimer: NodeJS.Timeout | undefined;
+    const killTree = (signal: NodeJS.Signals): void => {
+      try {
+        if (process.platform !== 'win32' && child.pid !== undefined)
+          process.kill(-child.pid, signal);
+        else child.kill(signal);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ESRCH')
+          stderr = tail(stderr + `\nProcess cleanup failed: ${String(error)}`);
+      }
+    };
+    const terminate = (): void => {
+      if (cancelled) return;
+      cancelled = true;
+      killTree('SIGTERM');
+      killTimer = setTimeout(() => {
+        killTree('SIGKILL');
+        finish(null, 'SIGKILL');
+      }, 1000);
+    };
 
     const collect = (stream: 'stdout' | 'stderr') => (chunk: Buffer) => {
       const text = chunk.toString('utf8');
@@ -85,14 +119,12 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
 
     const timer = setTimeout(() => {
       timedOut = true;
-      // SIGTERM first so a build can clean up; SIGKILL if it will not go.
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 5000).unref();
+      terminate();
     }, timeoutMs);
     timer.unref();
 
     const onAbort = (): void => {
-      child.kill('SIGTERM');
+      terminate();
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
 
@@ -100,6 +132,8 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (killTimer !== undefined) clearTimeout(killTimer);
+      if (cancelled) killTree('SIGKILL');
       options.signal?.removeEventListener('abort', onAbort);
       resolve({
         command,
@@ -110,7 +144,7 @@ export async function runCommand(options: RunCommandOptions): Promise<CommandRes
         stderr: stderr.trim(),
         durationMs: Date.now() - startedAt,
         timedOut,
-        ok: exitCode === 0,
+        ok: exitCode === 0 && !cancelled && !timedOut,
       });
     };
 

@@ -294,6 +294,8 @@ export interface NodeView {
    * to happen, and nothing else about it differs.
    */
   queuePosition: number | null;
+  /** Active/queued execution identity; absent on older server responses. */
+  activeRunId?: string | null;
   /**
    * What the run is doing right now, or null when nothing is running.
    *
@@ -815,6 +817,4 @@ export type ServerEvent =
 
 export interface ApiError {
   error: string;
-  /** Set when a route exists but its milestone has not landed yet. */
-  milestone?: string;
 }

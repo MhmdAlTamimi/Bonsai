@@ -1,5 +1,5 @@
-import { copyFile, mkdir, stat } from 'node:fs/promises';
-import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { copyFile, lstat, mkdir, stat } from 'node:fs/promises';
+import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 
 import { git } from './exec.js';
 
@@ -72,33 +72,27 @@ export async function seedFiles(opts: {
       continue;
     }
 
-    /**
-     * THE IMPORTANT CHECK. A file that is tracked by git must not be copied.
-     *
-     * Bonsai commits with `git add -A`. Copying a TRACKED .env into a node
-     * would stage it and commit the user's secrets -- in an adopted project,
-     * onto a branch inside their own repository. Refused, with the reason.
-     *
-     * And refused rather than fixed: adding it to .gitignore is not Bonsai's
-     * call. That file is tracked, it exists in every worktree, and in an
-     * adopted project it belongs to the user. Editing it is a request to make
-     * of the agent, not something a settings field should do behind their back.
-     */
-    if (await isTracked(opts.sourceDir, relative)) {
-      out.push({
-        path: relative,
-        copied: false,
-        reason:
-          'it is tracked by git, so copying it would commit its contents to this node’s ' +
-          'branch. Add it to .gitignore first (that is a change to your repository, so Bonsai ' +
-          'will not make it for you).',
-      });
-      continue;
-    }
-
     try {
+      await rejectSymlinks(opts.sourceDir, relative);
+      await rejectSymlinks(opts.targetDir, relative);
+      for (const dir of [opts.sourceDir, opts.targetDir]) {
+        if ((await git(['ls-files', '--', relative], dir)).trim() !== '') {
+          throw new Error(
+            'This file is tracked by git. Ignoring it alone does not untrack it; review its tracking in your repository before copying it.',
+          );
+        }
+      }
+      // Check the destination: source-only ignore rules need not exist in a worktree.
+      try {
+        await git(['check-ignore', '-q', '--', relative], opts.targetDir);
+      } catch {
+        throw new Error(
+          'The destination must gitignore this file before it can be copied. Could not verify that it is ignored.',
+        );
+      }
       const to = join(opts.targetDir, relative);
       await mkdir(dirname(to), { recursive: true });
+      await rejectSymlinks(opts.targetDir, relative);
       await copyFile(from, to);
       out.push({ path: relative, copied: true });
     } catch (err) {
@@ -145,13 +139,21 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
-/** `git ls-files` rather than `check-ignore`: tracked is the thing that matters. */
-async function isTracked(repoDir: string, relative: string): Promise<boolean> {
-  try {
-    const out = await git(['ls-files', '--error-unmatch', '--', relative], repoDir);
-    return out.trim() !== '';
-  } catch {
-    // Not tracked, or not a repo. Either way it is safe to copy.
-    return false;
+/** Refuse symlink components, including the root and an existing destination file. */
+async function rejectSymlinks(root: string, path: string): Promise<void> {
+  const boundary = resolve(root);
+  const full = resolve(boundary, path);
+  let cursor = full;
+  while (true) {
+    try {
+      if ((await lstat(cursor)).isSymbolicLink())
+        throw new Error('Copy paths must not contain symlinks.');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (cursor === boundary) break;
+    const parent = dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
   }
 }

@@ -91,7 +91,8 @@ describe('git layer', () => {
     assert.ok(aggregate.files.includes('second.txt'));
     assert.deepEqual(aggregate.dirty, ['untracked.txt']);
     const unchanged = await nodeDiff(initial.worktree_path, second, true, second);
-    assert.equal(unchanged.patch, '');
+    assert.match(unchanged.patch, /\+partial/);
+    assert.deepEqual(unchanged.files, ['untracked.txt']);
     assert.deepEqual(unchanged.dirty, ['untracked.txt']);
   });
 

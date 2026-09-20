@@ -37,6 +37,7 @@ import {
   deleteProjectTree,
   projectDeletionImpact,
 } from '../projects.js';
+import { assertGitState, expectedGitState } from '../git/ownership.js';
 import { nodeDiff, runDiff, parentSnapshot } from '../git/diff.js';
 import { inspectDirectory } from '../git/adopt.js';
 import { listDirectory } from './browse.js';
@@ -78,6 +79,7 @@ function withLive(jobs: RunJobs, nodes: NodeView[]): NodeView[] {
   return nodes.map((n) => ({
     ...n,
     queuePosition: jobs.queuePosition(n.id),
+    activeRunId: jobs.activeRunId(n.id),
     activity: jobs.activity(n.id),
   }));
 }
@@ -369,7 +371,7 @@ route('POST', '/api/projects', async (req, res, _p, { store, bus, settings, conn
   });
   bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
   // D21 has the agent scaffold master from the description; that run starts in
-  // M3. The repo, master branch, worktree and root commit all exist now.
+  // The repo, master branch, worktree and root commit all exist now.
   sendJson(res, 201, created);
 });
 
@@ -571,9 +573,7 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
     });
   }
 
-  // §6.2: the user stays on the canvas and the node appears immediately. The
-  // run is started separately until M3 so the git layer can be driven on its
-  // own; `new` is the brief window the state was kept for.
+  // Node allocation and execution are separate operations; return the allocated node.
   sendJson(res, 201, {
     node: withLive(jobs, store.treeView(projectId)).find((n) => n.id === created.nodeId),
   });
@@ -864,6 +864,10 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
           'This node is your own folder. Bonsai will not discard changes there — use git yourself if you want them gone.',
         );
       }
+      await assertGitState(
+        row.worktree_path,
+        await expectedGitState(store.getProject(row.project_id)!.repo_path, row),
+      );
       await discardWorktreeChanges(row.worktree_path);
       store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
       bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });

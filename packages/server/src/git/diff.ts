@@ -1,5 +1,6 @@
+import { workingTreeSnapshot } from './snapshot.js';
 import { EMPTY_TREE_SHA } from './repo.js';
-import { git, status } from './exec.js';
+import { git, gitPatch, status } from './exec.js';
 
 export interface NodeDiff {
   /** Files this node changed relative to its base commit. */
@@ -19,16 +20,13 @@ export interface NodeDiff {
 export async function nodeDiff(
   worktreePath: string,
   baseCommit: string,
-  hasCommits: boolean,
+  _hasCommits: boolean,
   headCommit = 'HEAD',
 ): Promise<NodeDiff> {
   const dirty = (await status(worktreePath)).map((e) => e.path).sort();
 
-  if (!hasCommits) {
-    return { files: [], patch: '', dirty };
-  }
-
-  const compared = await runDiff(worktreePath, baseCommit, headCommit);
+  const current = dirty.length > 0 ? await workingTreeSnapshot(worktreePath) : headCommit;
+  const compared = await runDiff(worktreePath, baseCommit, current);
 
   return {
     files: compared.files,
@@ -63,7 +61,7 @@ export async function runDiff(
   );
   return {
     files: names.split('\0').filter(Boolean),
-    patch: await git([...options, baseCommit, headCommit, '--'], worktreePath),
+    patch: await boundedPatch([...options, baseCommit, headCommit, '--'], worktreePath),
     dirty: [],
   };
 }
@@ -74,4 +72,9 @@ export async function parentSnapshot(path: string, commit: string): Promise<stri
     .trim()
     .split(/\s+/);
   return history[1] ?? EMPTY_TREE_SHA;
+}
+
+async function boundedPatch(args: string[], path: string): Promise<string> {
+  const { patch, truncated } = await gitPatch(args, path);
+  return patch + (truncated ? '\n[Patch truncated; inspect individual files in Review.]\n' : '');
 }

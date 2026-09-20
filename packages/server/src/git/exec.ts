@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
@@ -39,11 +39,15 @@ const IDENTITY = {
   GIT_TERMINAL_PROMPT: '0',
 } as const;
 
-export async function git(args: readonly string[], cwd: string): Promise<string> {
+export async function git(
+  args: readonly string[],
+  cwd: string,
+  env?: Record<string, string>,
+): Promise<string> {
   try {
     const { stdout } = await run('git', [...args], {
       cwd,
-      env: { ...process.env, ...IDENTITY },
+      env: { ...process.env, ...IDENTITY, ...env },
       maxBuffer: 32 * 1024 * 1024,
       timeout: 120_000,
       windowsHide: true,
@@ -116,4 +120,50 @@ export async function status(worktreePath: string): Promise<StatusEntry[]> {
     out.push({ code, path, untracked: code === '??' });
   }
   return out;
+}
+
+/** Drain Git output with bounded memory. Truncation is explicit; errors still propagate. */
+export async function gitPatch(
+  args: readonly string[],
+  cwd: string,
+  limit = 2 * 1024 * 1024,
+): Promise<{ patch: string; truncated: boolean }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', [...args], {
+      cwd,
+      env: { ...process.env, ...IDENTITY },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let truncated = false;
+    let stderr = '';
+    const timer = setTimeout(() => child.kill('SIGKILL'), 120_000);
+    child.stdout.on('data', (chunk: Buffer) => {
+      const keep = Math.max(0, limit - bytes);
+      if (chunk.length > keep) truncated = true;
+      if (keep > 0) {
+        const part = chunk.subarray(0, keep);
+        chunks.push(part);
+        bytes += part.length;
+      }
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-65536);
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0 && !(code === 1 && args.includes('--no-index'))) {
+        reject(new GitError(`Git patch failed: ${stderr}`, args, stderr, code));
+        return;
+      }
+      let patch = Buffer.concat(chunks).toString('utf8');
+      if (truncated) patch = patch.slice(0, Math.max(0, patch.lastIndexOf('\n') + 1));
+      resolve({ patch, truncated });
+    });
+  });
 }

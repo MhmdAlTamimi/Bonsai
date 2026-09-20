@@ -27,6 +27,8 @@ class RecordingRunner implements AgentRunner {
 
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     this.specs.push({ ...spec });
+    if (!spec.readOnly && spec.contextPath) await writeFile(spec.contextPath, '# Root run notes\n');
+    assert.ok(spec.contextPath?.endsWith('/CONTEXT.md'));
     yield { type: 'session', sessionId: `session-${this.specs.length}` };
     // Writes where it stands, which is the point: the path this lands at is
     // decided entirely by the cwd the pipeline handed it.

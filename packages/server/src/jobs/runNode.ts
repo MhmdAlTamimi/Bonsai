@@ -1,6 +1,7 @@
 import { OperationConflict } from '../domain/errors.js';
 import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import {
   CONCURRENCY,
   recoveryCause,
@@ -11,6 +12,7 @@ import {
 
 import type { NodeRow, RunEnd, RunTotals, Store } from '../db/store.js';
 import { workDirIn } from '../db/rows.js';
+import { assertGitState, expectedGitState } from '../git/ownership.js';
 
 /** A plain record for when the agent skipped writing one (D22). */
 function contextFallback(displayName: string, prompt: string): string {
@@ -55,9 +57,8 @@ import { findLeftovers, roots, stopLeftovers } from './leftovers.js';
  * D14d: runs are async jobs. Start returns a job id, progress streams, cancel
  * works, nothing blocks the UI.
  *
- * This pipeline is milestone-independent: M3 swaps the AgentRunner and changes
- * nothing here. What happens around the run -- freeze check, streaming,
- * commit-or-not, lineage bookkeeping -- is already final.
+ * The job pipeline owns scheduling, permission snapshots, streaming, commits
+ * and lineage bookkeeping. SDK details stay behind AgentRunner.
  */
 /** What a parked run is told when the node is stopped rather than answered. */
 const STOPPED: PermissionDecision = { allow: false, reason: 'the run was stopped' };
@@ -225,6 +226,14 @@ export class RunJobs {
     } finally {
       for (const id of ids) this.retiring.delete(id);
     }
+  }
+
+  activeRunId(nodeId: string): string | null {
+    return (
+      this.running.get(nodeId)?.runId ??
+      this.queue.find((job) => job.nodeId === nodeId)?.runId ??
+      null
+    );
   }
 
   isRunning(nodeId: string): boolean {
@@ -636,6 +645,7 @@ export class RunJobs {
       // for a project opened at `services/api` belongs in `services/api`.
       cwd: workDirIn(node.worktree_path, project.work_dir),
       signal: controller.signal,
+      env: { BONSAI_RUN_ID: runId },
       onOutput: (chunk) => {
         this.bus.publish(node.project_id, {
           type: 'run.delta',
@@ -698,9 +708,9 @@ export class RunJobs {
       });
     }
 
-    // Marked even on failure: retrying a broken install on every message would
+    // Marked on command failure (but not cancellation): retrying a broken install on every message would
     // burn minutes each time and produce the same error.
-    this.store.markSetupRan(node.id);
+    if (!controller.signal.aborted) this.store.markSetupRan(node.id);
   }
 
   private async execute(
@@ -752,10 +762,17 @@ export class RunJobs {
 
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
-    // Before the agent, not before the response. See createChildNode for why.
-    await this.ensureSetup(node, project, runId, live);
-
     try {
+      const expectedState = readOnly ? null : await expectedGitState(project.repo_path, node);
+      if (expectedState) await assertGitState(node.worktree_path, expectedState);
+      // Setup mutates files and obeys the same ownership boundary as agent writes.
+      if (!readOnly) await this.ensureSetup(node, project, runId, live);
+      if (expectedState) await assertGitState(node.worktree_path, expectedState);
+      if (controller.signal.aborted) {
+        await this.endLeftovers(runId, nodeId, node.project_id);
+        this.finishRun(runId, nodeId, this.stopped(), { cost, inputTokens, outputTokens });
+        return;
+      }
       const inheritance = this.resolveInheritance(node);
       // Node override, then the project's default, then the app's.
       const effective = resolveRunSettings(node, project, this.settings);
@@ -765,12 +782,13 @@ export class RunJobs {
         runId,
         nodeId,
         /**
-         * D37: the worktree is still the isolation boundary, and git still sees
+         * D37: the worktree remains the experiment checkout, and git still sees
          * the whole repository -- this is only where the agent stands inside
          * it, the way an editor opens a folder. '' means the worktree root,
          * which is every project that did not choose a subdirectory.
          */
         cwd: workDirIn(node.worktree_path, project.work_dir),
+        contextPath: join(node.worktree_path, 'CONTEXT.md'),
         prompt,
         resumeSessionId: inheritance.sessionId,
         forkSession: inheritance.fork,
@@ -837,6 +855,9 @@ export class RunJobs {
             seq += 1;
             const tool = {
               name: event.name,
+              ...(event.parentToolUseId === undefined
+                ? {}
+                : { parentToolUseId: event.parentToolUseId }),
               detail: event.detail,
               ...(event.id === undefined ? {} : { id: event.id }),
             };
@@ -901,6 +922,8 @@ export class RunJobs {
         }
       }
 
+      if (expectedState) await assertGitState(node.worktree_path, expectedState);
+
       // Before anything is committed, so nothing is still writing into it.
       const detachedStopped = await this.endLeftovers(runId, nodeId, node.project_id);
       const stoppedBackground = live.stoppedTracked + detachedStopped;
@@ -957,6 +980,7 @@ export class RunJobs {
             branchName: node.branch_name ?? branchNameFor(nodeId),
             message: commitMessageFor(node.display_name, node.description),
             fallbackContext: contextFallback(node.display_name, prompt),
+            expectedState: expectedState!,
             baseCommit: await this.baseFor(node),
           });
 
@@ -1019,7 +1043,16 @@ export class RunJobs {
     } catch (err) {
       const stoppedBackground =
         live.stoppedTracked +
-        (await this.endLeftovers(runId, nodeId, node.project_id).catch(() => 0));
+        (await this.endLeftovers(runId, nodeId, node.project_id).catch((cleanup: unknown) => {
+          this.store.appendMessage({
+            nodeId,
+            runId,
+            role: 'system',
+            kind: 'text',
+            content: `Cleanup incomplete: ${String(cleanup)}`,
+          });
+          return 0;
+        }));
       /**
        * An abort is a cancellation whatever the runner said on its way out.
        *
@@ -1095,7 +1128,7 @@ export class RunJobs {
   }
 
   /**
-   * D43: nothing a run started outlives it.
+   * Best-effort teardown of observed processes carrying this run’s marker.
    *
    * A run normally ends only once its detached processes have exited, so this
    * finds nothing. It matters when the run was stopped, finished early, or

@@ -1,6 +1,6 @@
 import type { RecoveryCause } from '@bonsai/shared';
 
-import { git, status } from './exec.js';
+import { git, gitPatch, status } from './exec.js';
 import { CONTEXT_FILE } from './commit.js';
 
 /**
@@ -37,7 +37,10 @@ export async function readWorktreeState(worktreePath: string): Promise<WorktreeS
       .filter((e) => e.untracked)
       .map((e) => e.path)
       .sort(),
-    patch: await git(['diff', 'HEAD'], worktreePath),
+    patch: await boundedPatch(
+      ['diff', '--no-ext-diff', '--no-textconv', 'HEAD', '--'],
+      worktreePath,
+    ),
   };
 }
 
@@ -169,3 +172,8 @@ export async function isDirty(worktreePath: string): Promise<boolean> {
 }
 
 export { CONTEXT_FILE };
+
+async function boundedPatch(args: string[], path: string): Promise<string> {
+  const { patch, truncated } = await gitPatch(args, path);
+  return patch + (truncated ? '\n[Patch truncated; inspect individual files in Review.]\n' : '');
+}

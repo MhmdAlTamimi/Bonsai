@@ -57,7 +57,7 @@ describe('seeding a new node', () => {
   test('copies a gitignored file into the new worktree', async () => {
     const source = await projectFolder();
     const target = join(root, 'node-1');
-    await mkdir(target, { recursive: true });
+    await git(['worktree', 'add', '--detach', target, 'HEAD'], source);
 
     const [outcome] = await seedFiles({ sourceDir: source, targetDir: target, files: ['.env'] });
 
@@ -68,7 +68,7 @@ describe('seeding a new node', () => {
   test('copies, never links: editing the copy leaves the original alone', async () => {
     const source = await projectFolder();
     const target = join(root, 'node-2');
-    await mkdir(target, { recursive: true });
+    await git(['worktree', 'add', '--detach', target, 'HEAD'], source);
     await seedFiles({ sourceDir: source, targetDir: target, files: ['.env'] });
 
     // An agent editing its own .env must not touch the user's.
@@ -84,7 +84,7 @@ describe('seeding a new node', () => {
     await git(['commit', '-m', 'oops'], source);
 
     const target = join(root, 'node-3');
-    await mkdir(target, { recursive: true });
+    await git(['worktree', 'add', '--detach', target, 'HEAD'], source);
     const [outcome] = await seedFiles({
       sourceDir: source,
       targetDir: target,
@@ -93,7 +93,11 @@ describe('seeding a new node', () => {
 
     assert.equal(outcome?.copied, false);
     assert.match(outcome?.reason ?? '', /tracked by git/);
-    assert.equal(existsSync(join(target, 'config.env')), false);
+    assert.equal(
+      await readFile(join(target, 'config.env'), 'utf8'),
+      'SECRET=tracked\n',
+      'copy refusal leaves the tracked checkout unchanged',
+    );
     // And .gitignore is untouched: it is tracked, it exists in every worktree,
     // and in an adopted project it is the user's. Changing it is a request to
     // make of the agent, not something a settings field does behind their back.
@@ -148,7 +152,7 @@ describe('seeding a new node', () => {
   test('a missing file is reported, not silently skipped', async () => {
     const source = await projectFolder();
     const target = join(root, 'node-4');
-    await mkdir(target, { recursive: true });
+    await git(['worktree', 'add', '--detach', target, 'HEAD'], source);
     const [outcome] = await seedFiles({
       sourceDir: source,
       targetDir: target,
@@ -162,8 +166,11 @@ describe('seeding a new node', () => {
     const source = await projectFolder();
     await mkdir(join(source, 'config'), { recursive: true });
     await writeFile(join(source, 'config', 'local.json'), '{}', 'utf8');
+    await writeFile(join(source, '.gitignore'), '.env\nconfig/local.json\n');
+    await git(['add', '.gitignore'], source);
+    await git(['commit', '-m', 'ignore local configuration'], source);
     const target = join(root, 'node-5');
-    await mkdir(target, { recursive: true });
+    await git(['worktree', 'add', '--detach', target, 'HEAD'], source);
 
     const [outcome] = await seedFiles({
       sourceDir: source,

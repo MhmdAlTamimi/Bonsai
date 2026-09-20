@@ -304,7 +304,11 @@ export class FakeRunner implements AgentRunner {
             ? 'Changed code.'
             : `Did not change code: ${refused}`
       }\n` + testing;
-    await writeInside(spec.cwd, 'CONTEXT.md', context);
+    await writeInside(
+      spec.contextPath === undefined ? spec.cwd : dirname(spec.contextPath),
+      'CONTEXT.md',
+      context,
+    );
     yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md', id: 'fake-context' };
     yield { type: 'tool_result', result: wroteFile('fake-context', 'CONTEXT.md', context) };
 
@@ -336,7 +340,7 @@ function slug(prompt: string): string {
   return s === '' ? 'note' : s;
 }
 
-/** Refuses to escape the worktree, which is the isolation boundary. */
+/** Refuses to escape the worktree, for deterministic test writes. */
 async function writeInside(cwd: string, relative: string, content: string): Promise<void> {
   const root = resolve(cwd);
   const target = resolve(join(root, normalize(relative)));

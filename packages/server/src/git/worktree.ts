@@ -1,8 +1,8 @@
-import { rm } from 'node:fs/promises';
+import { lstat } from 'node:fs/promises';
 import { git } from './exec.js';
 
 /**
- * Worktrees are the isolation boundary (D17). One shared object store, one
+ * Worktrees separate checkouts, not host permissions. One shared object store, one
  * directory per node, and that directory is the agent's cwd.
  *
  * Under the emergent model every node starts DETACHED at its base commit. The
@@ -30,19 +30,23 @@ export async function addBranchWorktree(
 export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
   try {
     await git(['worktree', 'remove', '--force', worktreePath], repoPath);
-  } catch {
-    // A worktree whose directory is already gone still leaves administrative
-    // state behind; prune it so the path can be reused.
-    await rm(worktreePath, { recursive: true, force: true });
-    await git(['worktree', 'prune'], repoPath);
+  } catch (error) {
+    // Never replace a failed Git ownership check with recursive deletion.
+    try {
+      await lstat(worktreePath);
+    } catch (missing) {
+      if ((missing as NodeJS.ErrnoException).code === 'ENOENT') {
+        await git(['worktree', 'prune'], repoPath);
+        return;
+      }
+    }
+    throw error;
   }
 }
 
-/** §6.7: deleting a node removes its branch as well as its worktree. */
+/** Delete only an existing ref; failures (including use by another checkout) matter. */
 export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
-  try {
-    await git(['branch', '-D', branch], repoPath);
-  } catch {
-    // Already gone, or the node never committed and so never had one.
-  }
+  const refs = await git(['for-each-ref', '--format=%(refname)', `refs/heads/${branch}`], repoPath);
+  if (!refs.split('\n').includes(`refs/heads/${branch}`)) return;
+  await git(['branch', '-D', branch], repoPath);
 }
