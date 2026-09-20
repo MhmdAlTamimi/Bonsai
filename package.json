@@ -9,7 +9,7 @@
     "packages/ui"
   ],
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.18"
   },
   "scripts": {
     "build": "npm run build:server && npm run build:ui",

@@ -1,51 +1,45 @@
-Bonsai — project rules
-Bonsai is a local tool where each node on a mindmap is an AI agent session bound
-to a git branch. Full spec in docs/v0-prd.md; decision log and deferred backlog
-in docs/v0-decisions-and-backlog.md.
-Scope
-The demo script in PRD §2 is the definition of done. If a change isn't needed by
-that script, it doesn't belong in V0.
-Do not build, and do not build toward: merging, syncing with the user's own
-copy, importing existing repos, comparing nodes side by side, editing code on nodes with a committed child, conflict resolution, pruning/archiving/search, multi-user or
-hosting.
-These are tracked as B1–B13 and are deferred on purpose, not forgotten.
-Non-negotiable constraints
-Runs are async jobs. Start returns a job ID, progress streams, cancel
-works. Nothing blocks the UI.
-Selection is a list, even though V0 only uses the first element.
-The backend owns the tree. The UI renders server state; it never mutates a
-local tree optimistically.
-Render from flags (creates_branch, writable), never from a node "type"
-string.
-No git, filesystem, or agent access in UI code. One API surface.
-Plus: SQLite in an app data dir, never browser storage. Node positions nullable,
-auto-layout by default. Repo path is config. Agent invocation behind one
-interface.
-Domain rules that are easy to get wrong
-A node's git base is the nearest ancestor with a commit, not its parent.
-Exploration nodes have no commits, so the walk can be several hops.
-Nodes are immutable. Never amend a commit. Never rewrite history. New
-commits only.
-A node may hold several commits while no direct child has committed. A node is a branch, not a
-single commit.
-A node's code freezes when a direct child commits. Question-only children do
-not freeze it. Deleting the last committed child makes the parent writable
-again; an adopted project's original folder always remains read-only.
-This owner-approved rule supersedes the earlier freeze-on-creation wording.
-The app owns git; the agent does not. The agent may run read-only git
-(status, diff, log) but never commit, branch, checkout, merge, or reset.
-The agent writes CONTEXT.md; the app commits.
-A project's repository is its identity; a chosen subdirectory is only where
-the agent stands. Opening mainproject/sub/prompts adopts mainproject (the
-nearest enclosing repository) and runs the agent in sub/prompts. Git still
-sees the whole repository: commits, history and diffs are never scoped to
-the subdirectory, and Bonsai never initialises a repository inside one.
-Branch names are node/<uuid> — generated once, never shown, never renamed.
-Display names are metadata and change freely.
-git diff misses untracked files. Use git status --porcelain alongside
-it, or git add -A first. This matters for interrupted-run recovery.
-Working style
-Ask before adding dependencies.
-Ask when the spec is ambiguous rather than picking a plausible reading. The
-ambiguities in this design were hunted deliberately; a new one is probably real.
-Small commits, one concern each.
+# Bonsai contributor instructions
+
+Bonsai is a local React/Node application for experiments, Claude Agent SDK conversations,
+and reviewing file changes. Read the implementation and tests as the source of truth.
+`docs/v0-prd.md`, its decision log, and milestone reports are historical design records;
+they are not a scope gate for current work. Follow the user's approved scope.
+
+## Development
+
+Use Node 22.18+ (CI uses current 22.x), Git, and `npm ci`. Run `npm test` and
+`npm run build:ui`. Browser changes also require `npm run test:e2e` with Chrome/Chromium;
+set `BONSAI_CHROME` to its executable if discovery fails. Tests use temporary repositories
+and the fake runner, without credentials. Do not use a real user's project as a fixture.
+`npm run dev` rebuilds the server once; restart it after backend changes. Run
+`npm run dev:ui` separately for Vite. See README for startup and configuration.
+Ask before adding dependencies. Keep changes and commits focused and reviewable.
+
+## Current boundaries
+
+- The backend owns project/node state, Git operations, filesystem access and jobs.
+  The UI renders the API contract and sends intents; it does not access these directly.
+- A child pins its code base at creation. Its direct parent's conversation is forked
+  at first execution. These are separate sources and can diverge.
+- Children start in detached worktrees. The first modifying run creates `node/<uuid>`.
+  The app commits; the agent must not create branches/worktrees or rewrite Git state.
+- A direct committed child currently freezes its parent. Deleting the last committed
+  child unfreezes it. An adopted original checkout is always read-only. Do not change
+  these semantics without the agreed design checkpoint.
+- Git state checks detect unexpected HEAD/ref/common-repository changes before execution,
+  commit and deletion. Preserve drifted work; never silently reset it to match the database.
+- Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain
+  host access. The Git command hook is a cooperative guard, not arbitrary-code containment.
+  Scoped external approval and Apply are future work, not existing guarantees.
+- `CONTEXT.md` currently has special commit behavior at the **worktree root**, independently
+  of the selected working subdirectory. Keep that path consistent until notes migration
+  is explicitly approved. Preserve existing repository documentation.
+- Setup is skipped for read-only runs. Copy-in files must be untracked and ignored in the
+  destination; reject unsafe paths and failed inspections. Never copy dependencies.
+- Runs are asynchronous. Every exit must finalize state and release the execution slot.
+  Use bounded process cleanup, preserve partial work and report incomplete cleanup.
+- Use real Git regression tests for ownership, commits, snapshots, recovery and deletion.
+  Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
+
+Later phases (references, parent continuation, notes migration, scoped external actions,
+Apply and additional SDK capabilities) require their own scoped implementation work.

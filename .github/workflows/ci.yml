@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # node:sqlite is a built-in and needs 22.5 or newer. Pinned to 22.x
+          # SQLite and native TypeScript tests require our supported Node 22.18+. Pinned to 22.x
           # rather than `lts/*` so a new LTS cannot quietly change what the
           # suite runs against.
           node-version: '22.x'

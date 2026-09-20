@@ -1,294 +1,175 @@
 # Bonsai
 
-In Bonsai, a tree becomes itself through the branches you choose to keep. Every idea gets its own
-branch, and you decide which ones grow. Bonsai turns AI coding sessions into a visual tree of
-experiments; each branch its own agent, its own code, its own conversation.
+Bonsai is a local app for visualizing coding experiments, talking to Claude Code agents,
+and reviewing their edits. A node holds a conversation and an experiment checkout.
+Children inherit a pinned code snapshot and fork their direct parent's conversation at
+first execution. Code and conversation can therefore come from different ancestors.
 
-Each node on the mindmap is one agent session bound to a git branch. A node forks two independent
-things from its parent: **code** (a git branch, taken from the nearest ancestor that actually has a
-commit) and **conversation** (a session fork, taken from the direct parent). Those two lineages are
-allowed to diverge, and that divergence is the point.
+## Current behavior
 
-Full spec in [`docs/v0-prd.md`](docs/v0-prd.md); decisions and deferred backlog in
-[`docs/v0-decisions-and-backlog.md`](docs/v0-decisions-and-backlog.md).
+- Create a new project or adopt an existing repository. New projects use a Bonsai-owned
+  bare repository plus a checkout; adopted projects keep the original checkout in place.
+- Selecting a repository subdirectory sets the agent's working directory. Git still
+  operates on the whole repository. Bonsai does not initialize a nested repository.
+- Child creation allocates a detached worktree. A modifying run creates its branch and
+  app-owned commit. Further modifying runs append commits; no-change conversations are valid.
+- A direct child's first commit freezes its parent. Removing the last committed child
+  currently unfreezes it. An adopted project's original checkout remains read-only.
+- Runs stream conversation, tool output, questions and background activity. Stop cancels
+  a run and preserves partial work; Resume, Keep and Discard are recovery actions.
+  Finish now ends background waiting and saves remaining changes under the existing
+  completion semantics. It is not proof that interrupted tests or jobs succeeded.
+- Review compares the experiment's inherited base with committed and unfinished work.
+  Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
+- Optional success criteria and check instructions go to the agent. Notes currently live
+  in `CONTEXT.md` at the worktree root. Notes-only edits retain the existing special
+  commit/revert behavior; moving notes into Bonsai records is separate planned work.
 
----
+Historical plans are in [docs/v0-prd.md](docs/v0-prd.md) and
+[docs/v0-decisions-and-backlog.md](docs/v0-decisions-and-backlog.md). They do not define
+current scope or supersede implementation. Contributor instructions are in [AGENTS.md](AGENTS.md).
 
-## Status: V0 complete
+## Repository safety and permissions
 
-Built in milestones, each with a review checkpoint.
+Bonsai owns experiment branches, worktrees and commits. The agent is instructed to ask
+for a new node instead of creating branches itself, and to provide instructions for
+changes outside the experiment. Unexpected Git HEAD, branch or common-repository changes
+stop app mutations and leave work available for inspection. Bonsai does not silently
+reconcile an externally modified branch with its database.
 
-| | | |
-|---|---|---|
-| M1 | Skeleton — schema, API, canvas | done |
-| M2 | Git layer — repos, worktrees, the ancestor-commit walk | done |
-| M3 | Agent layer — Claude Agent SDK, session forking, cancellation | done |
-| M4 | Lifecycle — node states, `CONTEXT.md`, interrupted-run recovery | done |
-| **M5** | Detached worktrees and the full demo script | **done** |
+**Worktrees are not security sandboxes.** Writable SDK tools and setup commands execute
+with the host user's access. The Git command hook catches common commands; it does not
+contain arbitrary shell programs or stop every way to alter Git. Use trusted projects
+and commands. Scoped approval for external actions is planned, not implemented.
 
-**The demo script in PRD §2 runs end to end**, which is V0's definition of done:
-a project scaffolded from its description, two approaches branched from master,
-a question asked about one of them, and a child of that question which carries
-its whole conversation while branching from the commit *above* it. Five nodes,
-correct ancestry, siblings isolated.
+| Writable-run setting | Current adapter behavior |
+| --- | --- |
+| Ask before changes (`default`) | Requests that reach the permission callback are shown in Bonsai. SDK pre-approved operations need not ask. |
+| Allow tools and commands (`acceptEdits`) | SDK accepts edits and Bonsai approves remaining tool requests, including shell commands. |
+| Plan (SDK mode) (`plan`) | Passes SDK plan mode, but Bonsai approves ordinary requests that reach its callback. This is not an app-enforced read-only mode; setup may run. |
+| Bypass permission checks (`bypassPermissions`) | Passes SDK bypass mode with its explicit dangerous-permissions opt-in. |
 
-The side panel is a chat: message a node, read the reply, expand the diff each
-exchange produced, reply again. Drag from a node's `+` handle into empty canvas
-to create a child where you dropped it. If the app dies mid-run, the node comes
-back `interrupted` with its partial work intact, and resume tells the agent what
-actually landed rather than letting it guess. Routes whose milestone has not arrived
-return `501` naming the milestone rather than silently doing nothing.
+Read-only runs override those modes with a tool allow-list and deny other tools, including
+Bash and agent delegation. They skip setup. These are SDK tool restrictions, not host
+filesystem containment. Unit adapter tests pin the configuration; verifying a different
+SDK version's actual behavior requires the opt-in live probes under `scripts/`.
 
-### Which one worked?
+Adoption refuses detached HEAD: select the intended branch with your own Git tools first.
+Including uncommitted work snapshots tracked and eligible untracked files without changing
+your index, checkout or refs; ignored files are excluded. A folder with no repository or
+no commits is initialized/committed during adoption, which changes that folder.
 
-Recording two approaches is half a tool. The half that matters is picking one,
-so a node can carry a definition of done — asked when you create it, which is
-the one moment you know the answer:
+Per-project copy-in files must be untracked in source and destination, ignored by the
+**destination**, and free of symlink components inside the selected roots. Failed inspection
+refuses the copy. A setup command runs before the first writable agent run. It is recorded
+once even if the command fails; cancellation leaves it eligible to run again. Setup errors
+appear in the conversation. A separate retry/versioned setup lifecycle is still planned.
 
-- **What should be true when this works?**
-- **How should the agent check it?**
+Deleting an adopted project removes its app-owned worktrees and recorded branches while
+preserving the original checkout and branch. Deleting a created project removes its owned
+repository and checkout. Deletion refuses unexpected Git state; inspect and resolve drift
+before retrying. It is not an archive operation.
 
-Both are optional and nothing is gated on them; leave them empty and a node
-behaves exactly as it did before they existed. Answer them and they travel with
-every run on that node, the agent runs the check itself, and it writes what
-happened into a `## Testing` section of `CONTEXT.md` — the command it ran and
-what that command printed. The panel shows it above the conversation.
-
-There is no verdict field and no pass/fail flag, deliberately. Whether "11 of
-14 tests pass" counts as working is a judgement about your project, and a green
-tick derived from prose would be a confident guess dressed up as a fact.
-
-For any of that to be possible, a node's folder has to be able to run your
-project. `git worktree add` checks out tracked files only, so a fresh node has
-no `.env`, no `node_modules` and no virtualenv. Two per-project settings fix it:
-
-- **Files to copy in** — copied, never linked, and a file git *tracks* is
-  refused, because Bonsai commits with `git add -A` and copying a tracked
-  `.env` would commit your secrets to the node's branch.
-- **A setup command** — `npm install`, `uv sync`, whatever the project needs.
-  Run once in the new folder, to completion, before the agent's first message.
-  Dependencies are regenerated rather than copied: `node_modules` is enormous
-  per node, and a virtualenv bakes in absolute paths and breaks when moved.
-
-When you have picked a winner, the panel gives you the command to get it:
-
-```bash
-git switch -c subtract node/73cf4a18-…    # in an adopted project, in your own folder
-```
-
-### Two ways to start a project
-
-**New project** builds a fresh repository in a folder you pick. Bonsai owns all
-of it, including deleting it when you delete the project.
-
-**Use an existing folder** points Bonsai at a directory you already have, and
-uses it *where it is* — nothing is copied and nothing is moved. That folder
-becomes the project's repository, master is that folder on the branch it is
-already on, and each node you create is an ordinary `node/<uuid>` branch inside
-your own repo with its own worktree elsewhere. So the work a node does is
-reachable with your normal git:
+To use a committed experiment outside Bonsai, use the command shown in node details.
+For an adopted repository, create a **new** branch from the experiment in your original
+checkout after saving its work, for example:
 
 ```bash
-git branch                 # your branches, plus one per node that committed
-git switch node/<uuid>     # or diff it, cherry-pick it, whatever you like
+git switch -c my-result node/ACTUAL-NODE-ID
 ```
 
-That is also why there is no export feature: the output was never anywhere else.
+Replace the placeholder with the command Bonsai provides. Switching directly onto an
+experiment branch fails while that branch is checked out in its Bonsai worktree.
+This excludes unfinished work and does not apply, merge, publish or sync changes.
 
-Two consequences worth knowing before you use it:
+## Install and run
 
-- **Master is read-only.** Its worktree is your checkout, on the branch you work
-  on yourself, so Bonsai reads it and answers questions about it but never
-  writes or commits there. To change anything, drag out a child.
-- **Your existing branches do not become nodes**, deliberately. Git branches form
-  a DAG rather than a tree, git does not record which branch was forked from
-  which, and decisively an imported branch carries no conversation — a node
-  without one is an empty shell that gives its children nothing.
-
-Deleting a project you adopted removes the nodes, their worktrees and the
-`node/<uuid>` branches Bonsai created. Your folder, your history and your branch
-are left exactly as they were, and the confirmation says so by name.
-
-### Trying it
-
-Create a project, then create children from the side panel. Nothing asks you
-which kind of node you are making — a node that changes files gets a branch and
-a commit, and a node that only answers a question does not.
-
-Talk to a node in the panel — it is a conversation, not a single request, so
-the agent can ask for detail and you can answer. Each reply that changes files
-adds a commit to that node and shows its diff inline.
-
-Ask a question under a node, then create a child of that question. The child
-inherits the question's whole conversation, but its code branches from the
-question's *parent* commit, because the question never made one. That divergence
-between code lineage and conversation lineage is what the product is built
-around, and it is the thing to look at first.
-
-With the stand-in agent (no credentials), one convention decides which a node
-becomes: a prompt starting with `?` writes nothing, anything else writes a file.
-With a real agent, what the agent actually did decides it.
-
----
-
-## Running it
-
-### Prerequisites
-
-- **Node.js 22.5 or newer.** Nothing else. Bonsai uses the built-in `node:sqlite` and `node:test`,
-  so there is no native module to compile and no test runner to install.
-- Check with `node --version`.
-
-### Connecting to Claude
-
-Bonsai uses the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk).
-Either credential works (D23), and both are set up **inside the app**:
-
-- **A Claude subscription.** Sign in from the connection screen, or run
-  `claude auth login` yourself. Bonsai never sees or stores this credential.
-- **An API key.** Paste it into Settings. Stored on your machine only, in a file
-  readable just by you, and never sent to the UI once saved.
-
-Bonsai establishes the connection **by making a real request**, not by looking
-for credential files. That matters on macOS, where a subscription login lives in
-the Keychain and is invisible on disk — a filesystem check reports "no
-credentials" for someone who is perfectly well signed in.
-
-**Without a working credential Bonsai stops.** No project creation, no runs, no
-chat. It used to fall back to a stand-in agent that wrote placeholder files,
-which was right for reviewing the code and wrong for using it: the app looked
-like it worked while quietly doing something else. The stand-in is now opt-in
-via `BONSAI_FAKE_AGENT=1`, and exists for tests.
-
-**Real runs cost real money.** Each node forks its parent's conversation, so a
-node at depth 6 replays everything above it (PRD §11 accepts this for V0; B7 is
-the optimization). Model, effort, tokens and estimated cost are all shown per
-node, and Settings has the two levers that matter.
-
-Model, effort, permission mode and folder locations all live in **Settings**;
-these variables are for tests and unusual setups.
-
-| Variable | Effect |
-|---|---|
-| `BONSAI_FAKE_AGENT=1` | Use the stand-in agent. Output is fake; for tests. |
-| `BONSAI_PORT` | Port to serve on. Default 8787, loopback only. |
-| `BONSAI_DATA_DIR` | Where the database and settings live. |
-
-### What a run costs, and how to spend less
-
-**Settings** holds the **model** and the **effort**, and the menu bar shows the
-estimated total across every run in the project. Both are changeable at any time
-and apply to the next run.
-
-Expect roughly **$0.05–0.15 per run on Opus at default effort**, most of which
-is fixed overhead rather than your prompt: the Claude Code system prompt and
-tool definitions are resent on every turn, and a small change is several turns.
-
-Three levers, largest first:
-
-1. **Model.** Haiku 4.5 is $1/$5 per Mtok against Opus 5's $5/$25 — roughly five
-   times cheaper for the same shape of work.
-2. **Effort.** `low` or `medium` cuts thinking tokens and produces fewer,
-   more-consolidated tool calls. Often the better first move on small changes.
-3. **Depth.** Every node replays its whole ancestor conversation, so cost grows
-   as the tree deepens (PRD §11 accepts this for V0; B7 is the fix). Branching
-   wide from a shallow node is cheaper than chaining deep.
-
-The panel breaks out **cache-read tokens** per node. A high number there next to
-a high cost means the replay is being served from cache and is already cheap; a
-low one means it is not.
-
-### Install and run
+Requirements: **Node 22.18+**, npm, Git on PATH, and a supported Claude Agent SDK runtime.
+CI uses current Node 22.x; stabilization is also checked with Node 24. Linux/macOS are
+the supported process-cleanup targets. Detached-process discovery is not implemented on
+Windows, and full process-tree cleanup must not be assumed there.
 
 ```bash
 git clone https://github.com/MhmdAlTamimi/Bonsai.git
 cd Bonsai
-npm install
+npm ci
 npm start
 ```
 
-`npm start` builds both halves, serves them on one port, and opens your browser.
-Bonsai binds to `127.0.0.1` only — it runs an agent with file-editing permission
-and has no authentication, so it is never reachable from the network.
+`npm start` builds server and UI, serves on `127.0.0.1:8787`, and opens a browser.
+The local API has origin/host checks, but no user authentication. Do not expose it through
+a public proxy or treat loopback binding as a sandbox against local commands.
 
-The first screen asks you to connect to Claude. Nothing else works until you do.
+Connect through the app using a Claude subscription or an API key. Subscription sign-in
+uses Claude's local authentication; API keys are stored in the local settings file with
+restricted permissions and are not returned to the browser. Connection checks make a real
+request. Real runs may incur usage charges; review the usage view and your provider's billing.
+Saved projects and conversations remain reviewable without an active connection; actions
+that require the agent are gated. Fake-agent mode is explicit and intended for development.
 
-For UI work there is a hot-reloading dev server: `npm run dev` in one terminal
-and `npm run dev:ui` in another, then open http://localhost:5173.
-
-### Tests
-
-```bash
-npm test          # build, typecheck, lint, format check, then the unit tests
-npm run test:e2e  # one browser pass; needs a built interface and a Chromium
-```
-
-The interface has unit tests too, run by `npm test` via Node's type stripping
-— no bundler and no browser, so only modules that avoid both can have them.
-
-150 tests, no network and no agent — they run the same with or without
-credentials, and never spend anything. The last of them is the §2 demo script
-itself, run against real git from project creation to the five-node tree. Roughly half are pure unit tests over
-`domain/lineage.ts` — the nearest-ancestor-commit walk. The rest are integration
-tests that run **real git** in temporary directories, including the M2
-checkpoint: a node whose parent has no commits of its own branches from the
-correct grandparent commit, verified in the commit graph rather than only in the
-database. Session forking is covered by a recording runner: which session a
-run inherits, and whether it forks, is decided by the pipeline rather than by
-the SDK, so it is provable without credentials.
-
-### Configuration
-
-All optional; every one has a working default.
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `BONSAI_PORT` | `8787` | Backend port. |
-| `BONSAI_DATA_DIR` | OS app-data dir | Where `bonsai.db` lives. |
-| `BONSAI_REPOS_ROOT` | `<data dir>/repos` | Where per-project bare repos and worktrees will live (M2). |
-| `BONSAI_MODEL` | unset | Default model for new projects (M3). |
-| `BONSAI_SEED` | unset | `1` seeds a fake demo tree with no git behind it. Not needed. |
-
-The database is created and seeded on first run. To start over, delete it:
+For development, use separate terminals:
 
 ```bash
-rm -rf "$BONSAI_DATA_DIR"        # or the printed path from the server's startup line
+npm run dev       # builds server once, then runs it; restart after backend edits
+npm run dev:ui    # Vite UI, http://localhost:5173
 ```
 
-The server prints its data directory on startup, so you always know what to delete.
+`npm run build:ui` rebuilds the UI served directly by the backend. Vite changes are not
+reflected in that built UI until rebuilt.
 
----
+## Verification
+
+```bash
+npm test          # server build, typecheck, lint, format, server and UI/shared tests
+npm run build:ui  # production bundle
+npm run test:e2e  # builds both halves and runs real-browser scenarios
+```
+
+Browser tests require Chrome/Chromium. Set `BONSAI_CHROME=/absolute/path/to/chromium` if
+it is not discovered automatically. They use a temporary data directory and fake agent;
+no credentials or model calls are needed. Tests exercise real temporary Git repositories,
+SDK adapter contracts, jobs, recovery, API and browser workflows. They do not prove live
+SDK permission enforcement. The lockfile pins the reviewed dependency versions.
+
+## Configuration and data
+
+App and project settings cover models, effort, permissions, setup and locations.
+Existing projects retain their recorded repository/worktree paths when defaults change.
+
+| Variable | Default / purpose |
+| --- | --- |
+| `BONSAI_PORT` | `8787`, backend port |
+| `BONSAI_DATA_DIR` | OS app-data directory for `bonsai.db` and `settings.json` |
+| `BONSAI_REPOS_ROOT` | `<data dir>/repos`, default repository/worktree storage |
+| `BONSAI_MODEL` | Optional default model |
+| `BONSAI_FAKE_AGENT=1` | Explicit fake runner for development/testing |
+| `BONSAI_CHROME` | Browser executable for the browser test harness |
+
+The server prints its data location on startup. Use Settings to change preferences.
+To reset only app preferences, stop Bonsai and back up/rename `settings.json` in that
+location; this also removes the saved API key/default locations from the active settings.
+It does not reset project settings stored in SQLite. Preserve the database, repositories
+and recorded checkout locations. Deleting the whole data directory can destroy created
+projects and experiment work; it is not a settings reset.
+
+After a crash, unfinished runs become interrupted. Process cleanup is best-effort:
+unmarked processes, abrupt host termination and unsupported platforms can leave work
+running. Inspect external processes before resuming if necessary. Setup uses bounded
+process-group cancellation on POSIX; observed marked processes are checked at run teardown,
+and cleanup failures are recorded rather than described as successful stops.
 
 ## Layout
 
-```
-packages/shared    the API contract, imported by both sides and by nothing else
-packages/server    HTTP, SQLite, git, and the pure domain logic
-  src/domain       lineage, flags, lifecycle — no git, no db, no agent, no io
-  src/db           schema and the typed store
-  src/git          the only code that shells out to git
-  src/agent        the runner interface, and the M2 stand-in behind it
-  src/jobs         async run jobs: start, stream, cancel
-  src/api          routes and the SSE bus
-packages/ui        React + React Flow canvas and side panel
-```
+| Path | Responsibility |
+| --- | --- |
+| `packages/shared` | Shared API/data contracts |
+| `packages/server/src/api` | HTTP endpoints and SSE |
+| `packages/server/src/db` | SQLite storage and compatibility migrations |
+| `packages/server/src/domain` | Lineage, permissions/flags and conflicts |
+| `packages/server/src/git` | Git execution, snapshots, ownership, commits and review |
+| `packages/server/src/agent` | Claude SDK adapter and fake runner |
+| `packages/server/src/jobs` | Run scheduling, questions, cancellation and recovery |
+| `packages/ui` | React canvas, conversations, review and settings |
 
-`shared` is the only module both sides import, which is how "nothing touching git, the filesystem,
-or the agent lives in UI code" (PRD §9) is enforced by the module graph instead of by discipline.
-`NodeView` deliberately carries no branch names, worktree paths, session ids or commit shas — the UI
-cannot misuse a path it was never given.
-
-## Contributing
-
-- **Ask before adding a dependency.** The dependency list is short on purpose: `react`, `react-dom`,
-  `reactflow` and `dagre` for the canvas, `vite` and `typescript` to build. Everything else is a Node
-  built-in.
-- **Small commits, one concern each.**
-- **Ask when the spec is ambiguous** rather than picking a plausible reading. The ambiguities in this
-  design were hunted deliberately; a new one is probably real.
-- The demo script in PRD §2 is the definition of done. If a change isn't needed by that script, it
-  doesn't belong in V0. PRD §3 lists the non-goals by name.
-
-## Licence
-
-MIT. See [LICENSE](LICENSE).
+References/context nodes, multiple code parents, Apply and broader SDK exposure belong
+to later phases. Stabilization does not introduce those features or migrate existing data.

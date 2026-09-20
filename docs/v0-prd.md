@@ -1,3 +1,5 @@
+> Historical design record. Read README.md and AGENTS.md for current behavior and contributor instructions. This document is not a current scope or acceptance gate.
+
 # Mindmap Agent Tool — V0 PRD
 
 Companion document: `v0-decisions-and-backlog.md` (decision log, deferred backlog,
