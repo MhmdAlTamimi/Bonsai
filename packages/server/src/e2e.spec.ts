@@ -78,7 +78,32 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         join(repoRoot, 'test-results', `failure-${t.name.slice(0, 24).replaceAll(' ', '-')}.png`),
       );
       t.diagnostic(JSON.stringify(await session.eval(WHAT_IS_ON_SCREEN)));
+      t.diagnostic(
+        JSON.stringify(
+          await session.eval(
+            "(async () => { const id = new URL(location.href).searchParams.get('node'); if (!id) return null; const d = await (await fetch('/api/nodes/' + id)).json(); return {status: d.node?.status, activity: d.node?.activity, lastRun: d.runs?.at(-1)?.status}; })()",
+          ),
+        ),
+      );
     }
+  });
+
+  afterEach(async () => {
+    const projects = (await (await fetch(`${BASE}/api/projects`)).json()) as Array<{ id: string }>;
+    for (const project of projects) {
+      const tree = (await (await fetch(`${BASE}/api/projects/${project.id}/tree`)).json()) as {
+        nodes: Array<{ id: string; status: string }>;
+      };
+      for (const node of tree.nodes ?? []) {
+        if (node.status === 'running' || node.status === 'needs_you')
+          await fetch(`${BASE}/api/nodes/${node.id}/cancel`, { method: 'POST' });
+      }
+    }
+    await fetch(`${BASE}/api/settings`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ maxConcurrentRuns: 3 }),
+    });
   });
 
   after(async () => {
@@ -102,7 +127,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.eval(
         "Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Change folder…').click()",
       );
-      await session.waitFor("!!document.querySelector('.picker-list button')");
+      await session.waitFor(
+        "!!document.querySelector('.picker input') && !document.querySelector('.picker > button').disabled",
+      );
       assert.equal(
         await session.eval("document.querySelector('.new-project .row button').disabled"),
         true,
@@ -1386,6 +1413,50 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       'Stopped',
     );
+  });
+
+  test('a new run clears an earlier Stop even when the browser missed the idle state', async () => {
+    const run = await projectWithRun('rapid-restart', 'detach: first run');
+    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+    await session.waitFor(
+      "document.querySelector('.activity-jobs')?.textContent.includes('detached')",
+    );
+    // Model an intermediary returning stale tree state during the short idle gap.
+    // Node detail stays real, and the next running tree carries a different run ID.
+    await session.eval(`window.__originalFetch = window.fetch;
+      window.fetch = async (url, init) => {
+        const response = await window.__originalFetch(url, init);
+        if (!String(url).endsWith('/tree')) return response;
+        const data = await response.clone().json();
+        for (const node of data.nodes ?? []) {
+          if (node.id === ${JSON.stringify(run.masterNodeId)} && !['running', 'needs_you'].includes(node.status)) {
+            node.status = 'running'; node.activeRunId = ${JSON.stringify(run.runId)};
+          }
+        }
+        return new Response(JSON.stringify(data), {status: response.status, headers: response.headers});
+      };`);
+    try {
+      await session.click('.panel .stop');
+      await session.waitFor(
+        `(async () => (await (await fetch(${JSON.stringify(run.nodeUrl)})).json()).runs.at(-1)?.status === 'cancelled')()`,
+      );
+      assert.equal(await session.eval("document.querySelector('.panel .stop')?.disabled"), true);
+      const response = await fetch(`${run.nodeUrl}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'detach: second run' }),
+      });
+      assert.equal(response.status, 202);
+      await session.waitFor(
+        "document.querySelector('.activity-jobs')?.textContent.includes('detached') && document.querySelector('.panel .stop')?.disabled === false",
+      );
+      await session.click('.panel .stop');
+      await session.waitFor(
+        `(async () => { const d = await (await fetch(${JSON.stringify(run.nodeUrl)})).json(); return d.runs.length === 2 && d.runs.at(-1).status === 'cancelled'; })()`,
+      );
+    } finally {
+      await session.eval('window.fetch = window.__originalFetch');
+    }
   });
 
   test('initial connection and project failures offer retry instead of an empty canvas', async () => {

@@ -288,6 +288,7 @@ export function subscribe(
       'node.status',
       'run.started',
       'run.delta',
+      'run.activity',
       'run.question',
       'run.finished',
       'run.error',

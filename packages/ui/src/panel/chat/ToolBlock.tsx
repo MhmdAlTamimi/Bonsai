@@ -23,22 +23,24 @@ const VISIBLE_LINES = 8;
 const RUN_TOOLS = new Set(['Bash', 'BashOutput', 'KillShell', 'KillBash']);
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
-export type ToolKind = 'READ' | 'RUN' | 'EDIT';
+export type ToolKind = 'READ' | 'RUN' | 'EDIT' | 'TOOL';
 
 /** Which of the three a call is, from what it produced rather than its name. */
 export function kindOf(name: string, result: ToolResultContent | undefined): ToolKind {
   if (result?.edit !== undefined || EDIT_TOOLS.has(name)) return 'EDIT';
   if (result?.output !== undefined || RUN_TOOLS.has(name)) return 'RUN';
-  return 'READ';
+  return ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'].includes(name) ? 'READ' : 'TOOL';
 }
 
 export function ToolBlock({
   name,
+  parentToolUseId,
   detail,
   result,
   live,
 }: {
   name: string;
+  parentToolUseId?: string | undefined;
   /** The command, or the file path: the one line that identifies the call. */
   detail: string;
   result: ToolResultContent | undefined;
@@ -64,6 +66,7 @@ export function ToolBlock({
     <div className={`tool-block kind-${kind.toLowerCase()}`}>
       <header className="tool-head">
         <span className="tool-kind">{kind}</span>
+        {parentToolUseId && <span title={`Parent tool call: ${parentToolUseId}`}>Subagent</span>}
         <span className={`tool-subject${kind === 'RUN' ? '' : ' path'}`} title={detail}>
           {kind === 'RUN' ? detail : shortPath(edit?.path ?? detail, kind)}
         </span>

@@ -35,6 +35,7 @@ export function useReadingPosition(key: string, ready: boolean, visible: boolean
   useLayoutEffect(() => {
     const region = scrollRef.current;
     if (!ready || !visible || !region) return;
+    region.style.overflowAnchor = 'none';
     // Restoring happens after history arrives, not against a loading placeholder.
     region.scrollTop =
       saved.current.following && !selectedText() ? region.scrollHeight : saved.current.top;

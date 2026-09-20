@@ -29,7 +29,7 @@ export function RunControls({
   onChanged: () => void;
   children: ReactNode;
 }): JSX.Element {
-  const pending = useRef(new Set<string>());
+  const pending = useRef(new Map<string, string | null | undefined>());
   const questions = useRef(new Map<string, string | undefined>());
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -40,11 +40,11 @@ export function RunControls({
         .map((node) => node.id),
     );
     questions.current = new Map(nodes.map((node) => [node.id, node.pendingQuestion?.id]));
-    for (const id of pending.current) {
+    for (const [id, runId] of pending.current) {
       const node = nodes.find((n) => n.id === id);
-      if (!node || !hasActiveJob(node)) pending.current.delete(id);
+      if (!node || !hasActiveJob(node) || node.activeRunId !== runId) pending.current.delete(id);
     }
-    setStopping(new Set(pending.current));
+    setStopping(new Set(pending.current.keys()));
     setErrors((prev) =>
       Object.fromEntries(
         Object.entries(prev).filter(
@@ -60,15 +60,15 @@ export function RunControls({
   }, [stopping, onChanged]);
   const stop = (id: string): void => {
     if (pending.current.has(id)) return;
-    pending.current.add(id);
-    setStopping(new Set(pending.current));
+    pending.current.set(id, nodes.find((node) => node.id === id)?.activeRunId);
+    setStopping(new Set(pending.current.keys()));
     setErrors((prev) => ({ ...prev, [id]: '' }));
     void api
       .cancelNode(id)
       .then(onChanged)
       .catch((e: unknown) => {
         pending.current.delete(id);
-        setStopping(new Set(pending.current));
+        setStopping(new Set(pending.current.keys()));
         setErrors((prev) => ({ ...prev, [id]: describeError(e) }));
       });
   };

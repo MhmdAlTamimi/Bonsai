@@ -1,10 +1,10 @@
 import { EFFORTS, type PermissionMode } from '@bonsai/shared';
 import type { JSX } from 'react';
 export const PERMISSIONS: Record<PermissionMode, string> = {
-  acceptEdits: 'Accept edits',
+  acceptEdits: 'Allow tools and commands',
   default: 'Ask before changes',
   bypassPermissions: 'Bypass permission checks',
-  plan: 'Plan only',
+  plan: 'Plan (SDK mode)',
 };
 const MODELS = [
   { id: 'claude-opus-5', label: 'Opus 5' },
@@ -79,6 +79,10 @@ export function AgentFields({
           ))}
         </select>
       </label>
+      <p className="hint">
+        Commands run with your host access. Worktrees are not a security sandbox. Bonsai owns
+        branches and commits; ask for instructions for external changes.
+      </p>
     </div>
   );
 }

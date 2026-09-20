@@ -97,7 +97,7 @@ export function useRunStream(
             setActivity((prev) => ({ ...prev, [event.nodeId]: event.activity }));
             // Waiting shows on the card as well, and the card reads the tree.
             // Refetched only when it flips, which is rare, not on every tool.
-            if (was !== undefined && was !== event.activity.state) {
+            if (was !== event.activity.state) {
               setRevision((n) => n + 1);
               notify.current();
             }

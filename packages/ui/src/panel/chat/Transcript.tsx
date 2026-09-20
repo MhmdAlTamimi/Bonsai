@@ -143,6 +143,7 @@ function Turn({
                 key={i}
                 name={part.name}
                 detail={part.detail}
+                parentToolUseId={part.parentToolUseId}
                 result={part.result}
                 live={running && part.result === undefined}
               />
@@ -184,7 +185,13 @@ function splitPrompt(messages: readonly MessageView[]): {
 type Part =
   | { kind: 'said'; message: MessageView }
   | { kind: 'you'; message: MessageView }
-  | { kind: 'block'; name: string; detail: string; result: ToolResultContent | undefined };
+  | {
+      kind: 'block';
+      name: string;
+      detail: string;
+      parentToolUseId: string | undefined;
+      result: ToolResultContent | undefined;
+    };
 
 /** Pairs each call with what it produced, and folds the quiet ones together. */
 function compose(messages: readonly MessageView[]): Part[] {
@@ -199,11 +206,17 @@ function compose(messages: readonly MessageView[]): Part[] {
   for (const message of messages) {
     if (message.kind === 'tool_result') continue;
     if (message.kind === 'tool_use') {
-      const call = message.content as { name?: string; detail?: string; id?: string };
+      const call = message.content as {
+        name?: string;
+        detail?: string;
+        id?: string;
+        parentToolUseId?: string;
+      };
       parts.push({
         kind: 'block',
         name: call.name ?? 'tool',
         detail: call.detail ?? '',
+        parentToolUseId: call.parentToolUseId,
         result: call.id === undefined ? undefined : results.get(call.id),
       });
       continue;
