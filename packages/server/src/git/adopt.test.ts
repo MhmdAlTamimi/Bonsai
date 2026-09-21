@@ -412,6 +412,42 @@ describe('adopting a directory', () => {
 
   // -- deletion: the part that can lose real work ----------------------------
 
+  test('projects sharing a repository retain separate work when either is deleted', async () => {
+    const path = await userRepo();
+    const first = await adopt(path);
+    const second = await adopt(path);
+    const child = await createChildNode(store, {
+      projectId: second.projectId,
+      parentId: second.masterNodeId,
+      displayName: 'keep',
+      description: '',
+    });
+    await run(child.nodeId, { 'keep.txt': 'keep me\n' });
+    const survivor = store.getNode(child.nodeId)!;
+    await deleteProjectTree(store, first.projectId);
+    assert.ok(store.getProject(second.projectId));
+    assert.equal(await readFile(join(survivor.worktree_path, 'keep.txt'), 'utf8'), 'keep me\n');
+    assert.equal(await gitLine(['rev-parse', survivor.branch_name!], path), survivor.head_commit);
+    await deleteProjectTree(store, second.projectId);
+    assert.ok(existsSync(join(path, 'README.md')));
+  });
+
+  test('created projects own distinct generated storage and deleting one preserves the other', async () => {
+    const options = {
+      name: 'same name',
+      description: '',
+      model: null,
+      permissionMode: 'default' as const,
+    };
+    const a = await createProject(store, options);
+    const b = await createProject(store, options);
+    const kept = store.getNode(b.masterNodeId)!;
+    assert.notEqual(store.projectScratchDir(a.projectId), store.projectScratchDir(b.projectId));
+    await deleteProjectTree(store, a.projectId);
+    assert.ok(existsSync(kept.worktree_path));
+    assert.equal(await gitLine(['rev-parse', 'HEAD'], kept.worktree_path), kept.head_commit);
+  });
+
   test('deleting the project keeps the folder, the branch and the history', async () => {
     const path = await userRepo();
     const { projectId, masterNodeId } = await adopt(path);

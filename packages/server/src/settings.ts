@@ -28,6 +28,7 @@ interface StoredSettings {
   reposRoot: string | null;
   panelWidth: number;
   textScale: number;
+  wrapLines: boolean;
   maxConcurrentRuns: number;
 }
 
@@ -40,6 +41,7 @@ const DEFAULTS: StoredSettings = {
   reposRoot: null,
   panelWidth: PANEL_WIDTH.default,
   textScale: 100,
+  wrapLines: false,
   maxConcurrentRuns: CONCURRENCY.default,
 };
 
@@ -144,6 +146,7 @@ export class Settings {
       reposRoot: this.reposRoot(),
       platform: process.platform,
       panelWidth: this.panelWidth(),
+      wrapLines: this.current.wrapLines === true,
       textScale: TEXT_SCALES.some((scale) => scale === this.current.textScale)
         ? this.current.textScale
         : 100,
@@ -160,6 +163,7 @@ export class Settings {
     if (patch.model !== undefined) next.model = patch.model;
     if (patch.permissionMode !== undefined) next.permissionMode = patch.permissionMode;
     if (patch.effort !== undefined) next.effort = patch.effort;
+    if (patch.wrapLines !== undefined) next.wrapLines = patch.wrapLines;
     if (patch.textScale !== undefined) next.textScale = patch.textScale;
     if (patch.panelWidth !== undefined) next.panelWidth = clampPanel(patch.panelWidth);
     if (patch.maxConcurrentRuns !== undefined) {

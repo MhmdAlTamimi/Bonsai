@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { ProjectOperations } from './projectOperations.js';
 import { OperationConflict } from '../domain/errors.js';
 import { assertLocalRequest } from './localRequest.js';
@@ -195,6 +196,16 @@ route('POST', '/api/inspect', async (req, res, _p, { store }) => {
   const path = requireString(body.path, 'path');
 
   const owner = store.findFolderOwner(path);
+  if (
+    owner !== null &&
+    owner.project.source_kind === 'adopted' &&
+    owner.node?.parent_id == null &&
+    resolve(path) === resolve(owner.project.source_path ?? owner.project.repo_path)
+  ) {
+    // The shared original checkout can host several independently named projects.
+    sendJson(res, 200, { ...(await inspectDirectory(path)), knownTo: null });
+    return;
+  }
   if (owner !== null) {
     const { project, node } = owner;
     const what =
@@ -319,6 +330,8 @@ route('PATCH', '/api/settings', async (req, res, _p, { settings, connection, sto
     )
       throw new HttpError(400, `${field} must be a number.`);
   }
+  if (body.wrapLines !== undefined && typeof body.wrapLines !== 'boolean')
+    throw new HttpError(400, 'wrapLines must be boolean.');
   if (body.textScale !== undefined && !TEXT_SCALES.some((scale) => scale === body.textScale))
     throw new HttpError(400, 'Choose a supported text size.');
   const view = settings.update(body);
@@ -728,6 +741,13 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
 });
 
 /** Review: what this experiment changed, file by file. No patches here. */
+route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store }) => {
+  const node = store.getNode(params['id']!);
+  if (!node) throw new HttpError(404, 'No such experiment.');
+  await revealInFileManager(node.worktree_path);
+  sendJson(res, 200, { ok: true });
+});
+
 route('GET', '/api/nodes/:id/review', async (_req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
@@ -740,7 +760,16 @@ route('GET', '/api/nodes/:id/review/file', async (req, res, params, { store }) =
   if (row === undefined) throw new HttpError(404, 'no such node');
   const path = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path');
   if (path === null || path === '') throw new HttpError(400, 'path is required');
-  sendJson(res, 200, await reviewPatchOf(store, row, path));
+  sendJson(
+    res,
+    200,
+    await reviewPatchOf(
+      store,
+      row,
+      path,
+      new URL(req.url ?? '/', 'http://localhost').searchParams.get('view') === 'file',
+    ),
+  );
 });
 
 // -- runs --------------------------------------------------------------------

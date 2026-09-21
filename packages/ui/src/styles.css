@@ -2592,3 +2592,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .bonsai-edge { fill: none; stroke: var(--edge); stroke-width: 1.4; stroke-dasharray: 4 4; }
 .bonsai-edge.conversation { stroke: var(--edge-dim); }
 .bonsai-edge.live { stroke: var(--edge-live); stroke-dasharray: none; }
+
+/* Project identity stays visible; the picker has no arbitrary recent-project cutoff. */
+.project-location { display: block; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .75rem; }
+.project-picker { flex-wrap: wrap; }
+.project-menu .menu-panel { max-height: 75dvh; overflow-y: auto; width: min(460px, 90vw); }
+.project-menu .menu-panel button small, .matching-projects button small { display: block; color: inherit; font-size: .75rem; overflow-wrap: anywhere; }
+.matching-projects { display: grid; gap: 8px; }
+
+.kind-run .tool-subject { white-space: pre; overflow: auto; text-overflow: clip; max-height: 8rem; }
+.tool-body { max-height: 24rem; overflow: auto; }
+.tool-text { flex-shrink: 0; }
+.review.wrap-lines .diff-line { height: auto; min-height: var(--h-tool-line); align-items: flex-start; }
+.review.wrap-lines .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.review-bar { flex-wrap: wrap; height: auto; min-height: 48px; }

@@ -73,6 +73,7 @@ export interface SettingsView {
    */
   panelWidth: number;
   textScale: number;
+  wrapLines: boolean;
 }
 
 /**
@@ -115,6 +116,7 @@ export interface UpdateSettingsRequest {
   /** Clamped server-side; see settings.ts for the bounds and why. */
   panelWidth?: number;
   textScale?: number;
+  wrapLines?: boolean;
   maxConcurrentRuns?: number;
 }
 
@@ -451,6 +453,8 @@ export interface ReviewView {
 }
 
 export interface ReviewFilePatchView {
+  content?: string;
+  contentRevision?: 'current' | 'before-deletion';
   file: ReviewFile;
   patch: string;
   /** True when the patch was too large and only its beginning is here. */

@@ -1,6 +1,8 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import type { NodeView, ReviewFile } from '@bonsai/shared';
 
+import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
 import { STATUS_LABEL, nodeStatusTitle } from '../nodeStatus.tsx';
 import { DiffPane } from './DiffPane.tsx';
 import { Grip } from './Grip.tsx';
@@ -33,6 +35,15 @@ export function Review({
   revision: string;
   onBack: () => void;
 }): JSX.Element {
+  const [mode, setMode] = useState<'diff' | 'file'>('diff');
+  const [wrap, setWrap] = useState(false);
+  const [savingWrap, setSavingWrap] = useState(false);
+  useEffect(() => {
+    void api
+      .settings()
+      .then((s) => setWrap(s.wrapLines))
+      .catch((e) => setError(describeError(e)));
+  }, []);
   const review = useReview(node?.id ?? null, revision);
   const [selected, setSelected] = useState<[string | null, string | null]>([null, null]);
   const [focusedPane, setFocusedPane] = useState<0 | 1>(0);
@@ -114,13 +125,13 @@ export function Review({
     return () => window.removeEventListener('keydown', onKey);
   }, [onBack]);
 
-  const first = useFilePatch(node?.id ?? null, selected[0], revision);
-  const second = useFilePatch(node?.id ?? null, split ? selected[1] : null, revision);
+  const first = useFilePatch(node?.id ?? null, selected[0], revision, mode);
+  const second = useFilePatch(node?.id ?? null, split ? selected[1] : null, revision, mode);
   const openFile = (path: string | null): ReviewFile | null =>
     path === null ? null : (byPath.get(path) ?? null);
 
   return (
-    <div className="review" ref={root}>
+    <div className={`review${wrap ? ' wrap-lines' : ''}`} ref={root}>
       <header className="review-bar">
         <button className="back" onClick={onBack} title="Back to the map (Esc)">
           <span aria-hidden="true">←</span>
@@ -138,6 +149,37 @@ export function Review({
           </span>
         )}
         <div className="spacer" />
+        <button aria-pressed={mode === 'diff'} onClick={() => setMode('diff')}>
+          Diff
+        </button>
+        <button aria-pressed={mode === 'file'} onClick={() => setMode('file')}>
+          File
+        </button>
+        <button
+          aria-pressed={wrap}
+          disabled={savingWrap}
+          onClick={async () => {
+            setSavingWrap(true);
+            try {
+              const settings = await api.updateSettings({ wrapLines: !wrap });
+              setWrap(settings.wrapLines);
+            } catch (e) {
+              setError(describeError(e));
+            } finally {
+              setSavingWrap(false);
+            }
+          }}
+        >
+          Wrap lines
+        </button>
+        <button
+          disabled={!node}
+          onClick={() => {
+            if (node) void api.revealNode(node.id).catch((e) => setError(describeError(e)));
+          }}
+        >
+          Open experiment folder
+        </button>
         {split ? (
           <ViewToggle split onChange={toggleSplit} />
         ) : (
@@ -195,6 +237,9 @@ export function Review({
         <DiffPane
           file={openFile(selected[0])}
           patch={first.data?.patch ?? null}
+          content={first.data?.content}
+          contentRevision={first.data?.contentRevision}
+          error={first.error}
           truncated={first.data?.truncated}
           focused={split && focusedPane === 0}
           onFocus={() => setFocusedPane(0)}
@@ -219,6 +264,9 @@ export function Review({
               <DiffPane
                 file={openFile(selected[1])}
                 patch={second.data?.patch ?? null}
+                content={second.data?.content}
+                contentRevision={second.data?.contentRevision}
+                error={second.error}
                 truncated={second.data?.truncated}
                 focused={focusedPane === 1}
                 onFocus={() => setFocusedPane(1)}

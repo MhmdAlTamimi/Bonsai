@@ -88,6 +88,8 @@ export const api = {
   updateSettings: (body: UpdateSettingsRequest) =>
     json<SettingsView>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
 
+  revealNode: (id: string) => json<{ ok: true }>(`/api/nodes/${id}/reveal`, { method: 'POST' }),
+
   reveal: (path: string) =>
     json<{ ok: true }>('/api/reveal', { method: 'POST', body: JSON.stringify({ path }) }),
 
@@ -119,7 +121,7 @@ export const api = {
   projectDeletionImpact: (projectId: string) =>
     json<DeletionImpactView>(`/api/projects/${projectId}/deletion-impact`),
 
-  listProjects: () => json<Array<{ id: string; name: string }>>('/api/projects'),
+  listProjects: () => json<ProjectView[]>('/api/projects'),
 
   previewProject: (location: string, name: string) =>
     json<{ path: string }>('/api/projects/preview', {
@@ -149,10 +151,18 @@ export const api = {
     json<ReviewView>(`/api/nodes/${nodeId}/review`, { signal }),
 
   /** One file's patch, for the pane reading it. */
-  reviewFile: (nodeId: string, path: string, signal?: AbortSignal) =>
-    json<ReviewFilePatchView>(`/api/nodes/${nodeId}/review/file?path=${encodeURIComponent(path)}`, {
-      signal,
-    }),
+  reviewFile: (
+    nodeId: string,
+    path: string,
+    signal?: AbortSignal,
+    view: 'diff' | 'file' = 'diff',
+  ) =>
+    json<ReviewFilePatchView>(
+      `/api/nodes/${nodeId}/review/file?path=${encodeURIComponent(path)}&view=${view}`,
+      {
+        signal,
+      },
+    ),
 
   runDiff: (runId: string) => json<DiffView>(`/api/runs/${runId}/diff`),
 

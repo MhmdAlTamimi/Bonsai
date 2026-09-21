@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from 'react';
-import type { DirectoryInspectionView } from '@bonsai/shared';
+import type { DirectoryInspectionView, ProjectView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
@@ -23,6 +23,7 @@ export function NewProject({
   onCancel,
   onOpenExisting,
   initialMode = 'new',
+  projects = [],
 }: {
   onCreated: (id: string, nodeId: string) => void;
   /** Only offered when there is a project to go back to. */
@@ -30,6 +31,7 @@ export function NewProject({
   /** Jump to a folder that turns out to already be in Bonsai. */
   onOpenExisting?: (projectId: string, nodeId: string | null) => void;
   initialMode?: 'new' | 'existing';
+  projects?: readonly ProjectView[];
 }): JSX.Element {
   const [mode, setMode] = useState<'new' | 'existing'>(initialMode);
   const [name, setName] = useState('');
@@ -44,6 +46,7 @@ export function NewProject({
   const [inspectedFolder, setInspectedFolder] = useState('');
   const [inspectionRetry, setInspectionRetry] = useState(0);
   const [inspection, setInspection] = useState<DirectoryInspectionView | null>(null);
+  const [createAnother, setCreateAnother] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +72,7 @@ export function NewProject({
   // Look before adopting: whether it is a repo, what branch it is on and how
   // much is uncommitted all change what the user is agreeing to.
   useEffect(() => {
+    setCreateAnother(false);
     setInspection(null);
     setInspectedFolder('');
     setInspectionError(null);
@@ -124,10 +128,16 @@ export function NewProject({
   };
 
   const currentInspection = inspectedFolder === folder ? inspection : null;
+  const matching =
+    currentInspection?.repoRoot == null
+      ? []
+      : projects.filter((project) => project.sourcePath === currentInspection.repoRoot);
+  const offerExisting = matching.length > 0 && !createAnother;
   const blocked =
     mode === 'new'
       ? location === '' || preview?.key !== previewKey || choosingLocation
-      : folder === '' ||
+      : offerExisting ||
+        folder === '' ||
         currentInspection?.blockedReason !== null ||
         currentInspection.knownTo !== null;
 
@@ -213,6 +223,28 @@ export function NewProject({
               {inspectionError}{' '}
               <button onClick={() => setInspectionRetry((n) => n + 1)}>Retry inspection</button>
             </p>
+          )}
+          {matching.length > 0 && (
+            <section className="matching-projects" aria-label="Projects in this repository">
+              <h3>Already in Bonsai</h3>
+              {matching.map((project) => (
+                <button
+                  className={offerExisting ? 'primary' : ''}
+                  key={project.id}
+                  onClick={() => onOpenExisting?.(project.id, null)}
+                >
+                  Open {project.name}
+                  <small>
+                    {project.workDir || 'Repository root'} · {project.id.slice(0, 8)}
+                  </small>
+                </button>
+              ))}
+              {offerExisting && (
+                <button className="linkish" onClick={() => setCreateAnother(true)}>
+                  Create another project here
+                </button>
+              )}
+            </section>
           )}
           <Inspected inspection={currentInspection} onOpenExisting={onOpenExisting} />
 

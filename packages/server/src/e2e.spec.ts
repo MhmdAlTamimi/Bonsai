@@ -688,6 +688,27 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       true,
     );
 
+    // Whole-file reading and wrapping use the same review, with a persisted preference.
+    await session.eval(
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.textContent==='File').click()",
+    );
+    await session.waitFor(
+      "!!document.querySelector('.diff-line') && !document.querySelector('.hunk')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.textContent==='Wrap lines').click()",
+    );
+    await session.waitFor("document.querySelector('.review').classList.contains('wrap-lines')");
+    assert.equal(
+      ((await (await fetch(`${BASE}/api/settings`)).json()) as { wrapLines: boolean }).wrapLines,
+      true,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'phases-1-file-review.png'));
+    await session.eval(
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.textContent==='Diff').click()",
+    );
+    await session.waitFor("!!document.querySelector('.hunk')");
+
     // Two files side by side, the focused one marked, then back to one.
     await session.eval("document.querySelectorAll('.view-toggle button')[1].click()");
     await session.waitFor("document.querySelectorAll('.diff-pane').length === 2");

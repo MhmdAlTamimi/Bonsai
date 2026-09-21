@@ -12,6 +12,9 @@ import { parsePatch } from './diffModel.ts';
  */
 export function DiffPane({
   file,
+  content,
+  contentRevision,
+  error,
   patch,
   truncated,
   header,
@@ -19,6 +22,9 @@ export function DiffPane({
   onFocus,
 }: {
   file: ReviewFile | null;
+  content?: string;
+  contentRevision?: 'current' | 'before-deletion';
+  error?: string | null;
   patch: string | null;
   truncated?: boolean;
   /** The file header a split pane carries; the single pane names the file in the top bar. */
@@ -36,7 +42,11 @@ export function DiffPane({
     >
       {header}
       <div className="diff-scroll">
-        {file === null ? (
+        {error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : file === null ? (
           <p className="diff-note">Choose a file to read its changes.</p>
         ) : patch === null ? (
           <p className="diff-note" role="status">
@@ -44,6 +54,23 @@ export function DiffPane({
           </p>
         ) : file.binary || parsed?.binary === true ? (
           <p className="diff-note">Binary file — there is no text to show.</p>
+        ) : content !== undefined ? (
+          <>
+            {contentRevision === 'before-deletion' && (
+              <p className="diff-note">File before deletion</p>
+            )}
+            {content.split('\n').map((line, index) => (
+              <div className="diff-line" key={index}>
+                <span className="diff-num">{index + 1}</span>
+                <span className="diff-text">{line || ' '}</span>
+              </div>
+            ))}
+            {truncated && (
+              <p className="diff-note">
+                File truncated at 2 MiB. Open the folder for the complete file.
+              </p>
+            )}
+          </>
         ) : parsed === null || parsed.lines.length === 0 ? (
           <p className="diff-note">
             {file.status === 'R'
