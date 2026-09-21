@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import type { NodeView, ReviewFile } from '@bonsai/shared';
 
+import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { STATUS_LABEL, nodeStatusTitle } from '../nodeStatus.tsx';
@@ -149,37 +150,57 @@ export function Review({
           </span>
         )}
         <div className="spacer" />
-        <button aria-pressed={mode === 'diff'} onClick={() => setMode('diff')}>
-          Diff
-        </button>
-        <button aria-pressed={mode === 'file'} onClick={() => setMode('file')}>
-          File
-        </button>
-        <button
-          aria-pressed={wrap}
-          disabled={savingWrap}
-          onClick={async () => {
-            setSavingWrap(true);
-            try {
-              const settings = await api.updateSettings({ wrapLines: !wrap });
-              setWrap(settings.wrapLines);
-            } catch (e) {
-              setError(describeError(e));
-            } finally {
-              setSavingWrap(false);
-            }
-          }}
-        >
-          Wrap lines
-        </button>
-        <button
-          disabled={!node}
-          onClick={() => {
-            if (node) void api.revealNode(node.id).catch((e) => setError(describeError(e)));
-          }}
-        >
-          Open experiment folder
-        </button>
+        <div className="review-tools" role="group" aria-label="File viewing controls">
+          <div className="segmented-control" role="group" aria-label="View mode">
+            <button
+              title="Show changes (Diff)"
+              aria-label="Diff"
+              aria-pressed={mode === 'diff'}
+              onClick={() => setMode('diff')}
+            >
+              <Icon name="diff" />
+            </button>
+            <button
+              title="Show full file"
+              aria-label="File"
+              aria-pressed={mode === 'file'}
+              onClick={() => setMode('file')}
+            >
+              <Icon name="file" />
+            </button>
+          </div>
+          <button
+            className="toolbar-icon"
+            title="Wrap lines"
+            aria-label="Wrap lines"
+            aria-pressed={wrap}
+            disabled={savingWrap}
+            onClick={async () => {
+              setSavingWrap(true);
+              try {
+                const settings = await api.updateSettings({ wrapLines: !wrap });
+                setWrap(settings.wrapLines);
+              } catch (e) {
+                setError(describeError(e));
+              } finally {
+                setSavingWrap(false);
+              }
+            }}
+          >
+            <Icon name="wrap" />
+          </button>
+          <button
+            className="toolbar-folder"
+            title="Open experiment folder"
+            aria-label="Open experiment folder"
+            disabled={!node}
+            onClick={() => {
+              if (node) void api.revealNode(node.id).catch((e) => setError(describeError(e)));
+            }}
+          >
+            <Icon name="folderOpen" /> <span>Open folder</span>
+          </button>
+        </div>
         {split ? (
           <ViewToggle split onChange={toggleSplit} />
         ) : (

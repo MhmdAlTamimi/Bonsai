@@ -66,3 +66,15 @@ Restart the backend after switching to this branch, then review:
    the latest parent conversation is available while the child's code remains pinned.
 
 The implementation is kept on `codex/phases-1-3` for review before merge or push.
+
+## Interface follow-up
+
+The review toolbar now groups Diff/File into an SVG segmented control, with a matching wrap toggle
+and Open folder action. Icon controls retain accessible names, tooltips and pressed states.
+Creation uses a primary **Start experiment** action and a secondary **Save for later** action.
+Project sources use a grouped selector, persistent field labels and consistent footer actions.
+Existing projects display their identity separately from **Open project**; creation fields appear
+only after choosing to create another project. Empty folder listings use compact spacing.
+
+Validation: the full server and UI/shared suite passed, as did all 18 browser scenarios. Browser
+screenshots were inspected for the toolbar, existing-project selection and experiment dialog.

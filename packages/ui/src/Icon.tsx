@@ -1,5 +1,11 @@
 import type { JSX } from 'react';
 const paths = {
+  diff: 'M8 3h7l5 5v13H4V3ZM14 3v6h6M8 13h6M11 10v6M8 18h6',
+  file: 'M8 3h7l5 5v13H4V3ZM14 3v6h6M8 13h8M8 17h8',
+  wrap: 'M3 6h18M3 11h13a4 4 0 0 1 0 8h-4m3-3-3 3 3 3M3 16h4',
+  folderOpen: 'M3 8V5h6l2 3h9v3M3 8v12h16l3-9H7l-4 9',
+  play: 'm8 4 12 8-12 8Z',
+  arrowRight: 'M4 12h16m-6-6 6 6-6 6',
   plus: 'M12 5v14M5 12h14',
   close: 'm6 6 12 12M6 18 18 6',
   chat: 'M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-6 4V6a2 2 0 0 1 2-2Z',

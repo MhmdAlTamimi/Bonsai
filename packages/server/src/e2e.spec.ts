@@ -126,7 +126,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         true,
       );
       await session.eval(
-        "Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Change folder…').click()",
+        "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Choose folder…').click()",
       );
       await session.waitFor(
         "!!document.querySelector('.picker input') && !document.querySelector('.picker > button').disabled",
@@ -691,13 +691,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
 
     // Whole-file reading and wrapping use the same review, with a persisted preference.
     await session.eval(
-      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.textContent==='File').click()",
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.getAttribute('aria-label')==='File').click()",
     );
     await session.waitFor(
       "!!document.querySelector('.diff-line') && !document.querySelector('.hunk')",
     );
     await session.eval(
-      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.textContent==='Wrap lines').click()",
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.getAttribute('aria-label')==='Wrap lines').click()",
     );
     await session.waitFor("document.querySelector('.review').classList.contains('wrap-lines')");
     assert.equal(
@@ -706,7 +706,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'phases-1-file-review.png'));
     await session.eval(
-      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.textContent==='Diff').click()",
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.getAttribute('aria-label')==='Diff').click()",
     );
     await session.waitFor("!!document.querySelector('.hunk')");
 
@@ -1778,18 +1778,18 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.waitFor("!document.querySelector('.picker > button').disabled");
     await session.click('.picker > button');
-    await session.waitFor("document.querySelectorAll('.matching-projects .primary').length === 2");
+    await session.waitFor("document.querySelectorAll('.existing-project-row').length === 2");
     assert.equal(
-      await session.eval("document.querySelector('.new-project .row button').disabled"),
-      true,
+      await session.eval("!!document.querySelector('.new-project .row .primary')"),
+      false,
     );
     await session.screenshot(join(repoRoot, 'test-results', 'phase-2-reopening.png'));
     await session.eval(
-      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.textContent==='Create another project here').click()",
+      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.textContent.trim()==='Create another project here').click()",
     );
     await session.waitFor("!document.querySelector('.new-project .row button').disabled");
     await session.eval(
-      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.textContent.startsWith('Open Shared one')).click()",
+      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.getAttribute('aria-label')==='Open project Shared one').click()",
     );
     await session.waitFor(
       "!document.querySelector('.new-project') && document.querySelector('.project-picker-name')?.textContent==='Shared one'",
@@ -1821,10 +1821,10 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.click('.add-child-handle');
     await session.type('[aria-label="experiment name"]', 'Later experiment');
     await session.waitFor(
-      "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent==='Create experiment' && !b.disabled)",
+      "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent.trim()==='Save for later' && !b.disabled)",
     );
     await session.eval(
-      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Create experiment').click()",
+      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()==='Save for later').click()",
     );
     await session.waitFor(
       "!document.querySelector('dialog') && document.querySelector('.panel h2')?.textContent==='Later experiment'",

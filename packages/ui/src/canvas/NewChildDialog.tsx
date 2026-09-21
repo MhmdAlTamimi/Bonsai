@@ -116,7 +116,7 @@ export function NewChildDialog({
         />
       </label>
       <label className="stacked">
-        Request
+        Request (optional for later)
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -222,16 +222,18 @@ export function NewChildDialog({
           {error}
         </p>
       )}
-      <div className="dialog-actions">
+      <div className="dialog-actions creation-actions">
         <span className="hint">Enter in request to run · Shift+Enter for a new line</span>
+        <button className="creation-cancel" onClick={cancel} disabled={busy}>
+          Cancel
+        </button>
         <button
+          className="creation-secondary"
+          title="Create without starting a run"
           disabled={busy || name.trim() === '' || preview === null}
           onClick={() => void submit(false)}
         >
-          Create experiment
-        </button>
-        <button onClick={cancel} disabled={busy}>
-          Cancel
+          <Icon name="plus" /> Save for later
         </button>
         <button
           className="primary"
@@ -240,7 +242,8 @@ export function NewChildDialog({
             !canRun || busy || name.trim() === '' || description.trim() === '' || preview === null
           }
         >
-          {busy ? 'Creating…' : canRun ? 'Create and run' : 'Reconnect agent to run'}
+          <Icon name="play" />
+          {busy ? 'Creating…' : canRun ? 'Start experiment' : 'Reconnect agent to run'}
         </button>
       </div>
     </Dialog>
