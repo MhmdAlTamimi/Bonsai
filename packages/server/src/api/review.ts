@@ -34,7 +34,10 @@ export function baseLabel(store: Store, row: NodeRow): string {
 }
 
 export async function reviewOf(store: Store, row: NodeRow): Promise<ReviewView> {
-  const files = await reviewFiles(row.worktree_path, await reviewRange(store, row));
+  const files =
+    row.worktree_allocated === 0
+      ? []
+      : await reviewFiles(row.worktree_path, await reviewRange(store, row));
   return {
     nodeId: row.id,
     displayName: row.display_name,
@@ -58,6 +61,8 @@ export async function reviewPatchOf(
   path: string,
   fullFile = false,
 ): Promise<ReviewFilePatchView> {
+  if (row.worktree_allocated === 0)
+    throw new HttpError(404, 'This experiment has not created a checkout yet.');
   const range = await reviewRange(store, row);
   const file = (await reviewFiles(row.worktree_path, range)).find((f) => f.path === path);
   if (file === undefined) throw new HttpError(404, 'This experiment did not change that file.');

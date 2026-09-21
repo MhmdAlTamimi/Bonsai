@@ -53,23 +53,23 @@ describe('store, against real SQL', () => {
     assert.equal(a.createsBranch, true);
   });
 
-  test('a node with a committed child is frozen', () => {
-    assert.equal(byName.get('master')!.writable, false);
-    assert.equal(byName.get('why argparse?')!.writable, false);
+  test('a node with a committed child stays writable', () => {
+    assert.equal(byName.get('master')!.writable, true);
+    assert.equal(byName.get('why argparse?')!.writable, true);
     // And says which of the two reasons it is, since a node can also be
     // unwritable for being the user's own folder.
-    assert.equal(byName.get('master')!.frozenReason, 'child_committed');
+    assert.equal(byName.get('master')!.frozenReason, null);
     assert.equal(byName.get('argparse')!.frozenReason, null);
   });
 
-  test('deleting the last committed child unfreezes a parent; question children do not freeze it', () => {
+  test('deleting children does not affect parent authority', () => {
     const master = byName.get('master')!;
     const children = store
       .listNodes(projectId)
       .filter((node) => node.parent_id === master.id && node.head_commit !== null);
     assert.equal(children.length, 2);
     store.deleteNode(children[0]!.id);
-    assert.equal(store.treeView(projectId).find((node) => node.id === master.id)?.writable, false);
+    assert.equal(store.treeView(projectId).find((node) => node.id === master.id)?.writable, true);
     store.deleteNode(children[1]!.id);
     assert.equal(store.treeView(projectId).find((node) => node.id === master.id)?.writable, true);
     store.createNode({

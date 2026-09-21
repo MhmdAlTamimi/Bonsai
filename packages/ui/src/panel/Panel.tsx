@@ -230,9 +230,9 @@ function NodePanel({
       {detail?.baseIsPinnedBehindLiveWalk === true && (
         <p
           className="note"
-          title="Its base stays pinned where it was, so its code and its inherited conversation still describe the same tree."
+          title="This experiment keeps its original code snapshot. Parent conversation refreshes separately on every run."
         >
-          An ancestor has committed since this node branched.
+          Parent code has moved ahead. This experiment keeps its pinned code snapshot.
         </p>
       )}
 

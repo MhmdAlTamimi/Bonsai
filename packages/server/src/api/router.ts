@@ -607,7 +607,7 @@ route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs, 
     parentActive: jobs.isRunning(parent.id),
     codeNote: 'Starts from this committed code snapshot. Uncommitted partial work is excluded.',
     conversationNote:
-      'The conversation is copied when the new experiment’s first run starts. Later replies stay with their original experiment.',
+      'Parent conversation refreshes automatically at each run. This experiment keeps its own replies.',
   });
 });
 
@@ -623,7 +623,8 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
   const source = sourceCommit === null ? null : store.testingSource(sourceCommit);
   const runs = store.listRuns(row.id);
   const ownFolder = isUsersOwnCheckout(project, row);
-  const partialWork = ownFolder ? null : await readWorktreeState(row.worktree_path);
+  const partialWork =
+    ownFolder || row.worktree_allocated === 0 ? null : await readWorktreeState(row.worktree_path);
   const body: NodeDetail = {
     nextRunSettings: resolveRunSettings(row, project!, settings),
     node: view,
@@ -663,7 +664,13 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus, jobs }) 
   }
   // D3: nodes are immutable. Display name and canvas position are metadata and
   // are the only things this route will touch.
+  for (const field of ['successCriteria', 'verificationHint'] as const) {
+    if (body[field] !== undefined && typeof body[field] !== 'string')
+      throw new HttpError(400, `${field} must be text.`);
+  }
   store.updateNode(row.id, {
+    ...(body.successCriteria !== undefined ? { successCriteria: body.successCriteria } : {}),
+    ...(body.verificationHint !== undefined ? { verificationHint: body.verificationHint } : {}),
     ...(body.displayName !== undefined
       ? { displayName: requireString(body.displayName, 'displayName') }
       : {}),
@@ -717,6 +724,10 @@ route('GET', '/api/nodes/:id/messages', (req, res, params, { store }) => {
 route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
+  if (row.worktree_allocated === 0) {
+    sendJson(res, 200, { files: [], patch: '', dirty: [] });
+    return;
+  }
   const first = store.listRuns(row.id).find((run) => run.commitSha !== null);
   const base =
     row.base_commit ??
@@ -744,6 +755,8 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
 route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store }) => {
   const node = store.getNode(params['id']!);
   if (!node) throw new HttpError(404, 'No such experiment.');
+  if (node.worktree_allocated === 0)
+    throw new HttpError(409, 'The experiment folder is created when its first run starts.');
   await revealInFileManager(node.worktree_path);
   sendJson(res, 200, { ok: true });
 });

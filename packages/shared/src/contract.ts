@@ -374,7 +374,21 @@ export interface AgentQuestion {
  */
 export type RunEndReason = 'finished' | 'stopped' | 'failed' | 'app_closed';
 
+export interface ResolvedRunContext {
+  resolvedAt: string;
+  successCriteria: string | null;
+  verificationHint: string | null;
+  codeCommit: string | null;
+  parentNodeId: string | null;
+  parentName: string | null;
+  parentHeadCommit: string | null;
+  parentMessageSeq: number;
+  parentSnapshotSha256: string | null;
+  snapshotPath: string | null;
+}
+
 export interface RunView {
+  resolvedContext?: ResolvedRunContext | null;
   id: string;
   nodeId: string;
   status: RunStatus;
@@ -753,6 +767,8 @@ export interface CreateNodeRequest {
 }
 
 export interface UpdateNodeRequest {
+  successCriteria?: string;
+  verificationHint?: string;
   displayName?: string;
   positionX?: number | null;
   positionY?: number | null;

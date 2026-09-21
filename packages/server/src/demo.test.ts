@@ -99,14 +99,14 @@ describe('PRD §2 — the demo script', () => {
       displayName: 'why argparse?',
       description: 'how does the argument parsing handle subcommands?',
     });
-    // §6.4 / D26: no branch, and a worktree detached at the parent's commit.
+    assert.equal(existsSync(store.getNode(e.nodeId)!.worktree_path), false);
+    await run(e.nodeId, '? how do subcommands work here');
+    // First execution allocates a checkout detached at the pinned commit.
     assert.equal(await currentBranch(store.getNode(e.nodeId)!.worktree_path), null);
     assert.equal(
       await gitLine(['rev-parse', 'HEAD'], store.getNode(e.nodeId)!.worktree_path),
       aCommit,
     );
-
-    await run(e.nodeId, '? how do subcommands work here');
 
     // D6/A1: it is an exploration because its run wrote nothing, not because
     // anyone said so at creation.
@@ -142,9 +142,9 @@ describe('PRD §2 — the demo script', () => {
     assert.ok(parents.endsWith(aCommit), "the commit's parent is argparse's commit");
 
     assert.notEqual(
-      store.getNode(f.nodeId)!.forked_from_message_seq,
+      store.listRuns(f.nodeId).at(-1)!.resolvedContext?.parentMessageSeq,
       null,
-      "CONTEXT: must have forked the exploration's session",
+      'CONTEXT: must record the exploration conversation snapshot',
     );
     assert.notEqual(store.getNode(f.nodeId)!.session_id, store.getNode(e.nodeId)!.session_id);
     assert.notEqual(store.getNode(f.nodeId)!.session_id, null);
@@ -172,8 +172,8 @@ describe('PRD §2 — the demo script', () => {
     assert.ok(!bFiles.includes('argparse'), 'click cannot see it');
 
     // And the flags the canvas renders from are what the script implies.
-    assert.equal(byName.get('master')!.writable, false, 'frozen: argparse and click committed');
-    assert.equal(byName.get('why argparse?')!.writable, false, 'frozen: its child committed');
+    assert.equal(byName.get('master')!.writable, true, 'parent remains writable');
+    assert.equal(byName.get('why argparse?')!.writable, true, 'question parent remains writable');
     assert.equal(byName.get('click')!.writable, true, 'a writable leaf');
     assert.equal(byName.get('why argparse?')!.createsBranch, false, 'conversation only');
     assert.equal(byName.get('add --verbose')!.createsBranch, true);

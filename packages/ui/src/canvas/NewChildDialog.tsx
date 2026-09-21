@@ -25,6 +25,7 @@ export function NewChildDialog({
     successCriteria: string,
     verificationHint: string,
     sourceVersion: string,
+    startNow?: boolean,
   ) => Promise<void>;
 }): JSX.Element {
   const [description, setDescription] = useState('');
@@ -63,12 +64,12 @@ export function NewChildDialog({
     if (!submitting.current) onCancel();
   };
 
-  const submit = async (): Promise<void> => {
+  const submit = async (startNow = true): Promise<void> => {
     if (
-      !canRun ||
+      (startNow && !canRun) ||
       submitting.current ||
       name.trim() === '' ||
-      description.trim() === '' ||
+      (startNow && description.trim() === '') ||
       preview === null
     )
       return;
@@ -82,6 +83,7 @@ export function NewChildDialog({
         successCriteria.trim(),
         verificationHint.trim(),
         preview.sourceVersion,
+        startNow,
       );
     } catch (e) {
       setError(describeError(e));
@@ -159,7 +161,7 @@ export function NewChildDialog({
                 {
                   label: 'Conversation',
                   source: preview.lineage.conversationFrom,
-                  badge: 'At first run',
+                  badge: 'Each run',
                 },
                 { label: 'Code', source: preview.lineage.codeFrom, badge: 'Committed' },
               ].map(({ label, source, badge }) => (
@@ -221,7 +223,13 @@ export function NewChildDialog({
         </p>
       )}
       <div className="dialog-actions">
-        <span className="hint">Enter to create · Shift+Enter for a new line</span>
+        <span className="hint">Enter in request to run · Shift+Enter for a new line</span>
+        <button
+          disabled={busy || name.trim() === '' || preview === null}
+          onClick={() => void submit(false)}
+        >
+          Create experiment
+        </button>
         <button onClick={cancel} disabled={busy}>
           Cancel
         </button>
@@ -232,7 +240,7 @@ export function NewChildDialog({
             !canRun || busy || name.trim() === '' || description.trim() === '' || preview === null
           }
         >
-          {busy ? 'Creating…' : canRun ? 'Create and run' : 'Reconnect agent to create'}
+          {busy ? 'Creating…' : canRun ? 'Create and run' : 'Reconnect agent to run'}
         </button>
       </div>
     </Dialog>

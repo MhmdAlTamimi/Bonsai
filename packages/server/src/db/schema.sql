@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS node (
   head_commit   TEXT,
 
   worktree_path TEXT NOT NULL,
+  worktree_allocated INTEGER NOT NULL DEFAULT 1,
   status        TEXT NOT NULL,
   model           TEXT,
   permission_mode TEXT,
@@ -119,6 +120,7 @@ CREATE INDEX IF NOT EXISTS node_project_idx ON node(project_id);
 CREATE INDEX IF NOT EXISTS node_parent_idx  ON node(parent_id);
 
 CREATE TABLE IF NOT EXISTS run (
+  resolved_context TEXT,
   id            TEXT PRIMARY KEY,
   node_id       TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
   status        TEXT NOT NULL,

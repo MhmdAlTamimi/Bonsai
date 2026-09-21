@@ -2606,3 +2606,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .review.wrap-lines .diff-line { height: auto; min-height: var(--h-tool-line); align-items: flex-start; }
 .review.wrap-lines .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .review-bar { flex-wrap: wrap; height: auto; min-height: 48px; }
+
+.review-bar > button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); }
+.run-context { margin: 12px 0; font-size: .8rem; color: var(--muted); }
+.run-context dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
+.checks label { display: grid; gap: 8px; margin-bottom: 12px; }
+.kind-run .tool-head { height: auto; min-height: var(--h-control); padding-top: 6px; padding-bottom: 6px; }

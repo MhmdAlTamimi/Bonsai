@@ -74,6 +74,7 @@ export class NodeStore {
       base_commit: baseCommit,
       head_commit: headCommit,
       worktree_path: input.worktreePath ?? join(this.scratchDir(input.projectId), 'worktrees', id),
+      worktree_allocated: 1,
       status: 'new',
       model: input.model ?? null,
       permission_mode: input.permissionMode ?? null,
@@ -147,8 +148,22 @@ export class NodeStore {
   /** D33: display name and position only. D3 forbids everything else. */
   update(
     id: string,
-    patch: { displayName?: string; positionX?: number | null; positionY?: number | null },
+    patch: {
+      displayName?: string;
+      positionX?: number | null;
+      positionY?: number | null;
+      successCriteria?: string;
+      verificationHint?: string;
+    },
   ): void {
+    if (patch.successCriteria !== undefined)
+      this.db
+        .prepare('UPDATE node SET success_criteria = ? WHERE id = ?')
+        .run(blankToNull(patch.successCriteria), id);
+    if (patch.verificationHint !== undefined)
+      this.db
+        .prepare('UPDATE node SET verification_hint = ? WHERE id = ?')
+        .run(blankToNull(patch.verificationHint), id);
     if (patch.displayName !== undefined) {
       this.db.prepare(`UPDATE node SET display_name = ? WHERE id = ?`).run(patch.displayName, id);
     }
@@ -205,6 +220,12 @@ export class NodeStore {
     this.db
       .prepare(`UPDATE node SET forked_from_message_seq = ? WHERE id = ?`)
       .run(parentMessageSeq, id);
+  }
+
+  markAllocated(id: string, allocated: boolean): void {
+    this.db
+      .prepare('UPDATE node SET worktree_allocated = ? WHERE id = ?')
+      .run(allocated ? 1 : 0, id);
   }
 
   setSessionId(id: string, sessionId: string): void {

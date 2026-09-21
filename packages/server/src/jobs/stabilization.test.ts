@@ -7,7 +7,13 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { EventBus } from '../api/events.js';
 import { RunJobs } from './runNode.js';
-import { adoptProject, createProject, createChildNode, deleteNodeTree } from '../projects.js';
+import {
+  adoptProject,
+  allocateNodeWorktree,
+  createProject,
+  createChildNode,
+  deleteNodeTree,
+} from '../projects.js';
 import { git, gitLine } from '../git/exec.js';
 import type { AgentRunner, RunEvent, RunSpec } from '../agent/AgentRunner.js';
 import type { DatabaseSync } from 'node:sqlite';
@@ -129,18 +135,20 @@ test('recovery selects the request, never the later permission answer; legacy fa
   assert.equal(store.lastUserPrompt(child.nodeId), null);
 });
 
-test('failed node allocation rolls back its row without deleting existing files', async () => {
+test('failed lazy allocation preserves its row and closes the failed run', async () => {
   const p = await create();
   db.prepare('UPDATE node SET head_commit = ? WHERE id = ?').run('missing-object', p.masterNodeId);
-  await assert.rejects(
-    createChildNode(store, {
-      projectId: p.projectId,
-      parentId: p.masterNodeId,
-      displayName: 'bad',
-      description: '',
-    }),
-  );
-  assert.equal(store.listNodes(p.projectId).length, 1);
+  const child = await createChildNode(store, {
+    projectId: p.projectId,
+    parentId: p.masterNodeId,
+    displayName: 'bad',
+    description: '',
+  });
+  jobs.start(child.nodeId, 'start');
+  await settled(child.nodeId);
+  assert.equal(store.listNodes(p.projectId).length, 2);
+  assert.equal(store.listRuns(child.nodeId).at(-1)?.status, 'failed');
+  assert.equal(jobs.activeCount(), 0);
 });
 
 test('deletion rejects a different branch even with the node prefix', async () => {
@@ -152,6 +160,7 @@ test('deletion rejects a different branch even with the node prefix', async () =
     description: '',
   });
   const node = store.getNode(child.nodeId)!;
+  await allocateNodeWorktree(store, node);
   await git(['switch', '-c', 'node/somebody-else'], node.worktree_path);
   await writeFile(join(node.worktree_path, 'keep'), 'keep');
   await assert.rejects(deleteNodeTree(store, node.id), /changed outside Bonsai/);

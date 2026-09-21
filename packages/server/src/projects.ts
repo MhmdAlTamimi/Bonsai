@@ -264,13 +264,13 @@ export async function adoptProject(
 }
 
 /**
- * Creates a node and its worktree.
+ * Creates metadata and pins its base; checkout allocation waits for the first run.
  *
  * The worktree is DETACHED at the pinned base commit. No branch is created here
  * and none is named in git until the node's first commit, which is what makes
  * `creates_branch` an outcome rather than a creation-time choice.
  */
-export async function createChildNode(
+export function createChildNode(
   store: Store,
   input: {
     projectId: string;
@@ -293,59 +293,34 @@ export async function createChildNode(
   const baseCommit = resolveBaseCommit(toLineage(parent));
 
   const node = store.createNode(input);
-  let createdWorktree = false;
-  try {
-    await addDetachedWorktree(project.repo_path, node.worktree_path, baseCommit);
-    createdWorktree = true;
+  store.markAllocated(node.id, false);
+  return Promise.resolve({ nodeId: node.id, baseCommit, seeded: [] });
+}
 
-    /**
-     * D37: the agent works in the project's chosen subdirectory of the worktree.
-     *
-     * Created here because `git worktree add` checks out TRACKED files only, so a
-     * working directory whose contents are all gitignored -- a build output
-     * folder, a scratch area -- would not exist in a fresh worktree and the agent
-     * would have nowhere to start. An empty directory is invisible to git, so
-     * making it changes nothing about what a run commits.
-     */
-    const workingDir = workDirIn(node.worktree_path, project.work_dir);
-    if (workingDir !== node.worktree_path) await mkdir(workingDir, { recursive: true });
-
-    /**
-     * The worktree is checked out; now give it what git left behind.
-     *
-     * Copying happens HERE, synchronously, because it is a handful of small
-     * files and the node should never be visible without them. The SETUP COMMAND
-     * does not: `npm install` on a cold cache takes minutes, and holding the
-     * HTTP response open for that would freeze the canvas at the exact moment
-     * the user is watching it. It runs instead as the first phase of the node's
-     * first run, where it is asynchronous, cancellable and visible -- and still,
-     * as required, complete before the agent starts.
-     */
-    const seeded =
-      project.source_path === null
-        ? []
-        : await seedFiles({
-            sourceDir: project.source_path,
-            targetDir: node.worktree_path,
-            files: store.projectView(project).setup.copyFiles,
-          });
-
-    return { nodeId: node.id, baseCommit, seeded };
-  } catch (error) {
-    try {
-      if (createdWorktree) await removeWorktree(project.repo_path, node.worktree_path);
-      else if (await pathExists(node.worktree_path))
-        throw new Error(
-          `Worktree allocation left a directory at ${node.worktree_path}; inspect it before deleting this node.`,
-        );
-      store.deleteNode(node.id);
-    } catch (cleanup) {
-      throw new Error(
-        `Node creation failed; retained node ${node.id} for recovery: ${String(error)}. Cleanup: ${String(cleanup)}`,
-      );
-    }
-    throw error;
-  }
+/** Allocates only explicitly unallocated nodes; missing established work is never recreated. */
+export async function allocateNodeWorktree(
+  store: Store,
+  node: NodeRow,
+): Promise<SeedFileOutcome[]> {
+  if (node.worktree_allocated !== 0) return [];
+  const project = store.getProject(node.project_id);
+  if (!project || !node.base_commit) throw new Error('No project or pinned code snapshot.');
+  if (await pathExists(node.worktree_path))
+    throw new Error(
+      'An unexpected folder occupies this experiment location. Work preserved; inspect it before retrying.',
+    );
+  await addDetachedWorktree(project.repo_path, node.worktree_path, node.base_commit);
+  // Mark immediately: later failures must preserve this checkout, never replace it.
+  store.markAllocated(node.id, true);
+  const workingDir = workDirIn(node.worktree_path, project.work_dir);
+  if (workingDir !== node.worktree_path) await mkdir(workingDir, { recursive: true });
+  return project.source_path === null
+    ? []
+    : await seedFiles({
+        sourceDir: project.source_path,
+        targetDir: node.worktree_path,
+        files: store.projectView(project).setup.copyFiles,
+      });
 }
 
 /**
@@ -418,6 +393,13 @@ export async function deleteNodeTree(store: Store, nodeId: string): Promise<numb
     }
   }
 
+  for (const row of doomed)
+    for (const run of store.listRuns(row.id)) {
+      await rm(join(store.projectScratchDir(project.id), 'run-context', run.id), {
+        recursive: true,
+        force: true,
+      });
+    }
   store.deleteNode(nodeId);
   return doomed.length;
 }

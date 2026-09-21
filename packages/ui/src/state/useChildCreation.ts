@@ -41,6 +41,7 @@ export function useChildCreation(opts: {
     successCriteria: string,
     verificationHint: string,
     sourceVersion: string,
+    startNow?: boolean,
   ) => Promise<void>;
 } {
   const [failedStart, setFailedStart] = useState<{ nodeId: string; message: string } | null>(null);
@@ -54,6 +55,7 @@ export function useChildCreation(opts: {
       successCriteria: string,
       verificationHint: string,
       sourceVersion: string,
+      startNow = true,
     ): Promise<void> => {
       if (pending === null || projectId === null) return;
       const { node } = await api.createNode(projectId, {
@@ -81,7 +83,7 @@ export function useChildCreation(opts: {
         }
       }
       try {
-        await api.startRun(node.id, description);
+        if (startNow) await api.startRun(node.id, description);
       } catch (e) {
         setFailedStart({
           nodeId: node.id,

@@ -1,3 +1,4 @@
+import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -11,7 +12,6 @@ import { Store } from '../db/store.js';
 import { workDirIn } from '../db/rows.js';
 import {
   adoptProject,
-  createChildNode,
   createProject,
   deleteNodeTree,
   deleteProjectTree,

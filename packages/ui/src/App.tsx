@@ -177,6 +177,17 @@ export function App(): JSX.Element {
   }, [tree, arrivedAt.nodeId, selection]);
 
   const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
+  const openedProject = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tree || tree.nodes.length === 0 || openedProject.current === tree.project.id) return;
+    openedProject.current = tree.project.id;
+    const requested = tree.project.id === arrivedAt.projectId ? arrivedAt.nodeId : null;
+    const chosen =
+      tree.nodes.find((n) => n.id === requested) ??
+      tree.nodes.find((n) => n.id === selection.primary) ??
+      tree.nodes.find((n) => n.parentId === null);
+    if (chosen) selection.select(chosen.id);
+  }, [tree, selection, arrivedAt.projectId, arrivedAt.nodeId]);
 
   /**
    * Review is a full-screen replacement for the map, not an overlay: reading a
