@@ -1,5 +1,6 @@
 import type {
   AdoptProjectRequest,
+  CompactRequest,
   ChildPreviewView,
   AnswerQuestionRequest,
   ConnectionStatus,
@@ -263,6 +264,13 @@ export const api = {
 
   deleteNode: (nodeId: string) =>
     json<{ ok: true; removed: number }>(`/api/nodes/${nodeId}`, { method: 'DELETE' }),
+
+  /** Compacts the conversation now, as /compact does. Starts a run; returns its id. */
+  compact: (nodeId: string, focus?: string) =>
+    json<{ runId: string }>(`/api/nodes/${nodeId}/compact`, {
+      method: 'POST',
+      body: JSON.stringify({ focus } satisfies CompactRequest),
+    }),
 
   startRun: (nodeId: string, prompt: string) =>
     json<{ runId: string }>(`/api/nodes/${nodeId}/runs`, {

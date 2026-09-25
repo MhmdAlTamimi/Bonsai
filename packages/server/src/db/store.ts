@@ -120,7 +120,7 @@ export class Store {
   adoptForkedSession(id: string, sessionId: string, parentMessageSeq: number): void {
     this.nodes.adoptForkedSession(id, sessionId, parentMessageSeq);
   }
-  setSessionPosition(id: string, messageId: string): void {
+  setSessionPosition(id: string, messageId: string | null): void {
     this.nodes.setSessionPosition(id, messageId);
   }
   markAllocated(id: string, allocated: boolean): void {

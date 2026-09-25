@@ -1874,6 +1874,61 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
   });
 
+  test('compacting says so while it runs and leaves a divider, from the composer or the menu', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'compaction', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const ready = `(async()=> (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`;
+
+    // Nothing to compact before the first conversation.
+    const early = await fetch(`${nodeUrl}/compact`, { method: 'POST', body: '{}' });
+    assert.equal(early.status, 409);
+
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '? tell me about this project' }),
+    });
+    await session.waitFor(ready);
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.composer textarea')");
+
+    // Typed the way Claude Code takes it.
+    await session.type('.composer textarea', '/compact keep the test results');
+    await session.click('.composer-row button.primary');
+    await session.waitFor(
+      "document.querySelector('.activity')?.textContent.includes('Compacting conversation')",
+    );
+    await session.waitFor(ready);
+    await session.waitFor(
+      "document.querySelectorAll('.compaction-divider').length === 1 && document.querySelector('.compaction-divider').textContent.includes('48k → 6k tokens')",
+    );
+    const detail = (await (await fetch(nodeUrl)).json()) as {
+      runs: Array<{ commitSha: string | null }>;
+    };
+    assert.equal(detail.runs.at(-1)!.commitSha, null, 'compacting commits nothing');
+
+    // And from the card's menu, for anyone who does not know the command.
+    await session.click('[aria-label="Actions for master"]');
+    await session.eval(
+      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.includes('Compact conversation')).click()",
+    );
+    await session.waitFor('!!document.querySelector(\'dialog [aria-label="keep in focus"]\')');
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()==='Compact').click()",
+    );
+    await session.waitFor(ready);
+    await session.waitFor("document.querySelectorAll('.compaction-divider').length === 2");
+    // The live line goes away once it is over, rather than sticking at "compacting".
+    await session.waitFor("!document.querySelector('.activity')");
+    await session.screenshot(join(repoRoot, 'test-results', 'compaction.png'));
+  });
+
   test('visual workspace supports text sizing, keyboard branching, stable zoom and narrow views', async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {

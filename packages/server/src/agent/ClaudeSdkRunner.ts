@@ -128,6 +128,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier {
     if (spec.resumeSessionId !== null) options.resume = spec.resumeSessionId;
 
     let sessionAnnounced = false;
+    let compacted = false;
     // Which tool each in-flight call was, so its result can be named when it
     // comes back a message later.
     const calledTools = new Map<string, string>();
@@ -135,7 +136,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier {
     try {
       // D43: a stream, not a string, so the session outlives the first turn.
       // See `Inbox` for what the string version did to background commands.
-      inbox.send(promptWithCriteria(spec));
+      inbox.send(spec.isCommand === true ? spec.prompt : promptWithCriteria(spec));
       live = this.startQuery({ prompt: inbox, options });
 
       for await (const message of live) {
@@ -168,6 +169,28 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier {
             session.jobsChanged(message.tasks);
           } else if (message.subtype === 'thinking_tokens') {
             session.thinking();
+          } else if (message.subtype === 'status') {
+            // Compaction is announced as a status, and ends with its result.
+            if (message.status === 'compacting') {
+              session.compacting(true);
+            } else {
+              session.compacting(false);
+              if (message.compact_result === 'failed') {
+                yield {
+                  type: 'notice',
+                  text: `Compacting the conversation failed${message.compact_error ? `: ${message.compact_error}` : '.'}`,
+                };
+              }
+            }
+          } else if (message.subtype === 'compact_boundary') {
+            compacted = true;
+            session.compacting(false);
+            yield {
+              type: 'compacted',
+              trigger: message.compact_metadata.trigger,
+              tokensBefore: message.compact_metadata.pre_tokens,
+              tokensAfter: message.compact_metadata.post_tokens ?? null,
+            };
           }
         } else if (message.type === 'assistant') {
           // A subagent's messages carry the tool call that started it. They
@@ -240,6 +263,12 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier {
           // D20: cost and tokens captured per run from day one. Every turn's
           // result carries the running total, so each one replaces the last.
           yield usageEvent(message);
+          // A command that did nothing says why only in its result -- for
+          // /compact, "Not enough messages to compact." -- and that is worth
+          // keeping rather than a run that silently changed nothing.
+          if (spec.isCommand === true && !compacted && message.result.trim() !== '') {
+            yield { type: 'notice', text: message.result.trim() };
+          }
           // D43: the end of a turn is the end of the run only when nothing it
           // started is still running.
           if (await session.turnEnded(message.queued_turn_count ?? 0)) inbox.close();

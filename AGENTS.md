@@ -23,7 +23,8 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   parent's conversation at the same moment (SDK session fork, cut at the parent's last
   finished run). Afterwards a child resumes only its own session; later parent turns never
   flow in. Code and conversation can come from different ancestors when the parent has no
-  commits.
+  commits. Compaction (`/compact`) is a read-only run that commits nothing; it resets where a
+  later child's copy is cut, so children copy the compacted conversation.
 - Name-only children have no worktree. First execution allocates a detached checkout at
   the pinned base; the first modifying run creates `node/<uuid>`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.

@@ -10,6 +10,13 @@ export interface RunSpec {
   contextPath?: string;
   prompt: string;
   /**
+   * The prompt is a Claude Code command such as `/compact`, to be sent exactly
+   * as written. Nothing is appended -- no run context, no definition of done --
+   * because anything after a command becomes its arguments. Absent for an
+   * ordinary message.
+   */
+  isCommand?: boolean;
+  /**
    * The node's OWN session, to continue, or null when it has none yet.
    *
    * Always the node's own: a child's copy of its parent's conversation is made
@@ -146,6 +153,15 @@ export type RunEvent =
       cacheCreationTokens?: number;
       model?: string | null;
     }
+  /** Older turns were summarised to free context; the numbers are the harness's. */
+  | {
+      type: 'compacted';
+      trigger: 'manual' | 'auto';
+      tokensBefore: number;
+      tokensAfter: number | null;
+    }
+  /** Something the harness said about the run rather than the agent saying it. */
+  | { type: 'notice'; text: string }
   | { type: 'error'; error: string };
 
 export interface AgentRunner {

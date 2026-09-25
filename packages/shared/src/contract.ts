@@ -260,6 +260,8 @@ export interface NodeView {
   /** Rendering hint only. Deliberately not part of the `writable` derivation. */
   isLeaf: boolean;
   hasCommits: boolean;
+  /** It has a conversation of its own to continue, copy or compact. */
+  hasConversation: boolean;
   pendingQuestion: {
     id: string;
     /** One line, for the card. The question itself, or the permission being asked for. */
@@ -319,11 +321,13 @@ export interface NodeView {
  */
 export interface RunActivity {
   /**
-   * working -- the agent is taking a turn.
-   * waiting -- its turn is over, and background work it started is still
-   *            running. The run ends when that work does, or on Finish now.
+   * working    -- the agent is taking a turn.
+   * waiting    -- its turn is over, and background work it started is still
+   *               running. The run ends when that work does, or on Finish now.
+   * compacting -- the harness is summarising older turns to free context,
+   *               because it was asked to (/compact) or the window filled.
    */
-  state: 'working' | 'waiting';
+  state: 'working' | 'waiting' | 'compacting';
   /** The tool call in progress, so a long command reads as running rather than stuck. */
   tool: { name: string; detail: string; startedAt: string } | null;
   background: BackgroundJob[];
@@ -373,6 +377,20 @@ export interface AgentQuestion {
  * working", and neither is an error.
  */
 export type RunEndReason = 'finished' | 'stopped' | 'failed' | 'app_closed';
+
+/**
+ * The content of a system message recording that the conversation was
+ * compacted: older turns replaced by a summary, to free context. `tokensAfter`
+ * is null when the harness did not report it.
+ */
+export interface CompactionNote {
+  compaction: { trigger: 'manual' | 'auto'; tokensBefore: number; tokensAfter: number | null };
+}
+
+/** Compact a node's conversation now. `focus` says what the summary should keep. */
+export interface CompactRequest {
+  focus?: string;
+}
 
 /**
  * What a run was given, fixed when it started executing and recorded with it.

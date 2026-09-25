@@ -76,10 +76,32 @@ export class FakeRunner implements AgentRunner, ConversationCopier {
     return Promise.resolve(`fake-${randomUUID()}`);
   }
 
+  /**
+   * The stand-in's /compact: says it is compacting for long enough to see,
+   * then reports made-up numbers the way the harness reports real ones.
+   */
+  private async *command(spec: RunSpec): AsyncIterable<RunEvent> {
+    if (!spec.prompt.startsWith('/compact')) {
+      yield { type: 'notice', text: `${spec.prompt.split(/\s/)[0]} is not available here.` };
+      yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };
+      return;
+    }
+    spec.onActivity({ state: 'compacting', tool: null, background: [] });
+    await abortableDelay(Number(process.env['BONSAI_FAKE_DELAY_MS'] ?? 700), spec.signal);
+    if (spec.signal.aborted) return;
+    spec.onActivity({ state: 'working', tool: null, background: [] });
+    yield { type: 'compacted', trigger: 'manual', tokensBefore: 48_200, tokensAfter: 6_100 };
+    yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };
+  }
+
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     // Mirrors the real runner: a resume keeps the session it was given, and a
     // node with none yet gets a new one.
     yield { type: 'session', sessionId: spec.resumeSessionId ?? `fake-${randomUUID()}` };
+    if (spec.isCommand === true) {
+      yield* this.command(spec);
+      return;
+    }
 
     const question = spec.prompt.trimStart().startsWith('?');
     yield {

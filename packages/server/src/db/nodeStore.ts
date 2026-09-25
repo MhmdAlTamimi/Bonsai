@@ -225,7 +225,7 @@ export class NodeStore {
   }
 
   /** Where a later copy of this conversation should end: see `session_position`. */
-  setSessionPosition(id: string, messageId: string): void {
+  setSessionPosition(id: string, messageId: string | null): void {
     this.db.prepare(`UPDATE node SET session_position = ? WHERE id = ?`).run(messageId, id);
   }
 

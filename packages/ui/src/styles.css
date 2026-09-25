@@ -1314,6 +1314,24 @@ body.resizing .panel-resizer {
   height: 1px;
   background: var(--line);
 }
+/* Where older turns became a summary: a rule across the thread, like a run divider,
+   dashed because what is above it is still shown but no longer held verbatim. */
+.compaction-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+}
+.compaction-rule {
+  flex: 1;
+  height: 0;
+  border-top: 1px dashed var(--line-strong);
+}
+.compaction-label {
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--muted-3);
+  white-space: nowrap;
+}
 .run-when {
   font: var(--t-meta) / 1.45 var(--mono);
   color: var(--dim);

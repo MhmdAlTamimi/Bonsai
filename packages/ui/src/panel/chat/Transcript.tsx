@@ -1,5 +1,11 @@
 import { type JSX, useLayoutEffect, useRef, useState } from 'react';
-import type { MessageView, RunView, ToolResultContent } from '@bonsai/shared';
+import type {
+  CompactionNote,
+  MessageView,
+  RunActivity,
+  RunView,
+  ToolResultContent,
+} from '@bonsai/shared';
 
 import { Markdown } from './Markdown.tsx';
 import { ToolBlock } from './ToolBlock.tsx';
@@ -27,7 +33,7 @@ export function Transcript({
   runs,
   pending,
   running,
-  waiting = false,
+  phase = 'working',
   onProjectSettings,
 }: {
   messages: readonly MessageView[];
@@ -35,8 +41,8 @@ export function Transcript({
   /** Live deltas the persisted transcript has not caught up with. */
   pending: readonly Delta[];
   running: boolean;
-  /** The live run's turn is over and it is waiting for background work (D43). */
-  waiting?: boolean;
+  /** What the live run is doing: its turn, waiting for background work (D43), or compacting. */
+  phase?: RunActivity['state'];
   onProjectSettings?: () => void;
 }): JSX.Element {
   const runsById = new Map(runs.map((run) => [run.id, run]));
@@ -63,7 +69,7 @@ export function Transcript({
               running &&
               (group.runId === liveRunId || runsById.get(group.runId)?.status === 'running')
             }
-            waiting={waiting}
+            phase={phase}
           />
         ),
       )}
@@ -106,16 +112,18 @@ function Turn({
   run,
   number,
   running,
-  waiting,
+  phase,
 }: {
   group: Group;
   run: RunView | undefined;
   number: number | null;
   running: boolean;
-  waiting: boolean;
+  phase: RunActivity['state'];
 }): JSX.Element {
   const { prompt, rest } = splitPrompt(group.messages);
   const parts = compose(rest);
+  // Notes from Bonsai (a compaction, a skipped command) are not the agent speaking.
+  const agentSpoke = parts.some((part) => part.kind !== 'said' || part.message.role !== 'system');
   const when = prompt?.createdAt ?? run?.startedAt ?? null;
 
   return (
@@ -136,7 +144,7 @@ function Turn({
 
       {(parts.length > 0 || running) && (
         <div className="msg agent">
-          <span className="msg-label">Agent:</span>
+          {(agentSpoke || running) && <span className="msg-label">Agent:</span>}
           {parts.map((part, i) =>
             part.kind === 'block' ? (
               <ToolBlock
@@ -156,7 +164,7 @@ function Turn({
           {running && (
             <div className="working" aria-live="polite">
               <span className="working-dot" aria-hidden="true" />
-              {waiting ? 'waiting for background work' : 'working'}&hellip;
+              {LIVE_WORDS[phase]}&hellip;
             </div>
           )}
         </div>
@@ -333,11 +341,50 @@ function Clamped({ text }: { text: string }): JSX.Element {
   );
 }
 
+const LIVE_WORDS: Record<RunActivity['state'], string> = {
+  working: 'working',
+  waiting: 'waiting for background work',
+  compacting: 'compacting conversation',
+};
+
 /** Anything said without a box: the agent's prose, or a note from Bonsai. */
 function Said({ message }: { message: MessageView }): JSX.Element {
+  if (isCompaction(message.content)) return <CompactionDivider note={message.content} />;
   const text = asText(message.content);
   if (message.role === 'system') return <p className="msg system">{text}</p>;
   return <Markdown source={text} />;
+}
+
+/**
+ * Where older turns were replaced by a summary. A rule across the thread,
+ * because everything above it is what the agent no longer holds word for word.
+ */
+function CompactionDivider({ note }: { note: CompactionNote }): JSX.Element {
+  const { trigger, tokensBefore, tokensAfter } = note.compaction;
+  return (
+    <div
+      className="compaction-divider"
+      role="note"
+      title="Earlier turns were replaced by a summary to free context. They are still shown here; the agent keeps the summary."
+    >
+      <span className="compaction-rule" />
+      <span className="compaction-label">
+        Conversation compacted{trigger === 'auto' ? ' automatically' : ''} ·{' '}
+        {tokenCount(tokensBefore)}
+        {tokensAfter === null ? '' : ` → ${tokenCount(tokensAfter)}`} tokens
+      </span>
+      <span className="compaction-rule" />
+    </div>
+  );
+}
+
+function isCompaction(content: unknown): content is CompactionNote {
+  return typeof content === 'object' && content !== null && 'compaction' in content;
+}
+
+/** 48200 → "48k", 950 → "950". */
+function tokenCount(tokens: number): string {
+  return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
 }
 
 /**

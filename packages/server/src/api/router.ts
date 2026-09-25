@@ -8,6 +8,7 @@ import { resolveRunSettings } from '../jobs/runSettings.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   AnswerQuestionRequest,
+  CompactRequest,
   CreateNodeRequest,
   CreateProjectRequest,
   NodeDetail,
@@ -809,6 +810,21 @@ route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, con
   } catch (err) {
     throw new HttpError(409, err instanceof Error ? err.message : String(err));
   }
+});
+
+/**
+ * Compacts a node's conversation now, the way `/compact` does in Claude Code:
+ * older turns become a summary, freeing context. Asynchronous like any run.
+ * `focus` is collapsed to one line, because it rides on the command itself.
+ */
+route('POST', '/api/nodes/:id/compact', async (req, res, params, { store, jobs, connection }) => {
+  requireConnection(connection);
+  const row = store.getNode(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such node');
+  const body = await readJson<CompactRequest>(req);
+  const focus = typeof body.focus === 'string' ? body.focus.replace(/\s+/g, ' ').trim() : '';
+  if (focus.length > 500) throw new HttpError(400, 'Keep the focus under 500 characters.');
+  sendJson(res, 202, jobs.compact(row.id, focus === '' ? null : focus));
 });
 
 /**

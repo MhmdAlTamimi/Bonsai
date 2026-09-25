@@ -68,6 +68,26 @@ const turnOver = (costUsd: number, queued = 0): SDKMessage =>
     ...ids,
   }) as unknown as SDKMessage;
 
+const compacting = (active: boolean, result?: 'success' | 'failed'): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'status',
+    status: active ? 'compacting' : null,
+    ...(result === undefined ? {} : { compact_result: result }),
+    ...ids,
+  }) as unknown as SDKMessage;
+
+const compactBoundary = (trigger: 'manual' | 'auto', pre: number, post: number): SDKMessage =>
+  ({
+    type: 'system',
+    subtype: 'compact_boundary',
+    compact_metadata: { trigger, pre_tokens: pre, post_tokens: post },
+    ...ids,
+  }) as unknown as SDKMessage;
+
+const commandResult = (result: string): SDKMessage =>
+  ({ ...(turnOver(0) as object), result }) as unknown as SDKMessage;
+
 /** Stands in for the harness: messages come out when the test says, and input is recorded. */
 class ScriptedSession implements SessionQuery {
   readonly received: string[] = [];
@@ -127,7 +147,10 @@ class ScriptedSession implements SessionQuery {
   }
 }
 
-function start(detached: BackgroundJob[] = []): {
+function start(
+  detached: BackgroundJob[] = [],
+  overrides: Pick<Partial<RunSpec>, 'prompt' | 'isCommand'> = {},
+): {
   session: Promise<ScriptedSession>;
   stop: AbortController;
   finish: AbortController;
@@ -165,6 +188,7 @@ function start(detached: BackgroundJob[] = []): {
     finishNow: finish.signal,
     onActivity: (a) => activity.push(a),
     backgroundLeftovers: () => Promise.resolve([...detached]),
+    ...overrides,
   };
   const done = (async () => {
     for await (const event of runner.run(spec)) events.push(event);
@@ -445,5 +469,86 @@ describe('work detached outside the harness', () => {
 
     assert.equal(scans, 2);
     assert.equal(reports.at(-1)?.background[0]?.startedAt, 'scan 1');
+  });
+});
+
+/**
+ * Compaction, as the harness reports it: a `compacting` status, a boundary
+ * carrying the token counts, then the status clearing. Bonsai's side is to say
+ * so while it happens and to keep a record afterwards.
+ */
+describe('compacting a conversation', () => {
+  test('a command is sent exactly as written, with nothing appended', async () => {
+    const run = start([], { prompt: '/compact keep the test results', isCommand: true });
+    const session = await run.session;
+    await until(() => session.received.length === 1, 'the command to arrive');
+    assert.equal(session.received[0], '/compact keep the test results');
+    session.emit(commandResult(''));
+    await run.done;
+  });
+
+  test('says it is compacting while it is, then reports the numbers', async () => {
+    const run = start([], { prompt: '/compact', isCommand: true });
+    const session = await run.session;
+    session.emit(compacting(true));
+    await drained();
+    assert.equal(run.activity.at(-1)?.state, 'compacting');
+
+    session.emit(compactBoundary('manual', 48_000, 6_000), compacting(false, 'success'));
+    await drained();
+    assert.equal(run.activity.at(-1)?.state, 'working');
+
+    session.emit(commandResult(''));
+    await run.done;
+    assert.deepEqual(
+      run.events.find((e) => e.type === 'compacted'),
+      { type: 'compacted', trigger: 'manual', tokensBefore: 48_000, tokensAfter: 6_000 },
+    );
+    // Compaction happened, so there is nothing to explain.
+    assert.equal(
+      run.events.find((e) => e.type === 'notice'),
+      undefined,
+    );
+  });
+
+  test('automatic compaction mid-run is reported the same way', async () => {
+    const run = start();
+    const session = await run.session;
+    session.emit(compacting(true), compactBoundary('auto', 180_000, 30_000), compacting(false));
+    await drained();
+    session.emit(say('Carrying on.'), turnOver(0.02));
+    await run.done;
+    const note = run.events.find((e) => e.type === 'compacted');
+    assert.equal(note?.type === 'compacted' && note.trigger, 'auto');
+    assert.ok(run.activity.some((a) => a.state === 'compacting'));
+  });
+
+  test('a /compact that had nothing to do says why instead of passing silently', async () => {
+    const run = start([], { prompt: '/compact', isCommand: true });
+    const session = await run.session;
+    session.emit(commandResult('Not enough messages to compact.'));
+    await run.done;
+    assert.deepEqual(
+      run.events.find((e) => e.type === 'notice'),
+      { type: 'notice', text: 'Not enough messages to compact.' },
+    );
+  });
+
+  test('a failed compaction is said, not swallowed', async () => {
+    const run = start([], { prompt: '/compact', isCommand: true });
+    const session = await run.session;
+    session.emit(compacting(true), {
+      ...(compacting(false, 'failed') as object),
+      compact_error: 'the summary request failed',
+    } as unknown as SDKMessage);
+    await drained();
+    session.emit(commandResult(''));
+    await run.done;
+    const notices = run.events.filter((e) => e.type === 'notice');
+    assert.equal(notices.length, 1);
+    assert.match(
+      notices[0]!.type === 'notice' ? notices[0]!.text : '',
+      /failed: the summary request failed/,
+    );
   });
 });

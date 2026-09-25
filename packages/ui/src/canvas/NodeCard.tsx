@@ -236,6 +236,19 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               >
                 Rename…
               </button>
+              {data.hasConversation && (
+                <button
+                  role="menuitem"
+                  disabled={data.status === 'running' || data.status === 'needs_you'}
+                  title="Summarise older turns to free context, as /compact does"
+                  onClick={() => {
+                    setMenu(false);
+                    actions.compact(data);
+                  }}
+                >
+                  Compact conversation…
+                </button>
+              )}
               <button
                 role="menuitem"
                 onClick={() => {

@@ -166,6 +166,18 @@ export class SessionActivity {
     if (this.wakeTimer !== null) this.turnStarted();
   }
 
+  /**
+   * The harness is compacting the conversation. It says so with a status
+   * message and again when the result arrives; in between the agent is not
+   * taking a turn, and the interface says what is happening instead.
+   */
+  compacting(active: boolean): void {
+    if (active) this.state = 'compacting';
+    else if (this.state === 'compacting') this.state = 'working';
+    else return;
+    this.publish();
+  }
+
   toolStarted(id: string, name: string, detail: string): void {
     this.tools.set(id, { name, detail, startedAt: this.clock().toISOString() });
     this.publish();
@@ -210,6 +222,7 @@ export class SessionActivity {
    */
   async turnEnded(queued: number): Promise<boolean> {
     this.tools.clear();
+    if (this.state === 'compacting') this.state = 'working';
     if (this.finishing) return true;
     if (queued > 0) {
       this.state = 'working';
@@ -304,7 +317,7 @@ export class SessionActivity {
     const tools = [...this.tools.values()];
     const activity: RunActivity = {
       state: this.state,
-      tool: this.state === 'waiting' ? null : (tools.at(-1) ?? null),
+      tool: this.state === 'working' ? (tools.at(-1) ?? null) : null,
       background: [...this.jobs.values(), ...this.detached],
     };
     const key = JSON.stringify(activity);

@@ -12,6 +12,7 @@ import { useRunStream } from './state/useRunStream.ts';
 import { ConversationRail } from './panel/ConversationRail.tsx';
 import { Review } from './review/Review.tsx';
 import { RenameDialog } from './panel/node/RenameDialog.tsx';
+import { CompactDialog } from './panel/node/CompactDialog.tsx';
 import { ExperimentDetails } from './panel/node/DetailsDialog.tsx';
 import { useNodeActions } from './panel/node/useNodeActions.ts';
 import { readAddress, useAddressBar } from './state/useAddressBar.ts';
@@ -123,6 +124,7 @@ export function App(): JSX.Element {
    */
   const [renaming, setRenaming] = useState<NodeView | null>(null);
   const [detailing, setDetailing] = useState<NodeView | null>(null);
+  const [compacting, setCompacting] = useState<NodeView | null>(null);
   const nodeActions = useNodeActions(projectTree.refresh, (message) => {
     if (message !== null) report(message);
   });
@@ -138,6 +140,7 @@ export function App(): JSX.Element {
         setReviewing(true);
       },
       rename: setRenaming,
+      compact: setCompacting,
       details: setDetailing,
       remove: (node: NodeView) => void nodeActions.remove(node),
     }),
@@ -480,6 +483,17 @@ export function App(): JSX.Element {
           )}
           {detailing !== null && (
             <ExperimentDetails node={detailing} onClose={() => setDetailing(null)} />
+          )}
+          {compacting !== null && (
+            <CompactDialog
+              node={compacting}
+              onClose={() => setCompacting(null)}
+              onStarted={(nodeId) => {
+                // Show the conversation it is compacting, so the progress is visible.
+                selectExperiment(nodeId);
+                projectTree.refresh();
+              }}
+            />
           )}
           {nodeActions.confirmDialog}
           {confirm.dialog}

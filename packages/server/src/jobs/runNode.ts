@@ -8,6 +8,7 @@ import {
   CONCURRENCY,
   recoveryCause,
   type BackgroundJob,
+  type CompactionNote,
   type NodeStatus,
   type RunActivity,
 } from '@bonsai/shared';
@@ -86,6 +87,8 @@ interface Queued {
   projectId: string;
   prompt: string;
   readOnly: boolean;
+  /** The prompt is a harness command (/compact), sent as written. See RunSpec.isCommand. */
+  command: boolean;
   controller: AbortController;
 }
 
@@ -426,7 +429,23 @@ export class RunJobs {
     );
   }
 
-  start(nodeId: string, prompt: string): { runId: string } {
+  /**
+   * Compacts a node's conversation now: a run whose whole prompt is `/compact`,
+   * with what to keep in focus when the user said. It changes no files, so it
+   * runs read-only and commits nothing.
+   */
+  compact(nodeId: string, focus: string | null): { runId: string } {
+    const node = this.store.getNode(nodeId);
+    if (node === undefined) throw new Error('no such node');
+    if (node.session_id === null)
+      throw new OperationConflict('This experiment has no conversation to compact yet.');
+    return this.start(nodeId, focus === null ? '/compact' : `/compact ${focus}`, {
+      command: true,
+    });
+  }
+
+  start(nodeId: string, prompt: string, options: { command?: boolean } = {}): { runId: string } {
+    const command = options.command === true;
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
     if (this.isRetiring(nodeId)) throw new OperationConflict('This experiment is being deleted.');
@@ -435,7 +454,8 @@ export class RunJobs {
 
     // Children never change authority. Only the user's original checkout is read-only.
     const view = this.store.treeView(node.project_id).find((n) => n.id === nodeId);
-    const readOnly = view !== undefined && !view.writable;
+    // A command changes no files, so it gets the read-only tools and no commit.
+    const readOnly = command || (view !== undefined && !view.writable);
 
     const runId = randomUUID();
     const controller = new AbortController();
@@ -461,6 +481,7 @@ export class RunJobs {
       projectId: node.project_id,
       prompt,
       readOnly,
+      command,
       controller,
     };
 
@@ -506,7 +527,7 @@ export class RunJobs {
       runId: job.runId,
     });
 
-    void this.execute(job.runId, job.nodeId, job.prompt, job.readOnly, live).finally(() => {
+    void this.execute(job, live).finally(() => {
       if (live.publishTimer !== null) clearTimeout(live.publishTimer);
       this.running.delete(job.nodeId);
       this.pump();
@@ -705,10 +726,7 @@ export class RunJobs {
   }
 
   private async execute(
-    runId: string,
-    nodeId: string,
-    prompt: string,
-    readOnly: boolean,
+    { runId, nodeId, prompt, readOnly, command }: Queued,
     live: LiveRun,
   ): Promise<void> {
     const controller = live.controller;
@@ -751,6 +769,8 @@ export class RunJobs {
     let toolCalls = 0;
     /** The last message the agent wrote; kept only if the run finishes (see `session_position`). */
     let position: string | null = null;
+    /** Compaction replaced older turns, so an older cut point would copy them back. */
+    let compacted = false;
     const startedAt = Date.now();
 
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
@@ -803,6 +823,7 @@ export class RunJobs {
         cwd: workDirIn(node.worktree_path, project.work_dir),
         contextPath: join(node.worktree_path, 'CONTEXT.md'),
         prompt,
+        isCommand: command,
         // Always the node's own session. A child's was copied from its parent
         // when it was created (jobs/conversation.ts), never here.
         resumeSessionId: node.session_id,
@@ -849,6 +870,37 @@ export class RunJobs {
             break;
           case 'position':
             position = event.messageId;
+            break;
+          case 'compacted': {
+            // Earlier messages are now behind a summary; the cut point starts again.
+            position = null;
+            compacted = true;
+            const note: CompactionNote = {
+              compaction: {
+                trigger: event.trigger,
+                tokensBefore: event.tokensBefore,
+                tokensAfter: event.tokensAfter,
+              },
+            };
+            this.store.appendMessage({
+              nodeId,
+              runId,
+              role: 'system',
+              kind: 'text',
+              content: note,
+            });
+            this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+            break;
+          }
+          case 'notice':
+            this.store.appendMessage({
+              nodeId,
+              runId,
+              role: 'system',
+              kind: 'text',
+              content: event.text,
+            });
+            this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
             break;
           case 'text':
             seq += 1;
@@ -1030,7 +1082,9 @@ export class RunJobs {
         },
       );
       // Only a finished run moves where a child's copy of this conversation ends.
-      if (position !== null) this.store.setSessionPosition(nodeId, position);
+      // After a compaction with nothing written since, a copy takes the whole
+      // session, which now opens with the summary.
+      if (position !== null || compacted) this.store.setSessionPosition(nodeId, position);
       this.log.info('run.done', {
         runId,
         nodeId,

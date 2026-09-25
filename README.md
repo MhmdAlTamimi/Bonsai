@@ -20,6 +20,9 @@ ancestors when the parent changed no files.
   a run and preserves partial work; Resume, Keep and Discard are recovery actions.
   Finish now ends background waiting and saves remaining changes under the existing
   completion semantics. It is not proof that interrupted tests or jobs succeeded.
+- Compact a conversation with `/compact [focus]` in the composer or Compact conversation in a
+  card's ⋯ menu. The conversation shows "Compacting conversation…" while it runs and a divider
+  afterwards, for automatic compaction too. Children branched later copy the compacted version.
 - Review compares the experiment's inherited base with committed and unfinished work.
   Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
 - Optional success criteria and check instructions go to the agent. Notes currently live

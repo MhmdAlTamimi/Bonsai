@@ -80,6 +80,7 @@ export class Views {
         writable: !isUsersOwnCheckout(project, row),
         frozenReason: isUsersOwnCheckout(project, row) ? 'your_folder' : null,
         pendingQuestion: question,
+        hasConversation: row.session_id !== null,
         positionX: row.position_x,
         positionY: row.position_y,
         diffStat: stats.get(row.id) ?? null,

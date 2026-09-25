@@ -297,7 +297,7 @@ function NodePanel({
                 runs={runs}
                 pending={chat.pending}
                 running={chat.running}
-                waiting={activity?.state === 'waiting'}
+                phase={activity?.state ?? 'working'}
                 onProjectSettings={onProjectSettings}
               />
             )}

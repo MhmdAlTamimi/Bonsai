@@ -5,7 +5,7 @@ import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 import { Icon } from '../../Icon.tsx';
 import { StopButton } from '../../state/RunControls.tsx';
-import { describeTool, since, waitingHeadline } from './activity.ts';
+import { describeTool, formatElapsed, since, waitingHeadline } from './activity.ts';
 
 /**
  * What the run is doing right now, above the composer (D43).
@@ -29,6 +29,12 @@ export function ActivityStrip({
   useEffect(() => {
     if (activity?.state !== 'waiting') setFinishing(false);
   }, [activity?.state]);
+  // The harness says when compaction starts, not how long it has taken, so
+  // the clock starts when the strip first sees it.
+  const [compactingSince, setCompactingSince] = useState<number | null>(null);
+  useEffect(() => {
+    setCompactingSince(activity?.state === 'compacting' ? Date.now() : null);
+  }, [activity?.state]);
 
   /*
    * A run parked on a question is still holding an agent and a concurrency
@@ -49,6 +55,21 @@ export function ActivityStrip({
     return (
       <div className="activity activity-line">
         <span role="status">Queued · position {node.queuePosition}</span>
+        <div className="spacer" />
+        <StopButton node={node} />
+      </div>
+    );
+  }
+
+  if (activity?.state === 'compacting') {
+    return (
+      <div className="activity activity-line">
+        <span role="status">Compacting conversation&hellip;</span>
+        {compactingSince !== null && (
+          <span className="activity-meta" aria-hidden="true">
+            {formatElapsed(now - compactingSince)}
+          </span>
+        )}
         <div className="spacer" />
         <StopButton node={node} />
       </div>

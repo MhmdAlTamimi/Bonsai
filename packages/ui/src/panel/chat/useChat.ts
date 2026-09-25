@@ -6,6 +6,7 @@ import { describeError } from '../../api/describeError.ts';
 import { clearSubmittedDraft, setSending, isSending } from './drafts.ts';
 import { useDraft } from './useDraft.ts';
 import { pendingDeltas, type Delta } from './liveMerge.ts';
+import { compactCommand } from './commands.ts';
 
 /** Node-scoped history and drafts, shared by the transcript and fixed composer. */
 export function useChat(
@@ -80,8 +81,12 @@ export function useChat(
     if (text === '' || busy || isSending(key)) return;
     setSending(key, true);
     onError(null);
-    void api
-      .startRun(node.id, text)
+    const command = compactCommand(text);
+    void (
+      command === null
+        ? api.startRun(node.id, text)
+        : api.compact(node.id, command.focus ?? undefined)
+    )
       .then(() => {
         clearSubmittedDraft(key, prompt);
         setRevision((n) => n + 1);
