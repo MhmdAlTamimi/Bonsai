@@ -12,6 +12,7 @@ import { nodeStatusTitle } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
 import { ActivityStrip } from './chat/ActivityStrip.tsx';
 import { Composer } from './chat/Composer.tsx';
+import { RunFoot } from './chat/RunFoot.tsx';
 import { Transcript } from './chat/Transcript.tsx';
 import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
@@ -159,6 +160,7 @@ function NodePanel({
   }, [node.id, node.status, revision, streamRevision]);
 
   const runs = detail?.runs ?? [];
+  const latestRun = runs.at(-1);
   // Only a running node is doing anything. A pushed value can outlive its run
   // by a moment, and the tree's copy by a refetch.
   const activity = node.status === 'running' ? (liveActivity ?? node.activity) : null;
@@ -308,6 +310,7 @@ function NodePanel({
                 running={chat.running}
                 phase={activity?.state ?? 'working'}
                 onProjectSettings={onProjectSettings}
+                pinLatest
               />
             )}
           </div>
@@ -351,6 +354,8 @@ function NodePanel({
           onAnswered={onChanged}
           onError={setError}
         />
+        {/* The latest run's numbers, in the place the activity strip holds while it runs. */}
+        {!chat.busy && latestRun?.status === 'done' && <RunFoot run={latestRun} label="Last run" />}
         {node.pendingQuestion === null && (
           <Composer
             node={node}

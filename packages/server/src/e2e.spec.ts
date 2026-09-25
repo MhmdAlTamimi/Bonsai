@@ -1893,7 +1893,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // Code stays pinned; the conversation stays the copy it was given.
     assert.equal(latest.baseIsPinnedBehindLiveWalk, true);
     assert.equal(latest.lineage.conversationFrom?.id, created.masterNodeId);
-    await session.waitFor("document.querySelector('.panel')?.textContent.includes('Run context')");
+    await session.waitFor("!!document.querySelector('.panel .turn')");
     await session.screenshot(join(repoRoot, 'test-results', 'phase-3-context.png'));
 
     const fresh = await saveChildForLater('Fresh experiment', true);
@@ -2731,12 +2731,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     // And the reading position, which a hidden element loses on its own: a
     // scroll offset does not survive losing a layout box.
-    // Parked partway up, not at the bottom: following the newest output is a
-    // different behaviour from restoring where someone was reading, and this is
-    // the one that needs the position itself to survive.
+    // Parked at the top, well clear of the bottom: within 80px of it counts as
+    // following the newest output, which is restored differently from where
+    // someone was reading -- and this is the one that needs the position itself
+    // to survive.
     const scrolled = Number(
       await session.eval(
-        "const b=document.querySelector('.panel-body:not([hidden])'); b.scrollTop = Math.floor((b.scrollHeight - b.clientHeight) / 2); b.dispatchEvent(new Event('scroll')); b.scrollTop",
+        "const b=document.querySelector('.panel-body:not([hidden])'); b.scrollTop = 1; b.dispatchEvent(new Event('scroll')); b.scrollTop",
       ),
     );
     assert.ok(scrolled > 0, 'the fixture must actually overflow for this to mean anything');

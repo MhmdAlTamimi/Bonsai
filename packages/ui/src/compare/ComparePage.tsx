@@ -9,6 +9,7 @@ import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import type { ConfirmRequest } from '../ConfirmDialog.tsx';
 import { STATUS_LABEL } from '../nodeStatus.tsx';
+import { RunFoot } from '../panel/chat/RunFoot.tsx';
 import { Transcript } from '../panel/chat/Transcript.tsx';
 import { useCanRun } from '../state/RunAvailability.ts';
 import {
@@ -108,6 +109,7 @@ export function ComparePage({
   }, [onBack]);
 
   const stale = data?.experiments.filter((e) => e.newRuns > 0) ?? [];
+  const latestAnswer = data === null ? undefined : comparisonRuns(data).at(-1);
   return (
     <section className="compare" aria-label="Compare experiments">
       <header className="review-bar compare-head">
@@ -215,6 +217,7 @@ export function ComparePage({
                   runs={comparisonRuns(data)}
                   pending={[]}
                   running={running}
+                  pinLatest
                 />
               )}
             </div>
@@ -225,6 +228,9 @@ export function ComparePage({
       <div className="compare-foot thread-width">
         {actionError !== null && (
           <ErrorNote onDismiss={() => setActionError(null)}>{actionError}</ErrorNote>
+        )}
+        {data !== null && !running && latestAnswer?.status === 'done' && (
+          <RunFoot run={latestAnswer} label="Last answer" />
         )}
         <CompareComposer
           projectId={projectId}

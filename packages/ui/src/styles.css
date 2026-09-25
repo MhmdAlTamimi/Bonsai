@@ -1414,6 +1414,13 @@ body.resizing .panel-resizer {
 .run-foot .sep {
   margin-right: var(--s2);
 }
+/* The latest run's line, pinned above the composer rather than under its turn. */
+.run-foot.pinned {
+  padding: 0 2px;
+}
+.run-foot-label {
+  color: var(--dim);
+}
 
 /* A run is named where it starts, not boxed: one label, one rule, one time. */
 .run-divider {
@@ -2669,8 +2676,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .review.wrap-lines .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 
 .review-bar > button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); }
-.run-context { margin: 12px 0; font-size: .8rem; color: var(--muted); }
-.run-context dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
 .checks label { display: grid; gap: 8px; margin-bottom: 12px; }
 
 /* Related review actions share one compact, keyboard-accessible control family. */

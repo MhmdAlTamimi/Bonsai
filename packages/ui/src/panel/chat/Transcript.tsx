@@ -12,6 +12,7 @@ import type {
 import { Markdown } from './Markdown.tsx';
 import { ActivityGroup } from './Activity.tsx';
 import { Disclosure } from './Disclosure.tsx';
+import { RunFoot } from './RunFoot.tsx';
 import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
 import { Icon, IconButton } from '../../Icon.tsx';
@@ -40,6 +41,7 @@ export function Transcript({
   running,
   phase = 'working',
   onProjectSettings,
+  pinLatest = false,
 }: {
   /** Save a message as a reference; the caller knows where it came from. Omit to offer none. */
   onSave?: (text: string) => void;
@@ -51,11 +53,14 @@ export function Transcript({
   /** What the live run is doing: its turn, waiting for background work (D43), or compacting. */
   phase?: RunActivity['state'];
   onProjectSettings?: () => void;
+  /** The latest run's numbers are shown under the conversation, so its turn leaves them out. */
+  pinLatest?: boolean;
 }): JSX.Element {
   const runsById = new Map(runs.map((run) => [run.id, run]));
   const numberOf = new Map(runs.map((run, index) => [run.id, index + 1]));
   const groups = groupByRun([...messages, ...liveMessages(pending)]);
   const liveRunId = pending.at(-1)?.runId ?? null;
+  const latestRunId = runs.at(-1)?.id ?? null;
 
   return (
     <div className="thread">
@@ -78,6 +83,7 @@ export function Transcript({
               (group.runId === liveRunId || runsById.get(group.runId)?.status === 'running')
             }
             phase={phase}
+            pinned={pinLatest && group.runId === latestRunId}
           />
         ),
       )}
@@ -122,6 +128,7 @@ function Turn({
   number,
   running,
   phase,
+  pinned,
 }: {
   onSave: ((text: string) => void) | undefined;
   group: Group;
@@ -129,6 +136,7 @@ function Turn({
   number: number | null;
   running: boolean;
   phase: RunActivity['state'];
+  pinned: boolean;
 }): JSX.Element {
   const { prompt, rest } = splitPrompt(group.messages);
   const parts = compose(rest);
@@ -210,22 +218,9 @@ function Turn({
         </div>
       )}
 
-      {run?.resolvedContext && (
-        <details className="run-context">
-          <summary>Run context</summary>
-          <dl>
-            <dt>Code revision</dt>
-            <dd>
-              <code>{run.resolvedContext.codeCommit ?? 'None'}</code>
-            </dd>
-            <dt>Parent</dt>
-            <dd>{run.resolvedContext.parentName ?? 'None'}</dd>
-            <dt>Resolved</dt>
-            <dd>{run.resolvedContext.resolvedAt}</dd>
-          </dl>
-        </details>
-      )}
-      {!running && run !== undefined && <RunFoot run={run} />}
+      {/* A finished run's numbers are pinned under the conversation instead,
+          when the caller shows them there; how a run failed stays in the thread. */}
+      {!running && run !== undefined && !(pinned && run.status === 'done') && <RunFoot run={run} />}
     </article>
   );
 }
@@ -615,58 +610,6 @@ function isCompaction(content: unknown): content is CompactionNote {
 /** 48200 → "48k", 950 → "950". */
 function tokenCount(tokens: number): string {
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}k` : String(tokens);
-}
-
-/**
- * How a run ended, in one line.
- *
- * Time, cost and model when it finished; what happened instead when it did not
- * (D45). What it CHANGED is deliberately not here -- that is what review is
- * for, and repeating it under every turn is the redundancy this panel was
- * rebuilt to remove.
- */
-function RunFoot({ run }: { run: RunView }): JSX.Element | null {
-  if (run.status === 'running') return null;
-
-  if (run.status === 'failed' || run.status === 'cancelled') {
-    const said =
-      run.endReason === 'app_closed'
-        ? 'Bonsai closed while this run was working'
-        : run.endReason === 'stopped'
-          ? 'You stopped this run'
-          : 'Failed';
-    return (
-      <p className="run-foot failed">
-        {said}
-        {run.error !== null ? ` — ${run.error}` : ''}
-      </p>
-    );
-  }
-
-  const parts = [
-    run.durationMs === null ? null : duration(run.durationMs),
-    run.costUsd > 0 ? `$${run.costUsd.toFixed(2)}` : null,
-    run.model,
-  ].filter((part): part is string => part !== null && part !== '');
-  if (parts.length === 0) return null;
-
-  return (
-    <p className="run-foot">
-      {parts.map((part, i) => (
-        <span key={part}>
-          {i > 0 && <span className="sep">·</span>}
-          {part}
-        </span>
-      ))}
-    </p>
-  );
-}
-
-function duration(ms: number): string {
-  const seconds = Math.round(ms / 1000);
-  return seconds < 60
-    ? `${seconds}s`
-    : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`;
 }
 
 /** Content is `unknown` on the wire; anything non-string is shown, not hidden. */
