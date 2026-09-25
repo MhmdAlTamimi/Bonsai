@@ -10,6 +10,7 @@ import { Store } from './db/store.js';
 import { EventBus } from './api/events.js';
 import { handleApi } from './api/router.js';
 import { RunJobs } from './jobs/runNode.js';
+import { ComparisonJobs } from './jobs/comparisons.js';
 import { FakeRunner } from './agent/FakeRunner.js';
 import { ClaudeSdkRunner } from './agent/ClaudeSdkRunner.js';
 import { Settings } from './settings.js';
@@ -45,6 +46,7 @@ const connection = new Connection(settings, useStandIn);
  */
 const runner = useStandIn ? new FakeRunner() : new ClaudeSdkRunner();
 const jobs = new RunJobs(store, bus, runner, settings, log, connection);
+const comparisons = new ComparisonJobs(store, bus, runner, settings, log);
 if (useStandIn) {
   process.stdout.write('[bonsai] agent: STAND-IN (BONSAI_FAKE_AGENT=1) — output is fake\n');
 }
@@ -98,6 +100,7 @@ const server = createServer((req, res) => {
         jobs,
         conversations: runner,
         drafts: runner,
+        comparisons,
         settings,
         connection,
         log,
@@ -169,7 +172,7 @@ const shutdown = (): void => {
     // Let cancelled runs unwind before the database goes away, or their final
     // writes throw into a promise nobody is awaiting. D31 then picks up
     // anything still marked `running` on the next start.
-    void jobs.drain(3000).finally(() => {
+    void Promise.all([jobs.drain(3000), comparisons.drain(3000)]).finally(() => {
       db.close();
       process.exit(0);
     });

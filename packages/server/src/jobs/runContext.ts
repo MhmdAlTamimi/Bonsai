@@ -100,7 +100,13 @@ export async function resolveRunContext(
     await mkdir(path, { recursive: true });
     const snapshot = await writeExperimentSnapshot(store, other, path, 0o400);
     experiments.push({ name: other.display_name, path });
-    views.push({ id: other.id, name: other.display_name, folder: folders[index]!, ...snapshot });
+    views.push({
+      id: other.id,
+      name: other.display_name,
+      folder: folders[index]!,
+      headCommit: snapshot.headCommit,
+      runs: snapshot.runs,
+    });
   }
   if (views.length > 0) {
     context.experiments = views;

@@ -1,9 +1,17 @@
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import type { NodeLineageView, NodeView, ProjectView, ReferenceView } from '@bonsai/shared';
+import type {
+  ComparisonSummary,
+  ComparisonView,
+  NodeLineageView,
+  NodeView,
+  ProjectView,
+  ReferenceView,
+} from '@bonsai/shared';
 
 import { deriveFlags } from '../domain/flags.js';
 import { divergesFromLiveWalk, lookupFrom } from '../domain/lineage.js';
+import type { ComparisonRow, ComparisonStore } from './comparisonStore.js';
 import type { MessageStore } from './messageStore.js';
 import type { NodeStore } from './nodeStore.js';
 import type { ProjectStore } from './projectStore.js';
@@ -33,6 +41,7 @@ export class Views {
     private readonly nodes: NodeStore,
     private readonly runs: RunStore,
     private readonly messages: MessageStore,
+    private readonly comparisons: ComparisonStore,
   ) {}
 
   /**
@@ -204,6 +213,10 @@ export class Views {
   /** A reference as the interface shows it, naming the experiment it came from. */
   reference(row: ReferenceRow): ReferenceView {
     const source = row.source_node_id === null ? undefined : this.nodes.get(row.source_node_id);
+    const comparison =
+      row.source_comparison_id === null
+        ? undefined
+        : this.comparisons.get(row.source_comparison_id);
     return {
       id: row.id,
       projectId: row.project_id,
@@ -212,9 +225,50 @@ export class Views {
       size: row.content.length,
       revision: revisionOf(row.content),
       source: source === undefined ? null : { id: source.id, displayName: source.display_name },
+      comparison: comparison === undefined ? null : { id: comparison.id, title: comparison.title },
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  /**
+   * A comparison as the interface shows it. Each experiment says how many runs
+   * it has had since its snapshot, which is what offers Update.
+   */
+  comparison(row: ComparisonRow): ComparisonView {
+    const runs = this.runs.countsByNode(row.project_id);
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      title: row.title,
+      experiments: this.comparisons.experiments(row.id).map((experiment) => ({
+        nodeId: experiment.nodeId,
+        name: experiment.name,
+        snapshotAt: experiment.snapshotAt,
+        newRuns:
+          experiment.nodeId === null
+            ? 0
+            : Math.max(0, (runs.get(experiment.nodeId) ?? 0) - experiment.runs),
+        facts: experiment.facts,
+      })),
+      turns: this.comparisons.turns(row.id),
+      messages: this.comparisons.messages(row.id),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  comparisonSummaries(projectId: string, running: (id: string) => boolean): ComparisonSummary[] {
+    return this.comparisons.list(projectId).map((row) => ({
+      id: row.id,
+      title: row.title,
+      experiments: this.comparisons
+        .experiments(row.id)
+        .map((experiment) => ({ nodeId: experiment.nodeId, name: experiment.name })),
+      questions: this.comparisons.turns(row.id).length,
+      running: running(row.id),
+      updatedAt: row.updated_at,
+    }));
   }
 
   /** Resolve the owner of a pinned snapshot, including an ancestor's older run. */

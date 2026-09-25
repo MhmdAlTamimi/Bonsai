@@ -1,0 +1,247 @@
+import { rm } from 'node:fs/promises';
+
+import type { Comparer, RunEvent } from '../agent/AgentRunner.js';
+import type { EventBus } from '../api/events.js';
+import type { ComparisonRow, NodeRow, Store } from '../db/store.js';
+import { OperationConflict } from '../domain/errors.js';
+import type { Logger } from '../log.js';
+import {
+  comparisonFolder,
+  snapshotForComparison,
+  writeComparisonIndex,
+} from './comparisonSnapshot.js';
+import { folderNames } from './experimentSnapshot.js';
+
+/** What a comparison needs from the app's settings. */
+export interface ComparisonSettings {
+  model(): string | null;
+  effort(): string | null;
+  agentEnv(): Record<string, string> | null;
+}
+
+/**
+ * Comparisons: made from 2-4 experiments, asked questions, brought up to date.
+ *
+ * Deliberately separate from the run pipeline. A comparison has no checkout,
+ * commits nothing, touches no experiment and never needs a slot the
+ * experiments are waiting for: each question is one read-only answer, and the
+ * only thing it writes is its own conversation.
+ */
+export class ComparisonJobs {
+  private readonly active = new Map<string, AbortController>();
+
+  constructor(
+    private readonly store: Store,
+    private readonly bus: EventBus,
+    private readonly comparer: Comparer,
+    private readonly settings: ComparisonSettings,
+    private readonly log: Logger,
+  ) {}
+
+  isRunning(comparisonId: string): boolean {
+    return this.active.has(comparisonId);
+  }
+
+  /** Snapshots the experiments and records the comparison. Nothing is asked yet. */
+  async create(projectId: string, nodes: readonly NodeRow[]): Promise<ComparisonRow> {
+    const title = nodes.map((node) => node.display_name).join(' vs ');
+    const row = this.store.comparisons.create(projectId, title, []);
+    const root = comparisonFolder(this.store, projectId, row.id);
+    const folders = folderNames(nodes.map((node) => node.display_name));
+    try {
+      for (const [position, node] of nodes.entries()) {
+        const input = await snapshotForComparison(this.store, node, root, folders[position]!);
+        this.store.comparisons.replaceExperiment(row.id, position, input);
+      }
+      await writeComparisonIndex(
+        root,
+        nodes.map((node, i) => ({ name: node.display_name, folder: folders[i]! })),
+      );
+    } catch (error) {
+      this.store.comparisons.delete(row.id);
+      await rm(root, { recursive: true, force: true });
+      throw error;
+    }
+    this.log.info('comparison.created', { comparisonId: row.id, experiments: nodes.length });
+    this.publish(row);
+    return row;
+  }
+
+  /**
+   * Takes a fresh snapshot of every experiment that has moved on, says so in
+   * the conversation, and tells the agent with the next question -- otherwise
+   * it would keep relying on what it read before.
+   */
+  async refresh(comparisonId: string): Promise<string[]> {
+    const row = this.require(comparisonId);
+    if (this.isRunning(row.id)) {
+      throw new OperationConflict('Wait for the current answer before updating.');
+    }
+    const root = comparisonFolder(this.store, row.project_id, row.id);
+    const view = this.store.comparisonView(row);
+    const stored = this.store.comparisons.experiments(row.id);
+    const updated: string[] = [];
+    for (const [position, experiment] of view.experiments.entries()) {
+      const node = experiment.nodeId === null ? undefined : this.store.getNode(experiment.nodeId);
+      if (node === undefined || experiment.newRuns === 0) continue;
+      const input = await snapshotForComparison(this.store, node, root, stored[position]!.folder);
+      this.store.comparisons.replaceExperiment(row.id, position, input);
+      updated.push(`${node.display_name} (${plural(experiment.newRuns, 'new run')})`);
+    }
+    if (updated.length > 0) {
+      const names = updated.join(', ');
+      this.store.comparisons.appendMessage({
+        comparisonId: row.id,
+        turnId: null,
+        role: 'system',
+        kind: 'text',
+        content: `Updated to their latest work: ${names}.`,
+      });
+      this.store.comparisons.setPendingNote(
+        row.id,
+        `Since your last answer, the snapshots of ${names} were updated to their latest ` +
+          'committed work. Re-read what you rely on from them.',
+      );
+      this.store.comparisons.touch(row.id);
+      this.log.info('comparison.refreshed', { comparisonId: row.id, updated: updated.length });
+      this.publish(row);
+    }
+    return updated;
+  }
+
+  /** Asks the comparison's agent a question. It answers in the background. */
+  ask(comparisonId: string, prompt: string): { turnId: string } {
+    const row = this.require(comparisonId);
+    if (this.isRunning(row.id)) throw new OperationConflict('This comparison is still answering.');
+    const turnId = this.store.comparisons.startTurn(row.id);
+    this.store.comparisons.appendMessage({
+      comparisonId: row.id,
+      turnId,
+      role: 'user',
+      kind: 'text',
+      content: prompt,
+    });
+    const controller = new AbortController();
+    this.active.set(row.id, controller);
+    this.publish(row);
+    void this.answer(row, turnId, prompt, controller);
+    return { turnId };
+  }
+
+  stop(comparisonId: string): void {
+    this.active.get(comparisonId)?.abort();
+  }
+
+  async delete(comparisonId: string): Promise<void> {
+    const row = this.require(comparisonId);
+    this.stop(row.id);
+    this.store.comparisons.delete(row.id);
+    await rm(comparisonFolder(this.store, row.project_id, row.id), {
+      recursive: true,
+      force: true,
+    });
+    this.publish(row);
+  }
+
+  /** Stops every answer and waits, briefly, for them to be recorded. */
+  async drain(timeoutMs = 3000): Promise<void> {
+    for (const controller of this.active.values()) controller.abort();
+    const deadline = Date.now() + timeoutMs;
+    while (this.active.size > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  private async answer(
+    row: ComparisonRow,
+    turnId: string,
+    question: string,
+    controller: AbortController,
+  ): Promise<void> {
+    const project = this.store.getProject(row.project_id);
+    const note = row.pending_note;
+    let cost = 0;
+    let model: string | null = null;
+    let error: string | null = null;
+    const startedAt = Date.now();
+    try {
+      if (note !== null) this.store.comparisons.setPendingNote(row.id, null);
+      for await (const event of this.comparer.compare({
+        comparisonId: row.id,
+        cwd: comparisonFolder(this.store, row.project_id, row.id),
+        prompt: note === null ? question : `${note}\n\n${question}`,
+        resumeSessionId: row.session_id,
+        model: project?.default_model ?? this.settings.model(),
+        effort: project?.default_effort ?? this.settings.effort(),
+        agentEnv: this.settings.agentEnv(),
+        signal: controller.signal,
+      })) {
+        if (event.type === 'session') this.store.comparisons.setSession(row.id, event.sessionId);
+        else if (event.type === 'model') model = event.model;
+        else if (event.type === 'done') cost = event.costUsd;
+        else if (event.type === 'error') error = event.error;
+        else this.record(row, turnId, event);
+      }
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      const status = controller.signal.aborted ? 'cancelled' : error === null ? 'done' : 'failed';
+      this.store.comparisons.finishTurn(turnId, { status, costUsd: cost, model, error });
+      this.active.delete(row.id);
+      // Sizes and outcome, never the question or the answer.
+      this.log.info('comparison.answered', {
+        comparisonId: row.id,
+        status,
+        durationMs: Date.now() - startedAt,
+        costUsd: cost,
+      });
+      this.publish(row);
+    }
+  }
+
+  /** The answer's words and reads, as the same kinds of message an experiment's run writes. */
+  private record(row: ComparisonRow, turnId: string, event: RunEvent): void {
+    const message =
+      event.type === 'text'
+        ? { kind: 'text' as const, content: event.text }
+        : event.type === 'tool'
+          ? {
+              kind: 'tool_use' as const,
+              content: {
+                name: event.name,
+                detail: event.detail,
+                ...(event.id === undefined ? {} : { id: event.id }),
+                ...(event.parentToolUseId === undefined
+                  ? {}
+                  : { parentToolUseId: event.parentToolUseId }),
+              },
+            }
+          : event.type === 'tool_result'
+            ? { kind: 'tool_result' as const, content: event.result }
+            : null;
+    if (message === null) return;
+    this.store.comparisons.appendMessage({
+      comparisonId: row.id,
+      turnId,
+      role: 'assistant',
+      ...message,
+    });
+    this.publish(row);
+  }
+
+  private require(comparisonId: string): ComparisonRow {
+    const row = this.store.comparisons.get(comparisonId);
+    if (row === undefined) throw new OperationConflict('That comparison no longer exists.');
+    return row;
+  }
+
+  private publish(row: ComparisonRow): void {
+    this.bus.publish(row.project_id, {
+      type: 'comparison.updated',
+      projectId: row.project_id,
+      comparisonId: row.id,
+    });
+  }
+}
+
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;

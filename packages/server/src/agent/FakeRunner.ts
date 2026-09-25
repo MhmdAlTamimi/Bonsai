@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentQuestion, ToolResultContent } from '@bonsai/shared';
 import type {
   AgentRunner,
+  Comparer,
+  ComparisonSpec,
   ConversationCopier,
   DraftRequest,
   RunEvent,
@@ -77,7 +79,7 @@ function wroteFile(id: string, path: string, body: string): ToolResultContent {
   };
 }
 
-export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter {
+export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter, Comparer {
   /**
    * A draft that shows what it was written from: the request, then the last
    * lines of the conversation. Good enough to see the editor fill in.
@@ -91,6 +93,33 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter 
     return Promise.resolve(
       [`Stand-in draft: ${asked}`, '', ...said.map((l) => `- ${l}`)].join('\n'),
     );
+  }
+
+  /**
+   * A comparison's stand-in answer: it reads the index and each experiment's
+   * facts, the way the real agent starts, then says what it was asked about
+   * whom. Enough to see the conversation, the reads and the saving work.
+   */
+  async *compare(spec: ComparisonSpec): AsyncIterable<RunEvent> {
+    yield { type: 'session', sessionId: spec.resumeSessionId ?? `fake-${randomUUID()}` };
+    const entries = await readdir(spec.cwd, { withFileTypes: true });
+    const folders = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    yield { type: 'tool', name: 'Read', detail: join(spec.cwd, 'README.md'), id: randomUUID() };
+    for (const folder of folders) {
+      yield {
+        type: 'tool',
+        name: 'Read',
+        detail: join(spec.cwd, folder, 'experiment.md'),
+        id: randomUUID(),
+      };
+    }
+    await abortableDelay(Number(process.env['BONSAI_FAKE_DELAY_MS'] ?? 700), spec.signal);
+    if (spec.signal.aborted) return;
+    yield {
+      type: 'text',
+      text: `Stand-in comparison of ${folders.join(' and ')}: ${spec.prompt.trim()}`,
+    };
+    yield { type: 'done', inputTokens: 1, outputTokens: 1, costUsd: 0 };
   }
 
   /** A copy is just a new id here: the stand-in keeps no transcripts to copy. */

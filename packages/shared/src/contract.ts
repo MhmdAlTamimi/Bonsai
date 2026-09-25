@@ -415,6 +415,8 @@ export interface ReferenceView {
   revision: string;
   /** The experiment it was drawn from, when there was one. */
   source: { id: string; displayName: string } | null;
+  /** The comparison it was drawn from, when it came from one. */
+  comparison: { id: string; title: string } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -423,6 +425,7 @@ export interface CreateReferenceRequest {
   name: string;
   content: string;
   sourceNodeId?: string | null;
+  sourceComparisonId?: string | null;
 }
 
 export interface UpdateReferenceRequest {
@@ -437,7 +440,9 @@ export interface UpdateReferenceRequest {
  * call with no tools: it reads and writes text, and changes nothing.
  */
 export interface DraftReferenceRequest {
-  nodeId: string;
+  /** The experiment whose conversation to draw from -- or, instead, a comparison's. */
+  nodeId?: string;
+  comparisonId?: string;
   /** What to draw out: "summarise the results", "extract the test procedure". */
   instruction: string;
   /** The reference as it stands, when updating one rather than starting fresh. */
@@ -950,6 +955,8 @@ export interface RecoverRequest {
 /** Server-sent events. One stream per project. */
 export type ServerEvent =
   | { type: 'hello'; projectId: string }
+  /** A comparison changed: created, answered, updated, renamed or deleted. */
+  | { type: 'comparison.updated'; projectId: string; comparisonId: string }
   | { type: 'tree.updated'; projectId: string }
   /** The project's references changed: one was written, edited or deleted. */
   | { type: 'references.updated'; projectId: string }
@@ -977,6 +984,90 @@ export type ServerEvent =
       outputTokens: number;
     }
   | { type: 'run.error'; nodeId: string; runId: string; error: string };
+
+/**
+ * A comparison: two to four experiments read side by side by an agent that can
+ * only read. It never runs anything and never changes any of them.
+ *
+ * Each experiment is a snapshot taken when the comparison was made (or last
+ * updated), so an answer never mixes two versions of it; `newRuns` says when
+ * the experiment has moved on since, and Update takes a fresh snapshot.
+ */
+export interface ComparisonView {
+  id: string;
+  projectId: string;
+  title: string;
+  experiments: ComparedExperimentView[];
+  turns: ComparisonTurnView[];
+  messages: ComparisonMessageView[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One entry in the project's list of comparisons. */
+export interface ComparisonSummary {
+  id: string;
+  title: string;
+  experiments: Array<{ nodeId: string | null; name: string }>;
+  questions: number;
+  running: boolean;
+  updatedAt: string;
+}
+
+export interface ComparedExperimentView {
+  /** Null once the experiment has been deleted; its snapshot is kept. */
+  nodeId: string | null;
+  name: string;
+  snapshotAt: string;
+  /** Runs it has had since the snapshot. */
+  newRuns: number;
+  facts: ExperimentFacts;
+}
+
+/** What an experiment's card says, as of its snapshot. */
+export interface ExperimentFacts {
+  status: NodeStatus;
+  successCriteria: string | null;
+  /** The `## Testing` section of its committed CONTEXT.md. */
+  testing: string | null;
+  /** The opening of its committed CONTEXT.md notes: how it went about it. */
+  approach: string | null;
+  /** Files it changed, from its committed diff. */
+  files: string[];
+  added: number;
+  removed: number;
+  runs: number;
+  costUsd: number;
+}
+
+export interface ComparisonTurnView {
+  id: string;
+  status: RunStatus;
+  startedAt: string;
+  endedAt: string | null;
+  costUsd: number;
+  model: string | null;
+  error: string | null;
+}
+
+/** Shaped like a node's messages, so the same conversation view draws both. */
+export interface ComparisonMessageView {
+  id: string;
+  turnId: string | null;
+  seq: number;
+  role: MessageView['role'];
+  kind: MessageView['kind'];
+  content: unknown;
+  createdAt: string;
+}
+
+export interface CreateComparisonRequest {
+  nodeIds: string[];
+}
+
+export interface AskComparisonRequest {
+  prompt: string;
+}
 
 export interface ApiError {
   error: string;

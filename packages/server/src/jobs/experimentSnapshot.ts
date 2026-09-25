@@ -28,6 +28,14 @@ export interface ExperimentSnapshot {
   /** Its latest commit when written, or null when it had committed nothing. */
   headCommit: string | null;
   runs: number;
+  /**
+   * What it changed, for anything that summarises it. Its CONTEXT.md is left
+   * out: Bonsai commits notes with every run, and they are shown as notes.
+   */
+  changedFiles: string[];
+  added: number;
+  removed: number;
+  notes: string | null;
 }
 
 /** A transcript is read in pieces, so this only stops a pathological one. */
@@ -65,10 +73,15 @@ export async function writeExperimentSnapshot(
   // apply, so the header costs the patch nothing.
   const head = node.head_commit;
   const changes: string[] = [];
+  let changed = { files: [] as string[], added: 0, removed: 0 };
   if (head === null || node.base_commit === null || head === node.base_commit) {
     changes.push(`# ${node.display_name} has committed no changes of its own.`);
   } else {
     const diff = await runDiff(project.repo_path, node.base_commit, head);
+    changed = {
+      files: diff.files.filter((file) => file !== NOTES_PATH),
+      ...lineCounts(diff.patch, NOTES_PATH),
+    };
     changes.push(
       `# ${node.display_name}: everything it committed since it branched, committed work only.`,
       `# ${node.base_commit.slice(0, 7)}..${head.slice(0, 7)}, ${plural(diff.files.length, 'file')}.`,
@@ -86,13 +99,40 @@ export async function writeExperimentSnapshot(
   }
   await write(EXPERIMENT_FILES.changes, `${changes.join('\n')}\n`);
 
-  const notes = head === null ? null : await fileAt(project.repo_path, head, 'CONTEXT.md');
+  const notes = head === null ? null : await fileAt(project.repo_path, head, NOTES_PATH);
   await write(
     EXPERIMENT_FILES.notes,
     notes ?? `# ${node.display_name} has no CONTEXT.md notes committed.\n`,
   );
 
-  return { headCommit: head, runs: store.listRuns(node.id).length };
+  return {
+    headCommit: head,
+    runs: store.listRuns(node.id).length,
+    changedFiles: changed.files,
+    added: changed.added,
+    removed: changed.removed,
+    notes,
+  };
+}
+
+/** Where an experiment's notes live: the repository root, whatever its working folder. */
+const NOTES_PATH = 'CONTEXT.md';
+
+/** Lines added and removed in a patch, not counting file headers or the skipped file. */
+function lineCounts(patch: string, skip: string): { added: number; removed: number } {
+  let added = 0;
+  let removed = 0;
+  let skipping = false;
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      skipping = line.endsWith(` b/${skip}`);
+      continue;
+    }
+    if (skipping) continue;
+    if (line.startsWith('+') && !line.startsWith('+++')) added += 1;
+    else if (line.startsWith('-') && !line.startsWith('---')) removed += 1;
+  }
+  return { added, removed };
 }
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;

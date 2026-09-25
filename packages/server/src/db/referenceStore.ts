@@ -10,6 +10,7 @@ export interface ReferenceRow {
   name: string;
   content: string;
   source_node_id: string | null;
+  source_comparison_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -51,6 +52,7 @@ export class ReferenceStore {
     name: string;
     content: string;
     sourceNodeId: string | null;
+    sourceComparisonId?: string | null;
   }): ReferenceRow {
     const at = now();
     const row: ReferenceRow = {
@@ -59,14 +61,16 @@ export class ReferenceStore {
       name: input.name,
       content: input.content,
       source_node_id: input.sourceNodeId,
+      source_comparison_id: input.sourceComparisonId ?? null,
       created_at: at,
       updated_at: at,
     };
     unique(input.name, () =>
       this.db
         .prepare(
-          `INSERT INTO reference (id, project_id, name, content, source_node_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO reference (id, project_id, name, content, source_node_id,
+             source_comparison_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           row.id,
@@ -74,6 +78,7 @@ export class ReferenceStore {
           row.name,
           row.content,
           row.source_node_id,
+          row.source_comparison_id,
           row.created_at,
           row.updated_at,
         ),

@@ -242,6 +242,8 @@ CREATE TABLE IF NOT EXISTS reference (
   name           TEXT NOT NULL,
   content        TEXT NOT NULL,
   source_node_id TEXT REFERENCES node(id) ON DELETE SET NULL,
+  -- A comparison it was drawn from; read by lookup, so a deleted one is just gone.
+  source_comparison_id TEXT,
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL
 );
@@ -249,3 +251,54 @@ CREATE TABLE IF NOT EXISTS reference (
 -- `@name` has to mean one thing.
 CREATE UNIQUE INDEX IF NOT EXISTS reference_name_idx
   ON reference(project_id, name COLLATE NOCASE);
+
+-- A comparison: 2-4 experiments read side by side by an agent that can only
+-- read. Kept per project so it can be reopened; never on the tree.
+CREATE TABLE IF NOT EXISTS comparison (
+  id             TEXT PRIMARY KEY,
+  project_id     TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+  title          TEXT NOT NULL,
+  session_id     TEXT,
+  -- Said to the agent with the next question: which snapshots were updated.
+  pending_note   TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+
+-- Each experiment as of its snapshot. The name and facts are kept so a
+-- comparison still reads after the experiment is deleted.
+CREATE TABLE IF NOT EXISTS comparison_experiment (
+  comparison_id  TEXT NOT NULL REFERENCES comparison(id) ON DELETE CASCADE,
+  position       INTEGER NOT NULL,
+  node_id        TEXT REFERENCES node(id) ON DELETE SET NULL,
+  name           TEXT NOT NULL,
+  folder         TEXT NOT NULL,
+  runs           INTEGER NOT NULL,
+  facts_json     TEXT NOT NULL,
+  snapshot_at    TEXT NOT NULL,
+  PRIMARY KEY (comparison_id, position)
+);
+
+-- One question and its answer.
+CREATE TABLE IF NOT EXISTS comparison_turn (
+  id             TEXT PRIMARY KEY,
+  comparison_id  TEXT NOT NULL REFERENCES comparison(id) ON DELETE CASCADE,
+  status         TEXT NOT NULL,
+  started_at     TEXT NOT NULL,
+  ended_at       TEXT,
+  cost_usd       REAL NOT NULL DEFAULT 0,
+  model          TEXT,
+  error          TEXT
+);
+
+CREATE TABLE IF NOT EXISTS comparison_message (
+  id             TEXT PRIMARY KEY,
+  comparison_id  TEXT NOT NULL REFERENCES comparison(id) ON DELETE CASCADE,
+  turn_id        TEXT REFERENCES comparison_turn(id) ON DELETE CASCADE,
+  seq            INTEGER NOT NULL,
+  role           TEXT NOT NULL,
+  kind           TEXT NOT NULL,
+  content_json   TEXT NOT NULL,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS comparison_message_idx ON comparison_message(comparison_id, seq);

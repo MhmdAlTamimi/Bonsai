@@ -8,7 +8,9 @@ import { resolveRunSettings } from '../jobs/runSettings.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
   AnswerQuestionRequest,
+  AskComparisonRequest,
   CompactRequest,
+  CreateComparisonRequest,
   CreateNodeRequest,
   CreateReferenceRequest,
   DraftReferenceRequest,
@@ -28,6 +30,7 @@ import type {
   AdoptProjectRequest,
   DiagnosticsView,
   DirectoryInspectionView,
+  MessageView,
   NodeView,
 } from '@bonsai/shared';
 
@@ -36,10 +39,12 @@ import type { EventBus } from './events.js';
 import type { RunJobs } from '../jobs/runNode.js';
 import type { ConversationCopier, TextDrafter } from '../agent/AgentRunner.js';
 import { copyParentConversation } from '../jobs/conversation.js';
+import type { ComparisonJobs } from '../jobs/comparisons.js';
 import {
   DRAFT_INSTRUCTIONS,
   attachedReferences,
   referredExperiments,
+  comparedExperiments,
   draftInput,
   draftInstruction,
   referenceContent,
@@ -80,6 +85,8 @@ interface Ctx {
   conversations: ConversationCopier;
   /** Drafts a reference from a conversation: one model turn, no tools. */
   drafts: TextDrafter;
+  /** Comparisons of 2-4 experiments, answered by an agent that only reads. */
+  comparisons: ComparisonJobs;
   settings: Settings;
   connection: Connection;
   log: Logger;
@@ -1029,19 +1036,16 @@ route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
   const { store, settings, connection, log } = ctx;
   requireConnection(connection);
   const body = await readJson<DraftReferenceRequest>(req);
-  const node = typeof body.nodeId === 'string' ? store.getNode(body.nodeId) : undefined;
-  const project = node === undefined ? undefined : store.getProject(node.project_id);
-  if (node === undefined || project === undefined) throw new HttpError(404, 'no such experiment');
+  const source = await draftSource(store, body);
+  const project = store.getProject(source.projectId);
+  if (project === undefined) throw new HttpError(404, 'no such project');
   const instruction = draftInstruction(body.instruction);
   const current =
     typeof body.current === 'string' && body.current.trim() !== '' ? body.current : null;
-
-  const messages = store.listMessages(node.id, 0);
-  const notes = node.worktree_allocated === 0 ? null : await readContextFile(node.worktree_path);
-  if (messages.length === 0 && notes === null) {
-    throw new HttpError(400, 'This experiment has no conversation to draw from yet.');
+  if (source.messages.length === 0 && source.notes === null) {
+    throw new HttpError(400, source.empty);
   }
-  const conversation = conversationText(messages, notes);
+  const conversation = conversationText(source.messages, source.notes);
 
   const controller = new AbortController();
   res.on('close', () => {
@@ -1051,13 +1055,13 @@ route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
   const text = await ctx.drafts.draft({
     instructions: DRAFT_INSTRUCTIONS,
     input: draftInput(conversation.text, instruction, current),
-    model: resolveRunSettings(node, project, settings).model,
+    model: source.model ?? project.default_model ?? settings.model(),
     agentEnv: settings.agentEnv(),
     signal: controller.signal,
   });
   // Sizes, never contents: the conversation is the user's own words.
   log.info('reference.draft', {
-    nodeId: node.id,
+    from: source.kind,
     inputChars: conversation.text.length,
     outputChars: text.length,
     durationMs: Date.now() - startedAt,
@@ -1067,6 +1071,51 @@ route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
   if (text === '') throw new HttpError(502, 'The draft came back empty. Try asking differently.');
   sendJson(res, 200, { text, basis: conversation.basis } satisfies DraftReferenceResponse);
 });
+
+/**
+ * What a draft reads: an experiment's own conversation and committed notes, or
+ * a comparison's conversation. The conversation an experiment copied from its
+ * parent is not included -- it belongs to the parent, and can be drafted from
+ * there.
+ */
+async function draftSource(
+  store: Store,
+  body: DraftReferenceRequest,
+): Promise<{
+  kind: 'experiment' | 'comparison';
+  projectId: string;
+  messages: MessageView[];
+  notes: string | null;
+  model: string | null;
+  empty: string;
+}> {
+  if (typeof body.comparisonId === 'string') {
+    const row = store.comparisons.get(body.comparisonId);
+    if (row === undefined) throw new HttpError(404, 'no such comparison');
+    return {
+      kind: 'comparison',
+      projectId: row.project_id,
+      messages: store.comparisons.messages(row.id).map((m) => ({
+        ...m,
+        nodeId: row.id,
+        runId: m.turnId,
+      })),
+      notes: null,
+      model: null,
+      empty: 'This comparison has no conversation to draw from yet.',
+    };
+  }
+  const node = typeof body.nodeId === 'string' ? store.getNode(body.nodeId) : undefined;
+  if (node === undefined) throw new HttpError(404, 'no such experiment');
+  return {
+    kind: 'experiment',
+    projectId: node.project_id,
+    messages: store.listMessages(node.id, 0),
+    notes: node.worktree_allocated === 0 ? null : await readContextFile(node.worktree_path),
+    model: node.model,
+    empty: 'This experiment has no conversation to draw from yet.',
+  };
+}
 
 /** Every reference in a project, by name. */
 route('GET', '/api/projects/:id/references', (_req, res, params, { store }) => {
@@ -1082,11 +1131,16 @@ route('POST', '/api/projects/:id/references', async (req, res, params, { store, 
   const projectId = params['id']!;
   if (store.getProject(projectId) === undefined) throw new HttpError(404, 'no such project');
   const body = await readJson<CreateReferenceRequest>(req);
+  const comparisonId = typeof body.sourceComparisonId === 'string' ? body.sourceComparisonId : null;
+  if (comparisonId !== null && store.comparisons.get(comparisonId)?.project_id !== projectId) {
+    throw new HttpError(400, 'That comparison is not in this project.');
+  }
   const row = store.references.create({
     projectId,
     name: referenceName(body.name),
     content: referenceContent(body.content),
     sourceNodeId: referenceSource(store, projectId, body.sourceNodeId) ?? null,
+    sourceComparisonId: comparisonId,
   });
   bus.publish(projectId, { type: 'references.updated', projectId });
   sendJson(res, 201, store.referenceView(row));
@@ -1115,6 +1169,81 @@ route('DELETE', '/api/references/:id', (_req, res, params, { store, bus }) => {
   if (row === undefined) throw new HttpError(404, 'no such reference');
   store.references.delete(row.id);
   bus.publish(row.project_id, { type: 'references.updated', projectId: row.project_id });
+  sendJson(res, 200, { ok: true });
+});
+
+// -- comparisons -------------------------------------------------------------
+
+/** The project's comparisons, most recently used first. */
+route('GET', '/api/projects/:id/comparisons', (_req, res, params, { store, comparisons }) => {
+  if (store.getProject(params['id']!) === undefined) throw new HttpError(404, 'no such project');
+  sendJson(
+    res,
+    200,
+    store.comparisonSummaries(params['id']!, (id) => comparisons.isRunning(id)),
+  );
+});
+
+/**
+ * A comparison of 2-4 experiments. Their snapshots are taken now; nothing is
+ * asked until the user asks.
+ */
+route('POST', '/api/projects/:id/comparisons', async (req, res, params, ctx) => {
+  const projectId = params['id']!;
+  if (ctx.store.getProject(projectId) === undefined) throw new HttpError(404, 'no such project');
+  const body = await readJson<CreateComparisonRequest>(req);
+  const nodes = comparedExperiments(ctx.store, projectId, body.nodeIds);
+  const row = await ctx.comparisons.create(projectId, nodes);
+  sendJson(res, 201, ctx.store.comparisonView(row));
+});
+
+route('GET', '/api/comparisons/:id', (_req, res, params, { store }) => {
+  const row = store.comparisons.get(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such comparison');
+  sendJson(res, 200, store.comparisonView(row));
+});
+
+route('POST', '/api/comparisons/:id/messages', async (req, res, params, ctx) => {
+  requireConnection(ctx.connection);
+  const body = await readJson<AskComparisonRequest>(req);
+  const prompt = requireString(body.prompt, 'prompt').trim();
+  if (prompt === '') throw new HttpError(400, 'Ask something about these experiments.');
+  sendJson(res, 202, ctx.comparisons.ask(params['id']!, prompt));
+});
+
+route('POST', '/api/comparisons/:id/stop', (_req, res, params, { comparisons }) => {
+  comparisons.stop(params['id']!);
+  sendJson(res, 200, { ok: true });
+});
+
+/** Fresh snapshots of every experiment that has moved on since. */
+route('POST', '/api/comparisons/:id/refresh', async (_req, res, params, { store, comparisons }) => {
+  const updated = await comparisons.refresh(params['id']!);
+  sendJson(res, 200, {
+    updated,
+    comparison: store.comparisonView(store.comparisons.get(params['id']!)!),
+  });
+});
+
+route('PATCH', '/api/comparisons/:id', async (req, res, params, { store, bus }) => {
+  const row = store.comparisons.get(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such comparison');
+  const body = await readJson<{ title?: unknown }>(req);
+  const title = typeof body.title === 'string' ? body.title.replace(/\s+/g, ' ').trim() : '';
+  if (title === '' || title.length > 120) {
+    throw new HttpError(400, 'Give the comparison a name of up to 120 characters.');
+  }
+  store.comparisons.rename(row.id, title);
+  bus.publish(row.project_id, {
+    type: 'comparison.updated',
+    projectId: row.project_id,
+    comparisonId: row.id,
+  });
+  sendJson(res, 200, store.comparisonView(store.comparisons.get(row.id)!));
+});
+
+route('DELETE', '/api/comparisons/:id', async (_req, res, params, { comparisons }) => {
+  await comparisons.delete(params['id']!);
   sendJson(res, 200, { ok: true });
 });
 

@@ -206,6 +206,28 @@ export interface ConversationCopier {
  * agent: it cannot read files, run commands or change anything, and that is
  * enforced by how it is configured, not by asking it nicely.
  */
+/**
+ * A question to a comparison's agent. It reads snapshots of two to four
+ * experiments and answers; it is given read tools and nothing else, so it
+ * cannot run anything or change any of them.
+ */
+export interface ComparisonSpec {
+  comparisonId: string;
+  /** The comparison's folder of snapshots, where the agent starts. */
+  cwd: string;
+  prompt: string;
+  /** The comparison's own session, to continue; null for its first question. */
+  resumeSessionId: string | null;
+  model: string | null;
+  effort: string | null;
+  agentEnv: Record<string, string> | null;
+  signal: AbortSignal;
+}
+
+export interface Comparer {
+  compare(spec: ComparisonSpec): AsyncIterable<RunEvent>;
+}
+
 export interface TextDrafter {
   draft(request: DraftRequest): Promise<string>;
 }

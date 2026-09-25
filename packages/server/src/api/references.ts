@@ -97,6 +97,28 @@ export function referredExperiments(store: Store, node: NodeRow, value: unknown)
   return ids;
 }
 
+/** Enough to weigh a few approaches side by side, and few enough to read that way. */
+export const COMPARE_MIN = 2;
+export const COMPARE_MAX = 4;
+
+/** The experiments a comparison is made of: 2-4 distinct ones, all in the project. */
+export function comparedExperiments(store: Store, projectId: string, value: unknown): NodeRow[] {
+  if (!Array.isArray(value) || !value.every((id) => typeof id === 'string')) {
+    throw new HttpError(400, 'nodeIds must be a list of experiment ids.');
+  }
+  const ids = [...new Set(value)];
+  if (ids.length < COMPARE_MIN || ids.length > COMPARE_MAX) {
+    throw new HttpError(400, `Compare ${COMPARE_MIN} to ${COMPARE_MAX} experiments.`);
+  }
+  return ids.map((id) => {
+    const node = store.getNode(id);
+    if (node?.project_id !== projectId) {
+      throw new HttpError(400, 'One of those experiments is not in this project any more.');
+    }
+    return node;
+  });
+}
+
 /**
  * The drafter's standing instructions. A reference is read later, by another
  * agent, in another experiment -- so it has to stand on its own, and it must

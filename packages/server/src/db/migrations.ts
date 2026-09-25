@@ -171,6 +171,19 @@ export const MIGRATIONS: readonly Migration[] = [
     // so an existing database already has them by now; this records the version.
     up: () => undefined,
   },
+  {
+    version: 18,
+    name: 'comparisons, and references drawn from one',
+    // The comparison tables come from schema.sql like references did; the
+    // column on an existing references table has to be added. A database with
+    // no references table yet gets it, column included, from schema.sql.
+    up: (db) => {
+      const exists = db
+        .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reference'`)
+        .get();
+      if (exists !== undefined) addColumn(db, 'reference', 'source_comparison_id', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

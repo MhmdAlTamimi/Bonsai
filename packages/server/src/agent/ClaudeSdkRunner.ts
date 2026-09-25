@@ -15,6 +15,8 @@ import type { AgentQuestion } from '@bonsai/shared';
 
 import type {
   AgentRunner,
+  Comparer,
+  ComparisonSpec,
   ConversationCopier,
   DraftRequest,
   RunEvent,
@@ -35,12 +37,13 @@ import { EXPERIMENT_FILES } from '../jobs/experimentSnapshot.js';
  * decides when to commit, when to freeze and what a node's git base is; this
  * only turns a RunSpec into a query() and its messages into RunEvents.
  */
-export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDrafter {
+export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDrafter, Comparer {
   /** The SDK's `query` and `forkSession`, unless a test supplies scripted ones. */
   constructor(
     private readonly startQuery: StartQuery = query,
     private readonly copySession: CopySession = forkSession,
     private readonly startDraft: StartDraft = query,
+    private readonly startCompare: StartDraft = query,
   ) {}
 
   /** A single tool-less turn; see `draftOptions` for why it cannot act. */
@@ -78,6 +81,59 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
   async forkConversation(sessionId: string, upToMessageId: string | null): Promise<string> {
     const copy = await this.copySession(sessionId, upToMessageId === null ? {} : { upToMessageId });
     return copy.sessionId;
+  }
+
+  /**
+   * One answer from a comparison's agent: the question in, text and reads out.
+   *
+   * Read-only by construction. `tools` offers Read, Glob and Grep and nothing
+   * else, and the permission callback refuses anything that is not one of them
+   * all the same -- a comparison looks at experiments, it never acts on them.
+   */
+  async *compare(spec: ComparisonSpec): AsyncIterable<RunEvent> {
+    if (spec.signal.aborted) return;
+    const controller = new AbortController();
+    const stop = (): void => controller.abort();
+    spec.signal.addEventListener('abort', stop, { once: true });
+    const calledTools = new Map<string, string>();
+    let sessionAnnounced = false;
+    try {
+      for await (const message of this.startCompare({
+        prompt: spec.prompt,
+        options: compareOptions(spec, controller),
+      })) {
+        if (!sessionAnnounced && 'session_id' in message && message.session_id) {
+          sessionAnnounced = true;
+          yield { type: 'session', sessionId: message.session_id };
+        }
+        if (message.type === 'system' && message.subtype === 'init') {
+          yield {
+            type: 'model',
+            model: message.model,
+            apiKeySource: message.apiKeySource,
+            tools: message.tools,
+          };
+        } else if (message.type === 'assistant') {
+          yield* assistantEvents(message, calledTools);
+        } else if (message.type === 'user') {
+          yield* toolResultEvents(message, calledTools, spec.cwd);
+        } else if (message.type === 'result') {
+          yield usageEvent(message);
+          if (message.subtype !== 'success') {
+            yield {
+              type: 'error',
+              error: message.errors?.join('; ') || `the answer ended: ${message.subtype}`,
+            };
+          }
+          return;
+        }
+      }
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      throw err;
+    } finally {
+      spec.signal.removeEventListener('abort', stop);
+    }
   }
 
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
@@ -233,61 +289,18 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
         } else if (message.type === 'assistant') {
           // A subagent's messages carry the tool call that started it. They
           // are shown, but they are not the agent taking a turn.
-          const main = message.parent_tool_use_id === null;
-          if (main) {
-            session.turnStarted();
-            yield { type: 'position', messageId: message.uuid };
-          }
-          for (const block of message.message.content) {
-            if (block.type === 'text' && block.text.trim() !== '') {
-              yield {
-                type: 'text',
-                text: main
-                  ? block.text
-                  : `[Subagent · ${message.parent_tool_use_id}]\n\n${block.text}`,
-              };
-            } else if (block.type === 'tool_use') {
-              const detail = describeToolInput(block.input);
-              if (main) session.toolStarted(block.id, block.name, detail);
-              calledTools.set(block.id, block.name);
-              yield {
-                type: 'tool',
-                name: block.name,
-                detail,
-                id: block.id,
-                ...(!main && message.parent_tool_use_id
-                  ? { parentToolUseId: message.parent_tool_use_id }
-                  : {}),
-              };
+          if (message.parent_tool_use_id === null) session.turnStarted();
+          for (const event of assistantEvents(message, calledTools)) {
+            if (event.type === 'tool' && event.parentToolUseId === undefined) {
+              session.toolStarted(event.id ?? '', event.name, event.detail);
             }
+            yield event;
           }
         } else if (message.type === 'user') {
-          const content = message.message.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              if (block.type !== 'tool_result') continue;
-              if (message.parent_tool_use_id === null) session.toolFinished(block.tool_use_id);
-              /**
-               * What the tool actually did, from the harness's structured
-               * output rather than from the text handed to the model: the
-               * text is written for the agent to read and is truncated,
-               * re-worded and sometimes a placeholder.
-               */
-              const name = calledTools.get(block.tool_use_id);
-              const result =
-                name === undefined
-                  ? null
-                  : toolResultFrom(
-                      block.tool_use_id,
-                      name,
-                      block.is_error !== true,
-                      message.tool_use_result,
-                      spec.cwd,
-                    );
-              calledTools.delete(block.tool_use_id);
-              if (result !== null) yield { type: 'tool_result', result };
-            }
+          if (message.parent_tool_use_id === null) {
+            for (const id of toolResultIds(message)) session.toolFinished(id);
           }
+          yield* toolResultEvents(message, calledTools, spec.cwd);
         } else if (message.type === 'result') {
           if (message.subtype !== 'success') {
             // An error result still carries cost, so report it before failing.
@@ -323,6 +336,121 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     }
   }
 }
+
+type AssistantMessage = Extract<SDKMessage, { type: 'assistant' }>;
+type UserMessage = Extract<SDKMessage, { type: 'user' }>;
+
+/**
+ * What an assistant message said and which tools it called, as events. Shared
+ * by experiment runs and comparisons, which draw their conversations alike.
+ */
+function assistantEvents(message: AssistantMessage, calledTools: Map<string, string>): RunEvent[] {
+  const main = message.parent_tool_use_id === null;
+  const events: RunEvent[] = main ? [{ type: 'position', messageId: message.uuid }] : [];
+  for (const block of message.message.content) {
+    if (block.type === 'text' && block.text.trim() !== '') {
+      events.push({
+        type: 'text',
+        text: main ? block.text : `[Subagent · ${message.parent_tool_use_id}]\n\n${block.text}`,
+      });
+    } else if (block.type === 'tool_use') {
+      calledTools.set(block.id, block.name);
+      events.push({
+        type: 'tool',
+        name: block.name,
+        detail: describeToolInput(block.input),
+        id: block.id,
+        ...(!main && message.parent_tool_use_id
+          ? { parentToolUseId: message.parent_tool_use_id }
+          : {}),
+      });
+    }
+  }
+  return events;
+}
+
+function toolResultIds(message: UserMessage): string[] {
+  const content = message.message.content;
+  if (!Array.isArray(content)) return [];
+  return content.flatMap((block) => (block.type === 'tool_result' ? [block.tool_use_id] : []));
+}
+
+/**
+ * What each tool actually did, from the harness's structured output rather
+ * than from the text handed to the model: the text is written for the agent to
+ * read and is truncated, re-worded and sometimes a placeholder.
+ */
+function toolResultEvents(
+  message: UserMessage,
+  calledTools: Map<string, string>,
+  cwd: string,
+): RunEvent[] {
+  const content = message.message.content;
+  if (!Array.isArray(content)) return [];
+  const events: RunEvent[] = [];
+  for (const block of content) {
+    if (block.type !== 'tool_result') continue;
+    const name = calledTools.get(block.tool_use_id);
+    calledTools.delete(block.tool_use_id);
+    if (name === undefined) continue;
+    const result = toolResultFrom(
+      block.tool_use_id,
+      name,
+      block.is_error !== true,
+      message.tool_use_result,
+      cwd,
+    );
+    if (result !== null) events.push({ type: 'tool_result', result });
+  }
+  return events;
+}
+
+/** The tools a comparison may use: looking, and nothing else. */
+export const COMPARE_TOOLS = ['Read', 'Glob', 'Grep'] as const;
+
+export function compareOptions(spec: ComparisonSpec, controller: AbortController): Options {
+  return {
+    cwd: spec.cwd,
+    abortController: controller,
+    tools: [...COMPARE_TOOLS],
+    allowedTools: [...COMPARE_TOOLS],
+    canUseTool: (toolName) =>
+      Promise.resolve(
+        (COMPARE_TOOLS as readonly string[]).includes(toolName)
+          ? { behavior: 'allow' as const }
+          : { behavior: 'deny' as const, message: 'A comparison only reads.' },
+      ),
+    settingSources: [],
+    env: { ...process.env, ...spec.agentEnv },
+    systemPrompt: {
+      type: 'preset',
+      preset: 'claude_code',
+      append: COMPARE_APPEND,
+      excludeDynamicSections: true,
+    },
+    ...(spec.resumeSessionId === null ? {} : { resume: spec.resumeSessionId }),
+    ...(spec.model === null ? {} : { model: spec.model }),
+    ...(spec.effort === null ? {} : { effort: spec.effort as EffortLevel }),
+  };
+}
+
+const COMPARE_APPEND = `
+You are comparing experiments in Bonsai, a tree of coding experiments. Your
+working directory holds a snapshot of each experiment's committed work; its
+README.md says which folder is which and what each file holds.
+
+Your job is to compare and tell them apart: their results, the approaches
+they took, the trade-offs, what each tested and what that showed, what each
+tried that did not work. Be concrete: name the experiment, cite the file or
+the line of its conversation you are relying on, and quote numbers exactly.
+Say when something is not in the snapshots rather than guessing, and never
+treat "the agent said it works" as a tested result unless its testing notes
+show the check.
+
+You can only read. You cannot run commands or change any file, and nothing
+you do reaches the experiments themselves. When a question needs something
+run, propose exactly what to run and in which experiment.
+`;
 
 /** A one-shot query. The SDK's `query`, narrowed to what a draft uses. */
 export type StartDraft = (params: {

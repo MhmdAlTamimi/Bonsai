@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  ComparisonSummary,
+  ComparisonView,
   MessageView,
   NodeLineageView,
   NodeStatus,
@@ -11,6 +13,7 @@ import type {
 } from '@bonsai/shared';
 
 import { CheckStore } from './checkStore.js';
+import { ComparisonStore, type ComparisonRow } from './comparisonStore.js';
 import { MessageStore } from './messageStore.js';
 import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
@@ -25,9 +28,14 @@ export { isUsersOwnCheckout, toLineage } from './rows.js';
 export type { NodeChecks, TestingSource } from './checkStore.js';
 export type { StoredQuestion } from './messageStore.js';
 export type { ReferenceRow } from './referenceStore.js';
+export type {
+  ComparisonRow,
+  ComparedExperimentInput,
+  ComparedExperimentRow,
+} from './comparisonStore.js';
 
 /**
- * The database, as one object with six concerns behind it.
+ * The database, as one object with seven concerns behind it.
  *
  * It used to be one class of fifty methods over five tables, and every feature
  * made it longer: projects, nodes, runs, messages and checks all edited the
@@ -55,6 +63,7 @@ export class Store {
   readonly messages: MessageStore;
   readonly checks: CheckStore;
   readonly references: ReferenceStore;
+  readonly comparisons: ComparisonStore;
   readonly views: Views;
 
   constructor(db: DatabaseSync, reposRoot: string, futureReposRoot?: () => string) {
@@ -64,7 +73,8 @@ export class Store {
     this.messages = new MessageStore(db);
     this.checks = new CheckStore(db);
     this.references = new ReferenceStore(db);
-    this.views = new Views(this.projects, this.nodes, this.runs, this.messages);
+    this.comparisons = new ComparisonStore(db);
+    this.views = new Views(this.projects, this.nodes, this.runs, this.messages, this.comparisons);
   }
 
   // -- projects ------------------------------------------------------------
@@ -167,7 +177,7 @@ export class Store {
     return this.runs.counts();
   }
   markOrphanedRunsInterrupted(): number {
-    return this.runs.markOrphanedInterrupted();
+    return this.runs.markOrphanedInterrupted() + this.comparisons.markOrphanedTurnsFailed();
   }
 
   // -- messages, questions and checks ---------------------------------------
@@ -225,6 +235,12 @@ export class Store {
   }
   referenceView(row: ReferenceRow): ReferenceView {
     return this.views.reference(row);
+  }
+  comparisonView(row: ComparisonRow): ComparisonView {
+    return this.views.comparison(row);
+  }
+  comparisonSummaries(projectId: string, running: (id: string) => boolean): ComparisonSummary[] {
+    return this.views.comparisonSummaries(projectId, running);
   }
 }
 
