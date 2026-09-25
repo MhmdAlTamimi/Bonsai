@@ -23,6 +23,19 @@ export interface ChildTarget {
   position: { x: number; y: number } | null;
 }
 
+/** Everything the create dialog decided. */
+export interface NewChild {
+  name: string;
+  description: string;
+  successCriteria: string;
+  verificationHint: string;
+  sourceVersion: string;
+  /** Start the first run now, rather than saving the experiment for later. */
+  startNow: boolean;
+  /** Leave the parent's conversation behind. The code is inherited either way. */
+  startFresh: boolean;
+}
+
 export function useChildCreation(opts: {
   projectId: string | null;
   onCreated: (nodeId: string) => void;
@@ -35,28 +48,22 @@ export function useChildCreation(opts: {
   clearStartError: (nodeId: string) => void;
   begin: (target: ChildTarget) => void;
   cancel: () => void;
-  create: (
-    name: string,
-    description: string,
-    successCriteria: string,
-    verificationHint: string,
-    sourceVersion: string,
-    startNow?: boolean,
-  ) => Promise<void>;
+  create: (child: NewChild) => Promise<void>;
 } {
   const [failedStart, setFailedStart] = useState<{ nodeId: string; message: string } | null>(null);
   const [pending, setPending] = useState<ChildTarget | null>(null);
   const { projectId, onCreated, onError, refresh } = opts;
 
   const create = useCallback(
-    async (
-      name: string,
-      description: string,
-      successCriteria: string,
-      verificationHint: string,
-      sourceVersion: string,
-      startNow = true,
-    ): Promise<void> => {
+    async ({
+      name,
+      description,
+      successCriteria,
+      verificationHint,
+      sourceVersion,
+      startNow,
+      startFresh,
+    }: NewChild): Promise<void> => {
       if (pending === null || projectId === null) return;
       const { node } = await api.createNode(projectId, {
         parentId: pending.parentId,
@@ -65,6 +72,7 @@ export function useChildCreation(opts: {
         successCriteria,
         verificationHint,
         sourceVersion,
+        startFresh,
       });
       const draft = draftKey(projectId, node.id, 'reply');
       setSending(draft, true);

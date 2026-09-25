@@ -57,20 +57,23 @@ describe('building a tree', () => {
       displayName: 'Discussion',
       description: '',
     });
+    // The discussion has talked, and the leaf took a copy of that conversation.
+    store.setSessionId(question.id, 'discussion-session');
     const leaf = store.createNode({
       projectId: created.projectId,
       parentId: question.id,
       displayName: 'Next',
       description: '',
     });
-    const preview = store.childLineageOf(question);
+    store.adoptForkedSession(leaf.id, 'copy-of-discussion', 2);
+    const preview = store.childLineageOf(store.getNode(question.id)!);
     const version = store.childSourceVersion(question);
     assert.equal(preview.conversationFrom?.id, question.id);
     assert.equal(preview.codeFrom?.id, code.id);
     store.recordCommit(code.id, `node/${code.id}`, 'code-snapshot-2');
     store.recordCommit(question.id, `node/${question.id}`, 'discussion-snapshot-1');
     assert.deepEqual(
-      store.lineageOf(leaf),
+      store.lineageOf(store.getNode(leaf.id)!),
       preview,
       'later commits do not relabel the inherited code',
     );

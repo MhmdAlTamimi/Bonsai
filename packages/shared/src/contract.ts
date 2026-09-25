@@ -374,6 +374,15 @@ export interface AgentQuestion {
  */
 export type RunEndReason = 'finished' | 'stopped' | 'failed' | 'app_closed';
 
+/**
+ * What a run was given, fixed when it started executing and recorded with it.
+ *
+ * The conversation is not in here: a node carries its own session, copied
+ * from its parent once at creation (see `NodeLineageView.conversationFrom`),
+ * so a run continues that session rather than being handed a transcript.
+ * Records written before that change also carry parent-snapshot fields; they
+ * are left in place and simply not read.
+ */
 export interface ResolvedRunContext {
   resolvedAt: string;
   successCriteria: string | null;
@@ -382,9 +391,6 @@ export interface ResolvedRunContext {
   parentNodeId: string | null;
   parentName: string | null;
   parentHeadCommit: string | null;
-  parentMessageSeq: number;
-  parentSnapshotSha256: string | null;
-  snapshotPath: string | null;
 }
 
 export interface RunView {
@@ -534,9 +540,9 @@ export interface MessageView {
 /**
  * The two things a node inherits, named rather than left to be inferred.
  *
- * PRD §4: a node forks its parent's CONVERSATION, but its CODE branches from
- * the nearest ancestor that actually has a commit -- which is not the parent
- * whenever the parent changed no files. The decision log calls that divergence
+ * A node copies its parent's CONVERSATION once, when it is created, unless it
+ * was started fresh; its CODE branches from the nearest ancestor that actually
+ * has a commit -- which is not the parent whenever the parent changed no files. The decision log calls that divergence
  * the single easiest thing in the design to get subtly wrong, and the panel
  * showing a node it happens to never said a word about it.
  *
@@ -547,11 +553,18 @@ export interface MessageView {
  * Names, never commits: nothing git-shaped crosses into the UI.
  */
 export interface NodeLineageView {
-  /** The node whose conversation this one forked. Null for master. */
+  /**
+   * The node whose conversation this one copied when it was created. Null for
+   * master, for a node started fresh, and for one whose parent had not talked
+   * yet -- in each case the node's conversation is its own from the start.
+   */
   conversationFrom: { id: string; displayName: string } | null;
   /** The nearest ancestor with commits: where this node's code starts. */
   codeFrom: { id: string; displayName: string } | null;
-  /** True when those are two different nodes. The divergence, as a flag. */
+  /**
+   * True when a copied conversation and the code come from two different
+   * nodes. The divergence, as a flag. False when no conversation was copied.
+   */
   diverged: boolean;
 }
 
@@ -764,6 +777,12 @@ export interface CreateNodeRequest {
    */
   successCriteria?: string;
   verificationHint?: string;
+  /**
+   * Leave the parent's conversation behind. The child still branches from the
+   * parent's code; it just starts talking from nothing. Omitted or false copies
+   * the parent's conversation as it stood at its last finished run.
+   */
+  startFresh?: boolean;
 }
 
 export interface UpdateNodeRequest {

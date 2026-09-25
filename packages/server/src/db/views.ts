@@ -174,8 +174,12 @@ export class Views {
       .digest('hex');
   }
 
+  /** What a child created now would inherit. It copies a conversation only if there is one. */
   childLineageOf(parent: NodeRow): NodeLineageView {
-    return named(parent, this.snapshotSource(parent, parent.head_commit ?? parent.base_commit));
+    return named(
+      parent.session_id === null ? null : parent,
+      this.snapshotSource(parent, parent.head_commit ?? parent.base_commit),
+    );
   }
 
   /**
@@ -187,7 +191,10 @@ export class Views {
   lineageOf(row: NodeRow): NodeLineageView {
     const parent = row.parent_id === null ? undefined : this.nodes.get(row.parent_id);
     if (parent === undefined) return { conversationFrom: null, codeFrom: null, diverged: false };
-    return named(parent, this.snapshotSource(parent, row.base_commit));
+    return named(
+      row.forked_from_message_seq === null ? null : parent,
+      this.snapshotSource(parent, row.base_commit),
+    );
   }
 
   /** Resolve the owner of a pinned snapshot, including an ancestor's older run. */
@@ -205,10 +212,13 @@ export class Views {
   }
 }
 
-function named(parent: NodeRow, source: NodeRow): NodeLineageView {
+function named(conversation: NodeRow | null, code: NodeRow): NodeLineageView {
   return {
-    conversationFrom: { id: parent.id, displayName: parent.display_name },
-    codeFrom: { id: source.id, displayName: source.display_name },
-    diverged: parent.id !== source.id,
+    conversationFrom:
+      conversation === null
+        ? null
+        : { id: conversation.id, displayName: conversation.display_name },
+    codeFrom: { id: code.id, displayName: code.display_name },
+    diverged: conversation !== null && conversation.id !== code.id,
   };
 }

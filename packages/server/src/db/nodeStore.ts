@@ -70,6 +70,7 @@ export class NodeStore {
       description: input.description,
       session_id: null,
       forked_from_message_seq: null,
+      session_position: null,
       branch_name: branchName,
       base_commit: baseCommit,
       head_commit: headCommit,
@@ -216,10 +217,16 @@ export class NodeStore {
   }
 
   /** A3: where a child's fork was taken from its parent's conversation. */
-  recordFork(id: string, parentMessageSeq: number): void {
+  /** A session copied from the parent at creation, and how much of it there was. */
+  adoptForkedSession(id: string, sessionId: string, parentMessageSeq: number): void {
     this.db
-      .prepare(`UPDATE node SET forked_from_message_seq = ? WHERE id = ?`)
-      .run(parentMessageSeq, id);
+      .prepare(`UPDATE node SET session_id = ?, forked_from_message_seq = ? WHERE id = ?`)
+      .run(sessionId, parentMessageSeq, id);
+  }
+
+  /** Where a later copy of this conversation should end: see `session_position`. */
+  setSessionPosition(id: string, messageId: string): void {
+    this.db.prepare(`UPDATE node SET session_position = ? WHERE id = ?`).run(messageId, id);
   }
 
   markAllocated(id: string, allocated: boolean): void {

@@ -49,7 +49,6 @@ async function run(prompt, { onWaiting, files = {} } = {}) {
     cwd,
     prompt,
     resumeSessionId: null,
-    forkSession: false,
     readOnly: false,
     successCriteria: null,
     verificationHint: null,

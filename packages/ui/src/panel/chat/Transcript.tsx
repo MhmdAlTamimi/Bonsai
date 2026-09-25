@@ -170,22 +170,10 @@ function Turn({
             <dd>
               <code>{run.resolvedContext.codeCommit ?? 'None'}</code>
             </dd>
-            <dt>Parent conversation</dt>
-            <dd>
-              {run.resolvedContext.parentNodeId
-                ? `${run.resolvedContext.parentName ?? 'Parent'} · available through message ${run.resolvedContext.parentMessageSeq}`
-                : 'No parent'}
-            </dd>
+            <dt>Parent</dt>
+            <dd>{run.resolvedContext.parentName ?? 'None'}</dd>
             <dt>Resolved</dt>
             <dd>{run.resolvedContext.resolvedAt}</dd>
-            {run.resolvedContext.parentSnapshotSha256 && (
-              <>
-                <dt>Snapshot fingerprint</dt>
-                <dd>
-                  <code>{run.resolvedContext.parentSnapshotSha256}</code>
-                </dd>
-              </>
-            )}
           </dl>
         </details>
       )}

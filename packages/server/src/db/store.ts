@@ -117,8 +117,11 @@ export class Store {
   descendantsOf(id: string): NodeRow[] {
     return this.nodes.descendantsOf(id);
   }
-  recordFork(id: string, parentMessageSeq: number): void {
-    this.nodes.recordFork(id, parentMessageSeq);
+  adoptForkedSession(id: string, sessionId: string, parentMessageSeq: number): void {
+    this.nodes.adoptForkedSession(id, sessionId, parentMessageSeq);
+  }
+  setSessionPosition(id: string, messageId: string): void {
+    this.nodes.setSessionPosition(id, messageId);
   }
   markAllocated(id: string, allocated: boolean): void {
     this.nodes.markAllocated(id, allocated);

@@ -1796,7 +1796,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
   });
 
-  test('create-only is instant and subsequent runs refresh parent context while preserving pinned code', async () => {
+  test("create-only copies the parent's conversation once, or starts fresh when asked", async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {
         method: 'POST',
@@ -1805,6 +1805,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       })
     ).json()) as { projectId: string; masterNodeId: string };
     const nodeUrl = (id: string) => `${BASE}/api/nodes/${id}`;
+    interface Detail {
+      node: { writable: boolean };
+      runs: unknown[];
+      baseIsPinnedBehindLiveWalk: boolean;
+      lineage: { conversationFrom: { id: string } | null; codeFrom: { id: string } | null };
+    }
+    const detail = async (id: string): Promise<Detail> =>
+      (await (await fetch(nodeUrl(id))).json()) as Detail;
     const run = async (id: string, prompt: string): Promise<void> => {
       const response = await fetch(`${nodeUrl(id)}/runs`, {
         method: 'POST',
@@ -1816,48 +1824,54 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         `(async()=> (await (await fetch(${JSON.stringify(nodeUrl(id))})).json()).node.status === 'ready')()`,
       );
     };
-    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
-    await session.waitFor("!!document.querySelector('.add-child-handle')");
-    await session.click('.add-child-handle');
-    await session.type('[aria-label="experiment name"]', 'Later experiment');
-    await session.waitFor(
-      "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent.trim()==='Save for later' && !b.disabled)",
-    );
-    await session.eval(
-      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()==='Save for later').click()",
-    );
-    await session.waitFor(
-      "!document.querySelector('dialog') && document.querySelector('.panel h2')?.textContent==='Later experiment'",
-    );
-    const tree = (await (await fetch(`${BASE}/api/projects/${created.projectId}/tree`)).json()) as {
-      nodes: Array<{ id: string; displayName: string }>;
+    const saveChildForLater = async (name: string, fresh: boolean): Promise<string> => {
+      await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+      await session.waitFor("!!document.querySelector('.add-child-handle')");
+      await session.click('.add-child-handle');
+      await session.type('[aria-label="experiment name"]', name);
+      await session.waitFor(
+        "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent.trim()==='Save for later' && !b.disabled)",
+      );
+      // The parent has talked, so there is a conversation to leave behind.
+      await session.waitFor("!!document.querySelector('dialog .start-fresh input')");
+      if (fresh) await session.click('dialog .start-fresh input');
+      await session.eval(
+        "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()==='Save for later').click()",
+      );
+      await session.waitFor(
+        `!document.querySelector('dialog') && document.querySelector('.panel h2')?.textContent===${JSON.stringify(name)}`,
+      );
+      const tree = (await (
+        await fetch(`${BASE}/api/projects/${created.projectId}/tree`)
+      ).json()) as { nodes: Array<{ id: string; displayName: string }> };
+      return tree.nodes.find((n) => n.displayName === name)!.id;
     };
-    const child = tree.nodes.find((n) => n.displayName === 'Later experiment')!;
-    const before = (await (await fetch(nodeUrl(child.id))).json()) as { runs: unknown[] };
-    assert.equal(before.runs.length, 0);
-    assert.equal((await fetch(`${nodeUrl(child.id)}/reveal`, { method: 'POST' })).status, 409);
+
     await run(created.masterNodeId, '? parent first context');
-    await run(child.id, 'child commits a result');
-    const first = (await (await fetch(nodeUrl(child.id))).json()) as {
-      runs: Array<{ resolvedContext: { codeCommit: string; parentMessageSeq: number } }>;
-    };
+    const child = await saveChildForLater('Later experiment', false);
+    const before = await detail(child);
+    assert.equal(before.runs.length, 0);
+    assert.equal(before.lineage.conversationFrom?.id, created.masterNodeId);
+    assert.equal((await fetch(`${nodeUrl(child)}/reveal`, { method: 'POST' })).status, 409);
+
+    await run(child, 'child commits a result');
     await run(created.masterNodeId, 'parent keeps working');
-    const parent = (await (await fetch(nodeUrl(created.masterNodeId))).json()) as {
-      node: { writable: boolean };
-    };
-    assert.equal(parent.node.writable, true);
-    await run(child.id, '? child follows up');
-    const latest = (await (await fetch(nodeUrl(child.id))).json()) as {
-      baseIsPinnedBehindLiveWalk: boolean;
-      runs: Array<{ resolvedContext: { parentMessageSeq: number } }>;
-    };
-    assert.ok(
-      latest.runs.at(-1)!.resolvedContext.parentMessageSeq >
-        first.runs[0]!.resolvedContext.parentMessageSeq,
-    );
+    assert.equal((await detail(created.masterNodeId)).node.writable, true);
+    await run(child, '? child follows up');
+    const latest = await detail(child);
+    // Code stays pinned; the conversation stays the copy it was given.
     assert.equal(latest.baseIsPinnedBehindLiveWalk, true);
+    assert.equal(latest.lineage.conversationFrom?.id, created.masterNodeId);
     await session.waitFor("document.querySelector('.panel')?.textContent.includes('Run context')");
     await session.screenshot(join(repoRoot, 'test-results', 'phase-3-context.png'));
+
+    const fresh = await saveChildForLater('Fresh experiment', true);
+    const freshDetail = await detail(fresh);
+    assert.equal(freshDetail.lineage.conversationFrom, null);
+    assert.equal(freshDetail.lineage.codeFrom?.id, created.masterNodeId);
+    await session.waitFor(
+      "document.querySelector('.panel-meta')?.textContent.includes('fresh conversation')",
+    );
   });
 
   test('visual workspace supports text sizing, keyboard branching, stable zoom and narrow views', async () => {

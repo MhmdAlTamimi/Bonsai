@@ -37,7 +37,6 @@ function spec(overrides) {
     cwd: '',
     prompt: '',
     resumeSessionId: null,
-    forkSession: false,
     readOnly: false,
     successCriteria: null,
     verificationHint: null,

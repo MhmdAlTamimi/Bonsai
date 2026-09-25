@@ -19,9 +19,11 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
 
 - The backend owns project/node state, Git operations, filesystem access and jobs.
   The UI renders the API contract and sends intents; it does not access these directly.
-- A child pins its code base at creation. The app snapshots its direct parent's conversation
-  automatically before every execution; the agent reads it on demand. Child sessions retain
-  their own history. Code and conversation are separate sources and can diverge.
+- A child pins its code base at creation and, unless created with Start fresh, copies its
+  parent's conversation at the same moment (SDK session fork, cut at the parent's last
+  finished run). Afterwards a child resumes only its own session; later parent turns never
+  flow in. Code and conversation can come from different ancestors when the parent has no
+  commits.
 - Name-only children have no worktree. First execution allocates a detached checkout at
   the pinned base; the first modifying run creates `node/<uuid>`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.

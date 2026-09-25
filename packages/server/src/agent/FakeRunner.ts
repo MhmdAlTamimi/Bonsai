@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentQuestion, ToolResultContent } from '@bonsai/shared';
-import type { AgentRunner, RunEvent, RunSpec } from './AgentRunner.js';
+import type { AgentRunner, ConversationCopier, RunEvent, RunSpec } from './AgentRunner.js';
 import { RUN_MARKER } from '../jobs/leftovers.js';
 
 /**
@@ -70,17 +70,16 @@ function wroteFile(id: string, path: string, body: string): ToolResultContent {
   };
 }
 
-export class FakeRunner implements AgentRunner {
+export class FakeRunner implements AgentRunner, ConversationCopier {
+  /** A copy is just a new id here: the stand-in keeps no transcripts to copy. */
+  forkConversation(): Promise<string> {
+    return Promise.resolve(`fake-${randomUUID()}`);
+  }
+
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
-    // Mirrors the real runner: a fork yields a NEW session id (the parent's is
-    // left untouched), a resume keeps the one it was given.
-    yield {
-      type: 'session',
-      sessionId:
-        spec.resumeSessionId !== null && !spec.forkSession
-          ? spec.resumeSessionId
-          : `fake-${randomUUID()}`,
-    };
+    // Mirrors the real runner: a resume keeps the session it was given, and a
+    // node with none yet gets a new one.
+    yield { type: 'session', sessionId: spec.resumeSessionId ?? `fake-${randomUUID()}` };
 
     const question = spec.prompt.trimStart().startsWith('?');
     yield {
@@ -89,6 +88,7 @@ export class FakeRunner implements AgentRunner {
         ? `Reading the code to answer: ${spec.prompt.trim()}`
         : `Working on: ${spec.prompt.trim()}`,
     };
+    yield { type: 'position', messageId: randomUUID() };
 
     /**
      * D42: the stand-in asks the user something, too.

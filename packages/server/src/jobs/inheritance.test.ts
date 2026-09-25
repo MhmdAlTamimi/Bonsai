@@ -11,30 +11,41 @@ import { Store } from '../db/store.js';
 import { EventBus } from '../api/events.js';
 import { RunJobs } from './runNode.js';
 import { createChildNode, createProject } from '../projects.js';
-import type { AgentRunner, RunEvent, RunSpec } from '../agent/AgentRunner.js';
+import type { AgentRunner, ConversationCopier, RunEvent, RunSpec } from '../agent/AgentRunner.js';
+import { copyParentConversation } from './conversation.js';
+import { silentLogger } from '../log.js';
 
 /**
- * D16 -- session forking, which is what the M3 checkpoint turns on.
+ * How a node gets its conversation.
  *
- * Uses a recording runner rather than the SDK: what has to be right is WHICH
- * session each run inherits and whether it forks, and that is decided entirely
- * by the pipeline. Asserting it here costs nothing and needs no credentials.
+ * Once, at creation: a child's session is a COPY of its parent's, cut at the
+ * end of the parent's last finished run. After that the child resumes its own
+ * session and nothing from the parent flows in. Asserted with a recording
+ * runner because every one of these decisions is the pipeline's, not the SDK's.
  */
-class RecordingRunner implements AgentRunner {
+class RecordingRunner implements AgentRunner, ConversationCopier {
   readonly specs: RunSpec[] = [];
+  readonly copies: Array<{ sessionId: string; upToMessageId: string | null }> = [];
   onRun: ((spec: RunSpec) => void) | null = null;
+  failCopy = false;
   constructor(private readonly writes = true) {}
+
+  forkConversation(sessionId: string, upToMessageId: string | null): Promise<string> {
+    if (this.failCopy) return Promise.reject(new Error('session file missing'));
+    this.copies.push({ sessionId, upToMessageId });
+    return Promise.resolve(`copy-${this.copies.length}-of-${sessionId}`);
+  }
 
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     this.specs.push({ ...spec });
     this.onRun?.(spec);
-    // A fork gets a new session id; a resume keeps the one it was handed.
-    const sessionId =
-      spec.resumeSessionId !== null && !spec.forkSession
-        ? spec.resumeSessionId
-        : `session-${this.specs.length}`;
-    yield { type: 'session', sessionId };
+    yield { type: 'session', sessionId: spec.resumeSessionId ?? `session-${this.specs.length}` };
     yield { type: 'text', text: `handled: ${spec.prompt}` };
+    yield { type: 'position', messageId: `end-of-run-${this.specs.length}` };
+    if (spec.prompt === 'fail') {
+      yield { type: 'error', error: 'the agent failed' };
+      return;
+    }
     // Same convention as the stand-in: a prompt starting with '?' answers
     // without writing, so the node stays conversation-only.
     const question = spec.prompt.trimStart().startsWith('?');
@@ -52,7 +63,7 @@ const settle = async (jobs: RunJobs, nodeId: string): Promise<void> => {
   }
 };
 
-describe('session inheritance (D16)', () => {
+describe('conversation inheritance', () => {
   let root: string;
   let db: DatabaseSync;
   let store: Store;
@@ -86,34 +97,106 @@ describe('session inheritance (D16)', () => {
     await settle(jobs, nodeId);
   };
 
+  const child = async (projectId: string, parentId: string, name = 'child'): Promise<string> =>
+    (await createChildNode(store, { projectId, parentId, displayName: name, description: '' }))
+      .nodeId;
+
   test("master's first run starts a fresh session", async () => {
     const { masterNodeId } = await project();
     await run(masterNodeId, 'scaffold');
     assert.equal(runner.specs[0]!.resumeSessionId, null);
-    assert.equal(runner.specs[0]!.forkSession, false);
     assert.equal(store.getNode(masterNodeId)!.session_id, 'session-1');
   });
 
-  test('chatting with the same node RESUMES its own session, never forks', async () => {
+  test('chatting with the same node resumes its own session', async () => {
     const { masterNodeId } = await project();
     await run(masterNodeId, 'first');
     await run(masterNodeId, 'second');
-    // §6.3: three chats with a leaf are one conversation.
     assert.equal(runner.specs[1]!.resumeSessionId, 'session-1');
-    assert.equal(runner.specs[1]!.forkSession, false);
     assert.equal(store.getNode(masterNodeId)!.session_id, 'session-1');
+  });
+
+  test("a child copies its parent's conversation at creation, cut at its last finished run", async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, '? explain the parser');
+    const nodeId = await child(projectId, masterNodeId);
+
+    assert.equal(await copyParentConversation(store, runner, nodeId, silentLogger), 'copied');
+    assert.deepEqual(runner.copies, [{ sessionId: 'session-1', upToMessageId: 'end-of-run-1' }]);
+    assert.equal(store.getNode(nodeId)!.session_id, 'copy-1-of-session-1');
+    assert.equal(store.lineageOf(store.getNode(nodeId)!).conversationFrom?.id, masterNodeId);
+
+    // Its first run continues the copy -- its own session -- not the parent's.
+    await run(nodeId, '? carry on');
+    assert.equal(runner.specs.at(-1)!.resumeSessionId, 'copy-1-of-session-1');
+    assert.equal(store.getNode(masterNodeId)!.session_id, 'session-1');
+  });
+
+  test('the copy is fixed at creation: later parent turns never reach the child', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, '? first');
+    const nodeId = await child(projectId, masterNodeId);
+    await copyParentConversation(store, runner, nodeId, silentLogger);
+    await run(masterNodeId, '? the parent keeps talking');
+    await run(nodeId, '? child turn');
+    await run(nodeId, '? another child turn');
+    assert.equal(runner.copies.length, 1);
+    assert.equal(runner.specs.at(-1)!.resumeSessionId, 'copy-1-of-session-1');
+  });
+
+  test('a run that did not finish does not move where the next copy is cut', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, '? finished');
+    await run(masterNodeId, 'fail');
+    assert.equal(store.listRuns(masterNodeId).at(-1)!.status, 'failed');
+    const nodeId = await child(projectId, masterNodeId);
+    await copyParentConversation(store, runner, nodeId, silentLogger);
+    assert.equal(runner.copies[0]!.upToMessageId, 'end-of-run-1');
+  });
+
+  test('starting fresh copies nothing, and code is still inherited', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, 'code');
+    const nodeId = await child(projectId, masterNodeId);
+    // Fresh is simply not copying: the route skips copyParentConversation.
+    await run(nodeId, '? hello');
+    assert.equal(runner.copies.length, 0);
+    assert.equal(runner.specs.at(-1)!.resumeSessionId, null);
+    const lineage = store.lineageOf(store.getNode(nodeId)!);
+    assert.equal(lineage.conversationFrom, null);
+    assert.equal(lineage.codeFrom?.id, masterNodeId);
+    assert.equal(lineage.diverged, false);
+    assert.equal(store.getNode(nodeId)!.base_commit, store.getNode(masterNodeId)!.head_commit);
+  });
+
+  test('a parent that has not talked yet has nothing to copy', async () => {
+    const { projectId, masterNodeId } = await project();
+    const nodeId = await child(projectId, masterNodeId);
+    assert.equal(
+      await copyParentConversation(store, runner, nodeId, silentLogger),
+      'nothing to copy',
+    );
+    assert.equal(store.childLineageOf(store.getNode(masterNodeId)!).conversationFrom, null);
+  });
+
+  test('a failed copy keeps the child and tells it why it starts without the conversation', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, '? first');
+    const nodeId = await child(projectId, masterNodeId);
+    runner.failCopy = true;
+    assert.equal(await copyParentConversation(store, runner, nodeId, silentLogger), 'failed');
+    assert.equal(store.getNode(nodeId)!.session_id, null);
+    const note = store.listMessages(nodeId, 0).at(-1)!;
+    assert.equal(note.role, 'system');
+    assert.match(String(note.content), /session file missing/);
+    assert.match(String(note.content), /starts without it/);
   });
 
   test('creation is metadata-only, first run allocates the pinned code, and parent remains writable', async () => {
     const { projectId, masterNodeId } = await project();
     await run(masterNodeId, 'base');
-    const child = await createChildNode(store, {
-      projectId,
-      parentId: masterNodeId,
-      displayName: 'later',
-      description: '',
-    });
-    const node = store.getNode(child.nodeId)!;
+    const nodeId = await child(projectId, masterNodeId, 'later');
+    const node = store.getNode(nodeId)!;
     assert.equal(existsSync(node.worktree_path), false);
     assert.equal(store.listRuns(node.id).length, 0);
     await run(masterNodeId, 'parent advances');
@@ -127,34 +210,9 @@ describe('session inheritance (D16)', () => {
     assert.notEqual(store.getNode(masterNodeId)!.head_commit, before);
   });
 
-  test('each run refreshes parent context without losing child history or altering old snapshots', async () => {
+  test('edited goals after execution begins cannot change its resolved context', async () => {
     const { projectId, masterNodeId } = await project();
-    await run(masterNodeId, '? first parent turn');
-    const { nodeId } = await createChildNode(store, {
-      projectId,
-      parentId: masterNodeId,
-      displayName: 'child',
-      description: '',
-    });
-    await run(nodeId, '? first child turn');
-    const first = store.listRuns(nodeId).at(-1)!.resolvedContext!;
-    const firstText = await readFile(first.snapshotPath!, 'utf8');
-    assert.match(firstText, /first parent turn/);
-    const session = store.getNode(nodeId)!.session_id;
-    await run(masterNodeId, '? latest parent turn');
-    await run(nodeId, '? second child turn');
-    const latest = store.listRuns(nodeId).at(-1)!.resolvedContext!;
-    assert.ok(latest.parentMessageSeq > first.parentMessageSeq);
-    assert.match(await readFile(latest.snapshotPath!, 'utf8'), /latest parent turn/);
-    assert.equal(await readFile(first.snapshotPath!, 'utf8'), firstText);
-    assert.equal(runner.specs.at(-1)!.resumeSessionId, session);
-    assert.equal(runner.specs.at(-1)!.forkSession, false);
-    assert.equal(runner.specs.at(-1)!.parentContextPath, latest.snapshotPath);
-  });
-
-  test('parent turns and edited goals after execution begins cannot change its resolved context', async () => {
-    const { projectId, masterNodeId } = await project();
-    const child = await createChildNode(store, {
+    const created = await createChildNode(store, {
       projectId,
       parentId: masterNodeId,
       displayName: 'fixed',
@@ -162,64 +220,49 @@ describe('session inheritance (D16)', () => {
       successCriteria: 'original goal',
     });
     runner.onRun = (spec) => {
-      if (spec.nodeId !== child.nodeId) return;
-      store.appendMessage({
-        nodeId: masterNodeId,
-        runId: null,
-        role: 'user',
-        kind: 'text',
-        content: 'parent changed after execution began',
-      });
-      store.updateNode(child.nodeId, { successCriteria: 'next goal' });
+      if (spec.nodeId === created.nodeId)
+        store.updateNode(created.nodeId, { successCriteria: 'next goal' });
     };
-    await run(child.nodeId, '? begin');
-    const context = store.listRuns(child.nodeId).at(-1)!.resolvedContext!;
-    assert.equal(context.successCriteria, 'original goal');
-    assert.doesNotMatch(
-      await readFile(context.snapshotPath!, 'utf8'),
-      /parent changed after execution began/,
+    await run(created.nodeId, '? begin');
+    assert.equal(
+      store.listRuns(created.nodeId).at(-1)!.resolvedContext!.successCriteria,
+      'original goal',
     );
     runner.onRun = null;
-    await run(child.nodeId, '? next');
-    const next = store.listRuns(child.nodeId).at(-1)!.resolvedContext!;
-    assert.equal(next.successCriteria, 'next goal');
-    assert.match(
-      await readFile(next.snapshotPath!, 'utf8'),
-      /parent changed after execution began/,
+    await run(created.nodeId, '? next');
+    assert.equal(
+      store.listRuns(created.nodeId).at(-1)!.resolvedContext!.successCriteria,
+      'next goal',
     );
   });
 
-  test('a question parent supplies conversation while code remains pinned to its ancestor', async () => {
+  test('a question parent supplies the conversation while code stays pinned to its ancestor', async () => {
     const { projectId, masterNodeId } = await project();
     await run(masterNodeId, 'code');
-    const question = await createChildNode(store, {
-      projectId,
-      parentId: masterNodeId,
-      displayName: 'question',
-      description: '',
+    const question = await child(projectId, masterNodeId, 'question');
+    await copyParentConversation(store, runner, question, silentLogger);
+    await run(question, '? why this code');
+    const answer = await child(projectId, question, 'answer');
+    await copyParentConversation(store, runner, answer, silentLogger);
+
+    // The copy comes from the question's own session, cut at its finished run.
+    assert.deepEqual(runner.copies.at(-1), {
+      sessionId: store.getNode(question)!.session_id,
+      upToMessageId: store.getNode(question)!.session_position,
     });
-    await run(question.nodeId, '? why this code');
-    const child = await createChildNode(store, {
-      projectId,
-      parentId: question.nodeId,
-      displayName: 'answer',
-      description: '',
-    });
-    await run(child.nodeId, '? use the answer');
-    const context = store.listRuns(child.nodeId).at(-1)!.resolvedContext!;
-    assert.equal(context.parentNodeId, question.nodeId);
+    const lineage = store.lineageOf(store.getNode(answer)!);
+    assert.equal(lineage.conversationFrom?.id, question);
+    assert.equal(lineage.codeFrom?.id, masterNodeId);
+    assert.equal(lineage.diverged, true);
+    await run(answer, '? use the answer');
+    const context = store.listRuns(answer).at(-1)!.resolvedContext!;
+    assert.equal(context.parentNodeId, question);
     assert.equal(context.codeCommit, store.getNode(masterNodeId)!.head_commit);
-    assert.match(await readFile(context.snapshotPath!, 'utf8'), /why this code/);
   });
 
   test('allocation failure retains the experiment and releases the execution slot', async () => {
     const { projectId, masterNodeId } = await project();
-    const { nodeId } = await createChildNode(store, {
-      projectId,
-      parentId: masterNodeId,
-      displayName: 'blocked',
-      description: '',
-    });
+    const nodeId = await child(projectId, masterNodeId, 'blocked');
     const node = store.getNode(nodeId)!;
     await mkdir(node.worktree_path, { recursive: true });
     await writeFile(join(node.worktree_path, 'keep'), 'external work');

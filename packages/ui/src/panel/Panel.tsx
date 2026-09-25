@@ -174,6 +174,10 @@ function NodePanel({
   const isYourFolder = node.frozenReason === 'your_folder';
 
   const source = detail?.lineage.codeFrom?.displayName ?? null;
+  // A child that took no copy of its parent's conversation: started fresh, or
+  // branched before the parent said anything.
+  const freshConversation =
+    detail !== null && detail.lineage.codeFrom !== null && detail.lineage.conversationFrom === null;
 
   return (
     <aside className="panel">
@@ -207,6 +211,14 @@ function NodePanel({
             <span className="sep">·</span>
           </>
         )}
+        {freshConversation && (
+          <>
+            <span title="Started without a copy of the parent's conversation. Its code is inherited.">
+              fresh conversation
+            </span>
+            <span className="sep">·</span>
+          </>
+        )}
         {node.diffStat === null ? (
           <span className="no-change">no file changes</span>
         ) : (
@@ -230,7 +242,7 @@ function NodePanel({
       {detail?.baseIsPinnedBehindLiveWalk === true && (
         <p
           className="note"
-          title="This experiment keeps its original code snapshot. Parent conversation refreshes separately on every run."
+          title="This experiment keeps the code snapshot and the conversation it was created with."
         >
           Parent code has moved ahead. This experiment keeps its pinned code snapshot.
         </p>

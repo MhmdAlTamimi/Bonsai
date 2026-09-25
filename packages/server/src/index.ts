@@ -43,14 +43,8 @@ const connection = new Connection(settings, useStandIn);
  * Without BONSAI_FAKE_AGENT=1 there is exactly one runner, and the connection
  * gate stops runs before they start when it cannot reach Claude.
  */
-const jobs = new RunJobs(
-  store,
-  bus,
-  useStandIn ? new FakeRunner() : new ClaudeSdkRunner(),
-  settings,
-  log,
-  connection,
-);
+const runner = useStandIn ? new FakeRunner() : new ClaudeSdkRunner();
+const jobs = new RunJobs(store, bus, runner, settings, log, connection);
 if (useStandIn) {
   process.stdout.write('[bonsai] agent: STAND-IN (BONSAI_FAKE_AGENT=1) — output is fake\n');
 }
@@ -97,7 +91,18 @@ const MIME: Record<string, string> = {
 
 const server = createServer((req, res) => {
   void (async () => {
-    if (await handleApi(req, res, { store, bus, jobs, settings, connection, log })) return;
+    if (
+      await handleApi(req, res, {
+        store,
+        bus,
+        jobs,
+        conversations: runner,
+        settings,
+        connection,
+        log,
+      })
+    )
+      return;
 
     // Serve the built UI when it exists. In development the vite dev server
     // proxies /api here instead, so this path is unused.

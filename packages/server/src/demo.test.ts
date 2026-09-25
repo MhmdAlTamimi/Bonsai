@@ -12,6 +12,8 @@ import { EventBus } from './api/events.js';
 import { RunJobs } from './jobs/runNode.js';
 import { FakeRunner } from './agent/FakeRunner.js';
 import { createChildNode, createProject } from './projects.js';
+import { copyParentConversation } from './jobs/conversation.js';
+import { silentLogger } from './log.js';
 import { gitLine } from './git/exec.js';
 import { currentBranch } from './git/commit.js';
 
@@ -32,12 +34,14 @@ describe('PRD §2 — the demo script', () => {
   let db: DatabaseSync;
   let store: Store;
   let jobs: RunJobs;
+  let runner: FakeRunner;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'bonsai-demo-'));
     db = openInMemory();
     store = new Store(db, join(root, 'repos'));
-    jobs = new RunJobs(store, new EventBus(), new FakeRunner());
+    runner = new FakeRunner();
+    jobs = new RunJobs(store, new EventBus(), runner);
   });
 
   afterEach(async () => {
@@ -126,6 +130,7 @@ describe('PRD §2 — the demo script', () => {
       displayName: 'add --verbose',
       description: 'add a --verbose flag using the subcommand pattern discussed',
     });
+    assert.equal(await copyParentConversation(store, runner, f.nodeId, silentLogger), 'copied');
     await run(f.nodeId, 'add the --verbose flag');
 
     // ---- 5. The child carries the exploration's conversation AND branches
@@ -141,10 +146,10 @@ describe('PRD §2 — the demo script', () => {
     );
     assert.ok(parents.endsWith(aCommit), "the commit's parent is argparse's commit");
 
-    assert.notEqual(
-      store.listRuns(f.nodeId).at(-1)!.resolvedContext?.parentMessageSeq,
-      null,
-      'CONTEXT: must record the exploration conversation snapshot',
+    assert.deepEqual(
+      store.lineageOf(store.getNode(f.nodeId)!).conversationFrom?.id,
+      e.nodeId,
+      "CONVERSATION: must carry a copy of the exploration's conversation",
     );
     assert.notEqual(store.getNode(f.nodeId)!.session_id, store.getNode(e.nodeId)!.session_id);
     assert.notEqual(store.getNode(f.nodeId)!.session_id, null);

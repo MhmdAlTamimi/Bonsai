@@ -159,6 +159,11 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'run', 'resolved_context', 'TEXT');
     },
   },
+  {
+    version: 16,
+    name: 'node: where a copy of its conversation may be cut',
+    up: (db) => addColumn(db, 'node', 'session_position', 'TEXT'),
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

@@ -17,7 +17,17 @@ import type { NodeLineageView } from '@bonsai/shared';
 export function Lineage({ lineage }: { lineage: NodeLineageView }): JSX.Element | null {
   const { conversationFrom, codeFrom, diverged } = lineage;
   // Master: nothing above it, so there is nothing to say.
-  if (conversationFrom === null) return null;
+  if (conversationFrom === null && codeFrom === null) return null;
+
+  // Started fresh, or its parent had not talked yet: the code is inherited, the
+  // conversation is its own from the first message.
+  if (conversationFrom === null) {
+    return (
+      <p className="lineage">
+        Code from <strong>{codeFrom?.displayName}</strong> · its own conversation from the start.
+      </p>
+    );
+  }
 
   if (!diverged) {
     return (

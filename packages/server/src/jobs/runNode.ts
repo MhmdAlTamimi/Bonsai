@@ -749,12 +749,14 @@ export class RunJobs {
      */
     let toolsOffered: string[] | null = null;
     let toolCalls = 0;
+    /** The last message the agent wrote; kept only if the run finishes (see `session_position`). */
+    let position: string | null = null;
     const startedAt = Date.now();
 
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     try {
-      const resolvedContext = await resolveRunContext(this.store, node, runId);
+      resolveRunContext(this.store, node, runId);
       if (controller.signal.aborted) throw new Error('Cancelled before allocation.');
       const seeded = await allocateNodeWorktree(this.store, node);
       for (const outcome of seeded)
@@ -785,7 +787,6 @@ export class RunJobs {
         this.finishRun(runId, nodeId, this.stopped(), { cost, inputTokens, outputTokens });
         return;
       }
-      const inheritance = this.resolveInheritance(node);
       // Node override, then the project's default, then the app's.
       const effective = resolveRunSettings(node, project, this.settings);
       const permissionMode = effective.permissionMode;
@@ -802,9 +803,9 @@ export class RunJobs {
         cwd: workDirIn(node.worktree_path, project.work_dir),
         contextPath: join(node.worktree_path, 'CONTEXT.md'),
         prompt,
-        parentContextPath: resolvedContext.snapshotPath,
-        resumeSessionId: inheritance.sessionId,
-        forkSession: inheritance.fork,
+        // Always the node's own session. A child's was copied from its parent
+        // when it was created (jobs/conversation.ts), never here.
+        resumeSessionId: node.session_id,
         readOnly,
         successCriteria: node.success_criteria,
         verificationHint: node.verification_hint,
@@ -845,6 +846,9 @@ export class RunJobs {
         switch (event.type) {
           case 'session':
             this.store.setSessionId(nodeId, event.sessionId);
+            break;
+          case 'position':
+            position = event.messageId;
             break;
           case 'text':
             seq += 1;
@@ -1025,6 +1029,8 @@ export class RunJobs {
           stoppedBackground,
         },
       );
+      // Only a finished run moves where a child's copy of this conversation ends.
+      if (position !== null) this.store.setSessionPosition(nodeId, position);
       this.log.info('run.done', {
         runId,
         nodeId,
@@ -1367,12 +1373,6 @@ export class RunJobs {
     if (node !== undefined) {
       this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
     }
-  }
-
-  private resolveInheritance(node: NodeRow): { sessionId: string | null; fork: boolean } {
-    // Continue the child's own turns. Parent context is refreshed as a per-run snapshot,
-    // rather than reforking and discarding the child's history or injecting growing transcripts.
-    return { sessionId: node.session_id, fork: false };
   }
 
   private setStatus(nodeId: string, status: NodeStatus): void {

@@ -6,6 +6,7 @@ import { NextRunInfo } from '../panel/NextRunInfo.tsx';
 import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import type { NewChild } from '../state/useChildCreation.ts';
 
 /** Name the experiment and disclose its two sources before creation. */
 export function NewChildDialog({
@@ -19,19 +20,13 @@ export function NewChildDialog({
   parentId: string;
   onSelectSource: (id: string) => void;
   onCancel: () => void;
-  onCreate: (
-    name: string,
-    description: string,
-    successCriteria: string,
-    verificationHint: string,
-    sourceVersion: string,
-    startNow?: boolean,
-  ) => Promise<void>;
+  onCreate: (child: NewChild) => Promise<void>;
 }): JSX.Element {
   const [description, setDescription] = useState('');
   const [name, setName] = useState('');
   const [successCriteria, setSuccessCriteria] = useState('');
   const [verificationHint, setVerificationHint] = useState('');
+  const [startFresh, setStartFresh] = useState(false);
   const canRun = useCanRun();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,6 +58,10 @@ export function NewChildDialog({
   const cancel = (): void => {
     if (!submitting.current) onCancel();
   };
+  const select = (id: string): void => {
+    onCancel();
+    onSelectSource(id);
+  };
 
   const submit = async (startNow = true): Promise<void> => {
     if (
@@ -77,14 +76,16 @@ export function NewChildDialog({
     setBusy(true);
     setError(null);
     try {
-      await onCreate(
-        name.trim(),
-        description.trim(),
-        successCriteria.trim(),
-        verificationHint.trim(),
-        preview.sourceVersion,
+      await onCreate({
+        name: name.trim(),
+        description: description.trim(),
+        successCriteria: successCriteria.trim(),
+        verificationHint: verificationHint.trim(),
+        sourceVersion: preview.sourceVersion,
         startNow,
-      );
+        // Only meaningful when there is a conversation to leave behind.
+        startFresh: startFresh && preview.lineage.conversationFrom !== null,
+      });
     } catch (e) {
       setError(describeError(e));
       setRetry((n) => n + 1);
@@ -157,33 +158,39 @@ export function NewChildDialog({
         ) : (
           <>
             <div className="source-pair">
-              {[
-                {
-                  label: 'Conversation',
-                  source: preview.lineage.conversationFrom,
-                  badge: 'Each run',
-                },
-                { label: 'Code', source: preview.lineage.codeFrom, badge: 'Committed' },
-              ].map(({ label, source, badge }) => (
-                <div className="source-row" key={label}>
-                  <span className="source-kind">{label}</span>
-                  <button
-                    className="linkish source-name"
-                    disabled={busy || source === null}
-                    title={source?.displayName}
-                    onClick={() => {
-                      if (source) {
-                        onCancel();
-                        onSelectSource(source.id);
-                      }
-                    }}
-                  >
-                    {source?.displayName ?? 'Unavailable'}
-                  </button>
-                  <span className="source-badge">{badge}</span>
-                </div>
-              ))}
+              <SourceRow
+                label="Conversation"
+                source={startFresh ? null : preview.lineage.conversationFrom}
+                empty={
+                  preview.lineage.conversationFrom === null ? 'None yet' : 'None · starts fresh'
+                }
+                badge="Copied now"
+                disabled={busy}
+                onSelect={select}
+              />
+              <SourceRow
+                label="Code"
+                source={preview.lineage.codeFrom}
+                empty="Unavailable"
+                badge="Committed"
+                disabled={busy}
+                onSelect={select}
+              />
             </div>
+            {preview.lineage.conversationFrom !== null && (
+              <label className="check start-fresh">
+                <input
+                  type="checkbox"
+                  checked={startFresh}
+                  onChange={(e) => setStartFresh(e.target.checked)}
+                  disabled={busy}
+                />
+                <span>
+                  <strong>Start fresh</strong> — leaves out the parent&rsquo;s conversation. Code
+                  changes are still inherited.
+                </span>
+              </label>
+            )}
             {preview.parentActive && <p className="note">Source still running · may change</p>}
             <details className="source-details">
               <summary>Source details</summary>
@@ -247,5 +254,42 @@ export function NewChildDialog({
         </button>
       </div>
     </Dialog>
+  );
+}
+
+/** One inherited source: what it is, where it comes from, and when it was taken. */
+function SourceRow({
+  label,
+  source,
+  empty,
+  badge,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  source: { id: string; displayName: string } | null;
+  /** What to say when nothing is inherited. */
+  empty: string;
+  badge: string;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+}): JSX.Element {
+  return (
+    <div className="source-row">
+      <span className="source-kind">{label}</span>
+      {source === null ? (
+        <span className="source-name muted">{empty}</span>
+      ) : (
+        <button
+          className="linkish source-name"
+          disabled={disabled}
+          title={source.displayName}
+          onClick={() => onSelect(source.id)}
+        >
+          {source.displayName}
+        </button>
+      )}
+      {source !== null && <span className="source-badge">{badge}</span>}
+    </div>
   );
 }

@@ -250,6 +250,7 @@ export const api = {
       description: string;
       successCriteria?: string;
       verificationHint?: string;
+      startFresh?: boolean;
     },
   ) =>
     json<{ node: NodeView }>(`/api/projects/${projectId}/nodes`, {

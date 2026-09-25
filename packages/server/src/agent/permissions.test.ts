@@ -33,7 +33,6 @@ function spec(overrides: Partial<RunSpec>): RunSpec {
     cwd: '/tmp',
     prompt: '',
     resumeSessionId: null,
-    forkSession: false,
     readOnly: false,
     successCriteria: null,
     verificationHint: null,

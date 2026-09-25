@@ -29,6 +29,8 @@ import type {
 import { isUsersOwnCheckout, type Store } from '../db/store.js';
 import type { EventBus } from './events.js';
 import type { RunJobs } from '../jobs/runNode.js';
+import type { ConversationCopier } from '../agent/AgentRunner.js';
+import { copyParentConversation } from '../jobs/conversation.js';
 import {
   adoptProject,
   createChildNode,
@@ -57,6 +59,8 @@ interface Ctx {
   store: Store;
   bus: EventBus;
   jobs: RunJobs;
+  /** Copies a parent's conversation into a child when it is created. */
+  conversations: ConversationCopier;
   settings: Settings;
   connection: Connection;
   log: Logger;
@@ -532,7 +536,8 @@ route('DELETE', '/api/projects/:id', async (_req, res, params, { store, bus, job
 
 // -- nodes -------------------------------------------------------------------
 
-route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, jobs }) => {
+route('POST', '/api/projects/:id/nodes', async (req, res, params, ctx) => {
+  const { store, bus, jobs } = ctx;
   const projectId = params['id']!;
   if (store.getProject(projectId) === undefined) throw new HttpError(404, 'no such project');
 
@@ -569,6 +574,11 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, { store, bus, 
     successCriteria: typeof body.successCriteria === 'string' ? body.successCriteria : null,
     verificationHint: typeof body.verificationHint === 'string' ? body.verificationHint : null,
   });
+  // Before the tree is announced, so the new node never appears without the
+  // conversation it is about to have.
+  if (body.startFresh !== true) {
+    await copyParentConversation(store, ctx.conversations, created.nodeId, ctx.log);
+  }
 
   bus.publish(projectId, { type: 'tree.updated', projectId });
 
@@ -607,7 +617,9 @@ route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs, 
     parentActive: jobs.isRunning(parent.id),
     codeNote: 'Starts from this committed code snapshot. Uncommitted partial work is excluded.',
     conversationNote:
-      'Parent conversation refreshes automatically at each run. This experiment keeps its own replies.',
+      parent.session_id === null
+        ? `${parent.display_name} has no conversation yet, so this experiment starts its own.`
+        : `Copies ${parent.display_name}'s conversation up to its last finished run. Later messages there are not added.`,
   });
 });
 

@@ -2,8 +2,9 @@
 
 Bonsai is a local app for visualizing coding experiments, talking to Claude Code agents,
 and reviewing their edits. A node holds a conversation and an experiment checkout.
-Children inherit a pinned code snapshot and fork their direct parent's conversation at
-first execution. Code and conversation can therefore come from different ancestors.
+Children inherit a pinned code snapshot and, unless started fresh, a copy of their parent's
+conversation, both taken at creation. Code and conversation can come from different
+ancestors when the parent changed no files.
 
 ## Current behavior
 

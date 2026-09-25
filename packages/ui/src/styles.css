@@ -2189,6 +2189,9 @@ button.destructive:hover:not(:disabled) {
 .source-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .source-badge { font-size: var(--fs-2xs); color: var(--text-dim); background: var(--surface-2); padding: 3px 6px; border-radius: 4px; }
 .source-details { margin-top: 12px; color: var(--muted); font-size: var(--fs-xs); }
+.creation-sources .start-fresh { margin-top: 10px; cursor: pointer; }
+.creation-sources .start-fresh input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.creation-sources .start-fresh strong { color: var(--text); font-weight: 600; }
 .permission-action { overflow-wrap: anywhere; max-height: 100px; overflow-y: auto; }
 .banner { top: 80px; }
 .ask > h3, .ask > p { margin: 0; }

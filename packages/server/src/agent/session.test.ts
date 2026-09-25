@@ -152,7 +152,6 @@ function start(detached: BackgroundJob[] = []): {
     cwd: '/tmp',
     prompt: 'train the model',
     resumeSessionId: null,
-    forkSession: false,
     readOnly: false,
     successCriteria: null,
     verificationHint: null,
@@ -194,7 +193,8 @@ describe('a run and its background work', () => {
     assert.equal(session.inputClosed, true);
     assert.deepEqual(
       run.events.map((e) => e.type),
-      ['session', 'text', 'done'],
+      // Each message the main agent writes also says where the conversation got to.
+      ['session', 'position', 'text', 'done'],
     );
   });
 

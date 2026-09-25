@@ -63,10 +63,14 @@ CREATE TABLE IF NOT EXISTS node (
   description   TEXT NOT NULL DEFAULT '',
 
   session_id    TEXT,
-  -- A3: forks are snapshots. A frozen node stays conversational, so two
-  -- children of one parent can inherit different amounts of its conversation.
-  -- Recording where each fork was taken is what lets the panel say so.
+  -- Non-null when this node's session is a copy of its parent's, taken when
+  -- the node was created: the parent's message count at that moment. Null for
+  -- master, a node started fresh, and one whose parent had not talked yet.
   forked_from_message_seq INTEGER,
+  -- The harness's id for the last message of this node's last FINISHED run. A
+  -- child's copy of this conversation is cut here, so it never ends inside an
+  -- exchange that was still going or was stopped half way.
+  session_position TEXT,
 
   -- Emergent model: the branch is just a ref, so it is deferred. A node's
   -- worktree starts detached at base_commit and a branch is created only if

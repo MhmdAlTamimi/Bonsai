@@ -8,19 +8,16 @@ export interface RunSpec {
   cwd: string;
   /** Repository-root notes path, independent of the selected working subdirectory. */
   contextPath?: string;
-  parentContextPath?: string | null;
   prompt: string;
   /**
-   * D16: the session to continue from, or null for a node with no ancestry to
-   * inherit (master's first run).
+   * The node's OWN session, to continue, or null when it has none yet.
    *
-   * Paired with `forkSession`, which says WHICH conversation this is:
-   *   fork  -- this is the parent's session, and we want a copy of it
-   *   resume -- this is the node's own session, and we are adding to it
+   * Always the node's own: a child's copy of its parent's conversation is made
+   * once, at creation, by `forkConversation`, so by the time the child runs the
+   * session it resumes already belongs to it. A run never writes into another
+   * node's session.
    */
   resumeSessionId: string | null;
-  /** True when resumeSessionId belongs to the PARENT and must not be advanced. */
-  forkSession: boolean;
   /** D18: read-only tools. True for frozen nodes, which stay conversational. */
   readOnly: boolean;
   /**
@@ -130,6 +127,13 @@ export type RunEvent =
   /** What a tool produced: a command's output, or an edit's changed lines. */
   | { type: 'tool_result'; result: ToolResultContent }
   | { type: 'session'; sessionId: string }
+  /**
+   * Where the conversation has got to: the harness's id for the latest message
+   * the main agent wrote. The pipeline keeps the last one from each FINISHED
+   * run, so a child forked later copies up to the end of a completed exchange
+   * rather than into the middle of one that is still going.
+   */
+  | { type: 'position'; messageId: string }
   /** Which model the run is actually using, and which credential is paying. */
   | { type: 'model'; model: string; apiKeySource?: string; tools?: string[] }
   | {
@@ -146,4 +150,21 @@ export type RunEvent =
 
 export interface AgentRunner {
   run(spec: RunSpec): AsyncIterable<RunEvent>;
+}
+
+/**
+ * Copies conversations, apart from any run. Its own interface because only
+ * node creation needs it; the runners that drive real and stand-in agents
+ * implement both.
+ */
+export interface ConversationCopier {
+  /**
+   * Copies a session into a new one that can be resumed on its own, and
+   * returns the new id. The source is untouched.
+   *
+   * `upToMessageId` cuts the copy at that message (inclusive); null copies all
+   * of it. No model call is made -- this is a transcript copy, which is why it
+   * can happen at node creation.
+   */
+  forkConversation(sessionId: string, upToMessageId: string | null): Promise<string>;
 }

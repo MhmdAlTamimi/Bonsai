@@ -24,6 +24,7 @@ export interface NodeRow {
   description: string;
   session_id: string | null;
   forked_from_message_seq: number | null;
+  session_position: string | null;
   branch_name: string | null;
   base_commit: string | null;
   head_commit: string | null;
