@@ -1072,6 +1072,8 @@ export interface ComparisonTurnView {
   costUsd: number;
   model: string | null;
   error: string | null;
+  /** References attached to the question, as it received them. */
+  references: RunReferenceView[];
 }
 
 /** Shaped like a node's messages, so the same conversation view draws both. */
@@ -1091,6 +1093,8 @@ export interface CreateComparisonRequest {
 
 export interface AskComparisonRequest {
   prompt: string;
+  /** References to give the agent with this question, by id. */
+  referenceIds?: string[];
 }
 
 export interface ApiError {

@@ -39,8 +39,10 @@ ancestors when the parent changed no files.
   ⌘/Ctrl/Shift-click cards. The Compare screen shows each experiment's goal, recorded testing,
   approach and changes as of a snapshot, and a conversation with an agent that has read each
   one's conversation, changes, notes and files. It only reads: it cannot run anything or change
-  any experiment. When an experiment moves on, Update refreshes its snapshot. Answers can be
-  saved as references, and comparisons are kept per project under Comparisons on the top bar.
+  any experiment. Questions can carry references with `@` (references only, not other
+  experiments), copied per question like a run's. When an experiment moves on, Update refreshes
+  its snapshot. Answers can be saved as references, and comparisons are kept per project under
+  Comparisons on the top bar.
   Deleting an experiment names the comparisons that include it first; they keep the copy they
   read, can still be asked about it, and can no longer update it.
 - Review compares the experiment's inherited base with committed and unfinished work.

@@ -74,6 +74,21 @@ function turnAsRun(comparisonId: string, turn: ComparisonTurnView): RunView {
     toolCalls: 0,
     durationMs: ended === null ? null : ended - Date.parse(turn.startedAt),
     error: turn.error,
+    // Only what the conversation draws: the references the question went with.
+    ...(turn.references.length === 0
+      ? {}
+      : {
+          resolvedContext: {
+            resolvedAt: turn.startedAt,
+            successCriteria: null,
+            verificationHint: null,
+            codeCommit: null,
+            parentNodeId: null,
+            parentName: null,
+            parentHeadCommit: null,
+            references: turn.references,
+          },
+        }),
   };
 }
 

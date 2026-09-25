@@ -288,7 +288,9 @@ CREATE TABLE IF NOT EXISTS comparison_turn (
   ended_at       TEXT,
   cost_usd       REAL NOT NULL DEFAULT 0,
   model          TEXT,
-  error          TEXT
+  error          TEXT,
+  -- The references attached to the question, as it received them (RunReferenceView[]).
+  references_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS comparison_message (

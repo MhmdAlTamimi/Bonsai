@@ -54,6 +54,7 @@ import {
 } from './references.js';
 import { conversationText } from '../domain/conversationText.js';
 import { readRunReference } from '../jobs/runContext.js';
+import { readComparisonReference } from '../jobs/comparisons.js';
 import {
   adoptProject,
   createChildNode,
@@ -1010,6 +1011,23 @@ route('GET', '/api/runs/:id/diff', async (_req, res, params, { store }) => {
  * saw, not the reference as it reads now.
  */
 route('GET', '/api/runs/:id/references/:referenceId', async (_req, res, params, { store }) => {
+  // A comparison's question is shown as a run, and its chips open the same way.
+  const turn = store.comparisons.turn(params['id']!);
+  if (turn !== undefined) {
+    const recorded = turn.references.find((r) => r.id === params['referenceId']);
+    if (recorded === undefined)
+      throw new HttpError(404, 'That question was not asked with this reference.');
+    const content = await readComparisonReference(
+      store,
+      turn.comparisonId,
+      params['id']!,
+      recorded,
+    ).catch(() => {
+      throw new HttpError(410, 'The copy this question was given is no longer on disk.');
+    });
+    sendJson(res, 200, { ...recorded, content });
+    return;
+  }
   const run = store.getRun(params['id']!);
   const node = run === undefined ? undefined : store.getNode(run.node_id);
   if (run === undefined || node === undefined) throw new HttpError(404, 'no such run');
@@ -1210,7 +1228,10 @@ route('POST', '/api/comparisons/:id/messages', async (req, res, params, ctx) => 
   const body = await readJson<AskComparisonRequest>(req);
   const prompt = requireString(body.prompt, 'prompt').trim();
   if (prompt === '') throw new HttpError(400, 'Ask something about these experiments.');
-  sendJson(res, 202, ctx.comparisons.ask(params['id']!, prompt));
+  const row = ctx.store.comparisons.get(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such comparison');
+  const referenceIds = attachedReferences(ctx.store, row.project_id, body.referenceIds);
+  sendJson(res, 202, ctx.comparisons.ask(row.id, prompt, referenceIds));
 });
 
 route('POST', '/api/comparisons/:id/stop', (_req, res, params, { comparisons }) => {

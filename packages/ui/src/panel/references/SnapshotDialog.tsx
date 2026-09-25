@@ -7,9 +7,11 @@ import { Dialog, DialogHeader } from '../../Dialog.tsx';
 import { referenceSize, useReferences } from '../../state/references.ts';
 
 /**
- * A reference exactly as one run received it.
+ * A reference exactly as one message went with it: an experiment's run, or a
+ * comparison's question (whose id is shown as a run's; the server tells them
+ * apart).
  *
- * Runs get a copy, so what the agent read stays readable after the reference
+ * Each gets a copy, so what the agent read stays readable after the reference
  * is edited or deleted. This says which of those happened, and offers the
  * current version when there is one.
  */
@@ -47,18 +49,22 @@ export function SnapshotDialog({
     <Dialog title="Reference as sent" className="wide reference-dialog" onClose={onClose}>
       <DialogHeader
         title={`@${reference.name}`}
-        subtitle={`As this run received it · ${referenceSize(reference.size)}`}
+        subtitle={`As sent with this message · ${referenceSize(reference.size)}`}
         onClose={onClose}
       />
       {current === undefined ? (
-        <p className="note">Deleted since this run. This copy is what the agent was given.</p>
+        <p className="note">
+          Deleted since this message was sent. This copy is what the agent was given.
+        </p>
       ) : (
-        edited && <p className="note">Edited since this run. The current version differs.</p>
+        edited && (
+          <p className="note">Edited since this message was sent. The current version differs.</p>
+        )
       )}
       {content === null ? (
         error === null ? (
           <p className="loading" role="status">
-            Loading the copy this run was given
+            Loading the copy that was sent
           </p>
         ) : (
           <p className="error" role="alert">

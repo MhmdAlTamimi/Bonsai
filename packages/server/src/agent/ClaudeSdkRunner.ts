@@ -99,7 +99,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     let sessionAnnounced = false;
     try {
       for await (const message of this.startCompare({
-        prompt: spec.prompt,
+        prompt: questionWithReferences(spec),
         options: compareOptions(spec, controller),
       })) {
         if (!sessionAnnounced && 'session_id' in message && message.session_id) {
@@ -446,6 +446,17 @@ export function compareOptions(spec: ComparisonSpec, controller: AbortController
     ...(spec.model === null ? {} : { model: spec.model }),
     ...(spec.effort === null ? {} : { effort: spec.effort as EffortLevel }),
   };
+}
+
+/** A comparison question, with where its attached references are -- worded as a run's are. */
+export function questionWithReferences(spec: ComparisonSpec): string {
+  const references = spec.references ?? [];
+  if (references.length === 0) return spec.prompt;
+  return (
+    `${spec.prompt}\n\nThe user attached ${references.length === 1 ? 'a reference' : 'references'} ` +
+    'to this question. Read each before answering; they are part of it:\n' +
+    references.map((r) => `- ${JSON.stringify(r.name)}: ${r.path}`).join('\n')
+  );
 }
 
 const COMPARE_APPEND = `

@@ -11,7 +11,7 @@ import { EventBus } from '../api/events.js';
 import { HttpError } from '../api/http.js';
 import { comparedExperiments } from '../api/references.js';
 import { RunJobs } from './runNode.js';
-import { ComparisonJobs } from './comparisons.js';
+import { ComparisonJobs, readComparisonReference } from './comparisons.js';
 import { approachOf, comparisonFolder } from './comparisonSnapshot.js';
 import { createChildNode, createProject } from '../projects.js';
 import type {
@@ -21,7 +21,7 @@ import type {
   RunEvent,
   RunSpec,
 } from '../agent/AgentRunner.js';
-import { compareOptions, COMPARE_TOOLS } from '../agent/ClaudeSdkRunner.js';
+import { compareOptions, COMPARE_TOOLS, questionWithReferences } from '../agent/ClaudeSdkRunner.js';
 import { writeFile } from 'node:fs/promises';
 
 /** Commits whatever "write <file>" names, so experiments have work to compare. */
@@ -267,6 +267,43 @@ describe('comparisons', () => {
     await settle(() => !comparisons.isRunning(row.id));
     assert.match(comparer.specs.at(-1)!.prompt, /try-lru was deleted from the project/);
     assert.match(comparer.specs.at(-1)!.prompt, /what did try-lru do\?$/);
+  });
+
+  test('a question can carry references: frozen, read-only, and looked up', async () => {
+    const row = await comparisons.create(projectId, nodes(redis, lru));
+    const reference = store.references.create({
+      projectId,
+      name: 'smoke-test',
+      content: 'Run npm test and report the count.',
+      sourceNodeId: null,
+    });
+    const { turnId } = comparisons.ask(row.id, 'which passes the smoke test?', [reference.id]);
+    await settle(() => !comparisons.isRunning(row.id));
+
+    // Handed to the agent as a file inside the comparison, not pasted in.
+    const given = comparer.specs.at(-1)!;
+    assert.equal(given.prompt, 'which passes the smoke test?');
+    assert.equal(given.references?.length, 1);
+    assert.equal(given.references[0]!.name, 'smoke-test');
+    assert.ok(given.references[0]!.path.startsWith(given.cwd));
+    assert.equal(await readFile(given.references[0]!.path, 'utf8'), reference.content);
+    assert.match(questionWithReferences(given), /attached a reference[\s\S]*"smoke-test": /);
+
+    // Recorded with the question, and kept as it was after the reference changes.
+    store.references.update(reference.id, { content: 'Run it twice.' });
+    const turn = store.comparisons.turns(row.id).find((t) => t.id === turnId)!;
+    assert.deepEqual(
+      turn.references.map((r) => r.name),
+      ['smoke-test'],
+    );
+    assert.equal(
+      await readComparisonReference(store, row.id, turnId, turn.references[0]!),
+      'Run npm test and report the count.',
+    );
+    // A question without references records none, and the index lists no extra "experiment".
+    comparisons.ask(row.id, 'and now?');
+    await settle(() => !comparisons.isRunning(row.id));
+    assert.deepEqual(comparer.specs.at(-1)!.references, []);
   });
 
   test('deleting a comparison removes its folder and its conversation', async () => {

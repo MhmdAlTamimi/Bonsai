@@ -103,7 +103,10 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter,
   async *compare(spec: ComparisonSpec): AsyncIterable<RunEvent> {
     yield { type: 'session', sessionId: spec.resumeSessionId ?? `fake-${randomUUID()}` };
     const entries = await readdir(spec.cwd, { withFileTypes: true });
-    const folders = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    // Experiments only: `_questions` holds what questions were asked with.
+    const folders = entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('_'))
+      .map((entry) => entry.name);
     yield { type: 'tool', name: 'Read', detail: join(spec.cwd, 'README.md'), id: randomUUID() };
     for (const folder of folders) {
       yield {
@@ -112,6 +115,9 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter,
         detail: join(spec.cwd, folder, 'experiment.md'),
         id: randomUUID(),
       };
+    }
+    for (const reference of spec.references ?? []) {
+      yield { type: 'tool', name: 'Read', detail: reference.path, id: randomUUID() };
     }
     await abortableDelay(Number(process.env['BONSAI_FAKE_DELAY_MS'] ?? 700), spec.signal);
     if (spec.signal.aborted) return;

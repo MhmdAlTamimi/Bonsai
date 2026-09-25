@@ -1,4 +1,6 @@
-import { rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
+import type { RunReferenceView } from '@bonsai/shared';
 
 import type { Comparer, RunEvent } from '../agent/AgentRunner.js';
 import type { EventBus } from '../api/events.js';
@@ -11,6 +13,8 @@ import {
   writeComparisonIndex,
 } from './comparisonSnapshot.js';
 import { folderNames } from './experimentSnapshot.js';
+import { fileNames } from './runContext.js';
+import { revisionOf } from '../db/referenceStore.js';
 
 /** What a comparison needs from the app's settings. */
 export interface ComparisonSettings {
@@ -158,11 +162,38 @@ export class ComparisonJobs {
     };
   }
 
-  /** Asks the comparison's agent a question. It answers in the background. */
-  ask(comparisonId: string, prompt: string): { turnId: string } {
+  /**
+   * Asks the comparison's agent a question. It answers in the background.
+   *
+   * References go with the question the way they go with a run: read now, so
+   * an edit after pressing send belongs to the next question; written as
+   * read-only copies in the comparison's own folder, per question, so each
+   * answer keeps exactly what it read; and looked up by the agent rather than
+   * pasted in. The ids are checked by the caller (attachedReferences).
+   */
+  ask(
+    comparisonId: string,
+    prompt: string,
+    referenceIds: readonly string[] = [],
+  ): { turnId: string } {
     const row = this.require(comparisonId);
     if (this.isRunning(row.id)) throw new OperationConflict('This comparison is still answering.');
-    const turnId = this.store.comparisons.startTurn(row.id);
+    const rows = referenceIds.flatMap((id) => this.store.references.get(id) ?? []);
+    const files = fileNames(rows.map((reference) => reference.name));
+    const attached = rows.map((reference, index) => ({
+      view: {
+        id: reference.id,
+        name: reference.name,
+        revision: revisionOf(reference.content),
+        size: reference.content.length,
+        file: files[index]!,
+      } satisfies RunReferenceView,
+      content: reference.content,
+    }));
+    const turnId = this.store.comparisons.startTurn(
+      row.id,
+      attached.map((a) => a.view),
+    );
     this.store.comparisons.appendMessage({
       comparisonId: row.id,
       turnId,
@@ -173,7 +204,7 @@ export class ComparisonJobs {
     const controller = new AbortController();
     this.active.set(row.id, controller);
     this.publish(row);
-    void this.answer(row, turnId, prompt, controller);
+    void this.answer(row, turnId, prompt, attached, controller);
     return { turnId };
   }
 
@@ -205,6 +236,7 @@ export class ComparisonJobs {
     row: ComparisonRow,
     turnId: string,
     question: string,
+    attached: ReadonlyArray<{ view: RunReferenceView; content: string }>,
     controller: AbortController,
   ): Promise<void> {
     const project = this.store.getProject(row.project_id);
@@ -215,10 +247,19 @@ export class ComparisonJobs {
     const startedAt = Date.now();
     try {
       if (note !== null) this.store.comparisons.setPendingNote(row.id, null);
+      const folder = turnReferencesFolder(this.store, row.project_id, row.id, turnId);
+      if (attached.length > 0) await mkdir(folder, { recursive: true });
+      for (const { view, content } of attached) {
+        await writeFile(join(folder, view.file), content, { flag: 'wx', mode: 0o400 });
+      }
       for await (const event of this.comparer.compare({
         comparisonId: row.id,
         cwd: comparisonFolder(this.store, row.project_id, row.id),
         prompt: note === null ? question : `${note}\n\n${question}`,
+        references: attached.map(({ view }) => ({
+          name: view.name,
+          path: join(folder, view.file),
+        })),
         resumeSessionId: row.session_id,
         model: project?.default_model ?? this.settings.model(),
         effort: project?.default_effort ?? this.settings.effort(),
@@ -292,6 +333,35 @@ export class ComparisonJobs {
       comparisonId: row.id,
     });
   }
+}
+
+/** Where one question's references are copied: inside the comparison, so its agent can read them. */
+function turnReferencesFolder(
+  store: Store,
+  projectId: string,
+  comparisonId: string,
+  turnId: string,
+): string {
+  // `_` cannot begin an experiment's folder name (folderNames), so this never
+  // lands on an experiment called "questions".
+  return join(comparisonFolder(store, projectId, comparisonId), '_questions', turnId);
+}
+
+/** The exact text a comparison's question was given for one of its references. */
+export async function readComparisonReference(
+  store: Store,
+  comparisonId: string,
+  turnId: string,
+  reference: RunReferenceView,
+): Promise<string> {
+  // The recorded name is a bare file name; anything else is not ours to read.
+  if (basename(reference.file) !== reference.file) throw new Error('not a reference copy');
+  const row = store.comparisons.get(comparisonId);
+  if (row === undefined) throw new Error('no such comparison');
+  return readFile(
+    join(turnReferencesFolder(store, row.project_id, comparisonId, turnId), reference.file),
+    'utf8',
+  );
 }
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;

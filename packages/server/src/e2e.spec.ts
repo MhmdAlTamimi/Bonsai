@@ -2051,7 +2051,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.ok(
       (
         (await session.eval("document.querySelector('dialog .note')?.textContent")) as string
-      ).includes('Edited since this run'),
+      ).includes('Edited since this message was sent'),
     );
     await session.screenshot(join(repoRoot, 'test-results', 'references-snapshot.png'));
     await session.eval(`${dialogButton('Close')}.click()`);
@@ -2310,6 +2310,52 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.eval(`${button('Cancel')}.click()`);
     await session.waitFor("!document.querySelector('dialog')");
+
+    // A question can carry a reference, offered by @ -- references only, no experiments.
+    await session.click('.compare-composer textarea');
+    await session.type('.compare-composer textarea', 'judge by @cache');
+    await session.waitFor(
+      "document.querySelector('.mention-option .mention-name')?.textContent === 'cache-verdict'",
+    );
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.mention-menu [role=group]')).some(g => g.getAttribute('aria-label') === 'Experiments')",
+      ),
+      false,
+    );
+    await session.click('.mention-option');
+    await session.waitFor(
+      "document.querySelector('.compare-composer .attached-references .reference-chip-name')?.textContent === '@cache-verdict'",
+    );
+    await session.eval("document.querySelector('.compare-composer .send').click()");
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.compare-thread .sent-references .reference-chip')).some(c => c.textContent.includes('@cache-verdict'))",
+    );
+    await session.waitFor("!document.querySelector('.compare-thread .working')");
+    assert.equal(
+      await session.eval(
+        "document.querySelectorAll('.compare-composer .attached-references').length",
+      ),
+      0,
+      'a sent reference leaves the box',
+    );
+    // Its read is named as the reference, and its chip opens the copy the question was given.
+    await session.eval(
+      "Array.from(document.querySelectorAll('.compare-thread .work-summary')).at(-1).click()",
+    );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.compare-thread .work-step-head')).some(h => h.textContent.includes('Read @cache-verdict'))",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.compare-thread .sent-references .reference-chip')).find(c => c.textContent.includes('@cache-verdict')).click()",
+    );
+    await session.waitFor(
+      "document.querySelector('dialog .reference-snapshot')?.textContent.startsWith('Stand-in comparison')",
+    );
+    await session.eval("document.querySelector('dialog .dialog-close').click()");
+    await session.waitFor("!document.querySelector('dialog')");
+    // Focus went back to the box it was typed in; Escape leaves only when not typing.
+    await session.eval('document.activeElement?.blur()');
 
     // An experiment moves on: the comparison says so, and Update catches up.
     await run(redis, 'add expiry');

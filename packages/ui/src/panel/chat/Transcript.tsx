@@ -494,7 +494,8 @@ const EXPERIMENT_FILE_WORDS: Record<string, string> = {
 /**
  * A Read of something the run was given, named as what it is rather than its
  * file path: `@smoke-test`, or `@try-redis · changes` -- and in a comparison,
- * `try-redis/changes.diff` rather than the path to the comparison's folder.
+ * `try-redis/changes.diff` rather than the path to the comparison's folder,
+ * and `@smoke-test` for a reference its question was asked with.
  */
 function attachmentRead(name: string, detail: string, sent: Sent): string | undefined {
   if (name !== 'Read') return undefined;
@@ -504,7 +505,15 @@ function attachmentRead(name: string, detail: string, sent: Sent): string | unde
   const compared = parts.findIndex(
     (part, i) => part === 'compare' && UUID.test(parts[i + 1] ?? '') && i + 2 < parts.length,
   );
-  if (compared !== -1) return parts.slice(compared + 2).join('/');
+  if (compared !== -1) {
+    const inside = parts.slice(compared + 2);
+    // A reference a question was asked with: `_questions/<question id>/<file>`.
+    if (inside[0] === '_questions') {
+      const reference = sent.references.find((r) => r.file === inside[2]);
+      return reference === undefined ? undefined : `@${reference.name}`;
+    }
+    return inside.join('/');
+  }
   const at = parts.lastIndexOf('run-context');
   if (at === -1) return undefined;
   const [, kind, item, file] = parts.slice(at + 1);

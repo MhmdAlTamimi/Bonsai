@@ -184,6 +184,16 @@ export const MIGRATIONS: readonly Migration[] = [
       if (exists !== undefined) addColumn(db, 'reference', 'source_comparison_id', 'TEXT');
     },
   },
+  {
+    version: 19,
+    name: 'comparison questions: the references each was asked with',
+    up: (db) => {
+      const exists = db
+        .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'comparison_turn'`)
+        .get();
+      if (exists !== undefined) addColumn(db, 'comparison_turn', 'references_json', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

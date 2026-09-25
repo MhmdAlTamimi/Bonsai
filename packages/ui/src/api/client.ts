@@ -338,10 +338,10 @@ export const api = {
   comparison: (comparisonId: string, signal?: AbortSignal) =>
     json<ComparisonView>(`/api/comparisons/${comparisonId}`, signal ? { signal } : undefined),
 
-  askComparison: (comparisonId: string, prompt: string) =>
+  askComparison: (comparisonId: string, prompt: string, referenceIds: readonly string[] = []) =>
     json<{ turnId: string }>(`/api/comparisons/${comparisonId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, ...(referenceIds.length === 0 ? {} : { referenceIds }) }),
     }),
 
   stopComparison: (comparisonId: string) =>

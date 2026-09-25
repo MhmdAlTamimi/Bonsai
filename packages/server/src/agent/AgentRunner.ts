@@ -224,6 +224,8 @@ export interface ComparisonSpec {
   /** The comparison's folder of snapshots, where the agent starts. */
   cwd: string;
   prompt: string;
+  /** References attached to this question, copied read-only inside `cwd`. */
+  references?: ReadonlyArray<{ name: string; path: string }>;
   /** The comparison's own session, to continue; null for its first question. */
   resumeSessionId: string | null;
   model: string | null;

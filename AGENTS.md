@@ -36,7 +36,9 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   work. A comparison's agent gets Read, Glob and Grep and nothing else, enforced by the `tools`
   option and the permission callback; it never runs commands and never touches an experiment.
   Its snapshots live in the project's scratch `compare/<id>/`; files are exported with
-  `git archive`, not a registered worktree.
+  `git archive`, not a registered worktree. References attached to a comparison question are
+  write-once copies in `compare/<id>/_questions/<questionId>/` (a leading `_` cannot collide
+  with an experiment folder), recorded on the question like a run's resolved context.
 - Name-only children have no worktree. First execution allocates a detached checkout at
   the pinned base; the first modifying run creates `node/<uuid>`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.

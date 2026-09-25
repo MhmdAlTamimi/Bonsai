@@ -76,11 +76,14 @@ export function ComparePage({
     }
   };
   /** Rejects when asking failed, so the composer keeps the question to try again. */
-  const askQuestion = async (prompt: string): Promise<void> => {
+  const askQuestion = async (
+    prompt: string,
+    referenceIds: readonly string[] = [],
+  ): Promise<void> => {
     setActionError(null);
     atEnd.current = true;
     try {
-      await api.askComparison(comparisonId, prompt);
+      await api.askComparison(comparisonId, prompt, referenceIds);
     } catch (e) {
       setActionError(describeError(e));
       throw e;

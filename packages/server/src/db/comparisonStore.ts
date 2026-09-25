@@ -5,6 +5,7 @@ import type {
   ComparisonTurnView,
   ExperimentFacts,
   MessageView,
+  RunReferenceView,
   RunStatus,
 } from '@bonsai/shared';
 
@@ -147,15 +148,27 @@ export class ComparisonStore {
 
   // -- the conversation -----------------------------------------------------
 
-  startTurn(comparisonId: string): string {
+  startTurn(comparisonId: string, references: readonly RunReferenceView[] = []): string {
     const id = randomUUID();
     this.db
       .prepare(
-        `INSERT INTO comparison_turn (id, comparison_id, status, started_at) VALUES (?, ?, 'running', ?)`,
+        `INSERT INTO comparison_turn (id, comparison_id, status, started_at, references_json)
+         VALUES (?, ?, 'running', ?, ?)`,
       )
-      .run(id, comparisonId, now());
+      .run(id, comparisonId, now(), references.length === 0 ? null : JSON.stringify(references));
     this.touch(comparisonId);
     return id;
+  }
+
+  /** The comparison a question belongs to, and what it was asked with. */
+  turn(turnId: string): { comparisonId: string; references: RunReferenceView[] } | undefined {
+    const row = this.db
+      .prepare(`SELECT comparison_id, references_json FROM comparison_turn WHERE id = ?`)
+      .get(turnId) as unknown as
+      { comparison_id: string; references_json: string | null } | undefined;
+    return row === undefined
+      ? undefined
+      : { comparisonId: row.comparison_id, references: parseReferences(row.references_json) };
   }
 
   finishTurn(
@@ -186,6 +199,7 @@ export class ComparisonStore {
       costUsd: Number(r['cost_usd']),
       model: (r['model'] as string | null) ?? null,
       error: (r['error'] as string | null) ?? null,
+      references: parseReferences((r['references_json'] as string | null) ?? null),
     }));
   }
 
@@ -277,4 +291,9 @@ export class ComparisonStore {
         now(),
       );
   }
+}
+
+/** A question's recorded references; none for questions from before they were recorded. */
+function parseReferences(json: string | null): RunReferenceView[] {
+  return json === null ? [] : (JSON.parse(json) as RunReferenceView[]);
 }
