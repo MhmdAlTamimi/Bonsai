@@ -31,6 +31,16 @@ ancestors when the parent changed no files.
   and `CONTEXT.md` with one tool-less model call. Nothing is saved until you save it. A run
   receives its references as read-only files and keeps the copy it read; the transcript marks
   a reference edited or deleted since and opens that exact copy.
+- `@` also offers other experiments. Mentioning one gives the run a snapshot of its committed
+  work to look up when needed: its conversation, its committed changes as a diff, and its
+  `CONTEXT.md` notes. Nothing is pasted into the prompt; each read shows in the transcript, and
+  the message's chip says when that experiment has changed since.
+- Compare two to four experiments: pick them with Compare in the canvas controls, or
+  ⌘/Ctrl/Shift-click cards. The Compare screen shows each experiment's goal, recorded testing,
+  approach and changes as of a snapshot, and a conversation with an agent that has read each
+  one's conversation, changes, notes and files. It only reads: it cannot run anything or change
+  any experiment. When an experiment moves on, Update refreshes its snapshot. Answers can be
+  saved as references, and comparisons are kept per project under Comparisons on the top bar.
 - Review compares the experiment's inherited base with committed and unfinished work.
   Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
 - Optional success criteria and check instructions go to the agent. Notes currently live
@@ -183,5 +193,5 @@ and cleanup failures are recorded rather than described as successful stops.
 | `packages/server/src/jobs` | Run scheduling, questions, cancellation and recovery |
 | `packages/ui` | React canvas, conversations, review and settings |
 
-Referencing a node directly, standing (pinned) references, multiple code parents, Apply and
-broader SDK exposure belong to later phases. Stabilization does not introduce those features or migrate existing data.
+Standing (pinned) references, running a procedure across compared experiments, multiple
+code parents, Apply and broader SDK exposure belong to later phases. Stabilization does not introduce those features or migrate existing data.

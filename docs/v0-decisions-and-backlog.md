@@ -231,3 +231,18 @@ for changes.
   trap the brief anticipated — and snapshotted per run with their revision recorded. References
   are mutable; what a run received is not. Node references, standing (pinned) references and
   note conversations are not built.
+
+## 2026-09-26 — Referencing experiments, and Compare
+
+- `@` can name another experiment in the project. The run receives a snapshot of that
+  experiment's committed work -- its own conversation, its committed diff and its notes -- as
+  files to read when needed, recorded with its commit and run count. Committed work only, so a
+  snapshot cannot change mid-run. The prompt asks the agent not to copy its code unless asked.
+- Weighing several experiments against each other is its own screen, not an `@`: Compare takes
+  two to four experiments, snapshots them (including their files at the compared commit, via
+  `git archive`), and answers questions with an agent limited to Read, Glob and Grep. It runs
+  nothing and changes no experiment, so experiments stay independent. Comparisons are kept per
+  project; Update re-snapshots experiments that moved on and tells the agent once.
+- Deliberately not built yet: a comparison running the same procedure in every experiment.
+  The agreed shape for later is plan (agent) → approve (user) → run identically in temporary
+  copies (Bonsai, no model) → interpret (agent), with fairness rules enforced by the harness.

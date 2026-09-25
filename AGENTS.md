@@ -31,6 +31,12 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   run's resolved context, so later edits never change what an earlier run saw. Drafting one
   from a conversation is a single tool-less completion over that node's own messages and
   `CONTEXT.md`, not an agent run, and returns text for the user to edit and save.
+- `@experiment` and Compare read other experiments only through snapshots of their COMMITTED
+  work (`jobs/experimentSnapshot.ts`): conversation, committed diff and notes, never uncommitted
+  work. A comparison's agent gets Read, Glob and Grep and nothing else, enforced by the `tools`
+  option and the permission callback; it never runs commands and never touches an experiment.
+  Its snapshots live in the project's scratch `compare/<id>/`; files are exported with
+  `git archive`, not a registered worktree.
 - Name-only children have no worktree. First execution allocates a detached checkout at
   the pinned base; the first modifying run creates `node/<uuid>`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.
@@ -51,5 +57,6 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
 - Use real Git regression tests for ownership, commits, snapshots, recovery and deletion.
   Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
 
-Later phases (node references and standing references, notes migration, scoped external
-actions, Apply and additional SDK capabilities) require their own scoped implementation work.
+Later phases (standing references, running procedures across compared experiments, notes
+migration, scoped external actions, Apply and additional SDK capabilities) require their own
+scoped implementation work.
