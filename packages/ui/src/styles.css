@@ -2592,3 +2592,75 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .bonsai-edge { fill: none; stroke: var(--edge); stroke-width: 1.4; stroke-dasharray: 4 4; }
 .bonsai-edge.conversation { stroke: var(--edge-dim); }
 .bonsai-edge.live { stroke: var(--edge-live); stroke-dasharray: none; }
+
+/* Project identity stays visible; the picker has no arbitrary recent-project cutoff. */
+.project-location { display: block; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .75rem; }
+.project-picker { flex-wrap: wrap; }
+.project-menu .menu-panel { max-height: 75dvh; overflow-y: auto; width: min(460px, 90vw); }
+.project-menu .menu-panel button small, .matching-projects button small { display: block; color: inherit; font-size: .75rem; overflow-wrap: anywhere; }
+.matching-projects { display: grid; gap: 8px; }
+
+.kind-run .tool-subject { white-space: pre; overflow: auto; text-overflow: clip; max-height: 8rem; }
+.tool-body { max-height: 24rem; overflow: auto; }
+.tool-text { flex-shrink: 0; }
+.review.wrap-lines .diff-line { height: auto; min-height: var(--h-tool-line); align-items: flex-start; }
+.review.wrap-lines .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.review-bar { flex-wrap: wrap; height: auto; min-height: 48px; }
+
+.review-bar > button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); }
+.run-context { margin: 12px 0; font-size: .8rem; color: var(--muted); }
+.run-context dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
+.checks label { display: grid; gap: 8px; margin-bottom: 12px; }
+.kind-run .tool-head { height: auto; min-height: var(--h-control); padding-top: 6px; padding-bottom: 6px; }
+
+/* Related review actions share one compact, keyboard-accessible control family. */
+.review-tools { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.segmented-control { display: inline-flex; gap: 2px; padding: 3px; background: var(--void); border: 1px solid var(--line); border-radius: var(--r-10); }
+.review-tools button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border: 1px solid transparent; border-radius: var(--r-7); background: transparent; color: var(--muted); }
+.segmented-control button, .review-tools .toolbar-icon { width: 34px; padding: 6px; }
+.review-tools button:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
+.review-tools button[aria-pressed='true'] { color: var(--accent-text-dim); background: var(--accent-soft); border-color: var(--line-strong); box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
+.review-tools .toolbar-folder { border-color: var(--line); background: var(--surface-2); padding: 6px 10px; }
+.review-tools .toolbar-icon { margin-left: 2px; }
+.review-tools button:active:not(:disabled), .creation-actions button:active:not(:disabled), .project-actions button:active:not(:disabled) { transform: translateY(1px); }
+
+/* Creation is a single decision, with a quiet save action and a clear start action. */
+.creation-actions { border-top: 1px solid var(--line); gap: 10px; box-shadow: 0 -8px 20px rgb(0 0 0 / .12); }
+.creation-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: var(--r-10); font-weight: 600; transition: background .15s, border-color .15s, box-shadow .15s; }
+.creation-actions .creation-secondary { background: var(--surface-2); border: 1px solid var(--line-strong); color: var(--text-dim); }
+.creation-actions .creation-secondary:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
+.creation-actions .primary, .project-actions .primary { box-shadow: inset 0 1px 0 rgb(255 255 255 / .16), 0 3px 8px rgb(0 0 0 / .2); }
+.dialog[aria-label='Branch experiment'] > label.stacked { gap: 8px; }
+.dialog[aria-label='Branch experiment'] .creation-sources { gap: 8px; }
+
+.new-project { width: min(580px, 94vw); gap: 20px; }
+.new-project h1 { margin: 0; font-size: 1.25rem; letter-spacing: -.02em; }
+.new-project > .muted { margin: -4px 0 0; }
+.new-project button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.new-project .project-source-switch { padding: 4px; gap: 4px; background: var(--void); border: 1px solid var(--line); border-radius: var(--r-12); }
+.project-source-switch button { flex: 1; min-height: 40px; border-radius: var(--r-8); border: 1px solid transparent; }
+.project-source-switch button.on { color: var(--text); background: var(--surface-3); border-color: var(--line-strong); box-shadow: 0 2px 4px rgb(0 0 0 / .2); }
+.project-actions { border-top: 1px solid var(--line); padding-top: 16px; }
+.project-actions button { min-height: 40px; padding: 10px 16px; border-radius: var(--r-10); }
+.matching-projects { gap: 10px; }
+.matching-projects h3 { margin: 0 0 2px; font-size: .9rem; }
+.existing-project-row { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--r-10); }
+.existing-project-row > .icon { color: var(--muted); flex-shrink: 0; }
+.existing-project-identity { flex: 1; min-width: 0; }
+.existing-project-identity strong { display: block; overflow-wrap: anywhere; font-size: .9rem; }
+.existing-project-identity small { display: block; color: var(--muted); margin-top: 4px; font-size: .75rem; overflow-wrap: anywhere; }
+.existing-project-row button { flex-shrink: 0; min-height: 36px; border-color: var(--line-strong); background: var(--control-strong); }
+.matching-projects > .linkish { justify-self: start; padding: 8px 0; }
+@media (max-width: 560px) {
+  .new-project { padding: 20px; }
+  .existing-project-row { flex-wrap: wrap; }
+  .existing-project-row button { margin-left: auto; }
+  .review-tools { gap: 4px; }
+  .creation-actions button { flex: 1; padding: 10px; }
+}
+.new-project .project-field { display: grid; gap: 8px; color: var(--text-dim); font-size: .85rem; }
+.new-project .project-field input, .new-project .project-field textarea { width: 100%; }
+.creation-actions .creation-cancel { margin-right: auto; padding-inline: 8px; border-color: transparent; background: transparent; color: var(--muted); font-weight: 400; }
+.creation-actions .creation-cancel:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
+/* Empty folders should not push the next decision below the fold. */
+.new-project .picker-list:not(:has(.picker-entry)) { height: auto; min-height: 52px; }

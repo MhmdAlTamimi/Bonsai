@@ -162,6 +162,33 @@ function Turn({
         </div>
       )}
 
+      {run?.resolvedContext && (
+        <details className="run-context">
+          <summary>Run context</summary>
+          <dl>
+            <dt>Code revision</dt>
+            <dd>
+              <code>{run.resolvedContext.codeCommit ?? 'None'}</code>
+            </dd>
+            <dt>Parent conversation</dt>
+            <dd>
+              {run.resolvedContext.parentNodeId
+                ? `${run.resolvedContext.parentName ?? 'Parent'} · available through message ${run.resolvedContext.parentMessageSeq}`
+                : 'No parent'}
+            </dd>
+            <dt>Resolved</dt>
+            <dd>{run.resolvedContext.resolvedAt}</dd>
+            {run.resolvedContext.parentSnapshotSha256 && (
+              <>
+                <dt>Snapshot fingerprint</dt>
+                <dd>
+                  <code>{run.resolvedContext.parentSnapshotSha256}</code>
+                </dd>
+              </>
+            )}
+          </dl>
+        </details>
+      )}
       {!running && run !== undefined && <RunFoot run={run} />}
     </article>
   );

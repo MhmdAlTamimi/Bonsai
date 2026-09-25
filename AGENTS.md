@@ -19,13 +19,14 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
 
 - The backend owns project/node state, Git operations, filesystem access and jobs.
   The UI renders the API contract and sends intents; it does not access these directly.
-- A child pins its code base at creation. Its direct parent's conversation is forked
-  at first execution. These are separate sources and can diverge.
-- Children start in detached worktrees. The first modifying run creates `node/<uuid>`.
+- A child pins its code base at creation. The app snapshots its direct parent's conversation
+  automatically before every execution; the agent reads it on demand. Child sessions retain
+  their own history. Code and conversation are separate sources and can diverge.
+- Name-only children have no worktree. First execution allocates a detached checkout at
+  the pinned base; the first modifying run creates `node/<uuid>`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.
-- A direct committed child currently freezes its parent. Deleting the last committed
-  child unfreezes it. An adopted original checkout is always read-only. Do not change
-  these semantics without the agreed design checkpoint.
+- Children do not freeze parents (approved Phase 3). Existing children never move to newer
+  parent code automatically. An adopted original checkout remains read-only.
 - Git state checks detect unexpected HEAD/ref/common-repository changes before execution,
   commit and deletion. Preserve drifted work; never silently reset it to match the database.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain
@@ -41,5 +42,5 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
 - Use real Git regression tests for ownership, commits, snapshots, recovery and deletion.
   Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
 
-Later phases (references, parent continuation, notes migration, scoped external actions,
+Later phases (references, notes migration, scoped external actions,
 Apply and additional SDK capabilities) require their own scoped implementation work.

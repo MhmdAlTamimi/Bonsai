@@ -1,3 +1,5 @@
+import { resolveRunContext } from './runContext.js';
+import { allocateNodeWorktree } from '../projects.js';
 import { OperationConflict } from '../domain/errors.js';
 import { resolveRunSettings } from './runSettings.js';
 import { randomUUID } from 'node:crypto';
@@ -412,7 +414,10 @@ export class RunJobs {
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
 
-    const state = await readWorktreeState(node.worktree_path);
+    const state =
+      node.worktree_allocated === 0
+        ? { changed: [], untracked: [], patch: '' }
+        : await readWorktreeState(node.worktree_path);
     const original = this.store.lastUserPrompt(nodeId) ?? node.description;
     const last = this.store.listRuns(nodeId).at(-1);
     return this.start(
@@ -428,21 +433,7 @@ export class RunJobs {
     if (this.isRunning(nodeId))
       throw new OperationConflict('This experiment is already running or queued.');
 
-    /**
-     * THE FREEZE IS RESOLVED HERE AND NOWHERE ELSE.
-     *
-     * Not continuously, and never re-checked mid-run. A run already in flight
-     * is not invalidated by a sibling committing halfway through it: cancelling
-     * paid, unreproducible work to honour a freeze that arrived late costs more
-     * than it protects, and the child's base is pinned anyway, so nothing
-     * downstream can go stale either way.
-     *
-     * A frozen node is NOT blocked from running. D4 freezes a node's code, not
-     * its conversation -- "frozen nodes remain conversational, read-only" -- so
-     * the freeze becomes a read-only tool set (D18) rather than a refusal.
-     * Asking a finished node a question is a thing you are meant to be able to
-     * do; it simply cannot write.
-     */
+    // Children never change authority. Only the user's original checkout is read-only.
     const view = this.store.treeView(node.project_id).find((n) => n.id === nodeId);
     const readOnly = view !== undefined && !view.writable;
 
@@ -763,6 +754,18 @@ export class RunJobs {
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     try {
+      const resolvedContext = await resolveRunContext(this.store, node, runId);
+      if (controller.signal.aborted) throw new Error('Cancelled before allocation.');
+      const seeded = await allocateNodeWorktree(this.store, node);
+      for (const outcome of seeded)
+        if (!outcome.copied)
+          this.store.appendMessage({
+            nodeId,
+            runId,
+            role: 'system',
+            kind: 'text',
+            content: `Could not copy ${outcome.path}: ${outcome.reason ?? 'unknown reason'}`,
+          });
       const expectedState = readOnly ? null : await expectedGitState(project.repo_path, node);
       if (expectedState) await assertGitState(node.worktree_path, expectedState);
       // Setup mutates files and obeys the same ownership boundary as agent writes.
@@ -790,6 +793,7 @@ export class RunJobs {
         cwd: workDirIn(node.worktree_path, project.work_dir),
         contextPath: join(node.worktree_path, 'CONTEXT.md'),
         prompt,
+        parentContextPath: resolvedContext.snapshotPath,
         resumeSessionId: inheritance.sessionId,
         forkSession: inheritance.fork,
         readOnly,
@@ -988,7 +992,7 @@ export class RunJobs {
 
       if (outcome.committed) {
         // D29: always a new commit, never an amend. A node is a branch that may
-        // accumulate several commits while it is still a leaf.
+        // accumulate several commits without changing existing children’s pinned bases.
         this.store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
       }
 
@@ -1356,35 +1360,10 @@ export class RunJobs {
     }
   }
 
-  /**
-   * D16: memory across nodes is session forking.
-   *
-   * Three cases, and getting the first two the wrong way round is the bug this
-   * milestone exists to avoid:
-   *
-   *   the node has its own session   -> RESUME it. §6.3: chatting with a leaf
-   *                                     three times is one conversation.
-   *   the node has none, its parent  -> FORK the parent's. The child inherits
-   *   does                              the entire ancestor chain, the parent
-   *                                     is left untouched, and siblings cannot
-   *                                     see each other (D1, D2).
-   *   neither                        -> a fresh session. Master's first run.
-   *
-   * Note the parent is the CONVERSATIONAL parent, always. It is the git base
-   * that skips commitless ancestors, not the session -- that divergence is the
-   * whole point (PRD §4), and it is why this walks no tree at all.
-   */
   private resolveInheritance(node: NodeRow): { sessionId: string | null; fork: boolean } {
-    if (node.session_id !== null) return { sessionId: node.session_id, fork: false };
-    if (node.parent_id === null) return { sessionId: null, fork: false };
-
-    const parent = this.store.getNode(node.parent_id);
-    if (parent?.session_id == null) return { sessionId: null, fork: false };
-
-    // A3: record where the fork was taken. A frozen node stays conversational,
-    // so two children of one parent can inherit different amounts of it.
-    this.store.recordFork(node.id, this.store.messageCount(parent.id));
-    return { sessionId: parent.session_id, fork: true };
+    // Continue the child's own turns. Parent context is refreshed as a per-run snapshot,
+    // rather than reforking and discarding the child's history or injecting growing transcripts.
+    return { sessionId: node.session_id, fork: false };
   }
 
   private setStatus(nodeId: string, status: NodeStatus): void {

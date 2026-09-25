@@ -73,6 +73,7 @@ export interface SettingsView {
    */
   panelWidth: number;
   textScale: number;
+  wrapLines: boolean;
 }
 
 /**
@@ -115,6 +116,7 @@ export interface UpdateSettingsRequest {
   /** Clamped server-side; see settings.ts for the bounds and why. */
   panelWidth?: number;
   textScale?: number;
+  wrapLines?: boolean;
   maxConcurrentRuns?: number;
 }
 
@@ -372,7 +374,21 @@ export interface AgentQuestion {
  */
 export type RunEndReason = 'finished' | 'stopped' | 'failed' | 'app_closed';
 
+export interface ResolvedRunContext {
+  resolvedAt: string;
+  successCriteria: string | null;
+  verificationHint: string | null;
+  codeCommit: string | null;
+  parentNodeId: string | null;
+  parentName: string | null;
+  parentHeadCommit: string | null;
+  parentMessageSeq: number;
+  parentSnapshotSha256: string | null;
+  snapshotPath: string | null;
+}
+
 export interface RunView {
+  resolvedContext?: ResolvedRunContext | null;
   id: string;
   nodeId: string;
   status: RunStatus;
@@ -451,6 +467,8 @@ export interface ReviewView {
 }
 
 export interface ReviewFilePatchView {
+  content?: string;
+  contentRevision?: 'current' | 'before-deletion';
   file: ReviewFile;
   patch: string;
   /** True when the patch was too large and only its beginning is here. */
@@ -749,6 +767,8 @@ export interface CreateNodeRequest {
 }
 
 export interface UpdateNodeRequest {
+  successCriteria?: string;
+  verificationHint?: string;
   displayName?: string;
   positionX?: number | null;
   positionY?: number | null;

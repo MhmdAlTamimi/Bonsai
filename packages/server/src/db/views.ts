@@ -77,12 +77,8 @@ export class Views {
         // read-only from the moment the project exists rather than from its
         // first child. Expressed as the `writable` flag rather than a separate
         // rule so every renderer and the run gate agree without being told.
-        writable: flags.writable && !isUsersOwnCheckout(project, row),
-        frozenReason: isUsersOwnCheckout(project, row)
-          ? 'your_folder'
-          : flags.writable
-            ? null
-            : 'child_committed',
+        writable: !isUsersOwnCheckout(project, row),
+        frozenReason: isUsersOwnCheckout(project, row) ? 'your_folder' : null,
         pendingQuestion: question,
         positionX: row.position_x,
         positionY: row.position_y,

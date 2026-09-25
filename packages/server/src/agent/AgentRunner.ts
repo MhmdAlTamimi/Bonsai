@@ -8,6 +8,7 @@ export interface RunSpec {
   cwd: string;
   /** Repository-root notes path, independent of the selected working subdirectory. */
   contextPath?: string;
+  parentContextPath?: string | null;
   prompt: string;
   /**
    * D16: the session to continue from, or null for a node with no ancestry to

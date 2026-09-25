@@ -154,3 +154,29 @@ function letterFor(code: string): ReviewStatus {
   if (code.includes('A')) return 'A';
   return 'M';
 }
+
+/** Read Git objects, never follow a worktree symlink into unrelated host files. */
+export async function reviewFileContent(
+  worktree: string,
+  range: { base: string; head: string } | null,
+  file: ReviewFile,
+): Promise<{
+  content: string;
+  truncated: boolean;
+  contentRevision: 'current' | 'before-deletion';
+}> {
+  const dirty = await status(worktree);
+  const head = dirty.length === 0 ? (range?.head ?? 'HEAD') : await workingTreeSnapshot(worktree);
+  const deleted = file.status === 'D';
+  const revision = deleted ? (range?.base ?? 'HEAD') : head;
+  const result = await gitPatch(
+    ['show', `${revision}:${deleted ? (file.oldPath ?? file.path) : file.path}`],
+    worktree,
+    MAX_PATCH_BYTES,
+  );
+  return {
+    content: result.patch,
+    truncated: result.truncated,
+    contentRevision: deleted ? 'before-deletion' : 'current',
+  };
+}

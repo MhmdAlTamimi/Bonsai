@@ -39,7 +39,7 @@ export function useReview(
   }, [nodeId, key, attempt]);
 
   return {
-    data: data?.value ?? null,
+    data: data?.key === key ? data.value : null,
     error,
     retry: () => setAttempt((n) => n + 1),
   };
@@ -49,10 +49,11 @@ export function useFilePatch(
   nodeId: string | null,
   path: string | null,
   revision: string,
+  view: 'diff' | 'file' = 'diff',
 ): { data: ReviewFilePatchView | null; error: string | null; loading: boolean } {
   const [cache, setCache] = useState<Map<string, ReviewFilePatchView>>(new Map());
   const [error, setError] = useState<string | null>(null);
-  const key = `${nodeId ?? ''}:${revision}:${path ?? ''}`;
+  const key = `${nodeId ?? ''}:${revision}:${path ?? ''}:${view}`;
 
   // A run that changes the experiment invalidates every patch at once.
   useEffect(() => setCache(new Map()), [nodeId, revision]);
@@ -63,7 +64,7 @@ export function useFilePatch(
     const controller = new AbortController();
     setError(null);
     api
-      .reviewFile(nodeId, path, controller.signal)
+      .reviewFile(nodeId, path, controller.signal, view)
       .then((value) => alive && setCache((prev) => new Map(prev).set(key, value)))
       .catch((e: unknown) => {
         if (alive && !controller.signal.aborted) setError(describeError(e));
@@ -72,7 +73,7 @@ export function useFilePatch(
       alive = false;
       controller.abort();
     };
-  }, [nodeId, path, key, cache]);
+  }, [nodeId, path, key, cache, view]);
 
   const data = cache.get(key) ?? null;
   return { data, error, loading: path !== null && data === null && error === null };

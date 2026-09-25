@@ -120,6 +120,13 @@ export class Store {
   recordFork(id: string, parentMessageSeq: number): void {
     this.nodes.recordFork(id, parentMessageSeq);
   }
+  markAllocated(id: string, allocated: boolean): void {
+    this.nodes.markAllocated(id, allocated);
+  }
+  recordRunContext(...args: Parameters<RunStore['recordContext']>): void {
+    this.runs.recordContext(...args);
+  }
+
   setSessionId(id: string, sessionId: string): void {
     this.nodes.setSessionId(id, sessionId);
   }

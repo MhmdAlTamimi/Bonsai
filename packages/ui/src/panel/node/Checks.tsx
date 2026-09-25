@@ -1,4 +1,6 @@
-import type { JSX } from 'react';
+import { type JSX, useState } from 'react';
+import { api } from '../../api/client.ts';
+import { describeError } from '../../api/describeError.ts';
 import type { NodeDetail, NodeView } from '@bonsai/shared';
 import { Markdown } from '../chat/Markdown.tsx';
 
@@ -9,17 +11,43 @@ import { Markdown } from '../chat/Markdown.tsx';
  * with the node's other facts and not between two messages.
  */
 export function Goal({ detail }: { detail: NodeDetail | null }): JSX.Element | null {
-  if (detail === null) return null;
+  return detail === null ? null : <GoalForm key={detail.node.id} detail={detail} />;
+}
+function GoalForm({ detail }: { detail: NodeDetail }): JSX.Element {
+  const [goal, setGoal] = useState(detail.successCriteria ?? '');
+  const [test, setTest] = useState(detail.verificationHint ?? '');
+  const [feedback, setFeedback] = useState('');
+  const [saving, setSaving] = useState(false);
   return (
     <section className="checks" aria-label="Goal">
-      <h3>Goal</h3>
-      <p>{detail.successCriteria ?? 'No success criteria were provided.'}</p>
-      {detail.verificationHint !== null && (
-        <>
-          <h3>Requested verification</h3>
-          <p>{detail.verificationHint}</p>
-        </>
-      )}
+      <h3>Goal and checks</h3>
+      <label>
+        Success looks like
+        <textarea value={goal} onChange={(e) => setGoal(e.target.value)} />
+      </label>
+      <label>
+        How to test
+        <textarea value={test} onChange={(e) => setTest(e.target.value)} />
+      </label>
+      <p className="hint">Optional. Applies to the next run.</p>
+      <button
+        disabled={saving}
+        onClick={async () => {
+          setSaving(true);
+          setFeedback('');
+          try {
+            await api.updateNode(detail.node.id, { successCriteria: goal, verificationHint: test });
+            setFeedback('Saved');
+          } catch (e) {
+            setFeedback(describeError(e));
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        {saving ? 'Saving…' : 'Save goal and checks'}
+      </button>
+      <p role="status">{feedback}</p>
     </section>
   );
 }

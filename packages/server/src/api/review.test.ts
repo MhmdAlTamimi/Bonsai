@@ -1,3 +1,4 @@
+import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createChildNode, createProject } from '../projects.js';
+import { createProject } from '../projects.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { branchNameFor } from '../git/repo.js';
 import { git } from '../git/exec.js';
@@ -60,6 +61,34 @@ describe('an experiment’s changes, for review', () => {
       { cost: 0, inputTokens: 0, outputTokens: 0, commitSha: outcome.commit },
     );
   }
+
+  test('full-file review includes unchanged lines, dirty content and deleted content without following paths', async () => {
+    const { masterNodeId } = await createProject(store, {
+      name: 'file-review',
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    await run(masterNodeId, { 'code.txt': 'first\nunchanged\nlast\n' });
+    const row = store.getNode(masterNodeId)!;
+    await writeFile(join(row.worktree_path, 'code.txt'), 'updated\nunchanged\nlast\n');
+    assert.equal(
+      (await reviewPatchOf(store, row, 'code.txt', true)).content,
+      'updated\nunchanged\nlast\n',
+    );
+    await assert.rejects(reviewPatchOf(store, row, '../outside', true), /did not change/);
+    const child = await createChildNode(store, {
+      projectId: row.project_id,
+      parentId: row.id,
+      displayName: 'deletion',
+      description: '',
+    });
+    const childRow = store.getNode(child.nodeId)!;
+    await unlink(join(childRow.worktree_path, 'code.txt'));
+    const deleted = await reviewPatchOf(store, childRow, 'code.txt', true);
+    assert.equal(deleted.content, 'first\nunchanged\nlast\n');
+    assert.equal(deleted.contentRevision, 'before-deletion');
+  });
 
   test('committed and uncommitted work are one list, each file with its letter', async () => {
     const { projectId, masterNodeId } = await createProject(store, {

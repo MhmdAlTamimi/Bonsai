@@ -28,6 +28,7 @@ export interface NodeRow {
   base_commit: string | null;
   head_commit: string | null;
   worktree_path: string;
+  worktree_allocated: number;
   status: NodeStatus;
   model: string | null;
   permission_mode: PermissionMode | null;

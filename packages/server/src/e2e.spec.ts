@@ -1,7 +1,8 @@
+import { git } from './git/exec.js';
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -125,7 +126,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         true,
       );
       await session.eval(
-        "Array.from(document.querySelectorAll('button')).find(b => b.textContent === 'Change folder…').click()",
+        "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Choose folder…').click()",
       );
       await session.waitFor(
         "!!document.querySelector('.picker input') && !document.querySelector('.picker > button').disabled",
@@ -687,6 +688,27 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.eval("document.activeElement === document.querySelector('.tree-filter input')"),
       true,
     );
+
+    // Whole-file reading and wrapping use the same review, with a persisted preference.
+    await session.eval(
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.getAttribute('aria-label')==='File').click()",
+    );
+    await session.waitFor(
+      "!!document.querySelector('.diff-line') && !document.querySelector('.hunk')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.getAttribute('aria-label')==='Wrap lines').click()",
+    );
+    await session.waitFor("document.querySelector('.review').classList.contains('wrap-lines')");
+    assert.equal(
+      ((await (await fetch(`${BASE}/api/settings`)).json()) as { wrapLines: boolean }).wrapLines,
+      true,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'phases-1-file-review.png'));
+    await session.eval(
+      "Array.from(document.querySelectorAll('.review-bar button')).find(b=>b.getAttribute('aria-label')==='Diff').click()",
+    );
+    await session.waitFor("!!document.querySelector('.hunk')");
 
     // Two files side by side, the focused one marked, then back to one.
     await session.eval("document.querySelectorAll('.view-toggle button')[1].click()");
@@ -1726,6 +1748,118 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.ok(priorImpact.removesDirectories.includes(join(dataDir, 'repos', created.projectId)));
     assert.ok(!priorImpact.removesDirectories.some((path) => path.startsWith(storageRoot)));
   });
+  test('the folder picker offers every existing project before another project in the same repository', async () => {
+    const folder = join(dataDir, 'shared-reopening');
+    await mkdir(folder);
+    await git(['init', '--initial-branch=main'], folder);
+    await writeFile(join(folder, 'README.md'), 'original');
+    await git(['add', '-A'], folder);
+    await git(['commit', '-m', 'base'], folder);
+    const projects: Array<{ projectId: string; masterNodeId: string }> = [];
+    for (const name of ['Shared one', 'Shared two']) {
+      const response = await fetch(`${BASE}/api/projects/adopt`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ path: folder, name }),
+      });
+      assert.equal(response.status, 201);
+      projects.push((await response.json()) as { projectId: string; masterNodeId: string });
+    }
+    await session.goto(`${BASE}/?project=${projects[0]!.projectId}`);
+    await session.waitFor("!!document.querySelector('[aria-label=Project]')");
+    await session.click('[aria-label=Project]');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.project-menu button')).find(b=>b.textContent==='Use an existing folder…').click()",
+    );
+    await session.waitFor("!!document.querySelector('.picker input')");
+    await session.type('[aria-label="folder path"]', folder);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.picker button')).find(b=>b.textContent==='Go').click()",
+    );
+    await session.waitFor("!document.querySelector('.picker > button').disabled");
+    await session.click('.picker > button');
+    await session.waitFor("document.querySelectorAll('.existing-project-row').length === 2");
+    assert.equal(
+      await session.eval("!!document.querySelector('.new-project .row .primary')"),
+      false,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'phase-2-reopening.png'));
+    await session.eval(
+      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.textContent.trim()==='Create another project here').click()",
+    );
+    await session.waitFor("!document.querySelector('.new-project .row button').disabled");
+    await session.eval(
+      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.getAttribute('aria-label')==='Open project Shared one').click()",
+    );
+    await session.waitFor(
+      "!document.querySelector('.new-project') && document.querySelector('.project-picker-name')?.textContent==='Shared one'",
+    );
+  });
+
+  test('create-only is instant and subsequent runs refresh parent context while preserving pinned code', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'phase-three', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = (id: string) => `${BASE}/api/nodes/${id}`;
+    const run = async (id: string, prompt: string): Promise<void> => {
+      const response = await fetch(`${nodeUrl(id)}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      assert.equal(response.status, 202);
+      await session.waitFor(
+        `(async()=> (await (await fetch(${JSON.stringify(nodeUrl(id))})).json()).node.status === 'ready')()`,
+      );
+    };
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.add-child-handle')");
+    await session.click('.add-child-handle');
+    await session.type('[aria-label="experiment name"]', 'Later experiment');
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent.trim()==='Save for later' && !b.disabled)",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()==='Save for later').click()",
+    );
+    await session.waitFor(
+      "!document.querySelector('dialog') && document.querySelector('.panel h2')?.textContent==='Later experiment'",
+    );
+    const tree = (await (await fetch(`${BASE}/api/projects/${created.projectId}/tree`)).json()) as {
+      nodes: Array<{ id: string; displayName: string }>;
+    };
+    const child = tree.nodes.find((n) => n.displayName === 'Later experiment')!;
+    const before = (await (await fetch(nodeUrl(child.id))).json()) as { runs: unknown[] };
+    assert.equal(before.runs.length, 0);
+    assert.equal((await fetch(`${nodeUrl(child.id)}/reveal`, { method: 'POST' })).status, 409);
+    await run(created.masterNodeId, '? parent first context');
+    await run(child.id, 'child commits a result');
+    const first = (await (await fetch(nodeUrl(child.id))).json()) as {
+      runs: Array<{ resolvedContext: { codeCommit: string; parentMessageSeq: number } }>;
+    };
+    await run(created.masterNodeId, 'parent keeps working');
+    const parent = (await (await fetch(nodeUrl(created.masterNodeId))).json()) as {
+      node: { writable: boolean };
+    };
+    assert.equal(parent.node.writable, true);
+    await run(child.id, '? child follows up');
+    const latest = (await (await fetch(nodeUrl(child.id))).json()) as {
+      baseIsPinnedBehindLiveWalk: boolean;
+      runs: Array<{ resolvedContext: { parentMessageSeq: number } }>;
+    };
+    assert.ok(
+      latest.runs.at(-1)!.resolvedContext.parentMessageSeq >
+        first.runs[0]!.resolvedContext.parentMessageSeq,
+    );
+    assert.equal(latest.baseIsPinnedBehindLiveWalk, true);
+    await session.waitFor("document.querySelector('.panel')?.textContent.includes('Run context')");
+    await session.screenshot(join(repoRoot, 'test-results', 'phase-3-context.png'));
+  });
+
   test('visual workspace supports text sizing, keyboard branching, stable zoom and narrow views', async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {

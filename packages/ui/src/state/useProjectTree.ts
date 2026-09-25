@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { TreeResponse } from '@bonsai/shared';
+import type { ProjectView, TreeResponse } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
@@ -12,10 +12,7 @@ import { deletionMessage } from './deletionMessage.ts';
  */
 const REFETCH_DEBOUNCE_MS = 120;
 
-export interface ProjectSummary {
-  id: string;
-  name: string;
-}
+export type ProjectSummary = ProjectView;
 
 /**
  * The open project and its tree.

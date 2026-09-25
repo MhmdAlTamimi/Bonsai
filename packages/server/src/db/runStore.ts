@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { RunView } from '@bonsai/shared';
+import type { ResolvedRunContext, RunView } from '@bonsai/shared';
 
 import { now, parseStringArray, type RunEnd, type RunTotals } from './rows.js';
 
@@ -18,6 +18,12 @@ export class RunStore {
     this.db
       .prepare(`INSERT INTO run (id, node_id, status, started_at) VALUES (?, ?, 'running', ?)`)
       .run(runId, nodeId, now());
+  }
+
+  recordContext(runId: string, context: ResolvedRunContext): void {
+    this.db
+      .prepare('UPDATE run SET resolved_context = ? WHERE id = ?')
+      .run(JSON.stringify(context), runId);
   }
 
   finish(runId: string, end: RunEnd, totals: RunTotals): void {
@@ -77,6 +83,10 @@ export class RunStore {
       .all(nodeId) as unknown as Array<Record<string, unknown>>;
     return rows.map((r) => ({
       id: r['id'] as string,
+      resolvedContext:
+        r['resolved_context'] == null
+          ? null
+          : (JSON.parse(r['resolved_context'] as string) as ResolvedRunContext),
       nodeId: r['node_id'] as string,
       status: r['status'] as RunView['status'],
       endReason: (r['end_reason'] as RunView['endReason']) ?? null,

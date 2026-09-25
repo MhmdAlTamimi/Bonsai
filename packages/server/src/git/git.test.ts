@@ -1,3 +1,4 @@
+import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
@@ -8,7 +9,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createChildNode, createProject, deleteNodeTree } from '../projects.js';
+import { createProject, deleteNodeTree } from '../projects.js';
 import { commitMessageFor, commitRunOutput, currentBranch } from './commit.js';
 import { branchNameFor } from './repo.js';
 import { nodeDiff, runDiff, parentSnapshot } from './diff.js';

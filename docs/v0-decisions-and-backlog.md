@@ -194,3 +194,22 @@ for changes.
 - **Tree vs. DAG** — why merges break mindmap rendering (B11).
 - **Three-way merge and rebase semantics** — background for B1 and B3.
 - **Event sourcing** — the shape to reach for if immutability (D3) ever relaxes.
+
+
+## 2026-09-21 — Phases 1–3 decisions (supersede historical freeze/fork rules)
+
+- Multiple projects may share an original repository; the picker offers reopening first and
+  distinguishes repository/working-subdirectory identity. Project deletion owns only its own work.
+- Children no longer freeze parents. Code bases remain pinned at creation; no update-from-parent,
+  history rewrite, merge or Apply was added. Adopted original checkouts remain read-only.
+- Name-only creation saves metadata without allocating a checkout, copying files, running setup or
+  invoking the agent. First execution allocates the pinned checkout inside the existing job failure
+  boundary. Established missing/drifted work is never silently recreated.
+- Every execution records its starting committed code revision, goals and parent conversation watermark.
+  Parent conversation is automatically materialized as a fixed file outside the checkout, with a hash
+  recorded on the run. The agent reads it on demand; child sessions resume their own history. This
+  owner-approved approach replaces first-run-only SDK forks and avoids automatically injecting an
+  ever-growing parent transcript. Old sessions retain existing history; current snapshots supersede
+  previously inherited parent context. This is not a security sandbox or a context compactor.
+- Review's full-file reads and saved wrapping require minimal server support; the owner approved this
+  departure from Phase 1's original UI-only constraint after the existing API was inspected.

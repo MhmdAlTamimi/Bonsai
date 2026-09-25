@@ -97,6 +97,7 @@ describe('schema migrations', () => {
     // A v13 database: every column but the ones version 14 adds.
     const db = new DatabaseSync(':memory:');
     db.exec(`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE node (id TEXT PRIMARY KEY);
       CREATE TABLE run (id TEXT PRIMARY KEY, status TEXT NOT NULL, error TEXT);`);
     db.prepare(`INSERT INTO meta VALUES ('schema_version', '13')`).run();
     const insert = db.prepare(`INSERT INTO run (id, status, error) VALUES (?, ?, ?)`);

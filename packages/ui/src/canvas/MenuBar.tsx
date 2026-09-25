@@ -27,7 +27,7 @@ export function MenuBar({
   onDeleteProject,
 }: {
   project: ProjectView | null;
-  projects: Array<{ id: string; name: string }>;
+  projects: ProjectView[];
   settings: SettingsView | null;
   onError: (message: string) => void;
   onOpenProject: (id: string) => void;
@@ -48,7 +48,7 @@ export function MenuBar({
     '[aria-haspopup]',
   );
 
-  const recent = projects.filter((p) => p.id !== project?.id).slice(0, 6);
+  const recent = projects.filter((p) => p.id !== project?.id);
 
   return (
     <div className="menubar" ref={barRef}>
@@ -79,6 +79,10 @@ export function MenuBar({
           onClick={() => setOpen(open === 'project' ? null : 'project')}
         >
           <span className="project-picker-name">{project?.name ?? 'Choose project'}</span>
+          <small className="project-location">
+            {project?.sourcePath ?? ''}
+            {project?.workDir ? ` · ${project.workDir}` : ''}
+          </small>
           <Icon name="chevronDown" />
         </button>
         {open === 'project' && (
@@ -186,7 +190,7 @@ export function MenuBar({
             </button>
 
             <div className="menu-sep" />
-            <div className="menu-label">Recent</div>
+            <div className="menu-label">All projects</div>
             {recent.length === 0 ? (
               <div className="menu-empty">No other projects</div>
             ) : (
@@ -199,7 +203,11 @@ export function MenuBar({
                     onOpenProject(p.id);
                   }}
                 >
-                  {p.name}
+                  <strong>{p.name}</strong>
+                  <small>{p.sourcePath ?? 'Managed repository'}</small>
+                  <small>
+                    {p.workDir || 'Repository root'} · {p.id.slice(0, 8)}
+                  </small>
                 </button>
               ))
             )}

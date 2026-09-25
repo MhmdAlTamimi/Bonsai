@@ -151,6 +151,14 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     },
   },
+  {
+    version: 15,
+    name: 'lazy checkouts and per-run resolved context',
+    up: (db) => {
+      addColumn(db, 'node', 'worktree_allocated', 'INTEGER NOT NULL DEFAULT 1');
+      addColumn(db, 'run', 'resolved_context', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

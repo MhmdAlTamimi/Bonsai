@@ -1,6 +1,7 @@
+import { existsSync } from 'node:fs';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -21,10 +22,12 @@ import type { AgentRunner, RunEvent, RunSpec } from '../agent/AgentRunner.js';
  */
 class RecordingRunner implements AgentRunner {
   readonly specs: RunSpec[] = [];
+  onRun: ((spec: RunSpec) => void) | null = null;
   constructor(private readonly writes = true) {}
 
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     this.specs.push({ ...spec });
+    this.onRun?.(spec);
     // A fork gets a new session id; a resume keeps the one it was handed.
     const sessionId =
       spec.resumeSessionId !== null && !spec.forkSession
@@ -101,140 +104,130 @@ describe('session inheritance (D16)', () => {
     assert.equal(store.getNode(masterNodeId)!.session_id, 'session-1');
   });
 
-  test("a child's first run FORKS its parent's session", async () => {
+  test('creation is metadata-only, first run allocates the pinned code, and parent remains writable', async () => {
     const { projectId, masterNodeId } = await project();
-    await run(masterNodeId, 'scaffold');
+    await run(masterNodeId, 'base');
+    const child = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'later',
+      description: '',
+    });
+    const node = store.getNode(child.nodeId)!;
+    assert.equal(existsSync(node.worktree_path), false);
+    assert.equal(store.listRuns(node.id).length, 0);
+    await run(masterNodeId, 'parent advances');
+    assert.equal(store.baseDiverges(store.getNode(node.id)!), true);
+    await run(node.id, 'child changes');
+    assert.equal(existsSync(node.worktree_path), true);
+    assert.equal(store.getNode(node.id)!.base_commit, node.base_commit);
+    assert.equal(store.treeView(projectId).find((n) => n.id === masterNodeId)?.writable, true);
+    const before = store.getNode(masterNodeId)!.head_commit;
+    await run(masterNodeId, 'parent continues after child commit');
+    assert.notEqual(store.getNode(masterNodeId)!.head_commit, before);
+  });
+
+  test('each run refreshes parent context without losing child history or altering old snapshots', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, '? first parent turn');
     const { nodeId } = await createChildNode(store, {
       projectId,
       parentId: masterNodeId,
-      displayName: 'a',
-      description: 'd',
+      displayName: 'child',
+      description: '',
     });
-    await run(nodeId, 'do the thing');
-
-    const spec = runner.specs[1]!;
-    assert.equal(spec.resumeSessionId, 'session-1', "must resume the PARENT's session");
-    assert.equal(spec.forkSession, true);
-    // The parent is untouched, and the child now owns a session of its own.
-    assert.equal(store.getNode(masterNodeId)!.session_id, 'session-1');
-    assert.equal(store.getNode(nodeId)!.session_id, 'session-2');
+    await run(nodeId, '? first child turn');
+    const first = store.listRuns(nodeId).at(-1)!.resolvedContext!;
+    const firstText = await readFile(first.snapshotPath!, 'utf8');
+    assert.match(firstText, /first parent turn/);
+    const session = store.getNode(nodeId)!.session_id;
+    await run(masterNodeId, '? latest parent turn');
+    await run(nodeId, '? second child turn');
+    const latest = store.listRuns(nodeId).at(-1)!.resolvedContext!;
+    assert.ok(latest.parentMessageSeq > first.parentMessageSeq);
+    assert.match(await readFile(latest.snapshotPath!, 'utf8'), /latest parent turn/);
+    assert.equal(await readFile(first.snapshotPath!, 'utf8'), firstText);
+    assert.equal(runner.specs.at(-1)!.resumeSessionId, session);
+    assert.equal(runner.specs.at(-1)!.forkSession, false);
+    assert.equal(runner.specs.at(-1)!.parentContextPath, latest.snapshotPath);
   });
 
-  test('siblings fork the same parent and cannot see each other (D1)', async () => {
+  test('parent turns and edited goals after execution begins cannot change its resolved context', async () => {
     const { projectId, masterNodeId } = await project();
-    await run(masterNodeId, 'scaffold');
-    const a = await createChildNode(store, {
+    const child = await createChildNode(store, {
       projectId,
       parentId: masterNodeId,
-      displayName: 'a',
-      description: 'd',
+      displayName: 'fixed',
+      description: '',
+      successCriteria: 'original goal',
     });
-    const b = await createChildNode(store, {
-      projectId,
-      parentId: masterNodeId,
-      displayName: 'b',
-      description: 'd',
-    });
-    await run(a.nodeId, 'approach a');
-    await run(b.nodeId, 'approach b');
-
-    assert.equal(runner.specs[1]!.resumeSessionId, 'session-1');
-    assert.equal(runner.specs[2]!.resumeSessionId, 'session-1');
-    assert.notEqual(store.getNode(a.nodeId)!.session_id, store.getNode(b.nodeId)!.session_id);
-  });
-
-  /**
-   * THE M3 CHECKPOINT, at the level this layer owns: a child of a
-   * conversation-only node inherits that node's session even though its git
-   * base skips straight past it.
-   */
-  test('CHECKPOINT: context lineage follows the parent, git lineage skips it', async () => {
-    const { projectId, masterNodeId } = await project();
-    await run(masterNodeId, 'scaffold');
-    const masterCommit = store.getNode(masterNodeId)!.head_commit;
-
-    const a = await createChildNode(store, {
-      projectId,
-      parentId: masterNodeId,
-      displayName: 'argparse',
-      description: 'd',
-    });
-    await run(a.nodeId, 'build it');
-    const aCommit = store.getNode(a.nodeId)!.head_commit;
-    assert.notEqual(aCommit, masterCommit);
-
-    // A question: runs, writes nothing, so it never gets a commit.
-    const e = await createChildNode(store, {
-      projectId,
-      parentId: a.nodeId,
-      displayName: 'why',
-      description: 'd',
-    });
-    jobs.start(e.nodeId, '? explain');
-    await settle(jobs, e.nodeId);
-    // Read the id back rather than predicting a counter: what matters is that
-    // the question owns a session and that its child inherits THAT one.
-    const questionSession = store.getNode(e.nodeId)!.session_id;
-    assert.notEqual(questionSession, null);
-    assert.equal(
-      store.getNode(e.nodeId)!.head_commit,
-      null,
-      'precondition: the question must have written nothing, so it has no commit',
+    runner.onRun = (spec) => {
+      if (spec.nodeId !== child.nodeId) return;
+      store.appendMessage({
+        nodeId: masterNodeId,
+        runId: null,
+        role: 'user',
+        kind: 'text',
+        content: 'parent changed after execution began',
+      });
+      store.updateNode(child.nodeId, { successCriteria: 'next goal' });
+    };
+    await run(child.nodeId, '? begin');
+    const context = store.listRuns(child.nodeId).at(-1)!.resolvedContext!;
+    assert.equal(context.successCriteria, 'original goal');
+    assert.doesNotMatch(
+      await readFile(context.snapshotPath!, 'utf8'),
+      /parent changed after execution began/,
     );
-
-    const f = await createChildNode(store, {
-      projectId,
-      parentId: e.nodeId,
-      displayName: 'child of the question',
-      description: 'd',
-    });
-    await run(f.nodeId, 'act on it');
-
-    // CONTEXT: forked from the question's session, not its grandparent's.
-    const spec = runner.specs.at(-1)!;
-    assert.equal(spec.resumeSessionId, questionSession, "must inherit the question's conversation");
-    assert.equal(spec.forkSession, true);
-
-    // CODE: pinned to argparse's commit, skipping the question entirely.
-    assert.equal(store.getNode(f.nodeId)!.base_commit, aCommit);
-
-    // A3: and we recorded how much of the parent's conversation it took.
-    assert.notEqual(store.getNode(f.nodeId)!.forked_from_message_seq, null);
+    runner.onRun = null;
+    await run(child.nodeId, '? next');
+    const next = store.listRuns(child.nodeId).at(-1)!.resolvedContext!;
+    assert.equal(next.successCriteria, 'next goal');
+    assert.match(
+      await readFile(next.snapshotPath!, 'utf8'),
+      /parent changed after execution began/,
+    );
   });
 
-  test('a frozen node still runs, but read-only (D4 + D18)', async () => {
+  test('a question parent supplies conversation while code remains pinned to its ancestor', async () => {
     const { projectId, masterNodeId } = await project();
-    await run(masterNodeId, 'scaffold');
-    const a = await createChildNode(store, {
+    await run(masterNodeId, 'code');
+    const question = await createChildNode(store, {
       projectId,
       parentId: masterNodeId,
-      displayName: 'a',
-      description: 'd',
+      displayName: 'question',
+      description: '',
     });
-    await run(a.nodeId, 'commit something');
-    assert.notEqual(store.getNode(a.nodeId)!.head_commit, null, 'setup: the child must commit');
-
-    // master is frozen now. It must still be able to answer a question.
-    await run(masterNodeId, 'what did we decide?');
-    const spec = runner.specs.at(-1)!;
-    assert.equal(spec.readOnly, true, 'frozen means read-only, not refused');
-    assert.equal(store.getNode(masterNodeId)!.status, 'ready');
+    await run(question.nodeId, '? why this code');
+    const child = await createChildNode(store, {
+      projectId,
+      parentId: question.nodeId,
+      displayName: 'answer',
+      description: '',
+    });
+    await run(child.nodeId, '? use the answer');
+    const context = store.listRuns(child.nodeId).at(-1)!.resolvedContext!;
+    assert.equal(context.parentNodeId, question.nodeId);
+    assert.equal(context.codeCommit, store.getNode(masterNodeId)!.head_commit);
+    assert.match(await readFile(context.snapshotPath!, 'utf8'), /why this code/);
   });
 
-  test('a read-only run cannot create a commit', async () => {
+  test('allocation failure retains the experiment and releases the execution slot', async () => {
     const { projectId, masterNodeId } = await project();
-    await run(masterNodeId, 'scaffold');
-    const before = store.getNode(masterNodeId)!.head_commit;
-    const a = await createChildNode(store, {
+    const { nodeId } = await createChildNode(store, {
       projectId,
       parentId: masterNodeId,
-      displayName: 'a',
-      description: 'd',
+      displayName: 'blocked',
+      description: '',
     });
-    await run(a.nodeId, 'commit something');
-
-    await run(masterNodeId, 'just asking');
-    assert.equal(store.getNode(masterNodeId)!.head_commit, before, 'frozen node must not advance');
+    const node = store.getNode(nodeId)!;
+    await mkdir(node.worktree_path, { recursive: true });
+    await writeFile(join(node.worktree_path, 'keep'), 'external work');
+    await run(nodeId, 'try');
+    assert.equal(store.listRuns(nodeId).at(-1)?.status, 'failed');
+    assert.equal(jobs.activeCount(), 0);
+    assert.equal(await readFile(join(node.worktree_path, 'keep'), 'utf8'), 'external work');
+    assert.ok(store.getNode(nodeId));
   });
 });
 
