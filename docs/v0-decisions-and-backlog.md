@@ -246,3 +246,20 @@ for changes.
 - Deliberately not built yet: a comparison running the same procedure in every experiment.
   The agreed shape for later is plan (agent) → approve (user) → run identically in temporary
   copies (Bonsai, no model) → interpret (agent), with fairness rules enforced by the harness.
+
+## 2026-09-27 — The conversation groups what the agent did (supersedes D47's bounded blocks)
+
+- Owner-supplied design ("Conversation panel · grouped tool activity"). Between two pieces of
+  agent prose, every tool call folds into one dimmed summary line built from the steps --
+  "Read chunk_writer.py, ran a command", with +added −removed when files changed and a red
+  "N failed" when a command failed. It opens into one quiet container, a row per step; a step
+  opens in place to its path and changed lines, or to `$ command` (with copy) and its output.
+  The READ / RUN / EDIT kind chips, always-open headers and per-block exit tally are gone.
+- A command's row uses the plain-language purpose the agent gave it (the Bash tool's
+  `description`, now recorded with the call); older calls fall back to the command itself.
+- Everything starts folded; what was opened is remembered for the session. A running stretch
+  says what it is doing in the present tense ("Running pytest -q…") and stays folded.
+- Body overflow follows the design's default: the first eight lines, then the 24px
+  "N more lines" row. For command output this shows the start first (D47 showed the end); the
+  summary's "failed" marker and the brighter last line carry how the command ended.
+

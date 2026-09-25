@@ -968,7 +968,14 @@ export type ServerEvent =
       runId: string;
       seq: number;
       text: string;
-      tool?: { name: string; detail: string; id?: string };
+      tool?: {
+        name: string;
+        detail: string;
+        id?: string;
+        parentToolUseId?: string;
+        /** What the agent said the call is for, when it said. */
+        description?: string;
+      };
       /** What a tool produced, when this delta is a result rather than a call. */
       toolResult?: ToolResultContent;
     }

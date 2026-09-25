@@ -1452,63 +1452,128 @@ body.resizing .panel-resizer {
 /* ---- tool blocks --------------------------------------------------------- */
 
 /*
- * ONE BOUNDED BLOCK FOR MACHINE OUTPUT.
+ * WHAT THE AGENT DID, DIMMED.
  *
- * READ, RUN and EDIT share one shell: a 30px header that says the kind, the
- * thing, what it came to, and a copy button — then at most eight body lines.
- * Never a scroller of its own (the panel has one scroll), never wrapped, and
- * never taller than the shell allows; the rest is one disclosure away.
+ * Between two things the agent said, every tool call folds into one summary
+ * line in the dim prose colour, file names lifted -- "Read chunk_writer.py,
+ * ran a command ›". It opens into one quiet container, a row per step,
+ * separated by the only rule inside it; a step opens in place to its path and
+ * lines, or to `$ command` and its output. Prose stays bright, so the thread
+ * reads as what the agent said. See panel/chat/Activity.tsx.
  */
-.tool-block {
+.work { display: flex; flex-direction: column; gap: var(--s2); }
+/* Close under the prose it belongs to; the next thing said keeps its distance. */
+.msg.agent > .work + :not(.work) { margin-top: 5px; }
+/* Text flow rather than flex, so a wrapping line keeps its counts and caret
+   after its last word instead of dropping them onto a line of their own. */
+.work-summary,
+.work-step-head {
+  display: block;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  font-size: var(--t-code);
+  line-height: 1.55;
+  color: var(--muted-2);
+  user-select: none;
+}
+.work-summary {
+  align-self: flex-start;
+  padding: 2px 0;
+  border-radius: var(--r-5);
+}
+.work-summary:hover:not(:disabled),
+.work-step-head:hover:not(:disabled) {
+  background: none;
+  color: #c3cad4;
+}
+.work-lift { color: var(--ink-2); font-weight: 500; }
+.work-summary > * + *,
+.work-step-head > * + * { margin-left: 6px; }
+.work-sub { margin-right: 6px; }
+.work-sub + * { margin-left: 0; }
+.work-counts { font: var(--t-meta) / 1.55 var(--mono); font-variant-numeric: tabular-nums; }
+.work-counts .added { color: var(--ok); }
+.work-counts .removed { color: var(--err); }
+/* A failure is the only thing in a folded stretch that shouts. */
+.work-failed { font: var(--t-meta) / 1.55 var(--mono); color: var(--err); }
+.work-running { font: var(--t-meta) / 1.55 var(--mono); color: var(--running); }
+.work-caret { white-space: nowrap; color: var(--muted-3); }
+.work.live .work-summary { color: var(--text-dim); }
+.work-group {
+  display: flex;
+  flex-direction: column;
   border-radius: var(--r-10);
   background: var(--tool-block);
   overflow: hidden;
 }
-.tool-head {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  height: var(--h-control);
-  padding: 0 6px 0 11px;
-  background: var(--surface-2);
+.work-step + .work-step { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.work-step-head { width: 100%; padding: var(--s2) var(--s3); }
+.work-step-head:hover:not(:disabled) { background: var(--surface-2); }
+.work-sub {
+  font: var(--t-nano) / 1.55 var(--mono);
+  color: var(--accent-text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.work-body { display: flex; flex-direction: column; gap: var(--s2); padding: 0 var(--s3) var(--s3); }
+.work-path { font: var(--t-micro) / 1.5 var(--mono); color: var(--muted-2); word-break: break-all; }
+.work-code { border-radius: var(--r-8); background: var(--void); overflow: hidden; }
+.work-lines { padding: 6px 0; }
+.work-line { display: flex; align-items: flex-start; min-height: var(--h-tool-line); }
+.work-sign,
+.work-num,
+.work-text { font: var(--t-micro) / var(--h-tool-line) var(--mono); }
+.work-sign { flex: none; width: 14px; padding-left: 6px; text-align: center; color: var(--muted-3); }
+.work-num {
+  flex: none;
+  width: 26px;
+  padding-right: 10px;
+  text-align: right;
+  color: var(--muted-3);
   font-variant-numeric: tabular-nums;
 }
-/* The kind is a chip on its own state tint — one accent, and green/amber/red
-   only ever mean a state. */
-.tool-kind {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  height: 17px;
-  padding: 0 6px;
-  border-radius: var(--r-5);
-  font: 600 var(--t-nano) / 1.45 var(--mono);
-  letter-spacing: 0.04em;
-  background: rgba(109, 93, 246, 0.16);
-  color: var(--accent-text);
-}
-.kind-run .tool-kind {
-  background: rgba(227, 160, 8, 0.16);
-  color: var(--running);
-}
-.kind-edit .tool-kind {
-  background: rgba(63, 185, 80, 0.16);
-  color: var(--ok);
-}
-.tool-subject {
+.work-text {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font: var(--t-meta) / 1.45 var(--mono);
+  padding-right: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
   color: var(--text-dim);
 }
-/* A path is identified by its END, so what gets cut is the front of it. */
-.tool-subject.path {
-  direction: rtl;
-  text-align: left;
+.work-line.dl-add { background: rgba(63, 185, 80, 0.1); }
+.work-line.dl-del { background: rgba(240, 86, 58, 0.1); }
+.work-line.dl-add .work-sign { color: var(--ok); }
+.work-line.dl-del .work-sign { color: var(--err); }
+.work-line.dl-add .work-num { color: #6fbf7c; }
+.work-line.dl-del .work-num { color: #e8917f; }
+.work-line.dl-add .work-text { color: var(--diff-text); }
+.work-line.dl-del .work-text { color: var(--diff-text-del); }
+.work-command {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding: var(--s2) 6px var(--s2) 10px;
+  border-radius: var(--r-8);
+  background: var(--surface-3);
 }
+.work-prompt,
+.work-command-text { font: var(--t-meta) / 1.6 var(--mono); }
+.work-prompt { flex: none; color: var(--muted-3); }
+.work-command-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; color: var(--ink-2); }
+.work-output { display: flex; flex-direction: column; padding: var(--s2) 10px; }
+.work-out {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: var(--t-micro) / 1.65 var(--mono);
+  color: var(--text-dim);
+}
+.work-out.last { color: var(--ink-2); }
+.work-out.fail { color: #f08a78; }
+.work-out.dim { color: var(--muted-3); }
+.work-code .disclosure-row { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.work-omitted { margin: 0; padding: 0 11px 7px; font: var(--t-micro) / 1.45 var(--mono); color: var(--dim); }
 .tool-tally {
   flex: none;
   font: var(--t-nano) / 1.45 var(--mono);
@@ -1540,78 +1605,6 @@ body.resizing .panel-resizer {
 .tool-copy.failed {
   background: rgba(240, 86, 58, 0.18);
   color: var(--err);
-}
-.tool-body {
-  padding: 6px 0 7px;
-}
-.tool-line {
-  display: flex;
-  align-items: center;
-  height: var(--h-tool-line);
-  padding: 0 11px;
-}
-.tool-line.dl-add,
-.tool-line.dl-del {
-  padding: 0;
-}
-.tool-gutter {
-  flex: none;
-  width: 12px;
-  font: var(--t-micro) / 1.45 var(--mono);
-  color: var(--dim-2);
-}
-.tool-num {
-  flex: none;
-  width: 32px;
-  padding-right: var(--s2);
-  text-align: right;
-  font: var(--t-micro) / 1.45 var(--mono);
-  color: var(--dim-2);
-  font-variant-numeric: tabular-nums;
-}
-.tool-sign {
-  flex: none;
-  width: 12px;
-  text-align: center;
-  font: var(--t-micro) / 1.45 var(--mono);
-  color: var(--dim-2);
-}
-.tool-text {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: pre;
-  padding-right: 11px;
-  font: var(--t-micro) / 1.45 var(--mono);
-  color: var(--muted-2);
-}
-.tool-line.dl-add {
-  background: var(--diff-add-inline);
-}
-.tool-line.dl-del {
-  background: var(--diff-del-inline);
-}
-.tool-line.dl-add .tool-sign {
-  color: var(--ok);
-}
-.tool-line.dl-del .tool-sign {
-  color: var(--err);
-}
-.tool-line.dl-add .tool-text {
-  color: var(--diff-text);
-}
-.tool-line.dl-del .tool-text {
-  color: var(--diff-text-del);
-}
-.tool-text.muted {
-  color: var(--dim);
-}
-.tool-omitted {
-  margin: 0;
-  padding: 0 11px 7px;
-  font: var(--t-micro) / 1.45 var(--mono);
-  color: var(--dim);
 }
 
 /*
@@ -2631,9 +2624,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .project-menu .menu-panel button small, .matching-projects button small { display: block; color: inherit; font-size: .75rem; overflow-wrap: anywhere; }
 .matching-projects { display: grid; gap: 8px; }
 
-.kind-run .tool-subject { white-space: pre; overflow: auto; text-overflow: clip; max-height: 8rem; }
-.tool-body { max-height: 24rem; overflow: auto; }
-.tool-text { flex-shrink: 0; }
 .review.wrap-lines .diff-line { height: auto; min-height: var(--h-tool-line); align-items: flex-start; }
 .review.wrap-lines .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
 .review-bar { flex-wrap: wrap; height: auto; min-height: 48px; }
@@ -2642,7 +2632,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .run-context { margin: 12px 0; font-size: .8rem; color: var(--muted); }
 .run-context dd { margin: 4px 0 12px; overflow-wrap: anywhere; }
 .checks label { display: grid; gap: 8px; margin-bottom: 12px; }
-.kind-run .tool-head { height: auto; min-height: var(--h-control); padding-top: 6px; padding-bottom: 6px; }
 
 /* Related review actions share one compact, keyboard-accessible control family. */
 .review-tools { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }

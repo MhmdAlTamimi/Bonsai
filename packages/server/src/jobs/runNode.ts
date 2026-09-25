@@ -970,6 +970,7 @@ export class RunJobs {
                 : { parentToolUseId: event.parentToolUseId }),
               detail: event.detail,
               ...(event.id === undefined ? {} : { id: event.id }),
+              ...(event.description === undefined ? {} : { description: event.description }),
             };
             this.store.appendMessage({
               nodeId,

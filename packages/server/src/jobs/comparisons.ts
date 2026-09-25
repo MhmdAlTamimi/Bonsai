@@ -211,6 +211,7 @@ export class ComparisonJobs {
                 name: event.name,
                 detail: event.detail,
                 ...(event.id === undefined ? {} : { id: event.id }),
+                ...(event.description === undefined ? {} : { description: event.description }),
                 ...(event.parentToolUseId === undefined
                   ? {}
                   : { parentToolUseId: event.parentToolUseId }),

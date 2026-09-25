@@ -10,7 +10,7 @@ import type {
 } from '@bonsai/shared';
 
 import { Markdown } from './Markdown.tsx';
-import { ToolBlock } from './ToolBlock.tsx';
+import { ActivityGroup } from './Activity.tsx';
 import { Disclosure } from './Disclosure.tsx';
 import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
@@ -180,21 +180,26 @@ function Turn({
               )}
             </div>
           )}
-          {parts.map((part, i) =>
-            part.kind === 'block' ? (
-              <ToolBlock
-                key={i}
-                name={part.name}
-                detail={part.detail}
-                subject={attachmentRead(part.name, part.detail, sent)}
-                parentToolUseId={part.parentToolUseId}
-                result={part.result}
-                live={running && part.result === undefined}
+          {stretches(parts).map((item) =>
+            item.kind === 'activity' ? (
+              <ActivityGroup
+                key={item.at}
+                // The run and where the stretch starts in it: stable as the run grows.
+                id={`${group.runId ?? 'setup'}:${item.at}`}
+                steps={item.blocks.map((block) => ({
+                  name: block.name,
+                  detail: block.detail,
+                  description: block.description,
+                  parentToolUseId: block.parentToolUseId,
+                  result: block.result,
+                  live: running && block.result === undefined,
+                  subject: attachmentRead(block.name, block.detail, sent),
+                }))}
               />
-            ) : part.kind === 'you' ? (
-              <YouSaid key={i} message={part.message} inline />
+            ) : item.part.kind === 'you' ? (
+              <YouSaid key={item.at} message={item.part.message} inline />
             ) : (
-              <Said key={i} message={part.message} />
+              <Said key={item.at} message={item.part.message} />
             ),
           )}
           {running && (
@@ -241,16 +246,37 @@ function splitPrompt(messages: readonly MessageView[]): {
   return { prompt: messages[index], rest: messages.filter((_, i) => i !== index) };
 }
 
-type Part =
-  | { kind: 'said'; message: MessageView }
-  | { kind: 'you'; message: MessageView }
-  | {
-      kind: 'block';
-      name: string;
-      detail: string;
-      parentToolUseId: string | undefined;
-      result: ToolResultContent | undefined;
-    };
+type Part = { kind: 'said'; message: MessageView } | { kind: 'you'; message: MessageView } | Block;
+
+interface Block {
+  kind: 'block';
+  name: string;
+  detail: string;
+  description: string | undefined;
+  parentToolUseId: string | undefined;
+  result: ToolResultContent | undefined;
+}
+
+/**
+ * The parts, with each unbroken stretch of tool calls gathered into one. Two
+ * things the agent said with work between them are two pieces of prose and one
+ * line of activity; `at` is where each item starts, which keys it.
+ */
+function stretches(
+  parts: readonly Part[],
+): Array<
+  | { kind: 'activity'; at: number; blocks: Block[] }
+  | { kind: 'part'; at: number; part: Exclude<Part, Block> }
+> {
+  const items: ReturnType<typeof stretches> = [];
+  parts.forEach((part, at) => {
+    const last = items.at(-1);
+    if (part.kind !== 'block') items.push({ kind: 'part', at, part });
+    else if (last?.kind === 'activity') last.blocks.push(part);
+    else items.push({ kind: 'activity', at, blocks: [part] });
+  });
+  return items;
+}
 
 /** Pairs each call with what it produced, and folds the quiet ones together. */
 function compose(messages: readonly MessageView[]): Part[] {
@@ -270,11 +296,13 @@ function compose(messages: readonly MessageView[]): Part[] {
         detail?: string;
         id?: string;
         parentToolUseId?: string;
+        description?: string;
       };
       parts.push({
         kind: 'block',
         name: call.name ?? 'tool',
         detail: call.detail ?? '',
+        description: call.description,
         parentToolUseId: call.parentToolUseId,
         result: call.id === undefined ? undefined : results.get(call.id),
       });

@@ -144,7 +144,15 @@ export type PermissionDecision = { allow: true } | { allow: false; reason: strin
 
 export type RunEvent =
   | { type: 'text'; text: string }
-  | { type: 'tool'; name: string; detail: string; id?: string; parentToolUseId?: string }
+  | {
+      type: 'tool';
+      name: string;
+      detail: string;
+      id?: string;
+      parentToolUseId?: string;
+      /** What the agent said the call is for ("Run the tests"), when it said. */
+      description?: string;
+    }
   /** What a tool produced: a command's output, or an edit's changed lines. */
   | { type: 'tool_result'; result: ToolResultContent }
   | { type: 'session'; sessionId: string }

@@ -355,11 +355,13 @@ function assistantEvents(message: AssistantMessage, calledTools: Map<string, str
       });
     } else if (block.type === 'tool_use') {
       calledTools.set(block.id, block.name);
+      const description = purposeOf(block.input);
       events.push({
         type: 'tool',
         name: block.name,
         detail: describeToolInput(block.input),
         id: block.id,
+        ...(description === null ? {} : { description }),
         ...(!main && message.parent_tool_use_id
           ? { parentToolUseId: message.parent_tool_use_id }
           : {}),
@@ -367,6 +369,18 @@ function assistantEvents(message: AssistantMessage, calledTools: Map<string, str
     }
   }
   return events;
+}
+
+/**
+ * The plain-language purpose the agent gives a command ("Run the new tests"),
+ * which says what a step was for better than the command does.
+ */
+function purposeOf(input: unknown): string | null {
+  if (input === null || typeof input !== 'object') return null;
+  const description = (input as Record<string, unknown>)['description'];
+  if (typeof description !== 'string' || description.trim() === '') return null;
+  const text = description.trim().replace(/\s+/g, ' ');
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
 }
 
 function toolResultIds(message: UserMessage): string[] {

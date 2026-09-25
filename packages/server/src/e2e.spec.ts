@@ -494,85 +494,112 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
 
     /*
-     * What the agent did is in the conversation: an EDIT block with the file
-     * it wrote and the lines it added. The whole diff is not repeated here.
+     * What the agent did folds into one dimmed line per stretch of tool calls,
+     * between the things it said -- nothing open until asked. The third run
+     * read, searched and ran a command, said something, then wrote a file.
      */
-    await session.waitFor("!!document.querySelector('.tool-block')");
-    assert.equal(
-      await session.eval("document.querySelector('.tool-block .tool-kind').textContent"),
-      'EDIT',
-    );
-    assert.equal(
-      await session.eval(
-        "Array.from(document.querySelectorAll('.tool-block')).some(b => b.textContent.includes('third-change') && b.querySelector('.dl-add'))",
-      ),
-      true,
-    );
-
-    /*
-     * Three kinds of block, one shell. A READ is its header alone; a RUN shows
-     * the END of its output, eight lines of it, with the rest one disclosure
-     * away; an EDIT shows the lines that moved. Every one of them can be
-     * copied, and none of them scrolls.
-     */
-    const kinds = (await session.eval(
-      "JSON.stringify(Array.from(document.querySelectorAll('.tool-block .tool-kind')).map(k => k.textContent))",
+    await session.waitFor("!!document.querySelector('.work-summary')");
+    const summaries = (await session.eval(
+      "JSON.stringify(Array.from(document.querySelectorAll('.work-summary')).map(s => s.textContent))",
     )) as string;
-    for (const kind of ['READ', 'RUN', 'EDIT']) assert.match(kinds, new RegExp(kind));
+    assert.match(summaries, /Read run_experiment\.py, ran a command, searched the code›/);
+    // The file and its notes: two files, named by count, with their total.
+    assert.match(summaries, /Created 2 files\+\d+ −0›/);
     assert.equal(
-      await session.eval("!!document.querySelector('.kind-read .tool-body')"),
+      await session.eval("document.querySelectorAll('.work-group').length"),
+      0,
+      'everything starts folded',
+    );
+    assert.equal(
+      await session.eval("!!document.querySelector('.tool-kind, .tool-block')"),
       false,
-      'a read has no output worth a body',
+      'no kind chips or always-open blocks any more',
+    );
+
+    // A summary opens to a row per step; a command is described by its purpose.
+    const stretch =
+      "Array.from(document.querySelectorAll('.work')).find(w => w.querySelector('.work-summary').textContent.includes('run_experiment.py'))";
+    await session.eval(`${stretch}.scrollIntoView({ block: 'center' })`);
+    await session.eval(`${stretch}.querySelector('.work-summary').click()`);
+    await session.waitFor(`${stretch}.querySelectorAll('.work-step').length === 3`);
+    assert.deepEqual(
+      JSON.parse(
+        (await session.eval(
+          `JSON.stringify(Array.from(${stretch}.querySelectorAll('.work-step-head')).map(h => h.textContent.replace('›', '')))`,
+        )) as string,
+      ),
+      [
+        'Read run_experiment.py',
+        'Searched for sheet_header',
+        'Extract every document in the bucket',
+      ],
+    );
+
+    // A step opens in place: $ command, then the output, eight lines of it first.
+    await session.eval(`${stretch}.querySelectorAll('.work-step-head')[2].click()`);
+    await session.waitFor(`!!${stretch}.querySelector('.work-command')`);
+    assert.equal(
+      await session.eval(`${stretch}.querySelector('.work-command-text').textContent`),
+      'python run_experiment.py --bucket kb-raw',
+    );
+    assert.equal(await session.eval(`${stretch}.querySelectorAll('.work-out').length`), 8);
+    assert.equal(
+      await session.eval(`${stretch}.querySelector('.work-out').textContent`),
+      'processed document 1',
     );
     assert.equal(
-      await session.eval("document.querySelectorAll('.kind-run .tool-line').length"),
-      8,
-      'eight lines, then the disclosure',
+      await session.eval(`${stretch}.querySelector('.work-out.last')`),
+      null,
+      'the last line is not shown yet',
     );
+    await session.eval(`${stretch}.querySelector('.work-code .disclosure-row').click()`);
+    await session.waitFor(`${stretch}.querySelectorAll('.work-out').length === 20`);
     assert.equal(
-      await session.eval("document.querySelector('.kind-run .tool-line .tool-text').textContent"),
-      'processed document 13',
-      'the END of the output: how a command finished is what was asked',
+      await session.eval(`${stretch}.querySelector('.work-out.last').textContent`),
+      'processed document 20',
     );
     assert.equal(
       await session.eval(
-        "Array.from(document.querySelectorAll('.tool-block')).every(b => b.scrollHeight <= b.clientHeight + 1)",
+        "Array.from(document.querySelectorAll('.work-code')).every(b => b.scrollHeight <= b.clientHeight + 1)",
       ),
       true,
-      'no block scrolls on its own',
+      'nothing scrolls on its own',
     );
-    await session.eval("document.querySelector('.kind-run').scrollIntoView({ block: 'center' })");
-    await session.click('.kind-run .disclosure-row');
-    await session.waitFor("document.querySelectorAll('.kind-run .tool-line').length === 20");
-    assert.match(
-      String(await session.eval("document.querySelector('.kind-run .disclosure-row').textContent")),
-      /Hide 12 lines/,
-    );
-    await session.eval(
-      "document.querySelector('.kind-run .disclosure-row').scrollIntoView({ block: 'center' })",
-    );
-    await session.click('.kind-run .disclosure-row');
-    await session.waitFor("document.querySelectorAll('.kind-run .tool-line').length === 8");
 
-    // Copy is always there, and says so when the clipboard refuses.
+    // Copy yields the command, and says so when the clipboard refuses.
     await session.eval(
       "window.__copied = null; Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: async (t) => { window.__copied = t; }}})",
     );
-    await session.eval("document.querySelector('.kind-run').scrollIntoView({ block: 'center' })");
-    await session.click('.kind-run .tool-copy');
+    await session.eval(
+      `${stretch}.querySelector('.work-command .tool-copy').scrollIntoView({ block: 'center' })`,
+    );
+    await session.eval(`${stretch}.querySelector('.work-command .tool-copy').click()`);
     await session.waitFor("window.__copied === 'python run_experiment.py --bucket kb-raw'", {
       label: 'the command to be copied — never its output',
     });
     await session.eval(
       "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
     );
-    await session.eval("document.querySelector('.kind-edit').scrollIntoView({ block: 'center' })");
-    await session.click('.kind-edit .tool-copy');
+    await session.eval(`${stretch}.querySelector('.work-command .tool-copy').click()`);
     await session.waitFor(
-      "document.querySelector('.kind-edit .tool-copy.failed')?.textContent.includes('Copy failed')",
+      `${stretch}.querySelector('.work-command .tool-copy.failed')?.textContent.includes('Copy failed')`,
       { label: 'a refused copy to say so' },
     );
     await session.eval('delete navigator.clipboard');
+
+    // A created file opens to its path and the lines it added.
+    const written = `${stretch}.nextElementSibling.nextElementSibling`;
+    await session.eval(`${written}.querySelector('.work-summary').click()`);
+    await session.waitFor(`!!${written}.querySelector('.work-step-head')`);
+    await session.eval(
+      `Array.from(${written}.querySelectorAll('.work-step-head')).find(h => h.textContent.includes('tools-third-change')).click()`,
+    );
+    await session.waitFor(
+      `${written}.querySelector('.work-path')?.textContent === 'notes/tools-third-change.md'`,
+    );
+    assert.ok(
+      Number(await session.eval(`${written}.querySelectorAll('.work-line.dl-add').length`)) > 0,
+    );
 
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-conversation.png'));
 
@@ -1997,7 +2024,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "document.querySelector('.sent-references .reference-chip')?.textContent === '@smoke-test'",
     );
     await session.waitFor(
-      "Array.from(document.querySelectorAll('.tool-subject')).some(s=>s.textContent==='@smoke-test')",
+      "Array.from(document.querySelectorAll('.work-summary')).some(s=>/read @smoke-test/i.test(s.textContent))",
     );
     assert.equal(
       await session.eval("document.querySelectorAll('.attached-references').length"),
@@ -2146,7 +2173,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "document.querySelector('.sent-references .kind-experiment')?.textContent === '@try-redis'",
     );
     await session.waitFor(
-      "Array.from(document.querySelectorAll('.tool-subject')).some(s => s.textContent === '@try-redis · conversation')",
+      "Array.from(document.querySelectorAll('.work-summary')).some(s => /read @try-redis · conversation/i.test(s.textContent))",
     );
     const recorded = (await (await fetch(`${BASE}/api/nodes/${lru}`)).json()) as {
       runs: Array<{ resolvedContext: { experiments?: Array<{ name: string }> } | null }>;
@@ -2358,6 +2385,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const focused = `document.activeElement?.getAttribute('aria-label') === 'Actions for Focus child'`;
     const openAndCancel = async (item: string): Promise<void> => {
       await session.waitFor(`!!document.querySelector(${JSON.stringify(button)})`);
+      // The map fits itself to the window shortly after it loads; a menu opened
+      // before that moves under the second click.
+      await session.waitFor(
+        `(async () => { const at = () => JSON.stringify(document.querySelector(${JSON.stringify(button)}).getBoundingClientRect()); const a = at(); await new Promise(r => setTimeout(r, 250)); return a === at(); })()`,
+      );
       await session.click(button);
       // A real click, which focuses the menu item -- and the item is gone once
       // the dialog opens, which is exactly the case the fallback exists for.

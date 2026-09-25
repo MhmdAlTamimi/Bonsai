@@ -242,6 +242,7 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter,
         name: 'Bash',
         detail: 'python run_experiment.py --bucket kb-raw',
         id: 'fake-run',
+        description: 'Extract every document in the bucket',
       };
       yield {
         type: 'tool_result',
