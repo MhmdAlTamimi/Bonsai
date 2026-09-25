@@ -1,5 +1,7 @@
 import type {
   AdoptProjectRequest,
+  ComparisonSummary,
+  ComparisonView,
   CompactRequest,
   CreateReferenceRequest,
   DraftReferenceRequest,
@@ -322,6 +324,43 @@ export const api = {
   runReference: (runId: string, referenceId: string) =>
     json<RunReferenceView & { content: string }>(`/api/runs/${runId}/references/${referenceId}`),
 
+  comparisons: (projectId: string) =>
+    json<ComparisonSummary[]>(`/api/projects/${projectId}/comparisons`),
+
+  /** Snapshots the experiments now; nothing is asked until a question is. */
+  createComparison: (projectId: string, nodeIds: readonly string[]) =>
+    json<ComparisonView>(`/api/projects/${projectId}/comparisons`, {
+      method: 'POST',
+      body: JSON.stringify({ nodeIds: [...nodeIds] }),
+    }),
+
+  comparison: (comparisonId: string, signal?: AbortSignal) =>
+    json<ComparisonView>(`/api/comparisons/${comparisonId}`, signal ? { signal } : undefined),
+
+  askComparison: (comparisonId: string, prompt: string) =>
+    json<{ turnId: string }>(`/api/comparisons/${comparisonId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    }),
+
+  stopComparison: (comparisonId: string) =>
+    json<{ ok: true }>(`/api/comparisons/${comparisonId}/stop`, { method: 'POST' }),
+
+  refreshComparison: (comparisonId: string) =>
+    json<{ updated: string[]; comparison: ComparisonView }>(
+      `/api/comparisons/${comparisonId}/refresh`,
+      { method: 'POST' },
+    ),
+
+  renameComparison: (comparisonId: string, title: string) =>
+    json<ComparisonView>(`/api/comparisons/${comparisonId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
+
+  deleteComparison: (comparisonId: string) =>
+    json<{ ok: true }>(`/api/comparisons/${comparisonId}`, { method: 'DELETE' }),
+
   deletionImpact: (nodeId: string) =>
     json<{ nodes: number; names: string[]; costUsd: number; commits: number }>(
       `/api/nodes/${nodeId}/deletion-impact`,
@@ -349,6 +388,7 @@ export function subscribe(
       'hello',
       'tree.updated',
       'references.updated',
+      'comparison.updated',
       'node.status',
       'run.started',
       'run.delta',

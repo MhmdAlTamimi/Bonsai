@@ -26,6 +26,8 @@ export function MenuBar({
   onOpenUsage,
   references,
   onOpenReferences,
+  comparisons,
+  onOpenComparisons,
   onDeleteProject,
 }: {
   project: ProjectView | null;
@@ -40,6 +42,9 @@ export function MenuBar({
   /** How many references the open project has, or null with no project open. */
   references: number | null;
   onOpenReferences: () => void;
+  /** How many comparisons the project has; the button appears once there is one. */
+  comparisons: number;
+  onOpenComparisons: () => void;
   onDeleteProject: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState<null | 'project'>(null);
@@ -247,6 +252,17 @@ export function MenuBar({
       <span className="menubar-spacer" />
       {/* References are the project's shared text, used from every experiment,
           so they sit on the bar rather than in any one experiment's panel. */}
+      {comparisons > 0 && (
+        <button
+          className="menu-title references-button comparisons-button"
+          title="Reopen a comparison"
+          onClick={onOpenComparisons}
+        >
+          <Icon name="compare" />
+          <span className="references-label">Comparisons</span>
+          <span className="references-count">{comparisons}</span>
+        </button>
+      )}
       {references !== null && (
         <button
           className="menu-title references-button"

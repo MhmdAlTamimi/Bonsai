@@ -34,7 +34,7 @@ import { useExperiments } from '../../state/experiments.ts';
  * between bursts, which is the readable part, lost its anchors.
  */
 export function Transcript({
-  nodeId,
+  onSave,
   messages,
   runs,
   pending,
@@ -42,8 +42,8 @@ export function Transcript({
   phase = 'working',
   onProjectSettings,
 }: {
-  /** The experiment this is, so a message saved as a reference records where it came from. */
-  nodeId: string;
+  /** Save a message as a reference; the caller knows where it came from. Omit to offer none. */
+  onSave?: (text: string) => void;
   messages: readonly MessageView[];
   runs: readonly RunView[];
   /** Live deltas the persisted transcript has not caught up with. */
@@ -70,7 +70,7 @@ export function Transcript({
         ) : (
           <Turn
             key={group.runId}
-            nodeId={nodeId}
+            onSave={onSave}
             group={group}
             run={runsById.get(group.runId)}
             number={numberOf.get(group.runId) ?? null}
@@ -117,14 +117,14 @@ function liveMessages(pending: readonly Delta[]): MessageView[] {
 }
 
 function Turn({
-  nodeId,
+  onSave,
   group,
   run,
   number,
   running,
   phase,
 }: {
-  nodeId: string;
+  onSave: ((text: string) => void) | undefined;
   group: Group;
   run: RunView | undefined;
   number: number | null;
@@ -141,8 +141,8 @@ function Turn({
     experiments: run?.resolvedContext?.experiments ?? [],
   };
   // A finished message can be saved as it stands; a live one is still changing.
-  const saveFrom = running ? null : nodeId;
-  const reply = saveFrom === null ? null : finalReply(parts);
+  const save = running ? undefined : onSave;
+  const reply = save === undefined ? null : finalReply(parts);
 
   return (
     <article className={`turn${running ? ' live' : ''}`}>
@@ -161,7 +161,7 @@ function Turn({
       {prompt !== undefined && (
         <YouSaid
           message={prompt}
-          saveFrom={saveFrom}
+          onSave={save}
           sent={group.runId === null ? undefined : { runId: group.runId, ...sent }}
         />
       )}
@@ -171,10 +171,10 @@ function Turn({
           {(agentSpoke || running) && (
             <div className="msg-head">
               <span className="msg-label">Agent:</span>
-              {reply !== null && saveFrom !== null && (
+              {reply !== null && save !== undefined && (
                 <SaveAsReference
                   text={reply}
-                  nodeId={saveFrom}
+                  onSave={save}
                   label="Save the final reply as a reference"
                 />
               )}
@@ -320,13 +320,12 @@ function SetupActivity({
 function YouSaid({
   message,
   inline = false,
-  saveFrom = null,
+  onSave,
   sent,
 }: {
   message: MessageView;
   inline?: boolean;
-  /** The experiment to record as the source when this is saved as a reference. */
-  saveFrom?: string | null;
+  onSave?: ((text: string) => void) | undefined;
   /** What the run this message started was given alongside it. */
   sent?: (Sent & { runId: string }) | undefined;
 }): JSX.Element {
@@ -335,8 +334,8 @@ function YouSaid({
     <div className={`msg you${inline ? ' inline' : ''}`}>
       <div className="msg-head">
         <span className="msg-label">You:</span>
-        {saveFrom !== null && (
-          <SaveAsReference text={text} nodeId={saveFrom} label="Save this message as a reference" />
+        {onSave !== undefined && (
+          <SaveAsReference text={text} onSave={onSave} label="Save this message as a reference" />
         )}
       </div>
       <Clamped text={text} />
@@ -354,20 +353,19 @@ function YouSaid({
  */
 function SaveAsReference({
   text,
-  nodeId,
+  onSave,
   label,
 }: {
   text: string;
-  nodeId: string;
+  onSave: (text: string) => void;
   label: string;
 }): JSX.Element {
-  const { open } = useReferences();
   return (
     <button
       className="save-reference"
       aria-label={label}
       title={label}
-      onClick={() => open({ kind: 'new', content: text, sourceNodeId: nodeId })}
+      onClick={() => onSave(text)}
     >
       <Icon name="reference" />
       <span>Save as reference</span>
@@ -464,6 +462,8 @@ function finalReply(parts: readonly Part[]): string | null {
   return text === '' ? null : text;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 /** What each file in an experiment's snapshot is, in a word. */
 const EXPERIMENT_FILE_WORDS: Record<string, string> = {
   'conversation.md': 'conversation',
@@ -473,11 +473,18 @@ const EXPERIMENT_FILE_WORDS: Record<string, string> = {
 
 /**
  * A Read of something the run was given, named as what it is rather than its
- * file path: `@smoke-test`, or `@try-redis · changes`.
+ * file path: `@smoke-test`, or `@try-redis · changes` -- and in a comparison,
+ * `try-redis/changes.diff` rather than the path to the comparison's folder.
  */
 function attachmentRead(name: string, detail: string, sent: Sent): string | undefined {
   if (name !== 'Read') return undefined;
   const parts = detail.split(/[\\/]/);
+  // A comparison's reads name the experiment folder and file, not the path to
+  // it: `…/compare/<comparison id>/try-redis/changes.diff`.
+  const compared = parts.findIndex(
+    (part, i) => part === 'compare' && UUID.test(parts[i + 1] ?? '') && i + 2 < parts.length,
+  );
+  if (compared !== -1) return parts.slice(compared + 2).join('/');
   const at = parts.lastIndexOf('run-context');
   if (at === -1) return undefined;
   const [, kind, item, file] = parts.slice(at + 1);

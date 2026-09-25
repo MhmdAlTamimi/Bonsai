@@ -19,6 +19,8 @@ import { useCallback, useEffect, useRef } from 'react';
 export interface Address {
   projectId: string | null;
   nodeId: string | null;
+  /** An open comparison, so a reload lands back on it. */
+  compareId: string | null;
 }
 
 export function readAddress(): Address {
@@ -26,6 +28,7 @@ export function readAddress(): Address {
   return {
     projectId: params.get('project'),
     nodeId: params.get('node'),
+    compareId: params.get('compare'),
   };
 }
 
@@ -47,6 +50,8 @@ export function useAddressBar(current: Address): { initial: Address; clear: () =
     else params.set('project', current.projectId);
     if (current.nodeId === null) params.delete('node');
     else params.set('node', current.nodeId);
+    if (current.compareId === null) params.delete('compare');
+    else params.set('compare', current.compareId);
 
     const query = params.toString();
     const next = `${window.location.pathname}${query === '' ? '' : `?${query}`}`;
@@ -56,7 +61,7 @@ export function useAddressBar(current: Address): { initial: Address; clear: () =
     if (next !== `${window.location.pathname}${window.location.search}`) {
       window.history.replaceState(null, '', next);
     }
-  }, [current.projectId, current.nodeId]);
+  }, [current.projectId, current.nodeId, current.compareId]);
 
   return {
     initial: initial.current,

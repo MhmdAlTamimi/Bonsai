@@ -38,6 +38,10 @@ import {
 import { ReferencesDialog } from './panel/references/ReferencesDialog.tsx';
 import { SnapshotDialog } from './panel/references/SnapshotDialog.tsx';
 import { ExperimentsContext, type Experiments } from './state/experiments.ts';
+import { COMPARE_MAX, useComparisons } from './state/compare.ts';
+import { CompareBar } from './canvas/CompareBar.tsx';
+import { ComparePage } from './compare/ComparePage.tsx';
+import { ComparisonsDialog } from './compare/ComparisonsDialog.tsx';
 
 /**
  * Composition, and as little else as possible.
@@ -88,7 +92,17 @@ export function App(): JSX.Element {
       String((settings?.textScale ?? 100) / 100),
     );
   }, [settings?.textScale]);
-  useAddressBar({ projectId, nodeId: selection.primary });
+  /**
+   * Comparing: picking experiments on the map, then the comparison itself.
+   * `picks` is null when not picking, which is what the map reads to decide
+   * whether a click selects or picks. The open comparison is in the URL.
+   */
+  const [picks, setPicks] = useState<string[] | null>(null);
+  const [pickBusy, setPickBusy] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
+  const [comparing, setComparing] = useState<string | null>(arrivedAt.compareId);
+  const [showComparisons, setShowComparisons] = useState(false);
+  useAddressBar({ projectId, nodeId: selection.primary, compareId: comparing });
   /**
    * ⌘\ (Ctrl+\) collapses the conversation and brings it back — the one
    * shortcut in the workspace, because the panel is the thing you hide to
@@ -105,6 +119,53 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [toggleConversation]);
   const live = useRunStream(projectId, projectTree.refresh);
+  const comparisonList = useComparisons(projectId, live.comparisonsRevision);
+  // Another project is another set of experiments: nothing picked carries over.
+  const shownProject = useRef(projectId);
+  useEffect(() => {
+    if (shownProject.current === projectId) return;
+    shownProject.current = projectId;
+    setPicks(null);
+    setComparing(null);
+  }, [projectId]);
+  /**
+   * A card clicked while picking, or ⌘/Ctrl/Shift-clicked at any time. Picking
+   * that way starts from the experiment already open, which is usually the
+   * one you want to compare against.
+   */
+  const pick = (id: string): void => {
+    setPickError(null);
+    setPicks((current) => {
+      const list =
+        current ??
+        (selection.primary !== null && selection.primary !== id ? [selection.primary] : []);
+      if (list.includes(id)) return list.filter((picked) => picked !== id);
+      return list.length >= COMPARE_MAX ? list : [...list, id];
+    });
+  };
+  const compare = (): void => {
+    if (projectId === null || picks === null) return;
+    setPickBusy(true);
+    setPickError(null);
+    api
+      .createComparison(projectId, picks)
+      .then((view) => {
+        setPicks(null);
+        setComparing(view.id);
+      })
+      .catch((e: unknown) => setPickError(describeError(e)))
+      .finally(() => setPickBusy(false));
+  };
+  // Escape stops picking, unless a dialog or menu has it.
+  useEffect(() => {
+    if (picks === null) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
+      setPicks(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [picks]);
   /**
    * Re-read the credential when a run reports a failure, and not otherwise.
    *
@@ -311,7 +372,7 @@ export function App(): JSX.Element {
     >
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
         <div
-          className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}`}
+          className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}${comparing !== null && tree !== null ? ' compare-mode' : ''}`}
         >
           {/*
            * Two controls, not one dressed as two.
@@ -372,6 +433,8 @@ export function App(): JSX.Element {
               onOpenUsage={() => setShowUsage(true)}
               references={tree === null ? null : referenceList.length}
               onOpenReferences={() => setReferenceTarget({ kind: 'library' })}
+              comparisons={comparisonList.length}
+              onOpenComparisons={() => setShowComparisons(true)}
               onDeleteProject={() =>
                 void projectTree.deleteCurrent().catch((e: unknown) => report(describeError(e)))
               }
@@ -421,7 +484,6 @@ export function App(): JSX.Element {
               nodes={tree?.nodes ?? []}
               selectedId={selection.primary}
               onSelect={selectExperiment}
-              onToggleSelect={selection.toggle}
               onMoved={(nodeId, position) => {
                 void api
                   .updateNode(nodeId, { positionX: position.x, positionY: position.y })
@@ -435,8 +497,51 @@ export function App(): JSX.Element {
               }}
               onBranch={child.begin}
               actions={cardActions}
+              picks={picks}
+              onPick={pick}
+              onPicking={(on) => {
+                setPickError(null);
+                setPicks(on ? [] : null);
+              }}
             />
+            {picks !== null && (
+              <CompareBar
+                picks={picks}
+                nodes={tree?.nodes ?? []}
+                busy={pickBusy}
+                error={pickError}
+                onCompare={compare}
+                onRemove={pick}
+                onCancel={() => setPicks(null)}
+              />
+            )}
           </div>
+
+          {comparing !== null && tree !== null && (
+            <ComparePage
+              key={comparing}
+              comparisonId={comparing}
+              projectId={tree.project.id}
+              revision={`${live.comparisonsRevision}:${live.revision}`}
+              onBack={() => setComparing(null)}
+              onOpenExperiment={(id) => {
+                setComparing(null);
+                selectExperiment(id);
+              }}
+              ask={confirm.ask}
+            />
+          )}
+          {showComparisons && tree !== null && (
+            <ComparisonsDialog
+              projectName={tree.project.name}
+              list={comparisonList}
+              onOpen={(id) => {
+                setShowComparisons(false);
+                setComparing(id);
+              }}
+              onClose={() => setShowComparisons(false)}
+            />
+          )}
 
           {showSettings && settings !== null && (
             <SettingsDialog

@@ -49,6 +49,10 @@ export function CanvasHints(): JSX.Element {
             <dd>It answered without changing anything.</dd>
             <dt>Highlighted path</dt>
             <dd>The conversation the selected experiment inherited.</dd>
+            <dt>⌘ / Shift-click</dt>
+            <dd>
+              Pick experiments to compare, as the <Icon name="compare" /> Compare tool does.
+            </dd>
             <dt>Padlock</dt>
             <dd>Read-only: either a child has committed, or it is your own folder.</dd>
           </dl>

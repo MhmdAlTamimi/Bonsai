@@ -16,7 +16,14 @@ export type ReferenceTarget =
   | { kind: 'library' }
   | { kind: 'edit'; id: string }
   /** A new one: blank, or seeded from a message, a node, or both. */
-  | { kind: 'new'; content?: string; sourceNodeId?: string | null; draft?: boolean }
+  | {
+      kind: 'new';
+      content?: string;
+      sourceNodeId?: string | null;
+      /** Drawn from a comparison instead: saved as its source, and what Fill reads. */
+      comparison?: { id: string; title: string };
+      draft?: boolean;
+    }
   /** Exactly what a run was given, which may be older than the reference now. */
   | { kind: 'snapshot'; runId: string; reference: RunReferenceView };
 

@@ -30,6 +30,8 @@ const paths = {
   home: 'M4 11 12 4l8 7M6 10v9h12v-9',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
   reference: 'M6 3h12v18l-6-4-6 4Z',
+  // Two columns side by side: experiments read against each other.
+  compare: 'M4 4h6v16H4ZM14 4h6v16h-6Z',
   // A branch: one experiment of the tree, wherever it is mentioned outside it.
   experiment:
     'M6 3v12M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a9 9 0 0 1-9 9',

@@ -2174,6 +2174,168 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.click('.composer-more');
   });
 
+  test('experiments are picked on the map and compared by an agent that only reads', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'compare', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const child = async (displayName: string): Promise<string> =>
+      (
+        (await (
+          await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ parentId: created.masterNodeId, displayName, description: '' }),
+          })
+        ).json()) as { node: { id: string } }
+      ).node.id;
+    const ready = (id: string): string =>
+      `(async()=> (await (await fetch(${JSON.stringify(`${BASE}/api/nodes/${id}`)})).json()).node.status === 'ready')()`;
+    const run = async (id: string, prompt: string): Promise<void> => {
+      await fetch(`${BASE}/api/nodes/${id}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      await session.waitFor(ready(id));
+    };
+    const redis = await child('try-redis');
+    const lru = await child('try-lru');
+    await run(redis, 'add a redis cache');
+    await run(lru, 'add an lru cache');
+    const button = (label: string): string =>
+      `Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === ${JSON.stringify(label)})`;
+
+    // Picking: the Compare tool, then the cards themselves.
+    await session.goto(`${BASE}/?project=${created.projectId}`);
+    await session.waitFor(`!!document.querySelector('[data-id="${lru}"] .card')`);
+    await session.eval(`${button('Compare')}.click()`);
+    await session.waitFor(
+      "document.querySelector('.compare-bar')?.textContent.includes('Click 2 to 4 experiments')",
+    );
+    await session.click(`[data-id="${redis}"] .card`);
+    await session.waitFor(
+      "document.querySelector('.compare-guidance')?.textContent === 'Pick 1 more.'",
+    );
+    await session.click(`[data-id="${lru}"] .card`);
+    await session.waitFor(
+      `document.querySelector('[data-id="${lru}"] .card.picked .pick-badge')?.textContent === '2'`,
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'compare-picking.png'));
+    await session.eval("document.querySelector('.compare-bar .primary').click()");
+
+    // The comparison: cards, the agent's opening, and questions.
+    await session.waitFor("document.querySelectorAll('.compare-card').length === 2");
+    assert.match(
+      String(await session.eval("document.querySelector('.compare-intro').textContent")),
+      /I have the context of try-redis and try-lru.*I only read/s,
+    );
+    assert.match(
+      String(await session.eval('window.location.search')),
+      /compare=/,
+      'a reload comes back to the comparison',
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'compare-page.png'));
+    await session.eval(`${button('Compare their results')}.click()`);
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.compare-thread .md, .compare-thread p')).some(p => p.textContent.includes('Stand-in comparison of try-lru and try-redis: Compare their results'))",
+    );
+    await session.waitFor("!document.querySelector('.compare-thread .working')");
+    await session.screenshot(join(repoRoot, 'test-results', 'compare-answer.png'));
+
+    // A reply saved as a reference records the comparison it came from.
+    await session.eval(
+      "document.querySelector('.compare-thread .msg.agent:not(.compare-intro) .save-reference').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('dialog textarea.reference-text')?.value.startsWith('Stand-in comparison')",
+    );
+    assert.match(
+      String(
+        await session.eval("document.querySelector('dialog .reference-field-head').textContent"),
+      ),
+      /from comparing try-redis vs try-lru/,
+    );
+    await session.type('dialog [aria-label="reference name"]', 'cache-verdict');
+    await session.eval(`${button('Save reference')}.click()`);
+    await session.waitFor("!document.querySelector('dialog')");
+    const saved = (await (
+      await fetch(`${BASE}/api/projects/${created.projectId}/references`)
+    ).json()) as Array<{ name: string; comparison: { title: string } | null }>;
+    assert.equal(
+      saved.find((r) => r.name === 'cache-verdict')?.comparison?.title,
+      'try-redis vs try-lru',
+    );
+
+    // The whole comparison, drafted in the editor from its conversation.
+    await session.click('.compare-save');
+    await session.waitFor(
+      "document.querySelector('dialog .reference-fill-source')?.textContent.includes('try-redis vs try-lru')",
+    );
+    await session.eval(`${button('Summarise the results')}.click()`);
+    await session.waitFor(
+      "document.querySelector('dialog textarea.reference-text')?.value.startsWith('Stand-in draft')",
+    );
+    await session.eval(`${button('Cancel')}.click()`);
+    await session.waitFor("!document.querySelector('dialog')");
+
+    // An experiment moves on: the comparison says so, and Update catches up.
+    await run(redis, 'add expiry');
+    await session.waitFor(
+      "document.querySelector('.compare-stale')?.textContent.includes('try-redis has 1 new run')",
+    );
+    await session.eval(`${button('Update comparison')}.click()`);
+    await session.waitFor("!document.querySelector('.compare-stale')");
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.compare-thread .msg.system')).some(m => m.textContent.includes('Updated to their latest work: try-redis'))",
+    );
+
+    // Back to the map, and back again from the project's list.
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await session.waitFor("!document.querySelector('.compare')");
+    await session.click('.comparisons-button');
+    await session.waitFor(
+      "document.querySelector('dialog .comparison-title')?.textContent === 'try-redis vs try-lru'",
+    );
+    await session.click('dialog .reference-row');
+    await session.waitFor("document.querySelectorAll('.compare-card').length === 2");
+    await session.click('.compare-head .back');
+    await session.waitFor("!document.querySelector('.compare')");
+
+    // Shift-click picks from the open experiment without the tool.
+    await session.click(`[data-id="${redis}"] .card`);
+    const point = (await session.eval(
+      `(() => { const r = document.querySelector('[data-id="${lru}"] .card').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 20 }; })()`,
+    )) as { x: number; y: number };
+    for (const type of ['mousePressed', 'mouseReleased'] as const) {
+      await session.send('Input.dispatchMouseEvent', {
+        type,
+        x: point.x,
+        y: point.y,
+        button: 'left',
+        buttons: type === 'mousePressed' ? 1 : 0,
+        clickCount: 1,
+        modifiers: 8,
+      });
+    }
+    await session.waitFor("document.querySelectorAll('.pick-chip').length === 2");
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+    });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
+    await session.waitFor("!document.querySelector('.compare-bar')");
+  });
+
   test("closing a dialog opened from a card's menu puts focus back on that menu button", async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {

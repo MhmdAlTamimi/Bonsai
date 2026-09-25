@@ -12,6 +12,7 @@ import { Composer } from './chat/Composer.tsx';
 import { Transcript } from './chat/Transcript.tsx';
 import { useReadingPosition } from './chat/useReadingPosition.ts';
 import { useChat } from './chat/useChat.ts';
+import { useReferences } from '../state/references.ts';
 import type { Delta } from './chat/liveMerge.ts';
 
 /** One selected experiment: fixed identity/actions, reading area, and composer. */
@@ -125,6 +126,7 @@ function NodePanel({
   };
   const [error, setError] = useState<string | null>(null);
   const actions = useNodeActions(changed, setError);
+  const references = useReferences();
   const chat = useChat(
     node,
     stream,
@@ -293,7 +295,9 @@ function NodePanel({
               )}
             {(chat.messages.length > 0 || chat.pending.length > 0) && (
               <Transcript
-                nodeId={node.id}
+                onSave={(text) =>
+                  references.open({ kind: 'new', content: text, sourceNodeId: node.id })
+                }
                 messages={chat.messages}
                 runs={runs}
                 pending={chat.pending}

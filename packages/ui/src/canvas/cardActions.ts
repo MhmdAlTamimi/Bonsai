@@ -34,3 +34,9 @@ export function cardMenuLabel(displayName: string): string {
 export function cardMenuButton(displayName: string): string {
   return `[aria-label="${CSS.escape(cardMenuLabel(displayName))}"]`;
 }
+
+/**
+ * Experiments picked for a comparison, by id, with their position -- which is
+ * their colour and number on the card. Empty when nothing is being picked.
+ */
+export const PickContext = createContext<ReadonlyMap<string, number>>(new Map());

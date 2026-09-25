@@ -130,7 +130,11 @@ function Library({
                 <span className="reference-name">@{reference.name}</span>
                 <span className="reference-meta">
                   {referenceSize(reference.size)}
-                  {reference.source !== null && ` · from ${reference.source.displayName}`} ·{' '}
+                  {reference.source !== null
+                    ? ` · from ${reference.source.displayName}`
+                    : reference.comparison !== null &&
+                      ` · from comparing ${reference.comparison.title}`}{' '}
+                  ·{' '}
                   <time title={exactTime(reference.updatedAt)}>
                     {relativeTime(reference.updatedAt)}
                   </time>
@@ -195,6 +199,8 @@ function Editor({
   const [sourceNodeId, setSourceNodeId] = useState<string | null>(
     reference?.source?.id ?? seed.sourceNodeId ?? null,
   );
+  // A comparison it is drawn from: fixed for this form, and what Fill reads.
+  const comparison = seed.comparison ?? reference?.comparison ?? null;
   const [filling, setFilling] = useState(seed.draft === true);
   const [drafting, setDrafting] = useState(false);
   const [filled, setFilled] = useState<{ basis: DraftBasis; from: string; undo: Undo } | null>(
@@ -213,7 +219,12 @@ function Editor({
     setError(null);
     try {
       if (reference === null) {
-        await api.createReference(projectId, { name: name.trim(), content, sourceNodeId });
+        await api.createReference(projectId, {
+          name: name.trim(),
+          content,
+          sourceNodeId,
+          sourceComparisonId: comparison?.id ?? null,
+        });
       } else {
         await api.updateReference(reference.id, {
           name: name.trim(),
@@ -275,8 +286,9 @@ function Editor({
           <span id={contentLabel}>Content</span>
           <span className="hint">
             {referenceSize(content.length)}
-            {sourceNodeId !== null &&
-              ` · from ${nodes.find((node) => node.id === sourceNodeId)?.displayName ?? 'an experiment'}`}
+            {sourceNodeId !== null
+              ? ` · from ${nodes.find((node) => node.id === sourceNodeId)?.displayName ?? 'an experiment'}`
+              : comparison !== null && ` · from comparing ${comparison.title}`}
           </span>
           {!filling && (
             <button className="linkish" disabled={locked} onClick={() => setFilling(true)}>
@@ -288,17 +300,21 @@ function Editor({
           <Fill
             nodes={nodes}
             initialNodeId={sourceNodeId}
+            comparison={comparison}
             current={content}
             disabled={busy}
             onDrafting={setDrafting}
             onFilled={(text, basis, nodeId) => {
               setFilled({
                 basis,
-                from: nodes.find((node) => node.id === nodeId)?.displayName ?? 'the experiment',
+                from:
+                  nodeId === null
+                    ? 'the comparison'
+                    : (nodes.find((node) => node.id === nodeId)?.displayName ?? 'the experiment'),
                 undo: { content, sourceNodeId },
               });
               setContent(text);
-              setSourceNodeId(nodeId);
+              if (nodeId !== null) setSourceNodeId(nodeId);
             }}
             onClose={() => setFilling(false)}
           />
@@ -392,6 +408,7 @@ const PRESETS = ['Summarise the results', 'Extract the test procedure', "List wh
 function Fill({
   nodes,
   initialNodeId,
+  comparison,
   current,
   disabled,
   onDrafting,
@@ -401,10 +418,13 @@ function Fill({
   nodes: readonly NodeView[];
   /** The experiment offered first. Choosing another changes the source only once it fills. */
   initialNodeId: string | null;
+  /** Draw from this comparison's conversation instead of an experiment's. */
+  comparison: { id: string; title: string } | null;
   current: string;
   disabled: boolean;
   onDrafting: (drafting: boolean) => void;
-  onFilled: (text: string, basis: DraftBasis, nodeId: string) => void;
+  /** The experiment it was drawn from, or null for the comparison. */
+  onFilled: (text: string, basis: DraftBasis, nodeId: string | null) => void;
   onClose: () => void;
 }): JSX.Element {
   const canRun = useCanRun();
@@ -420,7 +440,12 @@ function Fill({
   const chosen = sources.find((node) => node.id === nodeId) ?? null;
 
   const fill = async (request: string): Promise<void> => {
-    if (chosen === null || request.trim() === '' || controller.current !== null) return;
+    if (
+      (comparison === null && chosen === null) ||
+      request.trim() === '' ||
+      controller.current !== null
+    )
+      return;
     const call = new AbortController();
     controller.current = call;
     setRunning(true);
@@ -429,13 +454,13 @@ function Fill({
     try {
       const result = await api.draftReference(
         {
-          nodeId: chosen.id,
+          ...(comparison !== null ? { comparisonId: comparison.id } : { nodeId: chosen!.id }),
           instruction: request.trim(),
           ...(current.trim() === '' ? {} : { current }),
         },
         call.signal,
       );
-      onFilled(result.text, result.basis, chosen.id);
+      onFilled(result.text, result.basis, comparison !== null ? null : chosen!.id);
     } catch (e) {
       if (!call.signal.aborted) setError(describeError(e));
     } finally {
@@ -448,7 +473,7 @@ function Fill({
     setInstruction(request);
     void fill(request);
   };
-  const off = disabled || running || !canRun || chosen === null;
+  const off = disabled || running || !canRun || (comparison === null && chosen === null);
 
   return (
     <section className="reference-fill" aria-label="Fill from a conversation">
@@ -463,31 +488,39 @@ function Fill({
           <Icon name="close" />
         </button>
       </div>
-      {sources.length === 0 ? (
+      {comparison === null && sources.length === 0 ? (
         <p className="muted">No experiment has a conversation yet.</p>
       ) : (
         <>
-          <label>
-            Experiment
-            <select
-              value={chosen?.id ?? ''}
-              disabled={disabled || running}
-              aria-label="experiment to draw from"
-              onChange={(e) => setNodeId(e.target.value === '' ? null : e.target.value)}
-            >
-              {chosen === null && <option value="">Choose an experiment</option>}
-              {sources.map((node) => (
-                <option key={node.id} value={node.id}>
-                  {node.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
+          {comparison !== null ? (
+            <p className="reference-fill-source">
+              From the comparison <strong>{comparison.title}</strong>
+            </p>
+          ) : (
+            <label>
+              Experiment
+              <select
+                value={chosen?.id ?? ''}
+                disabled={disabled || running}
+                aria-label="experiment to draw from"
+                onChange={(e) => setNodeId(e.target.value === '' ? null : e.target.value)}
+              >
+                {chosen === null && <option value="">Choose an experiment</option>}
+                {sources.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {running ? (
             <div className="reference-drafting">
               <span role="status">
-                <span className="working-dot" aria-hidden="true" /> Reading {chosen?.displayName}
-                &rsquo;s conversation…
+                <span className="working-dot" aria-hidden="true" />
+                {comparison !== null
+                  ? 'Reading the comparison…'
+                  : `Reading ${chosen?.displayName ?? ''}’s conversation…`}
               </span>
               <button onClick={() => controller.current?.abort()}>Cancel</button>
             </div>

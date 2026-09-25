@@ -6,7 +6,8 @@ import { CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
 import { STATUS_LABEL, StatusChip, nodeStatusTitle } from '../nodeStatus.tsx';
 import { BranchContext } from './branchContext.ts';
-import { CardActionsContext, cardMenuLabel } from './cardActions.ts';
+import { CardActionsContext, PickContext, cardMenuLabel } from './cardActions.ts';
+import { compareTone } from '../state/compare.ts';
 import { useDismiss } from '../useDismiss.ts';
 import { useStopRun } from '../state/RunControls.tsx';
 import { canDrawFrom } from '../state/references.ts';
@@ -49,6 +50,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
   const lod = lodFor(zoom);
   const branch = useContext(BranchContext);
   const actions = useContext(CardActionsContext);
+  const pick = useContext(PickContext).get(data.id);
   const [menu, setMenu] = useState(false);
   const stopping = useStopRun(data);
   const card = useRef<HTMLDivElement>(null);
@@ -72,6 +74,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
     `code-${code}`,
     data.writable ? 'writable' : 'frozen',
     selected ? 'selected' : '',
+    pick === undefined ? '' : `picked ${compareTone(pick)}`,
     `lod-${lod}`,
   ]
     .filter(Boolean)
@@ -112,6 +115,11 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               title={nodeStatusTitle(data)}
             />
             <span className="card-name">{data.displayName}</span>
+            {pick !== undefined && (
+              <span className="pick-badge" aria-label={`Picked to compare, ${pick + 1}`}>
+                {pick + 1}
+              </span>
+            )}
             {!data.writable && (
               <span
                 className="glyph lock"

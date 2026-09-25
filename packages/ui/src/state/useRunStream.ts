@@ -42,6 +42,8 @@ export function useRunStream(
   agentRevision: number;
   /** Bumped when the project's references change, and when the stream reconnects. */
   referencesRevision: number;
+  /** Bumped when any of the project's comparisons change, and when the stream reconnects. */
+  comparisonsRevision: number;
 } {
   // Live run output, keyed by node. Cleared when a run starts so a second run
   // does not read as a continuation of the first.
@@ -59,6 +61,7 @@ export function useRunStream(
   const [revision, setRevision] = useState(0);
   const [agentRevision, setAgentRevision] = useState(0);
   const [referencesRevision, setReferencesRevision] = useState(0);
+  const [comparisonsRevision, setComparisonsRevision] = useState(0);
   const notify = useRef(onTreeChanged);
   notify.current = onTreeChanged;
 
@@ -145,6 +148,9 @@ export function useRunStream(
           case 'references.updated':
             setReferencesRevision((n) => n + 1);
             break;
+          case 'comparison.updated':
+            setComparisonsRevision((n) => n + 1);
+            break;
           default:
             break;
         }
@@ -161,11 +167,20 @@ export function useRunStream(
           // stream was down, so reconciling after one includes the credential.
           setAgentRevision((n) => n + 1);
           setReferencesRevision((n) => n + 1);
+          setComparisonsRevision((n) => n + 1);
           notify.current();
         }
       },
     );
   }, [projectId]);
 
-  return { streams, activity, health, revision, agentRevision, referencesRevision };
+  return {
+    streams,
+    activity,
+    health,
+    revision,
+    agentRevision,
+    referencesRevision,
+    comparisonsRevision,
+  };
 }
