@@ -82,10 +82,17 @@ export interface SettingsView {
  * Shared because both ends enforce it: the drag handler so the divider stops,
  * and the server so a bad stored value cannot come back on every launch. Two
  * copies of these numbers would eventually disagree.
+ *
+ * `max` is only a sanity bound on what is stored. On screen the panel stops at
+ * half the window (PANEL_SHARE), whatever the window's size, so the map always
+ * keeps at least as much room as the conversation.
  */
 export const TEXT_SCALES = [100, 115, 130] as const;
 
-export const PANEL_WIDTH = { min: 280, max: 900, default: 380 } as const;
+export const PANEL_WIDTH = { min: 280, max: 2400, default: 380 } as const;
+
+/** The most of the window the panel may take, however large the window is. */
+export const PANEL_SHARE = 0.5;
 
 /**
  * How wide the conversation is beside a diff: three quarters of its width on

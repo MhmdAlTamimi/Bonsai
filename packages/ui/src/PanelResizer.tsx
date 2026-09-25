@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useEffect, useRef } from 'react';
-import { PANEL_WIDTH } from '@bonsai/shared';
+import { PANEL_SHARE, PANEL_WIDTH } from '@bonsai/shared';
 
 /**
  * The divider between the canvas and the side panel.
@@ -36,11 +36,7 @@ export function PanelResizer({
 
   const apply = useCallback(
     (px: number) => {
-      const clamped = Math.min(
-        max,
-        Math.max(min, window.innerWidth - 441),
-        Math.max(min, Math.round(px)),
-      );
+      const clamped = Math.min(largest(min, max), Math.max(min, Math.round(px)));
       latest.current = clamped;
       document.documentElement.style.setProperty('--panel-width', `${clamped}px`);
     },
@@ -86,7 +82,7 @@ export function PanelResizer({
       aria-label="Resize the side panel"
       aria-valuenow={latest.current}
       aria-valuemin={min}
-      aria-valuemax={max}
+      aria-valuemax={largest(min, max)}
       tabIndex={0}
       onMouseDown={(e) => {
         e.preventDefault();
@@ -111,4 +107,13 @@ export function PanelResizer({
       title="Drag to resize · double-click to reset"
     />
   );
+}
+
+/**
+ * The widest the panel may be right now: half the window, never below the
+ * minimum. A saved width wider than that is kept, and comes back when the
+ * window is large enough again.
+ */
+function largest(min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.floor(window.innerWidth * PANEL_SHARE)));
 }

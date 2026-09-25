@@ -626,7 +626,8 @@ button[aria-busy='true']:disabled {
 
 .app {
   display: grid;
-  grid-template-columns: minmax(440px, 1fr) var(--seam) min(var(--panel-width), calc(100vw - 441px));
+  /* The panel stops at half the window (PANEL_SHARE in the contract). */
+  grid-template-columns: minmax(0, 1fr) var(--seam) min(var(--panel-width), 50vw);
   height: 100dvh;
   overflow: hidden;
 }
@@ -1550,7 +1551,7 @@ body.resizing .panel-resizer {
   border-radius: var(--r-md);
   padding: var(--s2) var(--s3);
   overflow-x: auto;
-  font: var(--fs-code)/1.55 var(--mono);
+  font: var(--t-code) / 1.55 var(--mono);
   color: var(--text-dim);
 }
 .md-code code {
@@ -2243,9 +2244,9 @@ button.destructive:hover:not(:disabled) {
    the model, a Usage button -- said the same thing on every screen, so it is
    gone or moved into the project's own menu. */
 .project-menu { min-width: 0; flex: 0 1 auto; }
-.project-picker { display: inline-flex; align-items: center; gap: 6px; height: var(--h-ghost); padding: 0 8px; border: 0; border-radius: var(--r-7); background: transparent; color: var(--text); font-size: var(--t-body); }
+.project-picker { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: var(--h-ghost); padding: 0 8px; border: 0; border-radius: var(--r-7); background: transparent; color: var(--text); font-size: var(--t-body); }
 .project-picker:hover { background: var(--control-hover); }
-.project-picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-picker-name { flex: 0 1 auto; min-width: 3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @container (max-width: 520px) { .brand > span:last-child { display: none; } }
 .transport-notice, .tree-notice { position: absolute; z-index: 7; top: 64px; left: 16px; right: 16px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
 .transport-notice + .tree-notice { top: 110px; }
@@ -2327,7 +2328,8 @@ dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px
 /* Milestone 6: clear reading hierarchy and narrow-window composition. */
 button, input, select, textarea { border-color: var(--control-line); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; box-shadow: none; }
-.md { font-size: var(--fs-lg); line-height: 1.7; }
+/* Replies take the size of the message they sit in, the same as your own words. */
+.md { line-height: 1.7; }
 /* The panel has ONE scroll, the thread. The foot is the single exception, and
    only in the exceptional states -- a question with many options, a recovery
    notice -- because the composer must never leave the window. */
@@ -2657,8 +2659,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .bonsai-edge.live { stroke: var(--edge-live); stroke-dasharray: none; }
 
 /* Project identity stays visible; the picker has no arbitrary recent-project cutoff. */
-.project-location { display: block; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .75rem; }
-.project-picker { flex-wrap: wrap; }
+/* One line whatever the bar's width: the path gives way first, then the name. */
+.project-location { flex: 0 100 auto; min-width: 0; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .75rem; }
 .project-menu .menu-panel { max-height: 75dvh; overflow-y: auto; width: min(460px, 90vw); }
 .project-menu .menu-panel button small, .matching-projects button small { display: block; color: inherit; font-size: .75rem; overflow-wrap: anywhere; }
 .matching-projects { display: grid; gap: 8px; }
