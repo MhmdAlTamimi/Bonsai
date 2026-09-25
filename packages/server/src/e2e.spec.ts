@@ -1976,7 +1976,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.click('.composer textarea');
     await session.type('.composer textarea', 'check this @smo');
     await session.waitFor(
-      "document.querySelector('.mention-option .mention-name')?.textContent === '@smoke-test'",
+      "document.querySelector('.mention-option .mention-name')?.textContent === 'smoke-test'",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'references-mention.png'));
     await session.click('.mention-option');
@@ -2087,6 +2087,91 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     assert.equal(await session.eval("document.querySelector('.composer textarea').value"), '');
     assert.equal(await session.eval("!!document.querySelector('.mention-menu')"), false);
+  });
+
+  test('another experiment is mentioned with @ and looked up, never pasted', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'mentions', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const child = async (displayName: string): Promise<string> =>
+      (
+        (await (
+          await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ parentId: created.masterNodeId, displayName, description: '' }),
+          })
+        ).json()) as { node: { id: string } }
+      ).node.id;
+    const redis = await child('try-redis');
+    const lru = await child('try-lru');
+    const ready = (id: string): string =>
+      `(async()=> (await (await fetch(${JSON.stringify(`${BASE}/api/nodes/${id}`)})).json()).node.status === 'ready')()`;
+    const ask = (id: string, prompt: string) =>
+      fetch(`${BASE}/api/nodes/${id}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+    await ask(redis, 'add a redis cache');
+    await session.waitFor(ready(redis));
+
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${lru}`);
+    await session.click('.composer textarea');
+    await session.type('.composer textarea', '? do better than @try');
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.mention-menu [role=group]')).some(g => g.getAttribute('aria-label') === 'Experiments' && g.textContent.includes('try-redis'))",
+    );
+    // Never itself: an experiment already has its own conversation and code.
+    assert.equal(
+      await session.eval(
+        "Array.from(document.querySelectorAll('.mention-option')).some(o => o.textContent.includes('try-lru'))",
+      ),
+      false,
+    );
+    await session.click('.mention-option');
+    await session.waitFor(
+      "document.querySelector('.attached-references .kind-experiment .reference-chip-name')?.textContent === '@try-redis'",
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'mention-experiment.png'));
+    await session.type('.composer textarea', '? do better than it');
+    await session.click('.composer-row button.primary');
+    await session.waitFor(ready(lru));
+
+    await session.waitFor(
+      "document.querySelector('.sent-references .kind-experiment')?.textContent === '@try-redis'",
+    );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.tool-subject')).some(s => s.textContent === '@try-redis · conversation')",
+    );
+    const recorded = (await (await fetch(`${BASE}/api/nodes/${lru}`)).json()) as {
+      runs: Array<{ resolvedContext: { experiments?: Array<{ name: string }> } | null }>;
+    };
+    assert.equal(recorded.runs.at(-1)!.resolvedContext?.experiments?.[0]?.name, 'try-redis');
+
+    // try-redis moves on; this run still read the copy it was given.
+    await ask(redis, '? anything else');
+    await session.waitFor(ready(redis));
+    await session.waitFor(
+      "document.querySelector('.sent-references .kind-experiment')?.textContent.includes('changed since')",
+    );
+    await session.click('.sent-references .kind-experiment');
+    await session.waitFor("document.querySelector('.panel h2')?.textContent === 'try-redis'");
+
+    // The next-run menu opens above the composer, whole rather than clipped.
+    await session.click('.composer-more');
+    await session.waitFor("!!document.querySelector('.menu-panel.next-run')");
+    assert.equal(
+      await session.eval(
+        "(() => { const m = document.querySelector('.menu-panel.next-run'); const r = m.getBoundingClientRect(); return m.contains(document.elementFromPoint(r.left + r.width / 2, r.top + 8)); })()",
+      ),
+      true,
+    );
+    await session.click('.composer-more');
   });
 
   test("closing a dialog opened from a card's menu puts focus back on that menu button", async () => {

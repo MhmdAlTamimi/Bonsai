@@ -30,6 +30,9 @@ const paths = {
   home: 'M4 11 12 4l8 7M6 10v9h12v-9',
   more: 'M6 12h.01M12 12h.01M18 12h.01',
   reference: 'M6 3h12v18l-6-4-6 4Z',
+  // A branch: one experiment of the tree, wherever it is mentioned outside it.
+  experiment:
+    'M6 3v12M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a9 9 0 0 1-9 9',
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({ name }: { name: IconName }): JSX.Element {

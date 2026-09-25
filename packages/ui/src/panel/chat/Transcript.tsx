@@ -3,6 +3,7 @@ import type {
   CompactionNote,
   MessageView,
   RunActivity,
+  RunExperimentView,
   RunReferenceView,
   RunView,
   ToolResultContent,
@@ -15,6 +16,7 @@ import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
 import { Icon } from '../../Icon.tsx';
 import { useReferences } from '../../state/references.ts';
+import { useExperiments } from '../../state/experiments.ts';
 
 /**
  * The conversation, as runs.
@@ -134,7 +136,10 @@ function Turn({
   // Notes from Bonsai (a compaction, a skipped command) are not the agent speaking.
   const agentSpoke = parts.some((part) => part.kind !== 'said' || part.message.role !== 'system');
   const when = prompt?.createdAt ?? run?.startedAt ?? null;
-  const sent = run?.resolvedContext?.references ?? [];
+  const sent: Sent = {
+    references: run?.resolvedContext?.references ?? [],
+    experiments: run?.resolvedContext?.experiments ?? [],
+  };
   // A finished message can be saved as it stands; a live one is still changing.
   const saveFrom = running ? null : nodeId;
   const reply = saveFrom === null ? null : finalReply(parts);
@@ -157,7 +162,7 @@ function Turn({
         <YouSaid
           message={prompt}
           saveFrom={saveFrom}
-          sent={group.runId === null ? undefined : { runId: group.runId, references: sent }}
+          sent={group.runId === null ? undefined : { runId: group.runId, ...sent }}
         />
       )}
 
@@ -181,7 +186,7 @@ function Turn({
                 key={i}
                 name={part.name}
                 detail={part.detail}
-                subject={referenceRead(part.name, part.detail, sent)}
+                subject={attachmentRead(part.name, part.detail, sent)}
                 parentToolUseId={part.parentToolUseId}
                 result={part.result}
                 live={running && part.result === undefined}
@@ -323,7 +328,7 @@ function YouSaid({
   /** The experiment to record as the source when this is saved as a reference. */
   saveFrom?: string | null;
   /** What the run this message started was given alongside it. */
-  sent?: { runId: string; references: readonly RunReferenceView[] } | undefined;
+  sent?: (Sent & { runId: string }) | undefined;
 }): JSX.Element {
   const text = asText(message.content);
   return (
@@ -335,8 +340,8 @@ function YouSaid({
         )}
       </div>
       <Clamped text={text} />
-      {sent !== undefined && sent.references.length > 0 && (
-        <SentReferences runId={sent.runId} references={sent.references} />
+      {sent !== undefined && sent.references.length + sent.experiments.length > 0 && (
+        <SentWith {...sent} />
       )}
     </div>
   );
@@ -370,41 +375,68 @@ function SaveAsReference({
   );
 }
 
-/**
- * The references a message went with, as that run received them. A chip says
- * when the reference has changed or gone since, and opens the exact copy.
- */
-function SentReferences({
-  runId,
-  references,
-}: {
-  runId: string;
+/** What a run received alongside its message, as recorded when it started. */
+interface Sent {
   references: readonly RunReferenceView[];
-}): JSX.Element {
-  const { byId, open } = useReferences();
-  return (
-    <ul className="sent-references" aria-label="References sent with this message">
-      {references.map((reference) => {
-        const now = byId.get(reference.id);
-        const state =
+  experiments: readonly RunExperimentView[];
+}
+
+/**
+ * What a message went with, as that run received it. A chip says when the
+ * reference or experiment has changed or gone since. A reference opens the
+ * exact copy the run read; an experiment opens the experiment itself.
+ */
+function SentWith({ runId, references, experiments }: Sent & { runId: string }): JSX.Element {
+  const library = useReferences();
+  const tree = useExperiments();
+  const chips = [
+    ...references.map((reference) => {
+      const now = library.byId.get(reference.id);
+      return {
+        key: `reference:${reference.id}`,
+        kind: 'reference' as const,
+        name: reference.name,
+        state:
           now === undefined
             ? 'deleted'
             : now.revision === reference.revision
               ? null
-              : 'edited since';
-        return (
-          <li key={reference.id}>
-            <button
-              className={`reference-chip sent${state === null ? '' : ' changed'}`}
-              title="Show exactly what this run was given"
-              onClick={() => open({ kind: 'snapshot', runId, reference })}
-            >
-              <Icon name="reference" />@{reference.name}
-              {state !== null && <small>{state}</small>}
-            </button>
-          </li>
-        );
-      })}
+              : 'edited since',
+        title: 'Show exactly what this run was given',
+        open: () => library.open({ kind: 'snapshot', runId, reference }),
+      };
+    }),
+    ...experiments.map((experiment) => {
+      const now = tree.byId.get(experiment.id);
+      return {
+        key: `experiment:${experiment.id}`,
+        kind: 'experiment' as const,
+        name: experiment.name,
+        state:
+          now === undefined ? 'deleted' : now.runCount === experiment.runs ? null : 'changed since',
+        title:
+          now === undefined
+            ? 'This experiment has been deleted'
+            : `Go to ${now.displayName}. This run read it as it was then.`,
+        open: now === undefined ? undefined : () => tree.open(now.id),
+      };
+    }),
+  ];
+  return (
+    <ul className="sent-references" aria-label="Sent with this message">
+      {chips.map((chip) => (
+        <li key={chip.key}>
+          <button
+            className={`reference-chip sent kind-${chip.kind}${chip.state === null ? '' : ' changed'}`}
+            title={chip.title}
+            disabled={chip.open === undefined}
+            onClick={chip.open}
+          >
+            <Icon name={chip.kind} />@{chip.name}
+            {chip.state !== null && <small>{chip.state}</small>}
+          </button>
+        </li>
+      ))}
     </ul>
   );
 }
@@ -432,16 +464,34 @@ function finalReply(parts: readonly Part[]): string | null {
   return text === '' ? null : text;
 }
 
-/** A Read of a reference's copy, named as the reference rather than its file path. */
-function referenceRead(
-  name: string,
-  detail: string,
-  sent: readonly RunReferenceView[],
-): string | undefined {
-  if (name !== 'Read' || !/\/run-context\/[^/]+\/references\//.test(detail)) return undefined;
-  const file = detail.split('/').at(-1);
-  const reference = sent.find((r) => r.file === file);
-  return reference === undefined ? undefined : `@${reference.name}`;
+/** What each file in an experiment's snapshot is, in a word. */
+const EXPERIMENT_FILE_WORDS: Record<string, string> = {
+  'conversation.md': 'conversation',
+  'changes.diff': 'changes',
+  'CONTEXT.md': 'notes',
+};
+
+/**
+ * A Read of something the run was given, named as what it is rather than its
+ * file path: `@smoke-test`, or `@try-redis · changes`.
+ */
+function attachmentRead(name: string, detail: string, sent: Sent): string | undefined {
+  if (name !== 'Read') return undefined;
+  const parts = detail.split(/[\\/]/);
+  const at = parts.lastIndexOf('run-context');
+  if (at === -1) return undefined;
+  const [, kind, item, file] = parts.slice(at + 1);
+  if (kind === 'references' && item !== undefined) {
+    const reference = sent.references.find((r) => r.file === item);
+    return reference === undefined ? undefined : `@${reference.name}`;
+  }
+  if (kind === 'experiments' && item !== undefined) {
+    const experiment = sent.experiments.find((e) => e.folder === item);
+    if (experiment === undefined) return undefined;
+    const word = file === undefined ? undefined : EXPERIMENT_FILE_WORDS[file];
+    return `@${experiment.name}${word === undefined ? '' : ` · ${word}`}`;
+  }
+  return undefined;
 }
 
 /** How many lines of your own request the panel shows before folding the rest. */

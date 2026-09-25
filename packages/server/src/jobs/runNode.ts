@@ -91,6 +91,8 @@ interface Queued {
   command: boolean;
   /** References the message carries, snapshotted when the run starts executing. */
   referenceIds: readonly string[];
+  /** Other experiments the message refers to, snapshotted then too. */
+  experimentIds: readonly string[];
   controller: AbortController;
 }
 
@@ -427,10 +429,11 @@ export class RunJobs {
     const last = this.store.listRuns(nodeId).at(-1);
     // The interrupted request carried these; resuming it should too.
     const referenceIds = (last?.resolvedContext?.references ?? []).map((r) => r.id);
+    const experimentIds = (last?.resolvedContext?.experiments ?? []).map((e) => e.id);
     return this.start(
       nodeId,
       resumePrompt(state, original, recoveryCause(last), last?.error ?? null),
-      { referenceIds },
+      { referenceIds, experimentIds },
     );
   }
 
@@ -452,7 +455,11 @@ export class RunJobs {
   start(
     nodeId: string,
     prompt: string,
-    options: { command?: boolean; referenceIds?: readonly string[] } = {},
+    options: {
+      command?: boolean;
+      referenceIds?: readonly string[];
+      experimentIds?: readonly string[];
+    } = {},
   ): { runId: string } {
     const command = options.command === true;
     const node = this.store.getNode(nodeId);
@@ -492,6 +499,7 @@ export class RunJobs {
       readOnly,
       command,
       referenceIds: command ? [] : (options.referenceIds ?? []),
+      experimentIds: command ? [] : (options.experimentIds ?? []),
       controller,
     };
 
@@ -736,7 +744,7 @@ export class RunJobs {
   }
 
   private async execute(
-    { runId, nodeId, prompt, readOnly, command, referenceIds }: Queued,
+    { runId, nodeId, prompt, readOnly, command, referenceIds, experimentIds }: Queued,
     live: LiveRun,
   ): Promise<void> {
     const controller = live.controller;
@@ -786,14 +794,25 @@ export class RunJobs {
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     try {
-      const resolved = await resolveRunContext(this.store, node, runId, referenceIds);
-      if (resolved.missing.length > 0) {
+      const resolved = await resolveRunContext(this.store, node, runId, {
+        referenceIds,
+        experimentIds,
+      });
+      for (const [count, one, many] of [
+        [resolved.missing.references, 'A reference was', 'references were'],
+        [
+          resolved.missing.experiments,
+          'A referenced experiment was',
+          'referenced experiments were',
+        ],
+      ] as const) {
+        if (count === 0) continue;
         this.store.appendMessage({
           nodeId,
           runId,
           role: 'system',
           kind: 'text',
-          content: `${resolved.missing.length === 1 ? 'A reference was' : `${resolved.missing.length} references were`} deleted before this run started, so ${resolved.missing.length === 1 ? 'it was' : 'they were'} not attached.`,
+          content: `${count === 1 ? one : `${count} ${many}`} deleted before this run started, so ${count === 1 ? 'it was' : 'they were'} not attached.`,
         });
       }
       if (controller.signal.aborted) throw new Error('Cancelled before allocation.');
@@ -844,6 +863,8 @@ export class RunJobs {
         prompt,
         isCommand: command,
         references: resolved.references,
+        experiments: resolved.experiments,
+        attachmentsFolder: resolved.folder,
         // Always the node's own session. A child's was copied from its parent
         // when it was created (jobs/conversation.ts), never here.
         resumeSessionId: node.session_id,

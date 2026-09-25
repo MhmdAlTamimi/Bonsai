@@ -151,7 +151,10 @@ class ScriptedSession implements SessionQuery {
 
 function start(
   detached: BackgroundJob[] = [],
-  overrides: Pick<Partial<RunSpec>, 'prompt' | 'isCommand' | 'references'> = {},
+  overrides: Pick<
+    Partial<RunSpec>,
+    'prompt' | 'isCommand' | 'references' | 'experiments' | 'attachmentsFolder'
+  > = {},
 ): {
   session: Promise<ScriptedSession>;
   stop: AbortController;
@@ -560,6 +563,7 @@ describe('references a message carries', () => {
     const run = start([], {
       prompt: 'apply the smoke test',
       references: [{ name: 'smoke test', path: '/data/run-context/r/references/smoke-test.md' }],
+      attachmentsFolder: '/data/run-context/r',
     });
     const session = await run.session;
     await until(() => session.received.length === 1, 'the prompt to arrive');
@@ -567,7 +571,25 @@ describe('references a message carries', () => {
       session.received[0]!,
       /^apply the smoke test\n\nThe user attached a reference to this message\. Read each before acting on the request; they are part of it:\n- "smoke test": \/data\/run-context\/r\/references\/smoke-test\.md\n\nBonsai run context:/,
     );
-    assert.deepEqual(session.options.additionalDirectories, ['/data/run-context/r/references']);
+    assert.deepEqual(session.options.additionalDirectories, ['/data/run-context/r']);
+    session.emit(say('Done.'), turnOver(0));
+    await run.done;
+  });
+
+  test('another experiment is a folder to look in, with what each file is', async () => {
+    const run = start([], {
+      prompt: 'use what try-redis found',
+      experiments: [{ name: 'try-redis', path: '/data/run-context/r/experiments/try-redis' }],
+      attachmentsFolder: '/data/run-context/r',
+    });
+    const session = await run.session;
+    await until(() => session.received.length === 1, 'the prompt to arrive');
+    const prompt = session.received[0]!;
+    assert.match(prompt, /^use what try-redis found\n\nThe user referred to another experiment/);
+    assert.match(prompt, /conversation\.md \(its own conversation\), changes\.diff/);
+    assert.match(prompt, /do not copy their code unless the user asks/);
+    assert.match(prompt, /- "try-redis": \/data\/run-context\/r\/experiments\/try-redis\n/);
+    assert.deepEqual(session.options.additionalDirectories, ['/data/run-context/r']);
     session.emit(say('Done.'), turnOver(0));
     await run.done;
   });

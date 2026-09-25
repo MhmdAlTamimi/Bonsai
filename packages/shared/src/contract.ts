@@ -262,6 +262,8 @@ export interface NodeView {
   hasCommits: boolean;
   /** It has a conversation of its own to continue, copy or compact. */
   hasConversation: boolean;
+  /** How many runs it has had, so a copy of it taken earlier can tell it is behind. */
+  runCount: number;
   pendingQuestion: {
     id: string;
     /** One line, for the card. The question itself, or the permission being asked for. */
@@ -488,6 +490,24 @@ export interface ResolvedRunContext {
   parentHeadCommit: string | null;
   /** References attached to this run's message, as they were when it started. */
   references?: RunReferenceView[];
+  /** Experiments referenced in this run's message, as they were when it started. */
+  experiments?: RunExperimentView[];
+}
+
+/**
+ * Another experiment, as a run received it: a snapshot of its own conversation,
+ * its committed changes and its notes, written as files the agent reads when it
+ * needs them. Committed work only, so the snapshot cannot change mid-run.
+ */
+export interface RunExperimentView {
+  id: string;
+  name: string;
+  /** Its latest commit when the snapshot was taken; null when it had committed nothing. */
+  headCommit: string | null;
+  /** Its run count then, so "changed since" is a comparison. */
+  runs: number;
+  /** The snapshot's folder name inside the run's folder. */
+  folder: string;
 }
 
 export interface RunView {
@@ -895,6 +915,8 @@ export interface StartRunRequest {
   prompt: string;
   /** References the message carries. Each must belong to the node's project. */
   referenceIds?: string[];
+  /** Other experiments the message refers to, in the same project, never the node itself. */
+  experimentIds?: string[];
 }
 
 /**

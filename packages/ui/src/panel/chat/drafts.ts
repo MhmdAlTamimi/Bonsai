@@ -14,15 +14,21 @@ export function clearSubmittedDraft(key: string, submitted: string): void {
   }
 }
 
+/** Something a message carries besides its text: a reference, or another experiment. */
+export interface Attachment {
+  kind: 'reference' | 'experiment';
+  id: string;
+}
+
 /**
- * References attached to a draft, by id, in the order they were added. Kept
- * with the text, so switching experiments and back does not lose them.
+ * What is attached to a draft, in the order it was added. Kept with the text,
+ * so switching experiments and back does not lose it.
  */
-const attachments = new Map<string, readonly string[]>();
-const NONE: readonly string[] = [];
-export const readAttachments = (key: string): readonly string[] => attachments.get(key) ?? NONE;
-export function writeAttachments(key: string, ids: readonly string[]): void {
-  attachments.set(key, ids);
+const attachments = new Map<string, readonly Attachment[]>();
+const NONE: readonly Attachment[] = [];
+export const readAttachments = (key: string): readonly Attachment[] => attachments.get(key) ?? NONE;
+export function writeAttachments(key: string, items: readonly Attachment[]): void {
+  attachments.set(key, items);
   emit();
 }
 

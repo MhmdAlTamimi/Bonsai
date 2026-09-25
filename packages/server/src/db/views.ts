@@ -38,8 +38,8 @@ export class Views {
   /**
    * Building a tree issues a constant number of queries, whatever its size.
    *
-   * Five: the project, the nodes, the costs, the diff stats, and the latest run
-   * status. It used to be that plus one per node for cost alone.
+   * Six: the project, the nodes, the costs, the diff stats, the run counts and
+   * the latest run status. It used to be that plus one per node for cost alone.
    */
   tree(projectId: string): NodeView[] {
     const project = this.projects.get(projectId);
@@ -47,6 +47,7 @@ export class Views {
     const costs = this.runs.costsByNode(projectId);
     const rows = this.nodes.list(projectId);
     const lastRuns = this.runs.latestEndReasonByNode(projectId);
+    const runCounts = this.runs.countsByNode(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
       if (row.parent_id === null) continue;
@@ -82,6 +83,7 @@ export class Views {
         frozenReason: isUsersOwnCheckout(project, row) ? 'your_folder' : null,
         pendingQuestion: question,
         hasConversation: row.session_id !== null,
+        runCount: runCounts.get(row.id) ?? 0,
         positionX: row.position_x,
         positionY: row.position_y,
         diffStat: stats.get(row.id) ?? null,

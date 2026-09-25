@@ -7,6 +7,7 @@ import {
   writeDraft,
   subscribeDrafts,
   isSending,
+  type Attachment,
 } from './drafts.ts';
 
 export function useDraft(projectId: string, nodeId: string, channel: string, initial = '') {
@@ -20,6 +21,6 @@ export function useDraft(projectId: string, nodeId: string, channel: string, ini
     sending,
     attached,
     setPrompt: (value: string) => writeDraft(key, value),
-    setAttached: (ids: readonly string[]) => writeAttachments(key, ids),
+    setAttached: (items: readonly Attachment[]) => writeAttachments(key, items),
   };
 }

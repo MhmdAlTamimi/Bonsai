@@ -37,6 +37,7 @@ import {
 } from './state/references.ts';
 import { ReferencesDialog } from './panel/references/ReferencesDialog.tsx';
 import { SnapshotDialog } from './panel/references/SnapshotDialog.tsx';
+import { ExperimentsContext, type Experiments } from './state/experiments.ts';
 
 /**
  * Composition, and as little else as possible.
@@ -132,6 +133,20 @@ export function App(): JSX.Element {
       open: setReferenceTarget,
     }),
     [referenceList],
+  );
+  const treeNodes = tree?.nodes;
+  const experiments = useMemo<Experiments>(
+    () => ({
+      list: treeNodes ?? [],
+      byId: new Map((treeNodes ?? []).map((node) => [node.id, node])),
+      open: (id) => {
+        selection.select(id);
+        view.selected();
+      },
+    }),
+    // `view` and `selection` are stable; the list is what changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [treeNodes],
   );
   const child = useChildCreation({
     projectId,
@@ -289,7 +304,11 @@ export function App(): JSX.Element {
   }
 
   return (
-    <WindowContexts connected={connection.state === 'connected'} references={references}>
+    <WindowContexts
+      connected={connection.state === 'connected'}
+      references={references}
+      experiments={experiments}
+    >
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
         <div
           className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}`}
@@ -548,19 +567,26 @@ export function App(): JSX.Element {
   );
 }
 
-/** What anything in the window may read: whether runs can start, and the project's references. */
+/**
+ * What anything in the window may read: whether runs can start, the project's
+ * references, and its experiments.
+ */
 function WindowContexts({
   connected,
   references,
+  experiments,
   children,
 }: {
   connected: boolean;
   references: References;
+  experiments: Experiments;
   children: ReactNode;
 }): JSX.Element {
   return (
     <RunAvailability.Provider value={connected}>
-      <ReferencesContext.Provider value={references}>{children}</ReferencesContext.Provider>
+      <ReferencesContext.Provider value={references}>
+        <ExperimentsContext.Provider value={experiments}>{children}</ExperimentsContext.Provider>
+      </ReferencesContext.Provider>
     </RunAvailability.Provider>
   );
 }

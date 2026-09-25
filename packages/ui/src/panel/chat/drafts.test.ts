@@ -29,8 +29,8 @@ test('attached references belong to one draft and keep the same list until chang
   const b = draftKey('project', 'b', 'reply');
   // Stable while nothing changes, so a React store snapshot does not loop.
   assert.equal(readAttachments(a), readAttachments(a));
-  writeAttachments(a, ['smoke-test']);
-  assert.deepEqual(readAttachments(a), ['smoke-test']);
+  writeAttachments(a, [{ kind: 'reference', id: 'smoke-test' }]);
+  assert.deepEqual(readAttachments(a), [{ kind: 'reference', id: 'smoke-test' }]);
   assert.deepEqual(readAttachments(b), []);
   writeAttachments(a, []);
   assert.deepEqual(readAttachments(a), []);

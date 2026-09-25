@@ -23,6 +23,14 @@ export interface RunSpec {
    */
   references?: ReadonlyArray<{ name: string; path: string }>;
   /**
+   * Other experiments the user referred to in this message, each a folder of
+   * files (its conversation, its committed changes, its notes) to read when
+   * the request needs them. Never pasted into the prompt either.
+   */
+  experiments?: ReadonlyArray<{ name: string; path: string }>;
+  /** The run's own folder holding both, which the agent may read outside its checkout. */
+  attachmentsFolder?: string | null;
+  /**
    * The node's OWN session, to continue, or null when it has none yet.
    *
    * Always the node's own: a child's copy of its parent's conversation is made

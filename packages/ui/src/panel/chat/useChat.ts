@@ -9,8 +9,10 @@ import {
   isSending,
   readAttachments,
   writeAttachments,
+  type Attachment,
 } from './drafts.ts';
 import { useReferences } from '../../state/references.ts';
+import { useExperiments } from '../../state/experiments.ts';
 import { useDraft } from './useDraft.ts';
 import { pendingDeltas, type Delta } from './liveMerge.ts';
 import { compactCommand } from './commands.ts';
@@ -33,15 +35,16 @@ export function useChat(
   prompt: string;
   setPrompt: (value: string) => void;
   sending: boolean;
-  /** References going with the next message, by id. */
-  attached: readonly string[];
-  setAttached: (ids: readonly string[]) => void;
+  /** References and experiments going with the next message. */
+  attached: readonly Attachment[];
+  setAttached: (items: readonly Attachment[]) => void;
   busy: boolean;
   running: boolean;
   send: () => void;
 } {
   const [messages, setMessages] = useState<MessageView[]>([]);
-  const { byId } = useReferences();
+  const references = useReferences();
+  const experiments = useExperiments();
   const { key, prompt, setPrompt, sending, attached, setAttached } = useDraft(
     node.projectId,
     node.id,
@@ -93,11 +96,18 @@ export function useChat(
     setSending(key, true);
     onError(null);
     const command = compactCommand(text);
-    // Only references that still exist; one deleted since it was attached is dropped.
-    const referenceIds = attached.filter((id) => byId.has(id));
+    // Only what still exists; something deleted since it was attached is dropped.
+    const sent = attached.filter((item) =>
+      item.kind === 'reference' ? references.byId.has(item.id) : experiments.byId.has(item.id),
+    );
+    const ids = (kind: Attachment['kind']): string[] =>
+      sent.filter((item) => item.kind === kind).map((item) => item.id);
     void (
       command === null
-        ? api.startRun(node.id, text, referenceIds)
+        ? api.startRun(node.id, text, {
+            referenceIds: ids('reference'),
+            experimentIds: ids('experiment'),
+          })
         : api.compact(node.id, command.focus ?? undefined)
     )
       .then(() => {
@@ -106,7 +116,7 @@ export function useChat(
         if (command === null) {
           writeAttachments(
             key,
-            readAttachments(key).filter((id) => !referenceIds.includes(id)),
+            readAttachments(key).filter((item) => !sent.includes(item)),
           );
         }
         setRevision((n) => n + 1);

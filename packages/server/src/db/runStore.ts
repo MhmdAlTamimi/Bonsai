@@ -225,6 +225,17 @@ export class RunStore {
     return new Map(rows.map((r) => [r.id, r.reason]));
   }
 
+  /** How many runs each node in a project has had, in one query. */
+  countsByNode(projectId: string): Map<string, number> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.node_id AS id, COUNT(*) AS runs FROM run r JOIN node n ON n.id = r.node_id
+         WHERE n.project_id = ? GROUP BY r.node_id`,
+      )
+      .all(projectId) as unknown as Array<{ id: string; runs: number }>;
+    return new Map(rows.map((r) => [r.id, Number(r.runs)]));
+  }
+
   /** Row counts, for the diagnostics report. One query each, not three lists. */
   counts(): { projects: number; nodes: number; runs: number; running: number } {
     const one = (sql: string): number => {

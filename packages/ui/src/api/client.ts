@@ -279,12 +279,17 @@ export const api = {
       body: JSON.stringify({ focus } satisfies CompactRequest),
     }),
 
-  startRun: (nodeId: string, prompt: string, referenceIds: readonly string[] = []) =>
+  startRun: (
+    nodeId: string,
+    prompt: string,
+    attached: { referenceIds?: string[]; experimentIds?: string[] } = {},
+  ) =>
     json<{ runId: string }>(`/api/nodes/${nodeId}/runs`, {
       method: 'POST',
       body: JSON.stringify({
         prompt,
-        ...(referenceIds.length === 0 ? {} : { referenceIds: [...referenceIds] }),
+        ...(attached.referenceIds?.length ? { referenceIds: attached.referenceIds } : {}),
+        ...(attached.experimentIds?.length ? { experimentIds: attached.experimentIds } : {}),
       } satisfies StartRunRequest),
     }),
 

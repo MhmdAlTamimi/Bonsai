@@ -1,5 +1,4 @@
 import { tmpdir } from 'node:os';
-import { dirname } from 'node:path';
 import { forkSession, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   CanUseTool,
@@ -26,6 +25,7 @@ import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
 import { Inbox, SessionActivity } from './session.js';
 import { toolResultFrom } from './toolResults.js';
 import { RUN_MARKER } from '../jobs/leftovers.js';
+import { EXPERIMENT_FILES } from '../jobs/experimentSnapshot.js';
 
 /**
  * D15: the Claude Agent SDK, not the raw API -- the same harness as Claude Code,
@@ -139,11 +139,11 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
        * a static, cross-session-cacheable prefix; the stripped context is
        * re-injected as the first user message, so the agent still has it.
        */
-      // The folder holding this run's reference snapshots, so reading them is
-      // an ordinary Read rather than a permission question.
-      ...(spec.references !== undefined && spec.references.length > 0
-        ? { additionalDirectories: [dirname(spec.references[0]!.path)] }
-        : {}),
+      // The folder holding this run's references and experiment snapshots, so
+      // reading them is an ordinary Read rather than a permission question.
+      ...(spec.attachmentsFolder == null
+        ? {}
+        : { additionalDirectories: [spec.attachmentsFolder] }),
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
@@ -629,7 +629,15 @@ function promptWithCriteria(spec: RunSpec): string {
       : `\n\nThe user attached ${spec.references.length === 1 ? 'a reference' : 'references'} to this message. ` +
         'Read each before acting on the request; they are part of it:\n' +
         spec.references.map((r) => `- ${JSON.stringify(r.name)}: ${r.path}`).join('\n');
-  const prompt = `${spec.prompt}${attached}\n\nBonsai run context: ${instruction}`;
+  const referred =
+    spec.experiments === undefined || spec.experiments.length === 0
+      ? ''
+      : `\n\nThe user referred to ${spec.experiments.length === 1 ? 'another experiment' : 'other experiments'} in this project. ` +
+        `Each folder holds a snapshot of its committed work: ${EXPERIMENT_FILES.conversation} (its own conversation), ` +
+        `${EXPERIMENT_FILES.changes} (everything it committed) and ${EXPERIMENT_FILES.notes} (its notes). ` +
+        'Read what the request needs. They are for reference: do not copy their code unless the user asks.\n' +
+        spec.experiments.map((e) => `- ${JSON.stringify(e.name)}: ${e.path}`).join('\n');
+  const prompt = `${spec.prompt}${attached}${referred}\n\nBonsai run context: ${instruction}`;
   if (spec.readOnly || (spec.successCriteria === null && spec.verificationHint === null))
     return prompt;
 

@@ -137,6 +137,14 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter 
     for (const reference of spec.references ?? []) {
       yield { type: 'tool', name: 'Read', detail: reference.path, id: randomUUID() };
     }
+    for (const experiment of spec.experiments ?? []) {
+      yield {
+        type: 'tool',
+        name: 'Read',
+        detail: join(experiment.path, 'conversation.md'),
+        id: randomUUID(),
+      };
+    }
 
     /**
      * D42: the stand-in asks the user something, too.

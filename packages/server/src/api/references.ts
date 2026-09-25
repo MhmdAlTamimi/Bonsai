@@ -1,5 +1,5 @@
 import { REFERENCE_CONTENT_MAX, REFERENCE_NAME_MAX } from '../db/referenceStore.js';
-import type { Store } from '../db/store.js';
+import type { NodeRow, Store } from '../db/store.js';
 import { HttpError } from './http.js';
 
 /**
@@ -67,6 +67,31 @@ export function attachedReferences(store: Store, projectId: string, value: unkno
   for (const id of ids) {
     if (store.references.get(id)?.project_id !== projectId) {
       throw new HttpError(400, 'One of the attached references is not in this project any more.');
+    }
+  }
+  return ids;
+}
+
+/** Experiments in one message: enough to weigh a few approaches, not the whole tree. */
+const MAX_REFERRED = 5;
+
+/**
+ * The other experiments a message refers to: in this project, each once, and
+ * never the experiment itself -- it already has its own conversation and code.
+ */
+export function referredExperiments(store: Store, node: NodeRow, value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || !value.every((id) => typeof id === 'string')) {
+    throw new HttpError(400, 'experimentIds must be a list of experiment ids.');
+  }
+  const ids = [...new Set(value)];
+  if (ids.length > MAX_REFERRED) {
+    throw new HttpError(400, `Refer to at most ${MAX_REFERRED} experiments in one message.`);
+  }
+  for (const id of ids) {
+    if (id === node.id) throw new HttpError(400, 'An experiment cannot refer to itself.');
+    if (store.getNode(id)?.project_id !== node.project_id) {
+      throw new HttpError(400, 'One of the referred experiments is not in this project any more.');
     }
   }
   return ids;

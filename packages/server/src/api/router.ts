@@ -39,6 +39,7 @@ import { copyParentConversation } from '../jobs/conversation.js';
 import {
   DRAFT_INSTRUCTIONS,
   attachedReferences,
+  referredExperiments,
   draftInput,
   draftInstruction,
   referenceContent,
@@ -823,8 +824,13 @@ route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, con
   if (row === undefined) throw new HttpError(404, 'no such node');
   const body = await readJson<StartRunRequest>(req);
   const referenceIds = attachedReferences(store, row.project_id, body.referenceIds);
+  const experimentIds = referredExperiments(store, row, body.experimentIds);
   try {
-    sendJson(res, 202, jobs.start(row.id, requireString(body.prompt, 'prompt'), { referenceIds }));
+    sendJson(
+      res,
+      202,
+      jobs.start(row.id, requireString(body.prompt, 'prompt'), { referenceIds, experimentIds }),
+    );
   } catch (err) {
     throw new HttpError(409, err instanceof Error ? err.message : String(err));
   }
