@@ -24,6 +24,8 @@ export function MenuBar({
   onStart,
   onOpenSettings,
   onOpenUsage,
+  references,
+  onOpenReferences,
   onDeleteProject,
 }: {
   project: ProjectView | null;
@@ -35,6 +37,9 @@ export function MenuBar({
   onStart: (mode: 'new' | 'existing') => void;
   onOpenSettings: () => void;
   onOpenUsage: () => void;
+  /** How many references the open project has, or null with no project open. */
+  references: number | null;
+  onOpenReferences: () => void;
   onDeleteProject: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState<null | 'project'>(null);
@@ -240,6 +245,19 @@ export function MenuBar({
       )}
 
       <span className="menubar-spacer" />
+      {/* References are the project's shared text, used from every experiment,
+          so they sit on the bar rather than in any one experiment's panel. */}
+      {references !== null && (
+        <button
+          className="menu-title references-button"
+          title="Text any experiment in this project can be given with @"
+          onClick={onOpenReferences}
+        >
+          <Icon name="reference" />
+          <span className="references-label">References</span>
+          {references > 0 && <span className="references-count">{references}</span>}
+        </button>
+      )}
       <button
         className="menu-title settings-button"
         aria-label="Settings"

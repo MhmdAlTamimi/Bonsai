@@ -81,14 +81,21 @@ export class ReferenceStore {
     return row;
   }
 
-  update(id: string, patch: { name?: string; content?: string }): void {
+  /** `sourceNodeId` changes only when given: a fill from another experiment re-sources it. */
+  update(
+    id: string,
+    patch: { name?: string; content?: string; sourceNodeId?: string | null },
+  ): void {
     const current = this.get(id);
     if (current === undefined) return;
     const name = patch.name ?? current.name;
+    const source = patch.sourceNodeId === undefined ? current.source_node_id : patch.sourceNodeId;
     unique(name, () =>
       this.db
-        .prepare(`UPDATE reference SET name = ?, content = ?, updated_at = ? WHERE id = ?`)
-        .run(name, patch.content ?? current.content, now(), id),
+        .prepare(
+          `UPDATE reference SET name = ?, content = ?, source_node_id = ?, updated_at = ? WHERE id = ?`,
+        )
+        .run(name, patch.content ?? current.content, source, now(), id),
     );
   }
 

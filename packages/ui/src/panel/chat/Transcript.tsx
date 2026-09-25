@@ -3,6 +3,7 @@ import type {
   CompactionNote,
   MessageView,
   RunActivity,
+  RunReferenceView,
   RunView,
   ToolResultContent,
 } from '@bonsai/shared';
@@ -12,6 +13,8 @@ import { ToolBlock } from './ToolBlock.tsx';
 import { Disclosure } from './Disclosure.tsx';
 import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
+import { Icon } from '../../Icon.tsx';
+import { useReferences } from '../../state/references.ts';
 
 /**
  * The conversation, as runs.
@@ -29,6 +32,7 @@ import type { Delta } from './liveMerge.ts';
  * between bursts, which is the readable part, lost its anchors.
  */
 export function Transcript({
+  nodeId,
   messages,
   runs,
   pending,
@@ -36,6 +40,8 @@ export function Transcript({
   phase = 'working',
   onProjectSettings,
 }: {
+  /** The experiment this is, so a message saved as a reference records where it came from. */
+  nodeId: string;
   messages: readonly MessageView[];
   runs: readonly RunView[];
   /** Live deltas the persisted transcript has not caught up with. */
@@ -62,6 +68,7 @@ export function Transcript({
         ) : (
           <Turn
             key={group.runId}
+            nodeId={nodeId}
             group={group}
             run={runsById.get(group.runId)}
             number={numberOf.get(group.runId) ?? null}
@@ -108,12 +115,14 @@ function liveMessages(pending: readonly Delta[]): MessageView[] {
 }
 
 function Turn({
+  nodeId,
   group,
   run,
   number,
   running,
   phase,
 }: {
+  nodeId: string;
   group: Group;
   run: RunView | undefined;
   number: number | null;
@@ -125,6 +134,10 @@ function Turn({
   // Notes from Bonsai (a compaction, a skipped command) are not the agent speaking.
   const agentSpoke = parts.some((part) => part.kind !== 'said' || part.message.role !== 'system');
   const when = prompt?.createdAt ?? run?.startedAt ?? null;
+  const sent = run?.resolvedContext?.references ?? [];
+  // A finished message can be saved as it stands; a live one is still changing.
+  const saveFrom = running ? null : nodeId;
+  const reply = saveFrom === null ? null : finalReply(parts);
 
   return (
     <article className={`turn${running ? ' live' : ''}`}>
@@ -140,17 +153,35 @@ function Turn({
         </div>
       )}
 
-      {prompt !== undefined && <YouSaid message={prompt} />}
+      {prompt !== undefined && (
+        <YouSaid
+          message={prompt}
+          saveFrom={saveFrom}
+          sent={group.runId === null ? undefined : { runId: group.runId, references: sent }}
+        />
+      )}
 
       {(parts.length > 0 || running) && (
         <div className="msg agent">
-          {(agentSpoke || running) && <span className="msg-label">Agent:</span>}
+          {(agentSpoke || running) && (
+            <div className="msg-head">
+              <span className="msg-label">Agent:</span>
+              {reply !== null && saveFrom !== null && (
+                <SaveAsReference
+                  text={reply}
+                  nodeId={saveFrom}
+                  label="Save the final reply as a reference"
+                />
+              )}
+            </div>
+          )}
           {parts.map((part, i) =>
             part.kind === 'block' ? (
               <ToolBlock
                 key={i}
                 name={part.name}
                 detail={part.detail}
+                subject={referenceRead(part.name, part.detail, sent)}
                 parentToolUseId={part.parentToolUseId}
                 result={part.result}
                 live={running && part.result === undefined}
@@ -284,16 +315,133 @@ function SetupActivity({
 function YouSaid({
   message,
   inline = false,
+  saveFrom = null,
+  sent,
 }: {
   message: MessageView;
   inline?: boolean;
+  /** The experiment to record as the source when this is saved as a reference. */
+  saveFrom?: string | null;
+  /** What the run this message started was given alongside it. */
+  sent?: { runId: string; references: readonly RunReferenceView[] } | undefined;
 }): JSX.Element {
+  const text = asText(message.content);
   return (
     <div className={`msg you${inline ? ' inline' : ''}`}>
-      <span className="msg-label">You:</span>
-      <Clamped text={asText(message.content)} />
+      <div className="msg-head">
+        <span className="msg-label">You:</span>
+        {saveFrom !== null && (
+          <SaveAsReference text={text} nodeId={saveFrom} label="Save this message as a reference" />
+        )}
+      </div>
+      <Clamped text={text} />
+      {sent !== undefined && sent.references.length > 0 && (
+        <SentReferences runId={sent.runId} references={sent.references} />
+      )}
     </div>
   );
+}
+
+/**
+ * Keep a message for other experiments: opens the reference editor with the
+ * text exactly as it is. Nothing is summarised and nothing is saved until the
+ * editor is.
+ */
+function SaveAsReference({
+  text,
+  nodeId,
+  label,
+}: {
+  text: string;
+  nodeId: string;
+  label: string;
+}): JSX.Element {
+  const { open } = useReferences();
+  return (
+    <button
+      className="save-reference"
+      aria-label={label}
+      title={label}
+      onClick={() => open({ kind: 'new', content: text, sourceNodeId: nodeId })}
+    >
+      <Icon name="reference" />
+      <span>Save as reference</span>
+    </button>
+  );
+}
+
+/**
+ * The references a message went with, as that run received them. A chip says
+ * when the reference has changed or gone since, and opens the exact copy.
+ */
+function SentReferences({
+  runId,
+  references,
+}: {
+  runId: string;
+  references: readonly RunReferenceView[];
+}): JSX.Element {
+  const { byId, open } = useReferences();
+  return (
+    <ul className="sent-references" aria-label="References sent with this message">
+      {references.map((reference) => {
+        const now = byId.get(reference.id);
+        const state =
+          now === undefined
+            ? 'deleted'
+            : now.revision === reference.revision
+              ? null
+              : 'edited since';
+        return (
+          <li key={reference.id}>
+            <button
+              className={`reference-chip sent${state === null ? '' : ' changed'}`}
+              title="Show exactly what this run was given"
+              onClick={() => open({ kind: 'snapshot', runId, reference })}
+            >
+              <Icon name="reference" />@{reference.name}
+              {state !== null && <small>{state}</small>}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * The agent's final reply: what it said after its last tool call, or its last
+ * words if it said nothing after. The narration between calls ("let me look at
+ * the tests") is how it got there, not what it found.
+ */
+function finalReply(parts: readonly Part[]): string | null {
+  const said = (part: Part): part is Extract<Part, { kind: 'said' }> =>
+    part.kind === 'said' &&
+    part.message.role === 'assistant' &&
+    !isCompaction(part.message.content);
+  let lastBlock = -1;
+  parts.forEach((part, i) => {
+    if (part.kind === 'block') lastBlock = i;
+  });
+  const after = parts.slice(lastBlock + 1).filter(said);
+  const chosen = after.length > 0 ? after : parts.filter(said).slice(-1);
+  const text = chosen
+    .map((part) => asText(part.message.content).trim())
+    .filter((t) => t !== '')
+    .join('\n\n');
+  return text === '' ? null : text;
+}
+
+/** A Read of a reference's copy, named as the reference rather than its file path. */
+function referenceRead(
+  name: string,
+  detail: string,
+  sent: readonly RunReferenceView[],
+): string | undefined {
+  if (name !== 'Read' || !/\/run-context\/[^/]+\/references\//.test(detail)) return undefined;
+  const file = detail.split('/').at(-1);
+  const reference = sent.find((r) => r.file === file);
+  return reference === undefined ? undefined : `@${reference.name}`;
 }
 
 /** How many lines of your own request the panel shows before folding the rest. */

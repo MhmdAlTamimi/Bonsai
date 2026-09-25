@@ -9,6 +9,7 @@ import { BranchContext } from './branchContext.ts';
 import { CardActionsContext, cardMenuLabel } from './cardActions.ts';
 import { useDismiss } from '../useDismiss.ts';
 import { useStopRun } from '../state/RunControls.tsx';
+import { canDrawFrom } from '../state/references.ts';
 
 /**
  * The node card. Renders from FLAGS, never from a node "type" string
@@ -247,6 +248,18 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                   }}
                 >
                   Compact conversation…
+                </button>
+              )}
+              {canDrawFrom(data) && (
+                <button
+                  role="menuitem"
+                  title="Write a reference from this experiment's conversation"
+                  onClick={() => {
+                    setMenu(false);
+                    actions.reference(data);
+                  }}
+                >
+                  Create reference from this experiment…
                 </button>
               )}
               <button

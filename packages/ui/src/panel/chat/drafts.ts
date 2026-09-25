@@ -14,6 +14,18 @@ export function clearSubmittedDraft(key: string, submitted: string): void {
   }
 }
 
+/**
+ * References attached to a draft, by id, in the order they were added. Kept
+ * with the text, so switching experiments and back does not lose them.
+ */
+const attachments = new Map<string, readonly string[]>();
+const NONE: readonly string[] = [];
+export const readAttachments = (key: string): readonly string[] => attachments.get(key) ?? NONE;
+export function writeAttachments(key: string, ids: readonly string[]): void {
+  attachments.set(key, ids);
+  emit();
+}
+
 const listeners = new Set<() => void>();
 const pending = new Set<string>();
 const emit = (): void => {

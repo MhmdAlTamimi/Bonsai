@@ -1929,6 +1929,162 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.screenshot(join(repoRoot, 'test-results', 'compaction.png'));
   });
 
+  test('a reference is written once, attached with @, and each run keeps the copy it read', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'references', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const nodeUrl = `${BASE}/api/nodes/${created.masterNodeId}`;
+    const ready = `(async()=> (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`;
+    const dialogButton = (label: string): string =>
+      `Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()===${JSON.stringify(label)})`;
+    await fetch(`${nodeUrl}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '? tell me about this project' }),
+    });
+    await session.waitFor(ready);
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+
+    // Written in the library, from the menu bar.
+    await session.click('.references-button');
+    await session.waitFor(
+      "document.querySelector('dialog .reference-empty')?.textContent.includes('No references yet')",
+    );
+    await session.eval(`${dialogButton('New reference')}.click()`);
+    await session.waitFor(
+      'document.activeElement === document.querySelector(\'dialog [aria-label="reference name"]\')',
+    );
+    await session.type('dialog [aria-label="reference name"]', 'smoke-test');
+    await session.type('dialog textarea.reference-text', 'Run npm test and report the count.');
+    await session.eval(`${dialogButton('Save reference')}.click()`);
+    await session.waitFor(
+      "document.querySelector('dialog .reference-row .reference-name')?.textContent === '@smoke-test'",
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'references-library.png'));
+    await session.click('dialog [aria-label="Close references"]');
+    await session.waitFor("document.querySelector('.references-count')?.textContent === '1'");
+
+    // Attached from the composer: typing @ offers it, choosing it makes a chip.
+    await session.click('.composer textarea');
+    await session.type('.composer textarea', 'check this @smo');
+    await session.waitFor(
+      "document.querySelector('.mention-option .mention-name')?.textContent === '@smoke-test'",
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'references-mention.png'));
+    await session.click('.mention-option');
+    await session.waitFor(
+      "document.querySelector('.attached-references .reference-chip-name')?.textContent === '@smoke-test'",
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'check this ',
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'references-composer.png'));
+    await session.type('.composer textarea', '? check this with the reference');
+    await session.click('.composer-row button.primary');
+    await session.waitFor(ready);
+
+    // The run read its own copy, and the transcript names it.
+    await session.waitFor(
+      "document.querySelector('.sent-references .reference-chip')?.textContent === '@smoke-test'",
+    );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.tool-subject')).some(s=>s.textContent==='@smoke-test')",
+    );
+    assert.equal(
+      await session.eval("document.querySelectorAll('.attached-references').length"),
+      0,
+      'a sent reference leaves the composer',
+    );
+    const references = (await (
+      await fetch(`${BASE}/api/projects/${created.projectId}/references`)
+    ).json()) as Array<{ id: string }>;
+    await fetch(`${BASE}/api/references/${references[0]!.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: 'Run npm test twice.' }),
+    });
+    await session.waitFor(
+      "document.querySelector('.sent-references .reference-chip')?.textContent.includes('edited since')",
+    );
+    await session.click('.sent-references .reference-chip');
+    await session.waitFor(
+      "document.querySelector('dialog .reference-snapshot')?.textContent === 'Run npm test and report the count.'",
+    );
+    assert.ok(
+      (
+        (await session.eval("document.querySelector('dialog .note')?.textContent")) as string
+      ).includes('Edited since this run'),
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'references-snapshot.png'));
+    await session.eval(`${dialogButton('Close')}.click()`);
+    await session.waitFor("!document.querySelector('dialog')");
+
+    // Drawn from an experiment's conversation, from its card: one call, undoable.
+    await session.click('[aria-label="Actions for master"]');
+    await session.eval(
+      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.includes('Create reference from this experiment')).click()",
+    );
+    await session.waitFor(
+      "document.querySelector('dialog [aria-label=\"experiment to draw from\"]')?.selectedOptions[0]?.textContent === 'master'",
+    );
+    await session.eval(`${dialogButton('Summarise the results')}.click()`);
+    await session.waitFor(
+      "document.querySelector('dialog textarea.reference-text')?.value.startsWith('Stand-in draft: Summarise the results')",
+    );
+    await session.waitFor(
+      "/Written from all \\d+ messages of master/.test(document.querySelector('dialog .reference-basis')?.textContent ?? '')",
+    );
+    await session.screenshot(join(repoRoot, 'test-results', 'references-fill.png'));
+    await session.eval(`${dialogButton('Undo fill')}.click()`);
+    await session.waitFor("document.querySelector('dialog textarea.reference-text')?.value === ''");
+    await session.eval(`${dialogButton('Extract the test procedure')}.click()`);
+    await session.waitFor(
+      "document.querySelector('dialog textarea.reference-text')?.value.startsWith('Stand-in draft: Extract the test procedure')",
+    );
+    await session.type('dialog [aria-label="reference name"]', 'master-procedure');
+    await session.eval(`${dialogButton('Save reference')}.click()`);
+    // Opened from the card, so saving closes it rather than showing the list.
+    await session.waitFor("!document.querySelector('dialog')");
+    await session.waitFor("document.querySelector('.references-count')?.textContent === '2'");
+    const saved = (await (
+      await fetch(`${BASE}/api/projects/${created.projectId}/references`)
+    ).json()) as Array<{ name: string; source: { displayName: string } | null }>;
+    assert.equal(saved.find((r) => r.name === 'master-procedure')?.source?.displayName, 'master');
+
+    // A message is kept exactly as it was written.
+    await session.eval(
+      "document.querySelector('.msg.you .save-reference').scrollIntoView({ block: 'center' })",
+    );
+    await session.click('.msg.you .save-reference');
+    await session.waitFor(
+      "document.querySelector('dialog textarea.reference-text')?.value === '? tell me about this project'",
+    );
+    await session.eval(`${dialogButton('Cancel')}.click()`);
+    await session.waitFor("!document.querySelector('dialog')");
+
+    // From the keyboard, Enter takes the highlighted reference instead of sending.
+    await session.click('.composer textarea');
+    await session.type('.composer textarea', '@mast');
+    await session.waitFor("!!document.querySelector('.mention-option[aria-selected=true]')");
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Enter',
+      code: 'Enter',
+      windowsVirtualKeyCode: 13,
+    });
+    await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter' });
+    await session.waitFor(
+      "document.querySelector('.attached-references .reference-chip-name')?.textContent === '@master-procedure'",
+    );
+    assert.equal(await session.eval("document.querySelector('.composer textarea').value"), '');
+    assert.equal(await session.eval("!!document.querySelector('.mention-menu')"), false);
+  });
+
   test("closing a dialog opened from a card's menu puts focus back on that menu button", async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {

@@ -1,4 +1,4 @@
-import { useMemo, type JSX, useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo, type JSX, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
 import { PANEL_WIDTH, REVIEW_WIDTH, type NodeView } from '@bonsai/shared';
 
@@ -29,6 +29,14 @@ import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
 import { PanelResizer } from './PanelResizer.tsx';
 import { RunControls, StopAll } from './state/RunControls.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
+import {
+  ReferencesContext,
+  useProjectReferences,
+  type References,
+  type ReferenceTarget,
+} from './state/references.ts';
+import { ReferencesDialog } from './panel/references/ReferencesDialog.tsx';
+import { SnapshotDialog } from './panel/references/SnapshotDialog.tsx';
 
 /**
  * Composition, and as little else as possible.
@@ -110,6 +118,21 @@ export function App(): JSX.Element {
     if (live.agentRevision === 0) return;
     reload();
   }, [live.agentRevision, reload]);
+  /**
+   * The project's references and the one dialog that shows them. Opened from
+   * the menu bar, a card, a message or a chip, so it is offered to all of them
+   * through a context rather than threaded through each.
+   */
+  const referenceList = useProjectReferences(projectId, live.referencesRevision, report);
+  const [referenceTarget, setReferenceTarget] = useState<ReferenceTarget | null>(null);
+  const references = useMemo<References>(
+    () => ({
+      list: referenceList,
+      byId: new Map(referenceList.map((reference) => [reference.id, reference])),
+      open: setReferenceTarget,
+    }),
+    [referenceList],
+  );
   const child = useChildCreation({
     projectId,
     onCreated: selection.select,
@@ -141,6 +164,8 @@ export function App(): JSX.Element {
       },
       rename: setRenaming,
       compact: setCompacting,
+      reference: (node: NodeView) =>
+        setReferenceTarget({ kind: 'new', sourceNodeId: node.id, draft: true }),
       details: setDetailing,
       remove: (node: NodeView) => void nodeActions.remove(node),
     }),
@@ -264,7 +289,7 @@ export function App(): JSX.Element {
   }
 
   return (
-    <RunAvailability.Provider value={connection.state === 'connected'}>
+    <WindowContexts connected={connection.state === 'connected'} references={references}>
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
         <div
           className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}`}
@@ -326,6 +351,8 @@ export function App(): JSX.Element {
                 setShowSettings(true);
               }}
               onOpenUsage={() => setShowUsage(true)}
+              references={tree === null ? null : referenceList.length}
+              onOpenReferences={() => setReferenceTarget({ kind: 'library' })}
               onDeleteProject={() =>
                 void projectTree.deleteCurrent().catch((e: unknown) => report(describeError(e)))
               }
@@ -495,10 +522,45 @@ export function App(): JSX.Element {
               }}
             />
           )}
+          {referenceTarget !== null &&
+            tree !== null &&
+            (referenceTarget.kind === 'snapshot' ? (
+              <SnapshotDialog
+                runId={referenceTarget.runId}
+                reference={referenceTarget.reference}
+                onOpenCurrent={(id) => setReferenceTarget({ kind: 'edit', id })}
+                onClose={() => setReferenceTarget(null)}
+              />
+            ) : (
+              <ReferencesDialog
+                target={referenceTarget}
+                projectId={tree.project.id}
+                projectName={tree.project.name}
+                nodes={tree.nodes}
+                onClose={() => setReferenceTarget(null)}
+              />
+            ))}
           {nodeActions.confirmDialog}
           {confirm.dialog}
         </div>
       </RunControls>
+    </WindowContexts>
+  );
+}
+
+/** What anything in the window may read: whether runs can start, and the project's references. */
+function WindowContexts({
+  connected,
+  references,
+  children,
+}: {
+  connected: boolean;
+  references: References;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <RunAvailability.Provider value={connected}>
+      <ReferencesContext.Provider value={references}>{children}</ReferencesContext.Provider>
     </RunAvailability.Provider>
   );
 }

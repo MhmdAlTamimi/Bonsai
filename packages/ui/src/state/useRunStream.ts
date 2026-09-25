@@ -40,6 +40,8 @@ export function useRunStream(
    * settings object several times a second and replaced both on every arrival.
    */
   agentRevision: number;
+  /** Bumped when the project's references change, and when the stream reconnects. */
+  referencesRevision: number;
 } {
   // Live run output, keyed by node. Cleared when a run starts so a second run
   // does not read as a continuation of the first.
@@ -56,6 +58,7 @@ export function useRunStream(
   const [health, setHealth] = useState<'connecting' | 'live' | 'reconnecting'>('connecting');
   const [revision, setRevision] = useState(0);
   const [agentRevision, setAgentRevision] = useState(0);
+  const [referencesRevision, setReferencesRevision] = useState(0);
   const notify = useRef(onTreeChanged);
   notify.current = onTreeChanged;
 
@@ -139,6 +142,9 @@ export function useRunStream(
             setRevision((n) => n + 1);
             notify.current();
             break;
+          case 'references.updated':
+            setReferencesRevision((n) => n + 1);
+            break;
           default:
             break;
         }
@@ -154,11 +160,12 @@ export function useRunStream(
           // A transport gap can hide a failure the gate recorded while the
           // stream was down, so reconciling after one includes the credential.
           setAgentRevision((n) => n + 1);
+          setReferencesRevision((n) => n + 1);
           notify.current();
         }
       },
     );
   }, [projectId]);
 
-  return { streams, activity, health, revision, agentRevision };
+  return { streams, activity, health, revision, agentRevision, referencesRevision };
 }

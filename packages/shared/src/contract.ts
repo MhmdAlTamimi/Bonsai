@@ -426,6 +426,8 @@ export interface CreateReferenceRequest {
 export interface UpdateReferenceRequest {
   name?: string;
   content?: string;
+  /** Set when the content was redrawn from another experiment's conversation. */
+  sourceNodeId?: string | null;
 }
 
 /**

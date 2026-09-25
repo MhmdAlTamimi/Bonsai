@@ -43,6 +43,7 @@ import {
   draftInstruction,
   referenceContent,
   referenceName,
+  referenceSource,
 } from './references.js';
 import { conversationText } from '../domain/conversationText.js';
 import { readRunReference } from '../jobs/runContext.js';
@@ -1075,15 +1076,11 @@ route('POST', '/api/projects/:id/references', async (req, res, params, { store, 
   const projectId = params['id']!;
   if (store.getProject(projectId) === undefined) throw new HttpError(404, 'no such project');
   const body = await readJson<CreateReferenceRequest>(req);
-  const sourceNodeId = typeof body.sourceNodeId === 'string' ? body.sourceNodeId : null;
-  if (sourceNodeId !== null && store.getNode(sourceNodeId)?.project_id !== projectId) {
-    throw new HttpError(400, 'That experiment is not in this project.');
-  }
   const row = store.references.create({
     projectId,
     name: referenceName(body.name),
     content: referenceContent(body.content),
-    sourceNodeId,
+    sourceNodeId: referenceSource(store, projectId, body.sourceNodeId) ?? null,
   });
   bus.publish(projectId, { type: 'references.updated', projectId });
   sendJson(res, 201, store.referenceView(row));
@@ -1097,9 +1094,11 @@ route('PATCH', '/api/references/:id', async (req, res, params, { store, bus }) =
   const row = store.references.get(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such reference');
   const body = await readJson<UpdateReferenceRequest>(req);
+  const sourceNodeId = referenceSource(store, row.project_id, body.sourceNodeId);
   store.references.update(row.id, {
     ...(body.name === undefined ? {} : { name: referenceName(body.name) }),
     ...(body.content === undefined ? {} : { content: referenceContent(body.content) }),
+    ...(sourceNodeId === undefined ? {} : { sourceNodeId }),
   });
   bus.publish(row.project_id, { type: 'references.updated', projectId: row.project_id });
   sendJson(res, 200, store.referenceView(store.references.get(row.id)!));

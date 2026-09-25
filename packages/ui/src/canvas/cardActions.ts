@@ -14,6 +14,8 @@ export interface CardActions {
   review: (nodeId: string) => void;
   rename: (node: NodeView) => void;
   compact: (node: NodeView) => void;
+  /** Opens a new reference drawn from this experiment's conversation. */
+  reference: (node: NodeView) => void;
   details: (node: NodeView) => void;
   remove: (node: NodeView) => void;
 }

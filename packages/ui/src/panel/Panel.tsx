@@ -293,6 +293,7 @@ function NodePanel({
               )}
             {(chat.messages.length > 0 || chat.pending.length > 0) && (
               <Transcript
+                nodeId={node.id}
                 messages={chat.messages}
                 runs={runs}
                 pending={chat.pending}
@@ -353,6 +354,8 @@ function NodePanel({
             value={chat.prompt}
             onChange={chat.setPrompt}
             onSend={chat.send}
+            attached={chat.attached}
+            onAttach={chat.setAttached}
             nextRun={chat.busy ? null : (detail?.nextRunSettings ?? null)}
             onProjectSettings={onProjectSettings}
           />

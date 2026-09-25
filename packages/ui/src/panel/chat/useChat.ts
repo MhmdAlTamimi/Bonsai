@@ -3,7 +3,14 @@ import type { MessageView, NodeView } from '@bonsai/shared';
 
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
-import { clearSubmittedDraft, setSending, isSending } from './drafts.ts';
+import {
+  clearSubmittedDraft,
+  setSending,
+  isSending,
+  readAttachments,
+  writeAttachments,
+} from './drafts.ts';
+import { useReferences } from '../../state/references.ts';
 import { useDraft } from './useDraft.ts';
 import { pendingDeltas, type Delta } from './liveMerge.ts';
 import { compactCommand } from './commands.ts';
@@ -26,12 +33,16 @@ export function useChat(
   prompt: string;
   setPrompt: (value: string) => void;
   sending: boolean;
+  /** References going with the next message, by id. */
+  attached: readonly string[];
+  setAttached: (ids: readonly string[]) => void;
   busy: boolean;
   running: boolean;
   send: () => void;
 } {
   const [messages, setMessages] = useState<MessageView[]>([]);
-  const { key, prompt, setPrompt, sending } = useDraft(
+  const { byId } = useReferences();
+  const { key, prompt, setPrompt, sending, attached, setAttached } = useDraft(
     node.projectId,
     node.id,
     'reply',
@@ -82,13 +93,22 @@ export function useChat(
     setSending(key, true);
     onError(null);
     const command = compactCommand(text);
+    // Only references that still exist; one deleted since it was attached is dropped.
+    const referenceIds = attached.filter((id) => byId.has(id));
     void (
       command === null
-        ? api.startRun(node.id, text)
+        ? api.startRun(node.id, text, referenceIds)
         : api.compact(node.id, command.focus ?? undefined)
     )
       .then(() => {
         clearSubmittedDraft(key, prompt);
+        // A command carries no references, so they wait for the next message.
+        if (command === null) {
+          writeAttachments(
+            key,
+            readAttachments(key).filter((id) => !referenceIds.includes(id)),
+          );
+        }
         setRevision((n) => n + 1);
         onChanged();
       })
@@ -106,6 +126,8 @@ export function useChat(
     prompt,
     setPrompt,
     sending,
+    attached,
+    setAttached,
     busy,
     running,
     send,

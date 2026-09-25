@@ -1,6 +1,13 @@
 import type {
   AdoptProjectRequest,
   CompactRequest,
+  CreateReferenceRequest,
+  DraftReferenceRequest,
+  DraftReferenceResponse,
+  ReferenceView,
+  RunReferenceView,
+  StartRunRequest,
+  UpdateReferenceRequest,
   ChildPreviewView,
   AnswerQuestionRequest,
   ConnectionStatus,
@@ -272,11 +279,43 @@ export const api = {
       body: JSON.stringify({ focus } satisfies CompactRequest),
     }),
 
-  startRun: (nodeId: string, prompt: string) =>
+  startRun: (nodeId: string, prompt: string, referenceIds: readonly string[] = []) =>
     json<{ runId: string }>(`/api/nodes/${nodeId}/runs`, {
       method: 'POST',
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({
+        prompt,
+        ...(referenceIds.length === 0 ? {} : { referenceIds: [...referenceIds] }),
+      } satisfies StartRunRequest),
     }),
+
+  references: (projectId: string) => json<ReferenceView[]>(`/api/projects/${projectId}/references`),
+
+  createReference: (projectId: string, body: CreateReferenceRequest) =>
+    json<ReferenceView>(`/api/projects/${projectId}/references`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updateReference: (referenceId: string, body: UpdateReferenceRequest) =>
+    json<ReferenceView>(`/api/references/${referenceId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  deleteReference: (referenceId: string) =>
+    json<{ ok: true }>(`/api/references/${referenceId}`, { method: 'DELETE' }),
+
+  /** A draft from an experiment's conversation. Aborting stops the model call. */
+  draftReference: (body: DraftReferenceRequest, signal: AbortSignal) =>
+    json<DraftReferenceResponse>('/api/references/draft', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      signal,
+    }),
+
+  /** A reference exactly as a run received it. */
+  runReference: (runId: string, referenceId: string) =>
+    json<RunReferenceView & { content: string }>(`/api/runs/${runId}/references/${referenceId}`),
 
   deletionImpact: (nodeId: string) =>
     json<{ nodes: number; names: string[]; costUsd: number; commits: number }>(
@@ -304,6 +343,7 @@ export function subscribe(
     for (const type of [
       'hello',
       'tree.updated',
+      'references.updated',
       'node.status',
       'run.started',
       'run.delta',

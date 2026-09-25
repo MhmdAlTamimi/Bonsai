@@ -72,6 +72,23 @@ describe('references', () => {
     assert.notEqual(view.revision, revisionOf('first'));
   });
 
+  test('an edit keeps its source unless it names a new one', async () => {
+    const child = await createChildNode(store, {
+      projectId,
+      parentId: masterId,
+      displayName: 'try-redis',
+      description: '',
+    });
+    const row = add('smoke-test', 'first', masterId);
+    store.references.update(row.id, { content: 'second' });
+    assert.equal(store.references.get(row.id)?.source_node_id, masterId);
+    store.references.update(row.id, { content: 'third', sourceNodeId: child.nodeId });
+    assert.equal(
+      store.referenceView(store.references.get(row.id)!).source?.displayName,
+      'try-redis',
+    );
+  });
+
   test('outlives the experiment it was drawn from', async () => {
     const child = await createChildNode(store, {
       projectId,

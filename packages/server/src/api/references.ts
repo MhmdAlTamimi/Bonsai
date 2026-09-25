@@ -30,6 +30,23 @@ export function referenceContent(value: unknown): string {
   return value;
 }
 
+/**
+ * The experiment a reference was drawn from, when one is named: `undefined`
+ * when the field is absent, `null` to clear it, and otherwise an id that must
+ * belong to the same project.
+ */
+export function referenceSource(
+  store: Store,
+  projectId: string,
+  value: unknown,
+): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== 'string' || store.getNode(value)?.project_id !== projectId) {
+    throw new HttpError(400, 'That experiment is not in this project.');
+  }
+  return value;
+}
+
 /** More than this in one message is a sign something is wrong, not a workflow. */
 const MAX_ATTACHED = 20;
 

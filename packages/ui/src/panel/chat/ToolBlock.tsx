@@ -36,6 +36,7 @@ export function ToolBlock({
   name,
   parentToolUseId,
   detail,
+  subject,
   result,
   live,
 }: {
@@ -43,6 +44,8 @@ export function ToolBlock({
   parentToolUseId?: string | undefined;
   /** The command, or the file path: the one line that identifies the call. */
   detail: string;
+  /** A better name for what was read than its path, such as `@smoke-test` for a reference. */
+  subject?: string | undefined;
   result: ToolResultContent | undefined;
   /** The call has not come back yet. */
   live: boolean;
@@ -67,8 +70,12 @@ export function ToolBlock({
       <header className="tool-head">
         <span className="tool-kind">{kind}</span>
         {parentToolUseId && <span title={`Parent tool call: ${parentToolUseId}`}>Subagent</span>}
-        <span className={`tool-subject${kind === 'RUN' ? '' : ' path'}`} title={detail}>
-          {kind === 'RUN' ? detail : shortPath(edit?.path ?? detail, kind)}
+        {/* A path is trimmed from the front (right-to-left); a name is not a path. */}
+        <span
+          className={`tool-subject${kind === 'RUN' || subject !== undefined ? '' : ' path'}`}
+          title={detail}
+        >
+          {subject ?? (kind === 'RUN' ? detail : shortPath(edit?.path ?? detail, kind))}
         </span>
         {kind === 'RUN' && result !== undefined && (
           <span className={`tool-tally ${result.ok ? 'added' : 'removed'}`}>
