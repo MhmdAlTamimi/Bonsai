@@ -54,3 +54,41 @@ export function attachedReferences(store: Store, projectId: string, value: unkno
   }
   return ids;
 }
+
+/**
+ * The drafter's standing instructions. A reference is read later, by another
+ * agent, in another experiment -- so it has to stand on its own, and it must
+ * not claim more than the conversation shows.
+ */
+export const DRAFT_INSTRUCTIONS = [
+  'You write references for Bonsai: short, self-contained markdown notes that a coding agent',
+  'will be given later, in a different experiment, instead of this conversation.',
+  'Write only the reference itself, with no preamble and no sign-off.',
+  'Keep commands, file names, numbers and results exactly as they appear.',
+  'Never invent results, and never claim a check the conversation does not show.',
+  'If the conversation does not contain what is asked for, say so briefly in the reference.',
+].join(' ');
+
+/** The drafter's input: the conversation, what to write, and the current text when updating. */
+export function draftInput(
+  conversation: string,
+  instruction: string,
+  current: string | null,
+): string {
+  return [
+    conversation,
+    '## What to write',
+    instruction,
+    ...(current === null ? [] : ['## The reference as it stands -- update it as asked', current]),
+  ].join('\n\n');
+}
+
+export function draftInstruction(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new HttpError(400, 'Say what to draw from the conversation.');
+  }
+  const instruction = value.trim();
+  if (instruction.length > 2_000)
+    throw new HttpError(400, 'Keep the request under 2,000 characters.');
+  return instruction;
+}

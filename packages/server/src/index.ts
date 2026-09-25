@@ -97,6 +97,7 @@ const server = createServer((req, res) => {
         bus,
         jobs,
         conversations: runner,
+        drafts: runner,
         settings,
         connection,
         log,

@@ -11,6 +11,8 @@ import type {
   CompactRequest,
   CreateNodeRequest,
   CreateReferenceRequest,
+  DraftReferenceRequest,
+  DraftReferenceResponse,
   UpdateReferenceRequest,
   CreateProjectRequest,
   NodeDetail,
@@ -32,9 +34,17 @@ import type {
 import { isUsersOwnCheckout, type Store } from '../db/store.js';
 import type { EventBus } from './events.js';
 import type { RunJobs } from '../jobs/runNode.js';
-import type { ConversationCopier } from '../agent/AgentRunner.js';
+import type { ConversationCopier, TextDrafter } from '../agent/AgentRunner.js';
 import { copyParentConversation } from '../jobs/conversation.js';
-import { attachedReferences, referenceContent, referenceName } from './references.js';
+import {
+  DRAFT_INSTRUCTIONS,
+  attachedReferences,
+  draftInput,
+  draftInstruction,
+  referenceContent,
+  referenceName,
+} from './references.js';
+import { conversationText } from '../domain/conversationText.js';
 import { readRunReference } from '../jobs/runContext.js';
 import {
   adoptProject,
@@ -66,6 +76,8 @@ interface Ctx {
   jobs: RunJobs;
   /** Copies a parent's conversation into a child when it is created. */
   conversations: ConversationCopier;
+  /** Drafts a reference from a conversation: one model turn, no tools. */
+  drafts: TextDrafter;
   settings: Settings;
   connection: Connection;
   log: Logger;
@@ -994,6 +1006,59 @@ route('GET', '/api/runs/:id/references/:referenceId', async (_req, res, params, 
     throw new HttpError(410, 'The copy this run was given is no longer on disk.');
   });
   sendJson(res, 200, { ...recorded, content });
+});
+
+/**
+ * A draft of a reference, written from an experiment's own conversation and
+ * notes. Nothing is saved: the text goes back to the editor, where the user
+ * reads it, changes it and decides. The conversation the experiment copied
+ * from its parent is not included -- it belongs to the parent, and can be
+ * drafted from there.
+ *
+ * The model call is abandoned if the browser goes away, so closing the editor
+ * does not leave a draft being paid for in the background.
+ */
+route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
+  const { store, settings, connection, log } = ctx;
+  requireConnection(connection);
+  const body = await readJson<DraftReferenceRequest>(req);
+  const node = typeof body.nodeId === 'string' ? store.getNode(body.nodeId) : undefined;
+  const project = node === undefined ? undefined : store.getProject(node.project_id);
+  if (node === undefined || project === undefined) throw new HttpError(404, 'no such experiment');
+  const instruction = draftInstruction(body.instruction);
+  const current =
+    typeof body.current === 'string' && body.current.trim() !== '' ? body.current : null;
+
+  const messages = store.listMessages(node.id, 0);
+  const notes = node.worktree_allocated === 0 ? null : await readContextFile(node.worktree_path);
+  if (messages.length === 0 && notes === null) {
+    throw new HttpError(400, 'This experiment has no conversation to draw from yet.');
+  }
+  const conversation = conversationText(messages, notes);
+
+  const controller = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  const startedAt = Date.now();
+  const text = await ctx.drafts.draft({
+    instructions: DRAFT_INSTRUCTIONS,
+    input: draftInput(conversation.text, instruction, current),
+    model: resolveRunSettings(node, project, settings).model,
+    agentEnv: settings.agentEnv(),
+    signal: controller.signal,
+  });
+  // Sizes, never contents: the conversation is the user's own words.
+  log.info('reference.draft', {
+    nodeId: node.id,
+    inputChars: conversation.text.length,
+    outputChars: text.length,
+    durationMs: Date.now() - startedAt,
+    ...conversation.basis,
+  });
+  if (controller.signal.aborted) return;
+  if (text === '') throw new HttpError(502, 'The draft came back empty. Try asking differently.');
+  sendJson(res, 200, { text, basis: conversation.basis } satisfies DraftReferenceResponse);
 });
 
 /** Every reference in a project, by name. */

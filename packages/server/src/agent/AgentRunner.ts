@@ -190,3 +190,24 @@ export interface ConversationCopier {
    */
   forkConversation(sessionId: string, upToMessageId: string | null): Promise<string>;
 }
+
+/**
+ * One model turn with no tools: read the input, write text, nothing else.
+ *
+ * What drafts a reference from a conversation. It is deliberately not an
+ * agent: it cannot read files, run commands or change anything, and that is
+ * enforced by how it is configured, not by asking it nicely.
+ */
+export interface TextDrafter {
+  draft(request: DraftRequest): Promise<string>;
+}
+
+export interface DraftRequest {
+  /** What kind of text to write, as the system prompt. */
+  instructions: string;
+  /** Everything to write it from. */
+  input: string;
+  model: string | null;
+  agentEnv: Record<string, string> | null;
+  signal: AbortSignal;
+}

@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import { forkSession, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
@@ -13,7 +14,14 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentQuestion } from '@bonsai/shared';
 
-import type { AgentRunner, ConversationCopier, RunEvent, RunSpec } from './AgentRunner.js';
+import type {
+  AgentRunner,
+  ConversationCopier,
+  DraftRequest,
+  RunEvent,
+  RunSpec,
+  TextDrafter,
+} from './AgentRunner.js';
 import { READ_ONLY_TOOLS, gitGuardHook } from './guards.js';
 import { Inbox, SessionActivity } from './session.js';
 import { toolResultFrom } from './toolResults.js';
@@ -27,12 +35,36 @@ import { RUN_MARKER } from '../jobs/leftovers.js';
  * decides when to commit, when to freeze and what a node's git base is; this
  * only turns a RunSpec into a query() and its messages into RunEvents.
  */
-export class ClaudeSdkRunner implements AgentRunner, ConversationCopier {
+export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDrafter {
   /** The SDK's `query` and `forkSession`, unless a test supplies scripted ones. */
   constructor(
     private readonly startQuery: StartQuery = query,
     private readonly copySession: CopySession = forkSession,
+    private readonly startDraft: StartDraft = query,
   ) {}
+
+  /** A single tool-less turn; see `draftOptions` for why it cannot act. */
+  async draft(request: DraftRequest): Promise<string> {
+    const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    request.signal.addEventListener('abort', abort, { once: true });
+    try {
+      let text = '';
+      for await (const message of this.startDraft({
+        prompt: request.input,
+        options: draftOptions(request, controller),
+      })) {
+        if (message.type !== 'result') continue;
+        if (message.subtype !== 'success') {
+          throw new Error(message.errors?.join('; ') || `the draft ended: ${message.subtype}`);
+        }
+        text = message.result;
+      }
+      return text.trim();
+    } finally {
+      request.signal.removeEventListener('abort', abort);
+    }
+  }
 
   /**
    * A copy of a session, as a new session the copy's owner can resume.
@@ -290,6 +322,40 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier {
       inbox.close();
     }
   }
+}
+
+/** A one-shot query. The SDK's `query`, narrowed to what a draft uses. */
+export type StartDraft = (params: {
+  prompt: string;
+  options: Options;
+}) => AsyncIterable<SDKMessage>;
+
+/**
+ * How a draft is configured, and why it can only write text:
+ *
+ *   tools: []           -- no built-in tools at all, not merely unapproved ones;
+ *   settingSources: []  -- no user or project settings, so no MCP servers,
+ *                          skills or hooks arrive from disk;
+ *   canUseTool          -- refuses anything that still reaches it;
+ *   maxTurns: 1         -- one answer, no loop;
+ *   persistSession      -- off: a draft leaves no session behind to resume.
+ *
+ * Its working directory is the system's temporary folder, which it has no
+ * tools to look at anyway.
+ */
+export function draftOptions(request: DraftRequest, controller: AbortController): Options {
+  return {
+    cwd: tmpdir(),
+    abortController: controller,
+    tools: [],
+    settingSources: [],
+    canUseTool: () => Promise.resolve({ behavior: 'deny', message: 'Drafting uses no tools.' }),
+    maxTurns: 1,
+    persistSession: false,
+    systemPrompt: request.instructions,
+    env: { ...process.env, ...request.agentEnv },
+    ...(request.model === null ? {} : { model: request.model }),
+  };
 }
 
 /** Copies a session. The SDK's `forkSession`, narrowed to what creation uses. */

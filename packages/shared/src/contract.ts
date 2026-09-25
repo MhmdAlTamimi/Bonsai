@@ -637,9 +637,10 @@ export interface MessageView {
  *
  * A node copies its parent's CONVERSATION once, when it is created, unless it
  * was started fresh; its CODE branches from the nearest ancestor that actually
- * has a commit -- which is not the parent whenever the parent changed no files. The decision log calls that divergence
- * the single easiest thing in the design to get subtly wrong, and the panel
- * showing a node it happens to never said a word about it.
+ * has a commit -- which is not the parent whenever the parent changed no files.
+ * The decision log calls that divergence the single easiest thing in the
+ * design to get subtly wrong, and the panel showing a node it happens to never
+ * said a word about it.
  *
  * Resolved server-side because the walk is the server's to do (PRD §9
  * constraint 3, and `domain/lineage.ts` is where the rule lives). The interface

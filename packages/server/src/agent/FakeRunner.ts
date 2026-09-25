@@ -3,7 +3,14 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentQuestion, ToolResultContent } from '@bonsai/shared';
-import type { AgentRunner, ConversationCopier, RunEvent, RunSpec } from './AgentRunner.js';
+import type {
+  AgentRunner,
+  ConversationCopier,
+  DraftRequest,
+  RunEvent,
+  RunSpec,
+  TextDrafter,
+} from './AgentRunner.js';
 import { RUN_MARKER } from '../jobs/leftovers.js';
 
 /**
@@ -70,7 +77,22 @@ function wroteFile(id: string, path: string, body: string): ToolResultContent {
   };
 }
 
-export class FakeRunner implements AgentRunner, ConversationCopier {
+export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter {
+  /**
+   * A draft that shows what it was written from: the request, then the last
+   * lines of the conversation. Good enough to see the editor fill in.
+   */
+  draft(request: DraftRequest): Promise<string> {
+    const asked = /## What to write\n\n([^\n]+)/.exec(request.input)?.[1] ?? 'a reference';
+    const said = request.input
+      .split('\n')
+      .filter((line) => line.startsWith('Agent: ') || line.startsWith('User: '))
+      .slice(-3);
+    return Promise.resolve(
+      [`Stand-in draft: ${asked}`, '', ...said.map((l) => `- ${l}`)].join('\n'),
+    );
+  }
+
   /** A copy is just a new id here: the stand-in keeps no transcripts to copy. */
   forkConversation(): Promise<string> {
     return Promise.resolve(`fake-${randomUUID()}`);
