@@ -213,3 +213,21 @@ for changes.
   previously inherited parent context. This is not a security sandbox or a context compactor.
 - Review's full-file reads and saved wrapping require minimal server support; the owner approved this
   departure from Phase 1's original UI-only constraint after the existing API was inspected.
+
+## 2026-09-25 — Conversation copy, compaction and references (supersede the per-run parent snapshot)
+
+- A child copies its parent's conversation once, when it is created (an SDK session fork cut at
+  the parent's last finished run), unless it is created with Start fresh. It then resumes only
+  its own session; later parent turns never flow in. This replaces the per-run parent snapshot
+  file above: a copied session is the conversation the child continues, and it no longer grows
+  with every parent run. A failed copy leaves the child without it and says so in its thread.
+- `/compact [focus]` runs as a read-only run that commits nothing, shown in the thread while it
+  runs and as a divider afterwards (automatic compaction too). Compaction resets the copy's cut
+  point, so later children copy the compacted conversation.
+- References are project-scoped text written by the user, optionally drafted from a node's own
+  conversation and `CONTEXT.md` by one tool-less model call whose output is edited before it is
+  saved. They are attached per message with `@`, delivered as write-once files outside the
+  checkout rather than under `.bonsai/references/` in it — which removes the commit-exclusion
+  trap the brief anticipated — and snapshotted per run with their revision recorded. References
+  are mutable; what a run received is not. Node references, standing (pinned) references and
+  note conversations are not built.

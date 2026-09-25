@@ -25,6 +25,12 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   flow in. Code and conversation can come from different ancestors when the parent has no
   commits. Compaction (`/compact`) is a read-only run that commits nothing; it resets where a
   later child's copy is cut, so children copy the compacted conversation.
+- References are project-scoped text rows: not nodes, not in Git, never pasted into a prompt.
+  A run gets write-once copies outside the checkout (`run-context/<runId>/references/` in the
+  project's scratch directory) and reads them itself; each copy's revision is recorded in the
+  run's resolved context, so later edits never change what an earlier run saw. Drafting one
+  from a conversation is a single tool-less completion over that node's own messages and
+  `CONTEXT.md`, not an agent run, and returns text for the user to edit and save.
 - Name-only children have no worktree. First execution allocates a detached checkout at
   the pinned base; the first modifying run creates `node/<uuid>`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.
@@ -45,5 +51,5 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
 - Use real Git regression tests for ownership, commits, snapshots, recovery and deletion.
   Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
 
-Later phases (references, notes migration, scoped external actions,
-Apply and additional SDK capabilities) require their own scoped implementation work.
+Later phases (node references and standing references, notes migration, scoped external
+actions, Apply and additional SDK capabilities) require their own scoped implementation work.

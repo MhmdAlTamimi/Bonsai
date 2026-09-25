@@ -12,10 +12,11 @@ ancestors when the parent changed no files.
   bare repository plus a checkout; adopted projects keep the original checkout in place.
 - Selecting a repository subdirectory sets the agent's working directory. Git still
   operates on the whole repository. Bonsai does not initialize a nested repository.
-- Child creation allocates a detached worktree. A modifying run creates its branch and
-  app-owned commit. Further modifying runs append commits; no-change conversations are valid.
-- A direct child's first commit freezes its parent. Removing the last committed child
-  currently unfreezes it. An adopted project's original checkout remains read-only.
+- A child's checkout is allocated when it first runs, detached at its pinned base. A modifying
+  run creates its branch and app-owned commit. Further modifying runs append commits;
+  no-change conversations are valid.
+- Children do not freeze their parent, and existing children never move to newer parent code.
+  An adopted project's original checkout remains read-only.
 - Runs stream conversation, tool output, questions and background activity. Stop cancels
   a run and preserves partial work; Resume, Keep and Discard are recovery actions.
   Finish now ends background waiting and saves remaining changes under the existing
@@ -23,6 +24,13 @@ ancestors when the parent changed no files.
 - Compact a conversation with `/compact [focus]` in the composer or Compact conversation in a
   card's ⋯ menu. The conversation shows "Compacting conversation…" while it runs and a divider
   afterwards, for automatic compaction too. Children branched later copy the compacted version.
+- References are project-wide text written once — a test procedure, a result worth keeping —
+  and given to any experiment by typing `@name` in a message (or the composer's @ button).
+  Write one from References on the top bar, from Save as reference on a message, or from
+  Create reference in a card's ⋯ menu, which can fill it from that experiment's conversation
+  and `CONTEXT.md` with one tool-less model call. Nothing is saved until you save it. A run
+  receives its references as read-only files and keeps the copy it read; the transcript marks
+  a reference edited or deleted since and opens that exact copy.
 - Review compares the experiment's inherited base with committed and unfinished work.
   Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
 - Optional success criteria and check instructions go to the agent. Notes currently live
@@ -175,5 +183,5 @@ and cleanup failures are recorded rather than described as successful stops.
 | `packages/server/src/jobs` | Run scheduling, questions, cancellation and recovery |
 | `packages/ui` | React canvas, conversations, review and settings |
 
-References/context nodes, multiple code parents, Apply and broader SDK exposure belong
-to later phases. Stabilization does not introduce those features or migrate existing data.
+Referencing a node directly, standing (pinned) references, multiple code parents, Apply and
+broader SDK exposure belong to later phases. Stabilization does not introduce those features or migrate existing data.
