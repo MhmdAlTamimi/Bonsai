@@ -944,8 +944,10 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     // A live stream says nothing -- the standing health indicator is gone, and
     // only a gap in it speaks -- so "live" is the absence of the notice.
+    // `.run-foot` comes from the node's details, which is when the panel restores
+    // its reading position. Scrolling before that is overridden by the restore.
     await session.waitFor(
-      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.md-table')",
+      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.md-table') && !!document.querySelector('.run-foot')",
     );
     await session.eval(
       "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.__dropEvents = true; window.__sources.at(-1).dispatchEvent(new Event('error'));",
@@ -1913,11 +1915,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     };
     assert.equal(detail.runs.at(-1)!.commitSha, null, 'compacting commits nothing');
 
-    // And from the card's menu, for anyone who does not know the command.
+    // And from the card's menu, for anyone who does not know the command. The
+    // item is disabled while the card still shows the run, so wait for the card.
     await session.click('[aria-label="Actions for master"]');
-    await session.eval(
-      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.includes('Compact conversation')).click()",
-    );
+    const compactItem =
+      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.includes('Compact conversation'))";
+    await session.waitFor(`${compactItem}?.disabled === false`);
+    await session.eval(`${compactItem}.click()`);
     await session.waitFor('!!document.querySelector(\'dialog [aria-label="keep in focus"]\')');
     await session.eval(
       "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()==='Compact').click()",
