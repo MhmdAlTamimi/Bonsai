@@ -91,6 +91,7 @@ const commandResult = (result: string): SDKMessage =>
 /** Stands in for the harness: messages come out when the test says, and input is recorded. */
 class ScriptedSession implements SessionQuery {
   readonly received: string[] = [];
+  readonly options: Options;
   readonly stopped: string[] = [];
   inputClosed = false;
   private readonly out: SDKMessage[] = [];
@@ -99,6 +100,7 @@ class ScriptedSession implements SessionQuery {
   private wake: (() => void) | null = null;
 
   constructor(params: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) {
+    this.options = params.options;
     params.options.abortController?.signal.addEventListener('abort', () => {
       this.failure = new Error('aborted');
       this.notify();
@@ -149,7 +151,7 @@ class ScriptedSession implements SessionQuery {
 
 function start(
   detached: BackgroundJob[] = [],
-  overrides: Pick<Partial<RunSpec>, 'prompt' | 'isCommand'> = {},
+  overrides: Pick<Partial<RunSpec>, 'prompt' | 'isCommand' | 'references'> = {},
 ): {
   session: Promise<ScriptedSession>;
   stop: AbortController;
@@ -550,5 +552,31 @@ describe('compacting a conversation', () => {
       notices[0]!.type === 'notice' ? notices[0]!.text : '',
       /failed: the summary request failed/,
     );
+  });
+});
+
+describe('references a message carries', () => {
+  test('are named in the prompt with where to read them, and that folder may be read', async () => {
+    const run = start([], {
+      prompt: 'apply the smoke test',
+      references: [{ name: 'smoke test', path: '/data/run-context/r/references/smoke-test.md' }],
+    });
+    const session = await run.session;
+    await until(() => session.received.length === 1, 'the prompt to arrive');
+    assert.match(
+      session.received[0]!,
+      /^apply the smoke test\n\nThe user attached a reference to this message\. Read each before acting on the request; they are part of it:\n- "smoke test": \/data\/run-context\/r\/references\/smoke-test\.md\n\nBonsai run context:/,
+    );
+    assert.deepEqual(session.options.additionalDirectories, ['/data/run-context/r/references']);
+    session.emit(say('Done.'), turnOver(0));
+    await run.done;
+  });
+
+  test('a message without any grants no extra folder', async () => {
+    const run = start();
+    const session = await run.session;
+    assert.equal(session.options.additionalDirectories, undefined);
+    session.emit(say('Done.'), turnOver(0));
+    await run.done;
   });
 });

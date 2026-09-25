@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
-import type { NodeLineageView, NodeView, ProjectView } from '@bonsai/shared';
+import type { NodeLineageView, NodeView, ProjectView, ReferenceView } from '@bonsai/shared';
 
 import { deriveFlags } from '../domain/flags.js';
 import { divergesFromLiveWalk, lookupFrom } from '../domain/lineage.js';
 import type { MessageStore } from './messageStore.js';
 import type { NodeStore } from './nodeStore.js';
 import type { ProjectStore } from './projectStore.js';
+import { revisionOf, type ReferenceRow } from './referenceStore.js';
 import type { RunStore } from './runStore.js';
 import {
   isInside,
@@ -196,6 +197,22 @@ export class Views {
       row.forked_from_message_seq === null ? null : parent,
       this.snapshotSource(parent, row.base_commit),
     );
+  }
+
+  /** A reference as the interface shows it, naming the experiment it came from. */
+  reference(row: ReferenceRow): ReferenceView {
+    const source = row.source_node_id === null ? undefined : this.nodes.get(row.source_node_id);
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      name: row.name,
+      content: row.content,
+      size: row.content.length,
+      revision: revisionOf(row.content),
+      source: source === undefined ? null : { id: source.id, displayName: source.display_name },
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 
   /** Resolve the owner of a pinned snapshot, including an ancestor's older run. */

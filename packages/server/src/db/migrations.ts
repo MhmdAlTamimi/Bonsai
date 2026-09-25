@@ -164,6 +164,13 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'node: where a copy of its conversation may be cut',
     up: (db) => addColumn(db, 'node', 'session_position', 'TEXT'),
   },
+  {
+    version: 17,
+    name: 'references',
+    // schema.sql creates the table and its index on every open (IF NOT EXISTS),
+    // so an existing database already has them by now; this records the version.
+    up: () => undefined,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

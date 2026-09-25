@@ -10,6 +10,8 @@ import type {
   AnswerQuestionRequest,
   CompactRequest,
   CreateNodeRequest,
+  CreateReferenceRequest,
+  UpdateReferenceRequest,
   CreateProjectRequest,
   NodeDetail,
   RecoverRequest,
@@ -32,6 +34,8 @@ import type { EventBus } from './events.js';
 import type { RunJobs } from '../jobs/runNode.js';
 import type { ConversationCopier } from '../agent/AgentRunner.js';
 import { copyParentConversation } from '../jobs/conversation.js';
+import { attachedReferences, referenceContent, referenceName } from './references.js';
+import { readRunReference } from '../jobs/runContext.js';
 import {
   adoptProject,
   createChildNode,
@@ -805,8 +809,9 @@ route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, con
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const body = await readJson<StartRunRequest>(req);
+  const referenceIds = attachedReferences(store, row.project_id, body.referenceIds);
   try {
-    sendJson(res, 202, jobs.start(row.id, requireString(body.prompt, 'prompt')));
+    sendJson(res, 202, jobs.start(row.id, requireString(body.prompt, 'prompt'), { referenceIds }));
   } catch (err) {
     throw new HttpError(409, err instanceof Error ? err.message : String(err));
   }
@@ -968,6 +973,79 @@ route('GET', '/api/runs/:id/diff', async (_req, res, params, { store }) => {
 
   const base = await parentSnapshot(node.worktree_path, run.commit_sha);
   sendJson(res, 200, await runDiff(node.worktree_path, base, run.commit_sha));
+});
+
+// -- references --------------------------------------------------------------
+
+/**
+ * The exact text a run was given for one of its references -- the version it
+ * saw, not the reference as it reads now.
+ */
+route('GET', '/api/runs/:id/references/:referenceId', async (_req, res, params, { store }) => {
+  const run = store.getRun(params['id']!);
+  const node = run === undefined ? undefined : store.getNode(run.node_id);
+  if (run === undefined || node === undefined) throw new HttpError(404, 'no such run');
+  const recorded = store
+    .listRuns(node.id)
+    .find((r) => r.id === run.id)
+    ?.resolvedContext?.references?.find((r) => r.id === params['referenceId']);
+  if (recorded === undefined) throw new HttpError(404, 'That run was not given this reference.');
+  const content = await readRunReference(store, node.project_id, run.id, recorded).catch(() => {
+    throw new HttpError(410, 'The copy this run was given is no longer on disk.');
+  });
+  sendJson(res, 200, { ...recorded, content });
+});
+
+/** Every reference in a project, by name. */
+route('GET', '/api/projects/:id/references', (_req, res, params, { store }) => {
+  if (store.getProject(params['id']!) === undefined) throw new HttpError(404, 'no such project');
+  sendJson(
+    res,
+    200,
+    store.references.list(params['id']!).map((row) => store.referenceView(row)),
+  );
+});
+
+route('POST', '/api/projects/:id/references', async (req, res, params, { store, bus }) => {
+  const projectId = params['id']!;
+  if (store.getProject(projectId) === undefined) throw new HttpError(404, 'no such project');
+  const body = await readJson<CreateReferenceRequest>(req);
+  const sourceNodeId = typeof body.sourceNodeId === 'string' ? body.sourceNodeId : null;
+  if (sourceNodeId !== null && store.getNode(sourceNodeId)?.project_id !== projectId) {
+    throw new HttpError(400, 'That experiment is not in this project.');
+  }
+  const row = store.references.create({
+    projectId,
+    name: referenceName(body.name),
+    content: referenceContent(body.content),
+    sourceNodeId,
+  });
+  bus.publish(projectId, { type: 'references.updated', projectId });
+  sendJson(res, 201, store.referenceView(row));
+});
+
+/**
+ * Edits apply to runs from now on. A run that already used the reference keeps
+ * the snapshot it was given, which is what makes this safe to allow at all.
+ */
+route('PATCH', '/api/references/:id', async (req, res, params, { store, bus }) => {
+  const row = store.references.get(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such reference');
+  const body = await readJson<UpdateReferenceRequest>(req);
+  store.references.update(row.id, {
+    ...(body.name === undefined ? {} : { name: referenceName(body.name) }),
+    ...(body.content === undefined ? {} : { content: referenceContent(body.content) }),
+  });
+  bus.publish(row.project_id, { type: 'references.updated', projectId: row.project_id });
+  sendJson(res, 200, store.referenceView(store.references.get(row.id)!));
+});
+
+route('DELETE', '/api/references/:id', (_req, res, params, { store, bus }) => {
+  const row = store.references.get(params['id']!);
+  if (row === undefined) throw new HttpError(404, 'no such reference');
+  store.references.delete(row.id);
+  bus.publish(row.project_id, { type: 'references.updated', projectId: row.project_id });
+  sendJson(res, 200, { ok: true });
 });
 
 // -- events ------------------------------------------------------------------

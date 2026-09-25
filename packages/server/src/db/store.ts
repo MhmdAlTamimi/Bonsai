@@ -6,6 +6,7 @@ import type {
   NodeView,
   PermissionMode,
   ProjectView,
+  ReferenceView,
   RunView,
 } from '@bonsai/shared';
 
@@ -13,17 +14,20 @@ import { CheckStore } from './checkStore.js';
 import { MessageStore } from './messageStore.js';
 import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
+import { ReferenceStore } from './referenceStore.js';
 import { RunStore } from './runStore.js';
 import { Views } from './views.js';
 import type { NodeRow, ProjectRow, RunEnd, RunTotals } from './rows.js';
+import type { ReferenceRow } from './referenceStore.js';
 
 export type { NodeRow, ProjectRow, RunEnd, RunTotals };
 export { isUsersOwnCheckout, toLineage } from './rows.js';
 export type { NodeChecks, TestingSource } from './checkStore.js';
 export type { StoredQuestion } from './messageStore.js';
+export type { ReferenceRow } from './referenceStore.js';
 
 /**
- * The database, as one object with five concerns behind it.
+ * The database, as one object with six concerns behind it.
  *
  * It used to be one class of fifty methods over five tables, and every feature
  * made it longer: projects, nodes, runs, messages and checks all edited the
@@ -50,6 +54,7 @@ export class Store {
   readonly runs: RunStore;
   readonly messages: MessageStore;
   readonly checks: CheckStore;
+  readonly references: ReferenceStore;
   readonly views: Views;
 
   constructor(db: DatabaseSync, reposRoot: string, futureReposRoot?: () => string) {
@@ -58,6 +63,7 @@ export class Store {
     this.runs = new RunStore(db);
     this.messages = new MessageStore(db);
     this.checks = new CheckStore(db);
+    this.references = new ReferenceStore(db);
     this.views = new Views(this.projects, this.nodes, this.runs, this.messages);
   }
 
@@ -216,6 +222,9 @@ export class Store {
   }
   lineageOf(row: NodeRow): NodeLineageView {
     return this.views.lineageOf(row);
+  }
+  referenceView(row: ReferenceRow): ReferenceView {
+    return this.views.reference(row);
   }
 }
 

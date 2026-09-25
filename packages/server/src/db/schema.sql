@@ -230,3 +230,22 @@ CREATE TABLE IF NOT EXISTS question (
 );
 
 CREATE INDEX IF NOT EXISTS question_node_idx ON question(node_id);
+
+-- References: text written on purpose for a project -- a test procedure, a
+-- result another experiment should start from -- that any experiment can be
+-- given by name. Not a node and not in git; a run receives a snapshot as a file.
+-- The drawn-from node is kept for "from try-redis" and outlives nothing: the
+-- reference stays if that node is deleted.
+CREATE TABLE IF NOT EXISTS reference (
+  id             TEXT PRIMARY KEY,
+  project_id     TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+  name           TEXT NOT NULL,
+  content        TEXT NOT NULL,
+  source_node_id TEXT REFERENCES node(id) ON DELETE SET NULL,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+
+-- `@name` has to mean one thing.
+CREATE UNIQUE INDEX IF NOT EXISTS reference_name_idx
+  ON reference(project_id, name COLLATE NOCASE);

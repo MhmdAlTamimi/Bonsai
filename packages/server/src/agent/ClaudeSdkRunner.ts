@@ -1,3 +1,4 @@
+import { dirname } from 'node:path';
 import { forkSession, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   CanUseTool,
@@ -106,6 +107,11 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier {
        * a static, cross-session-cacheable prefix; the stripped context is
        * re-injected as the first user message, so the agent still has it.
        */
+      // The folder holding this run's reference snapshots, so reading them is
+      // an ordinary Read rather than a permission question.
+      ...(spec.references !== undefined && spec.references.length > 0
+        ? { additionalDirectories: [dirname(spec.references[0]!.path)] }
+        : {}),
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
@@ -551,7 +557,13 @@ function promptWithCriteria(spec: RunSpec): string {
   const instruction = spec.readOnly
     ? 'This run is read-only. Read/search and answer questions only; do not write notes or run commands. Explain any check that needs a writable experiment.'
     : `Write run notes only when files changed, at ${spec.contextPath ?? 'CONTEXT.md at the repository root'}. This path is independent of your current working directory.`;
-  const prompt = `${spec.prompt}\n\nBonsai run context: ${instruction}`;
+  const attached =
+    spec.references === undefined || spec.references.length === 0
+      ? ''
+      : `\n\nThe user attached ${spec.references.length === 1 ? 'a reference' : 'references'} to this message. ` +
+        'Read each before acting on the request; they are part of it:\n' +
+        spec.references.map((r) => `- ${JSON.stringify(r.name)}: ${r.path}`).join('\n');
+  const prompt = `${spec.prompt}${attached}\n\nBonsai run context: ${instruction}`;
   if (spec.readOnly || (spec.successCriteria === null && spec.verificationHint === null))
     return prompt;
 

@@ -89,6 +89,8 @@ interface Queued {
   readOnly: boolean;
   /** The prompt is a harness command (/compact), sent as written. See RunSpec.isCommand. */
   command: boolean;
+  /** References the message carries, snapshotted when the run starts executing. */
+  referenceIds: readonly string[];
   controller: AbortController;
 }
 
@@ -423,9 +425,12 @@ export class RunJobs {
         : await readWorktreeState(node.worktree_path);
     const original = this.store.lastUserPrompt(nodeId) ?? node.description;
     const last = this.store.listRuns(nodeId).at(-1);
+    // The interrupted request carried these; resuming it should too.
+    const referenceIds = (last?.resolvedContext?.references ?? []).map((r) => r.id);
     return this.start(
       nodeId,
       resumePrompt(state, original, recoveryCause(last), last?.error ?? null),
+      { referenceIds },
     );
   }
 
@@ -444,7 +449,11 @@ export class RunJobs {
     });
   }
 
-  start(nodeId: string, prompt: string, options: { command?: boolean } = {}): { runId: string } {
+  start(
+    nodeId: string,
+    prompt: string,
+    options: { command?: boolean; referenceIds?: readonly string[] } = {},
+  ): { runId: string } {
     const command = options.command === true;
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
@@ -482,6 +491,7 @@ export class RunJobs {
       prompt,
       readOnly,
       command,
+      referenceIds: command ? [] : (options.referenceIds ?? []),
       controller,
     };
 
@@ -726,7 +736,7 @@ export class RunJobs {
   }
 
   private async execute(
-    { runId, nodeId, prompt, readOnly, command }: Queued,
+    { runId, nodeId, prompt, readOnly, command, referenceIds }: Queued,
     live: LiveRun,
   ): Promise<void> {
     const controller = live.controller;
@@ -776,7 +786,16 @@ export class RunJobs {
     this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     try {
-      resolveRunContext(this.store, node, runId);
+      const resolved = await resolveRunContext(this.store, node, runId, referenceIds);
+      if (resolved.missing.length > 0) {
+        this.store.appendMessage({
+          nodeId,
+          runId,
+          role: 'system',
+          kind: 'text',
+          content: `${resolved.missing.length === 1 ? 'A reference was' : `${resolved.missing.length} references were`} deleted before this run started, so ${resolved.missing.length === 1 ? 'it was' : 'they were'} not attached.`,
+        });
+      }
       if (controller.signal.aborted) throw new Error('Cancelled before allocation.');
       const seeded = await allocateNodeWorktree(this.store, node);
       for (const outcome of seeded)
@@ -824,6 +843,7 @@ export class RunJobs {
         contextPath: join(node.worktree_path, 'CONTEXT.md'),
         prompt,
         isCommand: command,
+        references: resolved.references,
         // Always the node's own session. A child's was copied from its parent
         // when it was created (jobs/conversation.ts), never here.
         resumeSessionId: node.session_id,

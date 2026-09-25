@@ -17,6 +17,12 @@ export interface RunSpec {
    */
   isCommand?: boolean;
   /**
+   * References the user attached to this message, as files to read. The agent
+   * is told their names and where they are, and may read outside its working
+   * directory to reach them; their text is never pasted into the prompt.
+   */
+  references?: ReadonlyArray<{ name: string; path: string }>;
+  /**
    * The node's OWN session, to continue, or null when it has none yet.
    *
    * Always the node's own: a child's copy of its parent's conversation is made

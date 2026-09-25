@@ -111,6 +111,10 @@ export class FakeRunner implements AgentRunner, ConversationCopier {
         : `Working on: ${spec.prompt.trim()}`,
     };
     yield { type: 'position', messageId: randomUUID() };
+    // Reads what it was given, the way a real agent does -- a Read of each file.
+    for (const reference of spec.references ?? []) {
+      yield { type: 'tool', name: 'Read', detail: reference.path, id: randomUUID() };
+    }
 
     /**
      * D42: the stand-in asks the user something, too.

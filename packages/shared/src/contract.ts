@@ -393,6 +393,81 @@ export interface CompactRequest {
 }
 
 /**
+ * A reference: a piece of text written on purpose -- a test procedure several
+ * experiments should run, a result one experiment found that another should
+ * start from -- that any experiment in the project can be given by name.
+ *
+ * Not a node and not on the tree. It is written by the user, optionally from a
+ * draft of a node's conversation, and it reaches a run as a file the agent
+ * reads, never as text pasted into the prompt.
+ */
+export interface ReferenceView {
+  id: string;
+  projectId: string;
+  /** Unique in the project, ignoring case. What `@` finds. */
+  name: string;
+  content: string;
+  /** Characters, for the size shown where it is attached. */
+  size: number;
+  /** Changes whenever the content does, so "edited since this run" is a comparison. */
+  revision: string;
+  /** The experiment it was drawn from, when there was one. */
+  source: { id: string; displayName: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateReferenceRequest {
+  name: string;
+  content: string;
+  sourceNodeId?: string | null;
+}
+
+export interface UpdateReferenceRequest {
+  name?: string;
+  content?: string;
+}
+
+/**
+ * Ask for a draft of a reference from an experiment's conversation. One model
+ * call with no tools: it reads and writes text, and changes nothing.
+ */
+export interface DraftReferenceRequest {
+  nodeId: string;
+  /** What to draw out: "summarise the results", "extract the test procedure". */
+  instruction: string;
+  /** The reference as it stands, when updating one rather than starting fresh. */
+  current?: string;
+}
+
+export interface DraftReferenceResponse {
+  text: string;
+  /** What the draft was written from, so the editor can say so. */
+  basis: DraftBasis;
+}
+
+export interface DraftBasis {
+  /** Messages in the experiment's own conversation. */
+  messages: number;
+  /** How many of them the draft saw; fewer when a long conversation was trimmed. */
+  included: number;
+  /** Tool output was left out to fit, keeping only which tools ran. */
+  toolOutputOmitted: boolean;
+  /** The experiment's CONTEXT.md notes were included. */
+  notes: boolean;
+}
+
+/** A reference exactly as a run received it. */
+export interface RunReferenceView {
+  id: string;
+  name: string;
+  revision: string;
+  size: number;
+  /** The snapshot's file name, so a Read of it can be named as this reference. */
+  file: string;
+}
+
+/**
  * What a run was given, fixed when it started executing and recorded with it.
  *
  * The conversation is not in here: a node carries its own session, copied
@@ -409,6 +484,8 @@ export interface ResolvedRunContext {
   parentNodeId: string | null;
   parentName: string | null;
   parentHeadCommit: string | null;
+  /** References attached to this run's message, as they were when it started. */
+  references?: RunReferenceView[];
 }
 
 export interface RunView {
@@ -813,6 +890,8 @@ export interface UpdateNodeRequest {
 
 export interface StartRunRequest {
   prompt: string;
+  /** References the message carries. Each must belong to the node's project. */
+  referenceIds?: string[];
 }
 
 /**
@@ -847,6 +926,8 @@ export interface RecoverRequest {
 export type ServerEvent =
   | { type: 'hello'; projectId: string }
   | { type: 'tree.updated'; projectId: string }
+  /** The project's references changed: one was written, edited or deleted. */
+  | { type: 'references.updated'; projectId: string }
   | { type: 'node.status'; nodeId: string; status: NodeStatus }
   | { type: 'run.started'; nodeId: string; runId: string }
   | {
