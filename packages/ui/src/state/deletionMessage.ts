@@ -1,4 +1,5 @@
 import type { DeletionImpactView } from '@bonsai/shared';
+import { plural } from '../words.ts';
 
 /**
  * What to say before deleting a project.
@@ -18,7 +19,7 @@ import type { DeletionImpactView } from '@bonsai/shared';
  */
 export function deletionMessage(impact: DeletionImpactView): string[] {
   const paragraphs = [
-    `This permanently removes ${impact.nodes} experiment${impact.nodes === 1 ? '' : 's'}, their conversations and run history. ` +
+    `This permanently removes ${plural(impact.nodes, 'experiment')}, their conversations and run history. ` +
       'It cannot be undone.',
   ];
 

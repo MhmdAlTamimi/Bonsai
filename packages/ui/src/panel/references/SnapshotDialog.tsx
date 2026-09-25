@@ -3,8 +3,7 @@ import type { RunReferenceView } from '@bonsai/shared';
 
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
-import { Dialog } from '../../Dialog.tsx';
-import { Icon } from '../../Icon.tsx';
+import { Dialog, DialogHeader } from '../../Dialog.tsx';
 import { referenceSize, useReferences } from '../../state/references.ts';
 
 /**
@@ -46,15 +45,11 @@ export function SnapshotDialog({
   const edited = current !== undefined && current.revision !== reference.revision;
   return (
     <Dialog title="Reference as sent" className="wide reference-dialog" onClose={onClose}>
-      <header>
-        <div>
-          <h3>@{reference.name}</h3>
-          <p className="hint">As this run received it · {referenceSize(reference.size)}</p>
-        </div>
-        <button className="dialog-close" aria-label="Close reference" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </header>
+      <DialogHeader
+        title={`@${reference.name}`}
+        subtitle={`As this run received it · ${referenceSize(reference.size)}`}
+        onClose={onClose}
+      />
       {current === undefined ? (
         <p className="note">Deleted since this run. This copy is what the agent was given.</p>
       ) : (
@@ -62,7 +57,9 @@ export function SnapshotDialog({
       )}
       {content === null ? (
         error === null ? (
-          <p role="status">Loading the copy this run was given…</p>
+          <p className="loading" role="status">
+            Loading the copy this run was given
+          </p>
         ) : (
           <p className="error" role="alert">
             {error}

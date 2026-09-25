@@ -1,7 +1,10 @@
 import { type JSX, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ComparedExperimentView, ComparisonView } from '@bonsai/shared';
 
-import { Icon } from '../Icon.tsx';
+import { BackToMap } from '../BackToMap.tsx';
+import { ErrorNote } from '../ErrorNote.tsx';
+import { Icon, IconButton } from '../Icon.tsx';
+import { plural } from '../words.ts';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import type { ConfirmRequest } from '../ConfirmDialog.tsx';
@@ -108,13 +111,7 @@ export function ComparePage({
   return (
     <section className="compare" aria-label="Compare experiments">
       <header className="review-bar compare-head">
-        <button className="back" onClick={onBack} title="Back to the map (Esc)">
-          <span aria-hidden="true">←</span>
-          <span>Back to canvas</span>
-          <span className="keycap" aria-hidden="true">
-            Esc
-          </span>
-        </button>
+        <BackToMap onBack={onBack} />
         <span className="bar-divider" aria-hidden="true" />
         <Icon name="compare" />
         {data === null ? (
@@ -129,10 +126,10 @@ export function ComparePage({
         <div className="spacer" />
         {data !== null && (
           <>
-            <button
-              className="icon-only compare-save"
-              aria-label="Save this comparison as a reference"
-              title="Save this comparison as a reference"
+            <IconButton
+              icon="reference"
+              className="compare-save"
+              label="Save this comparison as a reference"
               disabled={data.turns.length === 0}
               onClick={() =>
                 references.open({
@@ -141,9 +138,7 @@ export function ComparePage({
                   comparison: { id: data.id, title: data.title },
                 })
               }
-            >
-              <Icon name="reference" />
-            </button>
+            />
             <CompareMenu
               onDelete={() =>
                 void ask({
@@ -171,21 +166,23 @@ export function ComparePage({
         }}
       >
         {data === null ? (
-          <p className={error === null ? 'muted compare-loading' : 'error'} role="status">
-            {error ?? 'Loading the comparison…'}
+          <p className={error === null ? 'muted compare-loading loading' : 'error'} role="status">
+            {error ?? 'Loading the comparison'}
           </p>
         ) : (
           <>
             {stale.length > 0 && (
               <div className="compare-stale" role="status">
                 <span>
-                  {stale
-                    .map((e) => `${e.name} has ${e.newRuns} new run${e.newRuns === 1 ? '' : 's'}`)
-                    .join(' · ')}{' '}
+                  {stale.map((e) => `${e.name} has ${plural(e.newRuns, 'new run')}`).join(' · ')}{' '}
                   since this comparison.
                 </span>
-                <button disabled={updating || running} onClick={() => void update()}>
-                  {updating ? 'Updating…' : 'Update comparison'}
+                <button
+                  disabled={updating || running}
+                  aria-busy={updating}
+                  onClick={() => void update()}
+                >
+                  Update comparison
                 </button>
               </div>
             )}
@@ -227,9 +224,7 @@ export function ComparePage({
 
       <div className="compare-foot thread-width">
         {actionError !== null && (
-          <p className="error" role="alert">
-            {actionError} <button onClick={() => setActionError(null)}>Dismiss</button>
-          </p>
+          <ErrorNote onDismiss={() => setActionError(null)}>{actionError}</ErrorNote>
         )}
         <CompareComposer
           projectId={projectId}
@@ -333,14 +328,13 @@ function ExperimentCard({
         <span className={`status-dot st-${facts.status}`} aria-hidden="true" />
         <span className="compare-card-status">{STATUS_LABEL[facts.status]}</span>
         {experiment.nodeId !== null && (
-          <button
-            className="icon-only"
-            aria-label={`Open ${experiment.name}`}
+          <IconButton
+            icon="arrowRight"
+            size="sm"
+            label={`Open ${experiment.name}`}
             title="Open this experiment"
             onClick={() => onOpen(experiment.nodeId!)}
-          >
-            <Icon name="arrowRight" />
-          </button>
+          />
         )}
       </header>
       {experiment.nodeId === null && (
@@ -363,7 +357,7 @@ function ExperimentCard({
             missing('Nothing committed')
           ) : (
             <>
-              {facts.files.length} file{facts.files.length === 1 ? '' : 's'}{' '}
+              {plural(facts.files.length, 'file')}{' '}
               <span className="tool-tally added">+{facts.added}</span>{' '}
               <span className="tool-tally removed">−{facts.removed}</span>
               <small className="compare-files">
@@ -378,7 +372,7 @@ function ExperimentCard({
         </dd>
       </dl>
       <footer>
-        {facts.runs} run{facts.runs === 1 ? '' : 's'} · ${facts.costUsd.toFixed(2)}
+        {plural(facts.runs, 'run')} · ${facts.costUsd.toFixed(2)}
         {experiment.newRuns > 0 && (
           <span className="compare-card-new">{experiment.newRuns} new since</span>
         )}

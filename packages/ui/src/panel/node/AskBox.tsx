@@ -77,7 +77,7 @@ function useSend(
       // Answered from another window, or the run ended while this was open.
       // Not a failure to retry: the tree is about to say what happened.
       if (e instanceof ApiCallError && e.status === 409) {
-        onError('This was already answered or the run ended. Refreshing…');
+        onError('This was already answered or the run ended. Showing what happened.');
         setSubmitted(true);
         onAnswered();
         return;
@@ -139,7 +139,7 @@ function PermissionBox({
         <input
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="What should it do instead? (sent with a refusal)"
+          placeholder="What should it do instead?"
           aria-label="Reason or alternative instruction (sent when refusing)"
           disabled={sending.busy}
           onKeyDown={(e) => {
@@ -153,7 +153,9 @@ function PermissionBox({
         />
       </label>
       {sending.busy && (
-        <p role="status">{sending.submitted ? 'Answer recorded · updating…' : 'Sending answer…'}</p>
+        <p className="loading" role="status">
+          {sending.submitted ? 'Answer recorded · updating' : 'Sending answer'}
+        </p>
       )}
       <div className="ask-actions">
         <button onClick={() => void answer(false)} disabled={sending.busy}>
@@ -239,7 +241,7 @@ function QuestionBox({
                   type="text"
                   className="choice-other-text"
                   value={picked.otherText}
-                  placeholder="Your own answer"
+                  placeholder="Type your own answer"
                   aria-label={`Your own answer to: ${question.question}`}
                   onChange={(e) => update(index, (p) => typeOther(question, p, e.target.value))}
                   onKeyDown={(e) => {
@@ -260,7 +262,9 @@ function QuestionBox({
         );
       })}
       {sending.busy && (
-        <p role="status">{sending.submitted ? 'Answer recorded · updating…' : 'Sending answer…'}</p>
+        <p className="loading" role="status">
+          {sending.submitted ? 'Answer recorded · updating' : 'Sending answer'}
+        </p>
       )}
       <div className="ask-actions">
         <button

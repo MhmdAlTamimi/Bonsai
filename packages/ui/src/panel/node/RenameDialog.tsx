@@ -2,7 +2,7 @@ import { useRef, useState, type JSX } from 'react';
 import type { NodeView } from '@bonsai/shared';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
-import { Dialog } from '../../Dialog.tsx';
+import { Dialog, DialogHeader } from '../../Dialog.tsx';
 import { cardMenuButton } from '../../canvas/cardActions.ts';
 
 export function RenameDialog({
@@ -44,10 +44,12 @@ export function RenameDialog({
       onClose={close}
       returnFocus={cardMenuButton(node.displayName)}
     >
-      <h3>Rename experiment</h3>
-      <p className="hint">
-        Changes the map label only. Code, history and conversation stay the same.
-      </p>
+      <DialogHeader
+        title="Rename experiment"
+        subtitle="Changes the map label only. Code, history and conversation stay the same."
+        onClose={close}
+        closeDisabled={busy}
+      />
       <label className="stacked">
         Experiment name
         <input
@@ -76,9 +78,10 @@ export function RenameDialog({
         <button
           className="primary"
           disabled={busy || name.trim() === ''}
+          aria-busy={busy}
           onClick={() => void save()}
         >
-          {busy ? 'Saving…' : 'Save name'}
+          Save name
         </button>
       </div>
     </Dialog>

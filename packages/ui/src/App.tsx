@@ -29,6 +29,7 @@ import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
 import { PanelResizer } from './PanelResizer.tsx';
 import { RunControls, StopAll } from './state/RunControls.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
+import { ErrorNote } from './ErrorNote.tsx';
 import {
   ReferencesContext,
   useProjectReferences,
@@ -333,8 +334,8 @@ export function App(): JSX.Element {
   if (connection.state === 'unknown' && projects.length === 0)
     return (
       <div className="app single">
-        <div className="connect" role="status">
-          {connectionError ?? 'Checking connection…'}
+        <div className={`connect${connectionError === null ? ' loading' : ''}`} role="status">
+          {connectionError ?? 'Checking connection'}
           {!checking && <button onClick={reload}>Retry connection</button>}
         </div>
       </div>
@@ -453,28 +454,32 @@ export function App(): JSX.Element {
               </div>
             )}
             {error !== null && (
-              <div className="banner" role="alert">
-                {error} <button onClick={() => setError(null)}>Dismiss</button>
-              </div>
+              <ErrorNote className="banner" onDismiss={() => setError(null)}>
+                {error}
+              </ErrorNote>
             )}
             {connectionError !== null && (
-              <div className="banner" role="alert">
-                {connectionError} <button onClick={reload}>Retry connection</button>
-              </div>
+              <ErrorNote className="banner" onRetry={reload} retryLabel="Retry connection">
+                {connectionError}
+              </ErrorNote>
             )}
             {live.health === 'reconnecting' && (
-              <div className="transport-notice" role="status">
-                Reconnecting to Bonsai… Showing last received state.
+              <div className="transport-notice loading" role="status">
+                Reconnecting to Bonsai · showing the last received state
               </div>
             )}
             {projectTree.error !== null ? (
-              <div className="tree-notice" role="alert">
+              <ErrorNote
+                className="tree-notice"
+                onRetry={projectTree.retry}
+                retryLabel="Retry project"
+              >
                 {tree !== null && 'Project updates unavailable. '}
-                {projectTree.error} <button onClick={projectTree.retry}>Retry project</button>
-              </div>
+                {projectTree.error}
+              </ErrorNote>
             ) : projectTree.loading && tree === null ? (
-              <div className="tree-notice" role="status">
-                Loading project…
+              <div className="tree-notice loading" role="status">
+                Loading project
               </div>
             ) : null}
             <StopAll nodes={tree?.nodes ?? []} />

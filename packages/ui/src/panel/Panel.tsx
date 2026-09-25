@@ -3,6 +3,9 @@ import type { NodeDetail, NodeView, ProjectView, RunActivity } from '@bonsai/sha
 
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import { ErrorNote } from '../ErrorNote.tsx';
+import { Icon, IconButton } from '../Icon.tsx';
+import { plural } from '../words.ts';
 import { Recovery } from './node/Recovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
 import { nodeStatusTitle } from '../nodeStatus.tsx';
@@ -189,21 +192,19 @@ function NodePanel({
        * finds it in the same place whatever the width.
        */}
       <header className="panel-head">
-        <button
+        <IconButton
+          icon="chevronRight"
           className="collapse"
-          aria-label={narrow ? 'Back to map' : 'Collapse the conversation'}
+          label={narrow ? 'Back to map' : 'Collapse the conversation'}
           title={narrow ? 'Back to map' : 'Collapse the conversation (⌘\\)'}
           onClick={onHide}
         >
-          <span aria-hidden="true">›</span>
           <span className="collapse-bar" aria-hidden="true" />
-        </button>
+        </IconButton>
         <div className="spacer" />
         <span className="node-dot" title={nodeStatusTitle(node)} aria-hidden="true" />
         <h2 title={node.displayName}>{node.displayName}</h2>
-        <span className="run-count">
-          {runs.length} run{runs.length === 1 ? '' : 's'}
-        </span>
+        <span className="run-count">{plural(runs.length, 'run')}</span>
       </header>
 
       <p className="panel-meta">
@@ -225,9 +226,7 @@ function NodePanel({
           <span className="no-change">no file changes</span>
         ) : (
           <>
-            <span>
-              {node.diffStat.files} file{node.diffStat.files === 1 ? '' : 's'}
-            </span>
+            <span>{plural(node.diffStat.files, 'file')}</span>
             <span className="added">+{node.diffStat.added.toLocaleString()}</span>
             {node.diffStat.removed > 0 && (
               <span className="removed">−{node.diffStat.removed.toLocaleString()}</span>
@@ -238,7 +237,7 @@ function NodePanel({
 
       {isYourFolder && (
         <p className="note" title={project?.sourcePath ?? undefined}>
-          Your own folder — read only. Branch a child to make changes.
+          Your own folder — read only. Branch an experiment to make changes.
         </p>
       )}
       {detail?.baseIsPinnedBehindLiveWalk === true && (
@@ -262,27 +261,32 @@ function NodePanel({
               <section className="start">
                 <h3>Ready for the first run</h3>
                 <p className="hint">
-                  Creating this experiment has not run the agent. Edit the request below, then
-                  choose Start first run.
+                  Creating this experiment has not run the agent. Edit the request below, then send
+                  it to start the first run.
                 </p>
               </section>
             )}
 
             {(detail === null || detailError !== null) &&
               (detailError === null ? (
-                <p role="status">Loading experiment details…</p>
-              ) : (
-                <p className="error" role="alert">
-                  {detailError}{' '}
-                  <button onClick={() => setRevision((n) => n + 1)}>Retry details</button>
+                <p className="loading" role="status">
+                  Loading experiment details
                 </p>
+              ) : (
+                <ErrorNote onRetry={() => setRevision((n) => n + 1)} retryLabel="Retry details">
+                  {detailError}
+                </ErrorNote>
               ))}
-            {chat.loading && !chat.loaded && <p role="status">Loading conversation…</p>}
-            {chat.error !== null && (
-              <p className="error" role="alert">
-                {chat.loaded && 'Showing previously loaded conversation. '}
-                {chat.error} <button onClick={chat.retry}>Retry conversation</button>
+            {chat.loading && !chat.loaded && (
+              <p className="loading" role="status">
+                Loading conversation
               </p>
+            )}
+            {chat.error !== null && (
+              <ErrorNote onRetry={chat.retry} retryLabel="Retry conversation">
+                {chat.loaded && 'Showing previously loaded conversation. '}
+                {chat.error}
+              </ErrorNote>
             )}
             {chat.loaded &&
               chat.error === null &&
@@ -315,7 +319,8 @@ function NodePanel({
          */}
         {reading.away && (
           <button className="jump-latest" onClick={reading.jump}>
-            {reading.unread ? 'New output · Jump ↓' : 'Jump to latest ↓'}
+            <Icon name="arrowDown" />
+            {reading.unread ? 'New output' : 'Jump to latest'}
           </button>
         )}
       </div>
@@ -333,11 +338,7 @@ function NodePanel({
               onRecover={(action) => void actions.recover(node, action)}
             />
           )}
-        {error !== null && (
-          <p className="error" role="alert">
-            {error} <button onClick={() => setError(null)}>Dismiss</button>
-          </p>
-        )}
+        {error !== null && <ErrorNote onDismiss={() => setError(null)}>{error}</ErrorNote>}
         <ActivityStrip node={node} activity={activity} onError={setError} />
         {startError !== null && (
           <p className="error start-error" role="alert">

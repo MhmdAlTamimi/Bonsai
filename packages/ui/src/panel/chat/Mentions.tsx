@@ -10,13 +10,14 @@ import {
   useState,
 } from 'react';
 
-import { Icon } from '../../Icon.tsx';
+import { Icon, IconButton } from '../../Icon.tsx';
 import { STATUS_LABEL } from '../../nodeStatus.tsx';
 import { useAnchoredAbove } from '../../useAnchoredAbove.ts';
 import { useExperiments } from '../../state/experiments.ts';
 import { referenceSize, useReferences } from '../../state/references.ts';
 import type { Attachment } from './drafts.ts';
 import { matchMentions, mentionAt, withoutMention } from './mentions.ts';
+import { plural } from '../../words.ts';
 
 /**
  * `@` in a message box: the menu that offers what can be attached, and the
@@ -33,8 +34,6 @@ interface Option extends Attachment {
   label: string;
   detail: string;
 }
-
-const run = (count: number): string => `${count} run${count === 1 ? '' : 's'}`;
 
 /**
  * The menu, and what the box needs to drive it. Keys are only taken while
@@ -113,7 +112,7 @@ export function useMentionMenu({
             kind: 'experiment',
             id: node.id,
             label: node.displayName,
-            detail: `${STATUS_LABEL[node.status]} · ${run(node.runCount)}`,
+            detail: `${STATUS_LABEL[node.status]} · ${plural(node.runCount, 'run')}`,
           })),
         });
       }
@@ -288,7 +287,7 @@ export function AttachedChips({
           {
             item,
             name: node.displayName,
-            detail: run(node.runCount),
+            detail: plural(node.runCount, 'run'),
             title: 'Go to this experiment',
             open: () => experiments.open(node.id),
           },
@@ -304,15 +303,15 @@ export function AttachedChips({
             @{name}
           </button>
           <small>{detail}</small>
-          <button
+          <IconButton
+            icon="close"
+            size="xs"
             className="reference-chip-remove"
-            aria-label={`Remove @${name}`}
+            label={`Remove @${name}`}
             onClick={() =>
               onAttach(attached.filter((a) => a.kind !== item.kind || a.id !== item.id))
             }
-          >
-            <Icon name="close" />
-          </button>
+          />
         </li>
       ))}
     </ul>

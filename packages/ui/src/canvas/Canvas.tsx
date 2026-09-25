@@ -102,7 +102,7 @@ export function Canvas({
 
     onBranch({
       parentId,
-      parentName: nodes.find((n) => n.id === parentId)?.displayName ?? 'this node',
+      parentName: nodes.find((n) => n.id === parentId)?.displayName ?? 'this experiment',
       position: screenToFlowRef.current({ x: point.clientX, y: point.clientY }),
     });
   };
@@ -111,7 +111,7 @@ export function Canvas({
   const branchFrom = (parentId: string): void =>
     onBranch({
       parentId,
-      parentName: nodes.find((n) => n.id === parentId)?.displayName ?? 'this node',
+      parentName: nodes.find((n) => n.id === parentId)?.displayName ?? 'this experiment',
       position: null,
     });
 

@@ -1,5 +1,6 @@
 import { useState, type JSX } from 'react';
 
+import { CopyButton } from '../../CopyButton.tsx';
 import { parseMarkdown, type Block, type Inline } from './markdown.ts';
 import { Disclosure } from './Disclosure.tsx';
 
@@ -165,22 +166,11 @@ function MdTable({ header, rows }: { header: Inline[][]; rows: Inline[][][] }): 
 }
 
 function CodeBlock({ text, lang }: { text: string; lang: string | null }): JSX.Element {
-  const [feedback, setFeedback] = useState<string | null>(null);
   return (
     <div className="md-code-block">
       <div className="code-actions">
         <span>{lang ?? 'Code'}</span>
-        <button
-          onClick={() => {
-            void navigator.clipboard
-              .writeText(text)
-              .then(() => setFeedback('Copied'))
-              .catch(() => setFeedback('Copy failed. Select the code to copy manually.'));
-          }}
-        >
-          Copy code
-        </button>
-        <span role="status">{feedback}</span>
+        <CopyButton text={text} label="Copy code" />
       </div>
       <pre className="md-code" data-lang={lang ?? undefined}>
         <code>{text}</code>

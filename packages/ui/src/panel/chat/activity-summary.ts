@@ -140,25 +140,26 @@ export function summarise(steps: readonly Step[]): string {
 
 /**
  * What a running stretch says while it runs: the step in progress, in the
- * present tense. "Running **pytest -q**…".
+ * present tense. "Running **pytest -q**" -- the line pulses while it runs,
+ * so it needs no trailing dots to say so.
  */
 export function runningLabel(step: Step): string {
   switch (step.kind) {
     case 'command':
-      return `Running **${clip(step.detail, 60)}**…`;
+      return `Running **${clip(step.detail, 60)}**`;
     case 'read':
-      return `Reading ${labelTarget(step)}…`;
+      return `Reading ${labelTarget(step)}`;
     case 'create':
     case 'edit':
-      return `Writing ${labelTarget(step)}…`;
+      return `Writing ${labelTarget(step)}`;
     case 'search':
-      return `Searching for **${clip(step.detail, 60)}**…`;
+      return `Searching for **${clip(step.detail, 60)}**`;
     case 'fetch':
-      return `Looking up **${clip(step.detail, 60)}**…`;
+      return `Looking up **${clip(step.detail, 60)}**`;
     case 'ask':
-      return 'Asking you a question…';
+      return 'Asking you a question';
     default:
-      return `Using ${step.name}…`;
+      return `Using ${step.name}`;
   }
 }
 

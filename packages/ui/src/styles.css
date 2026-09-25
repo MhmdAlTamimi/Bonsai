@@ -39,6 +39,8 @@
   --surface: #131519;
   --surface-2: #15181c;
   --surface-3: #1b1e24;
+  --surface-raised: #171a1f;
+  --control: #1f232a;
   --control-hover: #23262d;
   --control-strong: #242832;
   --control-strong-hover: #2b303b;
@@ -51,6 +53,9 @@
   /* Hairlines are for dividing content inside one surface, not panels. */
   --line: rgba(255, 255, 255, 0.06);
   --line-strong: rgba(255, 255, 255, 0.13);
+  /* The border a form control keeps against the panel, and the focus ring. */
+  --control-line: #777f90;
+  --focus: #b3aaff;
   --rail-idle: rgba(255, 255, 255, 0.07);
   --rail-live: rgba(109, 93, 246, 0.42);
 
@@ -95,6 +100,10 @@
 
   --ok: #3fb950;
   --err: #f0563a;
+  /* The same two, lifted for text on the deepest surface: line numbers and
+     failure lines in a command's output. */
+  --ok-text: #6fbf7c;
+  --err-text: #ee8672;
   --running: #e3a008;
   --warn: var(--running);
 
@@ -382,19 +391,154 @@ button.linkish.danger:hover:not(:disabled) {
   color: var(--err);
 }
 
-/* Stop. The only red control that is not a delete: a run in flight is spending
-   money, and the button that ends it should be findable without reading. */
-button.stop {
-  background: none;
+/* Stop all: the one Stop with words, because it floats over the map with no
+   run beside it to say what it would stop. Every other Stop is the red square
+   below. */
+button.stop-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--err) 55%, transparent);
   color: var(--err);
-  padding: 2px 9px;
+  padding: 5px 12px;
   font-size: var(--fs-xs);
+  box-shadow: var(--shadow);
 }
-button.stop:hover:not(:disabled) {
+button.stop-all:hover:not(:disabled) {
   background: var(--err);
   border-color: var(--err);
   color: var(--bg);
+}
+
+/*
+ * ONE ICON BUTTON (Icon.tsx's IconButton).
+ *
+ * Square, ghost until hovered, the icon in the dim ink, its name in the
+ * tooltip. Three sizes: md for a toolbar or a composer row, sm inside a line
+ * of text or a block, xs inside a chip. Everything that is only an icon is one
+ * of these; a class per place is how the app ended up with eleven.
+ */
+.icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: var(--h-control);
+  height: var(--h-control);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-8);
+  background: transparent;
+  color: var(--muted-3);
+  font-size: var(--t-body);
+  line-height: 1;
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--text);
+}
+.icon-button.sm {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-6);
+  font-size: var(--t-row);
+}
+.icon-button.xs {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-5);
+  font-size: var(--t-micro);
+}
+/* Words beside the icon, for a moment: the button widens, nothing else moves. */
+.icon-button.labelled {
+  width: auto;
+  min-width: var(--h-control);
+  padding: 0 6px;
+}
+.icon-button.sm.labelled {
+  min-width: 22px;
+  padding: 0 5px;
+  font: var(--t-nano) / 1.45 var(--mono);
+}
+/* Send: the one filled icon button, because it is the action of the box. */
+.icon-button.accent {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.icon-button.accent:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: var(--accent-fg);
+}
+/* Stop: red without words. The square says it too, so colour is not alone. */
+.icon-button.danger {
+  color: var(--err);
+}
+.icon-button.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 16%, transparent);
+  color: var(--err);
+}
+.icon-button[aria-busy='true'] .icon {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* Copied, or not: said beside the icon, in the colour of what happened. */
+.copy-button.copied {
+  background: var(--accent-soft);
+  color: var(--accent-text-dim);
+}
+.copy-button.failed {
+  background: color-mix(in srgb, var(--err) 18%, transparent);
+  color: var(--err);
+}
+
+/*
+ * IN PROGRESS, WITHOUT DOTS.
+ *
+ * A button that is working keeps its name and turns a small ring; a line that
+ * says something is loading carries the same ring. "Saving…" and "Loading…"
+ * used to say it with three dots, which read as text cut off.
+ */
+button[aria-busy='true']:not(.icon-button)::before,
+.loading::before {
+  content: '';
+  display: inline-block;
+  flex: none;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.5em;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  vertical-align: -0.1em;
+  animation: spin 0.8s linear infinite;
+}
+button[aria-busy='true'] {
+  cursor: progress;
+}
+button[aria-busy='true']:disabled {
+  opacity: 0.7;
+}
+
+/* Something went wrong, then what can be done about it, on one line. */
+.error-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--s2);
+}
+.error-note .error-text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.error-note .linkish {
+  padding: 0;
+  color: var(--text-dim);
+}
+.error-note .icon-button {
+  margin-left: auto;
 }
 
 .row {
@@ -482,8 +626,9 @@ button.stop:hover:not(:disabled) {
 
 .app {
   display: grid;
-  grid-template-columns: 1fr var(--seam) var(--panel-width);
-  height: 100vh;
+  grid-template-columns: minmax(440px, 1fr) var(--seam) min(var(--panel-width), calc(100vw - 441px));
+  height: 100dvh;
+  overflow: hidden;
 }
 .app.single {
   grid-template-columns: 1fr;
@@ -526,7 +671,7 @@ button.stop:hover:not(:disabled) {
 }
 .panel-resizer:hover,
 .panel-resizer:focus-visible {
-  background: rgba(109, 93, 246, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   outline: none;
   box-shadow: none;
 }
@@ -545,7 +690,7 @@ body.resizing .panel-resizer {
 .banner {
   position: absolute;
   z-index: 10;
-  top: 52px;
+  top: 80px;
   left: var(--s4);
   right: var(--s4);
   background: color-mix(in srgb, var(--err) 14%, var(--surface));
@@ -560,12 +705,8 @@ body.resizing .panel-resizer {
 .stop-all {
   position: absolute;
   z-index: 9;
-  top: 52px;
+  top: 138px;
   right: var(--s4);
-  background: var(--surface);
-  padding: 5px 12px;
-  font-size: var(--fs-xs);
-  box-shadow: var(--shadow);
 }
 
 /* ---- menu bar ------------------------------------------------------------ */
@@ -762,22 +903,6 @@ body.resizing .panel-resizer {
   line-height: 1.45;
   color: var(--text);
 }
-.card-more {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-4);
-  background: transparent;
-  color: var(--dim);
-  font-size: var(--t-code);
-  line-height: 1;
-}
-.card-more:hover:not(:disabled) {
-  background: var(--control-hover);
-  color: var(--text-dim);
-}
 /* Hangs from the ⋯ it belongs to: anchored right, sized by its own items --
    `.menu-panel` anchors left, and inheriting both stretched it card-wide. */
 .card-menu {
@@ -851,7 +976,7 @@ body.resizing .panel-resizer {
   padding: 0 4px 0 9px;
   border: 0;
   border-radius: var(--r-7);
-  background: #171a1f;
+  background: var(--surface-raised);
   transition:
     background 0.12s ease-out,
     box-shadow 0.12s ease-out,
@@ -878,7 +1003,7 @@ body.resizing .panel-resizer {
   width: 16px;
   height: 16px;
   border-radius: var(--r-5);
-  background: rgba(109, 93, 246, 0.28);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
   color: var(--accent-text-dim);
   font-size: var(--t-nano);
 }
@@ -894,11 +1019,11 @@ body.resizing .panel-resizer {
 .review-control:hover .review-arrow,
 .card.selected .review-arrow {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .card.selected .review-control {
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px rgba(109, 93, 246, 0.45);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .card.selected .review-label {
   color: var(--accent-text-dim);
@@ -920,7 +1045,7 @@ body.resizing .panel-resizer {
   display: grid;
   place-items: center;
   border-radius: 999px;
-  background: #1f232a;
+  background: var(--control);
   color: var(--ink-4);
   bottom: -11px;
   box-shadow: 0 0 0 2px var(--void);
@@ -935,7 +1060,7 @@ body.resizing .panel-resizer {
 }
 .card.selected .add-child-handle {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .react-flow__handle.add-child-handle:focus-visible {
   outline: 2px solid var(--accent);
@@ -1033,28 +1158,14 @@ body.resizing .panel-resizer {
   height: 7px;
   border-radius: 999px;
   background: var(--accent);
-  box-shadow: 0 0 0 3px rgba(109, 93, 246, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-/* The collapse control reads as the edge it collapses toward. */
-.collapse {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+/* The collapse control reads as the edge it collapses toward: a chevron and a bar. */
+.icon-button.collapse {
   gap: 3px;
-  width: var(--h-ghost);
-  height: var(--h-ghost);
   padding: 0;
-  border: 0;
-  border-radius: var(--r-7);
-  background: transparent;
   color: var(--muted);
-  font-size: var(--t-code);
-}
-.collapse:hover:not(:disabled) {
-  background: #1f232a;
-  color: var(--text-dim);
 }
 .collapse-bar {
   width: 1.5px;
@@ -1108,13 +1219,10 @@ body.resizing .panel-resizer {
   overflow-anchor: none;
   padding: 0 var(--s4);
 }
-/* Anchored to the composer: the thread grows upward from the reply box. */
+/* Its own formatting context, so a child's margin cannot leak out of the scroll. */
 .conversation-content {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+  display: flow-root;
   min-height: 100%;
-  gap: 20px;
 }
 .chat-empty {
   color: var(--muted-3);
@@ -1152,10 +1260,10 @@ body.resizing .panel-resizer {
   padding: 0 11px;
   border: 0;
   border-radius: 999px;
-  background: rgba(109, 93, 246, 0.92);
+  background: color-mix(in srgb, var(--accent) 92%, transparent);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
   font: 600 var(--t-micro) / 1.45 var(--mono);
-  color: #fff;
+  color: var(--accent-fg);
 }
 .jump-latest:hover:not(:disabled) {
   background: var(--accent);
@@ -1174,7 +1282,7 @@ body.resizing .panel-resizer {
   background: var(--surface);
 }
 .conversation-rail:hover {
-  background: #171a1f;
+  background: var(--surface-raised);
 }
 .rail-chip {
   display: inline-flex;
@@ -1353,6 +1461,8 @@ body.resizing .panel-resizer {
   font-size: var(--t-row);
 }
 .working-dot {
+  flex: none;
+  display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 999px;
@@ -1486,7 +1596,7 @@ body.resizing .panel-resizer {
 .work-summary:hover:not(:disabled),
 .work-step-head:hover:not(:disabled) {
   background: none;
-  color: #c3cad4;
+  color: var(--text-dim);
 }
 .work-lift { color: var(--ink-2); font-weight: 500; }
 .work-summary > * + *,
@@ -1542,12 +1652,12 @@ body.resizing .panel-resizer {
   word-break: break-word;
   color: var(--text-dim);
 }
-.work-line.dl-add { background: rgba(63, 185, 80, 0.1); }
-.work-line.dl-del { background: rgba(240, 86, 58, 0.1); }
+.work-line.dl-add { background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.work-line.dl-del { background: color-mix(in srgb, var(--err) 10%, transparent); }
 .work-line.dl-add .work-sign { color: var(--ok); }
 .work-line.dl-del .work-sign { color: var(--err); }
-.work-line.dl-add .work-num { color: #6fbf7c; }
-.work-line.dl-del .work-num { color: #e8917f; }
+.work-line.dl-add .work-num { color: var(--ok-text); }
+.work-line.dl-del .work-num { color: var(--err-text); }
 .work-line.dl-add .work-text { color: var(--diff-text); }
 .work-line.dl-del .work-text { color: var(--diff-text-del); }
 .work-command {
@@ -1570,7 +1680,7 @@ body.resizing .panel-resizer {
   color: var(--text-dim);
 }
 .work-out.last { color: var(--ink-2); }
-.work-out.fail { color: #f08a78; }
+.work-out.fail { color: var(--err-text); }
 .work-out.dim { color: var(--muted-3); }
 .work-code .disclosure-row { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
 .work-omitted { margin: 0; padding: 0 11px 7px; font: var(--t-micro) / 1.45 var(--mono); color: var(--dim); }
@@ -1578,35 +1688,6 @@ body.resizing .panel-resizer {
   flex: none;
   font: var(--t-nano) / 1.45 var(--mono);
 }
-.tool-copy {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  min-width: 22px;
-  padding: 0 5px;
-  justify-content: center;
-  border: 0;
-  border-radius: var(--r-6);
-  background: transparent;
-  color: var(--dim);
-  font: var(--t-nano) / 1.45 var(--mono);
-}
-.tool-copy:hover:not(:disabled) {
-  background: var(--control-hover);
-  color: var(--text);
-}
-/* The chip widens to say what happened; the block does not move. */
-.tool-copy.copied {
-  background: rgba(109, 93, 246, 0.22);
-  color: var(--accent-text-dim);
-}
-.tool-copy.failed {
-  background: rgba(240, 86, 58, 0.18);
-  color: var(--err);
-}
-
 /*
  * THE PANEL'S ONE DISCLOSURE.
  *
@@ -1630,15 +1711,12 @@ body.resizing .panel-resizer {
   text-align: left;
 }
 .disclosure-row:hover:not(:disabled) {
-  background: #14181f;
+  background: var(--surface-2);
   color: var(--muted-3);
 }
-/* The caret is a system glyph, not a mono one: in the mono face it renders as
-   a dot at this size. */
 .disclosure-row .caret {
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  display: inline-flex;
   font-size: var(--t-code);
-  line-height: 1;
 }
 
 /* ---- composer ------------------------------------------------------------ */
@@ -1688,7 +1766,7 @@ body.resizing .panel-resizer {
   font: var(--t-micro) / 1.45 var(--mono);
   color: var(--muted-3);
 }
-.composer-row button {
+.composer-row button:not(.icon-button) {
   height: var(--h-control);
   padding: 0 14px;
   border: 0;
@@ -1766,31 +1844,7 @@ body.resizing .panel-resizer {
   top: auto;
   bottom: calc(100% + 6px);
 }
-/* The two ghost ⋯ controls: one on the composer row, one on the review bar.
-   Same shape as every other icon-only control in the family. */
-.composer-more,
-.composer-mention,
-.review-more {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--h-control);
-  height: var(--h-control);
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-8);
-  background: transparent;
-  color: var(--muted-3);
-  font-size: var(--t-body);
-  line-height: 1;
-}
-.composer-more:hover:not(:disabled),
-.composer-mention:hover:not(:disabled),
-.review-more:hover:not(:disabled) {
-  background: var(--control-hover);
-  color: var(--text);
-}
+/* The ⋯ menus on the composer row and the review bar. */
 .composer-menu,
 .review-menu {
   flex: none;
@@ -1858,8 +1912,9 @@ body.resizing .panel-resizer {
 /* ---- dialogs and full-screen states -------------------------------------- */
 
 .dialog {
-  width: min(460px, 94vw);
-  max-height: 88vh;
+  width: min(36rem, 94vw);
+  max-height: 90dvh;
+  flex-shrink: 0;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--line-strong);
@@ -1873,28 +1928,28 @@ body.resizing .panel-resizer {
 .dialog.wide {
   width: min(560px, 94vw);
 }
-.dialog header {
+/* Title, a line under it, and the close in the same corner of every dialog. */
+.dialog-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--s2);
+}
+.dialog-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dialog-heading h3 {
+  overflow-wrap: anywhere;
+}
+.dialog-head .dialog-close {
+  margin: -4px -6px 0 0;
 }
 .dialog h3 {
   font-size: var(--fs-xl);
   color: var(--text);
-}
-.dialog-close {
-  background: none;
-  border: none;
-  color: var(--muted);
-  font-size: var(--fs-2xl);
-  line-height: 1;
-  padding: 2px 6px;
-}
-.dialog-close:hover {
-  color: var(--text);
-  background: none;
-  border-color: transparent;
 }
 .dialog section {
   display: flex;
@@ -1987,10 +2042,10 @@ label.check {
 }
 
 .new-project {
-  width: min(520px, 92vw);
+  width: min(580px, 94vw);
   display: flex;
   flex-direction: column;
-  gap: var(--s4);
+  gap: 20px;
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
@@ -2002,6 +2057,9 @@ label.check {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin: 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
 }
 .connect h1 {
   display: flex;
@@ -2070,6 +2128,14 @@ label.check {
 .picker-bar button {
   flex: none;
   padding: 6px 10px;
+}
+/* Up and Home sit beside the path box, so they take its border and height. */
+.picker-bar .icon-button {
+  align-self: stretch;
+  height: auto;
+  padding: 0;
+  border: 1px solid var(--control-line);
+  background: var(--surface-2);
 }
 .picker-list {
   height: 208px;
@@ -2180,16 +2246,12 @@ button.destructive:hover:not(:disabled) {
 .project-picker { display: inline-flex; align-items: center; gap: 6px; height: var(--h-ghost); padding: 0 8px; border: 0; border-radius: var(--r-7); background: transparent; color: var(--text); font-size: var(--t-body); }
 .project-picker:hover { background: var(--control-hover); }
 .project-picker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-picker > .icon { flex: none; width: 12px; height: 12px; color: var(--dim); }
-.settings-button { display: inline-flex; align-items: center; justify-content: center; width: var(--h-ghost); height: var(--h-ghost); padding: 0; border: 0; border-radius: var(--r-7); background: transparent; color: var(--muted-3); }
-.settings-button:hover { background: var(--control-hover); color: var(--text); }
 @container (max-width: 520px) { .brand > span:last-child { display: none; } }
 .transport-notice, .tree-notice { position: absolute; z-index: 7; top: 64px; left: 16px; right: 16px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
 .transport-notice + .tree-notice { top: 110px; }
-.stop-all { top: 138px; }
+.tree-notice.error-note { color: var(--text); font-size: var(--fs-xs); }
 .stop-control { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .stop-error { font-size: var(--fs-xs); max-width: 230px; white-space: normal; }
-.conversation-content { display: flow-root; }
 .activity { margin: 0 0 8px; color: var(--text-dim); font-size: var(--fs-xs); }
 .permission-details { margin: 10px 0; }
 .permission-details pre { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -2202,7 +2264,7 @@ button.destructive:hover:not(:disabled) {
 .md-task > input { width: auto; margin-right: 8px; }
 .md-code-block { margin: 12px 0; }
 .code-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: var(--fs-xs); }
-.code-actions button { margin-left: auto; padding: 3px 8px; }
+.code-actions .copy-button { margin-left: auto; }
 .md-code-block .md-code { margin-top: 5px; }
 .source-pair { display: grid; gap: 8px; }
 .source-row { display: grid; grid-template-columns: 94px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
@@ -2214,7 +2276,6 @@ button.destructive:hover:not(:disabled) {
 .creation-sources .start-fresh input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
 .creation-sources .start-fresh strong { color: var(--text); font-weight: 600; }
 .permission-action { overflow-wrap: anywhere; max-height: 100px; overflow-y: auto; }
-.banner { top: 80px; }
 .ask > h3, .ask > p { margin: 0; }
 .ask label.stacked { display: flex; flex-direction: column; gap: 6px; }
 .ask input { width: 100%; min-width: 0; }
@@ -2264,21 +2325,16 @@ dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px
 
 
 /* Milestone 6: clear reading hierarchy and narrow-window composition. */
-:root { --focus: #b3aaff; --control-line: #777f90; }
 button, input, select, textarea { border-color: var(--control-line); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; box-shadow: none; }
-.said, .md { font-size: var(--fs-lg); line-height: 1.7; }
+.md { font-size: var(--fs-lg); line-height: 1.7; }
 /* The panel has ONE scroll, the thread. The foot is the single exception, and
    only in the exceptional states -- a question with many options, a recovery
    notice -- because the composer must never leave the window. */
 .panel-foot { max-height: 48%; overflow-y: auto; }
-.dialog { width: min(36rem, 94vw); max-height: 90dvh; flex-shrink: 0; }
 .dialog .dialog-actions { flex-wrap: wrap; }
 .dialog-actions button { min-height: 36px; }
-.dialog .dialog-close { min-width: 32px; min-height: 32px; }
 .dialog[aria-label="Branch experiment"] .dialog-actions > .hint { flex-basis: 100%; }
-.app { grid-template-columns: minmax(440px, 1fr) var(--seam) min(var(--panel-width), calc(100vw - 441px)); height: 100dvh; overflow: hidden; }
-.app.single { grid-template-columns: 1fr; }
 /* Collapsed: the conversation keeps a 46px rail rather than vanishing, so the
    seam stays where it was and the way back is in the place it went. */
 .app.panel-hidden { grid-template-columns: minmax(0, 1fr) var(--conversation-rail); }
@@ -2328,8 +2384,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
    came from the font instead, so each had its own weight and baseline. */
 .icon { width: 1em; height: 1em; display: inline-block; vertical-align: -.12em; flex: none; }
 /* Buttons that are only an icon: a square target, not a line of text. */
-.dialog-close, .picker-bar button { display: inline-flex; align-items: center; justify-content: center; }
-.project-picker > .icon { grid-column: 2; grid-row: 1 / 3; align-self: center; margin-left: var(--s3); color: var(--muted); }
+.picker-bar button { display: inline-flex; align-items: center; justify-content: center; }
+.project-picker > .icon { flex: none; width: 12px; height: 12px; align-self: center; margin-left: var(--s3); color: var(--muted); }
 /* The one width where the canvas and the panel stop both being useful.
    Kept in step with NARROW_MAX in state/useWorkspaceView.ts. */
 @media (max-width: 900px) {
@@ -2372,18 +2428,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
  * different size from its neighbour.
  */
 .canvas-tools { position: absolute; bottom: 16px; left: 16px; display: flex; align-items: center; gap: var(--s2); z-index: 5; flex-wrap: wrap; max-width: calc(100% - 32px); }
-.canvas-tool { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-height: var(--control-h); padding: 0 var(--s3); background: var(--surface); border: 1px solid var(--control-line); border-radius: var(--r-md); color: var(--text-dim); white-space: nowrap; }
-.canvas-tool:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
+.canvas-tool { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-height: var(--h-pill); padding: 0 10px; border: 0; border-radius: var(--r-7); background: transparent; color: var(--ink-4); font-size: var(--t-row); white-space: nowrap; }
+.canvas-tool:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 .canvas-tool:disabled { color: var(--muted); opacity: 1; }
-.canvas-tool[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--focus); color: var(--text); }
-.canvas-tool.icon-only { width: var(--control-h); padding: 0; }
-/* The zoom cluster is one control with three parts, so its parts are joined
-   and only the outer edges are rounded. */
-.tool-group { display: inline-flex; background: var(--surface); border-radius: var(--r-md); }
-.tool-group .canvas-tool { border-radius: 0; border-right-width: 0; }
-.tool-group .canvas-tool:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
-.tool-group .canvas-tool:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; border-right-width: 1px; }
-.zoom-level { min-width: 4.25rem; font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+.canvas-tool[aria-expanded="true"], .canvas-tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--text); }
+.canvas-tool.icon-only { width: var(--h-pill); padding: 0; }
+/* The zoom cluster is one control with three parts: two square buttons with
+   the level between them, on one raised surface. */
+.tool-group { display: inline-flex; gap: 0; padding: 3px; border-radius: 9px; background: color-mix(in srgb, var(--surface) 92%, transparent); }
+.canvas-tools > .canvas-tool, .canvas-hints > .canvas-tool { background: color-mix(in srgb, var(--surface) 92%, transparent); }
+.zoom-level { min-width: 3.25rem; font: var(--t-micro) / 1.45 var(--mono); font-variant-numeric: tabular-nums; }
 /* Canvas hints: a reference you read WHILE looking at the map, so a popover
    rather than a dialog, and no "close" button inside it -- the trigger, a click
    away and Escape all already do that. See canvas/CanvasHints.tsx. */
@@ -2446,6 +2500,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .activity-line { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
 .activity-line > span[role="status"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .activity-line svg { flex-shrink: 0; align-self: center; color: var(--st-running); }
+.activity-line .working-dot { align-self: center; }
+.activity-line .stop-control .icon { color: inherit; }
+.work-summary > .working-dot { vertical-align: 0.1em; }
 .activity-meta { flex-shrink: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
 .activity-waiting { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid color-mix(in srgb, var(--st-running) 35%, transparent); border-radius: var(--r-md); background: color-mix(in srgb, var(--st-running) 7%, var(--surface-2)); font-size: var(--fs-sm); color: var(--text); }
 .activity-waiting .activity-line { font-weight: 600; }
@@ -2476,15 +2533,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
  * void and by surface value, never by a rule.
  */
 .review { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--void); }
-.app.review-mode.panel-hidden, .app.panel-hidden { grid-template-columns: minmax(0, 1fr) var(--conversation-rail); }
 
-.review-bar { flex: none; display: flex; align-items: center; gap: 10px; height: var(--h-bar); padding: 0 10px 0 var(--s2); background: var(--surface); }
+.review-bar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 48px; padding: 0 10px 0 var(--s2); background: var(--surface); }
 .review-bar h1 { flex: none; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-title); font-weight: 600; line-height: 1.45; color: var(--text); }
 .review-bar .spacer { flex: 1; }
 .bar-divider { flex: none; width: 1px; height: 18px; margin: 0 2px; background: var(--line-strong); }
 .back { display: inline-flex; align-items: center; gap: var(--s2); height: var(--h-control); padding: 0 11px 0 9px; border: 0; border-radius: var(--r-8); background: var(--surface-3); color: var(--ink-2); font-family: inherit; font-size: var(--t-row); font-weight: 500; }
 .back:hover:not(:disabled) { background: var(--control-hover); }
-.back > span:first-child { color: var(--muted); font-size: var(--t-code); }
+.back > .icon { color: var(--muted); }
 .keycap { padding: 1px 5px; border-radius: var(--r-4); background: var(--rail-idle); font: var(--t-nano) / 1.45 var(--mono); color: var(--muted-3); }
 .review-status { flex: none; display: inline-flex; align-items: center; gap: 6px; height: var(--h-plus); padding: 0 9px; border-radius: var(--r-7); background: var(--surface-3); font-size: var(--t-meta); color: var(--ink-4); }
 .status-dot { width: 5px; height: 5px; border-radius: 999px; background: var(--st-new); }
@@ -2504,7 +2560,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .view-toggle { flex: none; display: flex; gap: 0; padding: 3px; border-radius: var(--r-8); background: var(--surface-3); }
 .view-toggle button { display: inline-flex; align-items: center; justify-content: center; gap: 2px; width: 26px; height: var(--h-plus); padding: 0; border: 0; border-radius: var(--r-6); background: transparent; }
-.view-toggle button[aria-pressed="true"] { background: #272b33; }
+.view-toggle button[aria-pressed="true"] { background: var(--control-strong); }
 .view-toggle .bar { display: block; height: 11px; border-radius: 2px; background: var(--muted); }
 .view-toggle .bar.single { width: 12px; }
 .view-toggle .bar.half { width: 5px; }
@@ -2517,7 +2573,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* The seam between two panels: 8px wide with -8px margins, so the visible gap
    stays the layout's own 8px and the whole seam is the target. */
 .grip { flex: none; align-self: stretch; display: flex; align-items: center; justify-content: center; width: var(--s2); margin: 0 calc(var(--s2) * -1); border-radius: var(--r-5); cursor: col-resize; }
-.grip:hover, .grip:focus-visible { background: rgba(109, 93, 246, 0.12); outline: none; }
+.grip:hover, .grip:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); outline: none; }
 .grip-pill { width: 2px; height: 26px; border-radius: 999px; background: rgba(255, 255, 255, 0.16); }
 
 .review-tree { display: flex; flex-direction: column; min-height: 0; }
@@ -2545,13 +2601,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .guide { position: relative; flex: none; width: 11px; align-self: stretch; }
 .guide::before { content: ''; position: absolute; left: 5px; top: 0; bottom: 0; width: 1px; background: var(--rail-idle); }
 .guide.live::before { background: var(--rail-live); }
-.caret { flex: none; width: 14px; font-size: var(--t-code); color: var(--muted-2); text-align: center; }
+.caret { flex: none; display: inline-flex; justify-content: center; width: 14px; font-size: var(--t-code); color: var(--muted-2); }
 .caret.live { color: var(--accent-text); }
 /* A file hangs off the branch rather than sitting in an indent. */
 .elbow { position: relative; flex: none; width: 14px; align-self: stretch; }
 .elbow::before { content: ''; position: absolute; left: 5px; top: 0; height: 13px; width: 1px; background: var(--rail-idle); }
 .elbow::after { content: ''; position: absolute; left: 5px; top: 12px; width: 6px; height: 1px; background: var(--rail-idle); }
-.elbow.selected::before, .elbow.selected::after { background: rgba(109, 93, 246, 0.55); }
+.elbow.selected::before, .elbow.selected::after { background: color-mix(in srgb, var(--accent) 55%, transparent); }
 .tree-row .tree-name { flex: 1; min-width: 0; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-row) / 1.45 var(--mono); color: var(--ink-5); }
 .tree-row.folder .tree-name { color: var(--text-dim); }
 .tree-row.selected .tree-name { color: var(--text); }
@@ -2566,16 +2622,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .second-pane { display: flex; min-width: 0; }
 /* The focused pane is marked by one accent line along its top edge, nothing
    else — drawn on the header, which is what sits at that edge. */
-.diff-pane.focused .pane-header { box-shadow: inset 0 1px 0 rgba(109, 93, 246, 0.55); }
+.diff-pane.focused .pane-header { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 55%, transparent); }
 .pane-header { flex: none; height: var(--h-file); padding: 0 14px; align-items: center; background: var(--surface); }
 .diff-scroll { flex: 1; min-height: 0; overflow: auto; }
 .diff-note { margin: 14px; color: var(--muted-3); font-size: var(--t-row); }
 /* The hunk header aligns with the code, not with the gutter. */
 .hunk { display: flex; align-items: center; gap: var(--s2); height: var(--h-hunk); padding: 0 14px 0 60px; background: var(--surface-2); font: var(--t-row) / 1.45 var(--mono); color: var(--muted-3); }
-.hunk-tag { display: inline-flex; align-items: center; height: 19px; padding: 0 var(--s2); border-radius: var(--r-6); background: rgba(63, 185, 80, 0.12); font: var(--t-micro) / 1.45 var(--mono); color: var(--ok); }
+.hunk-tag { display: inline-flex; align-items: center; height: 19px; padding: 0 var(--s2); border-radius: var(--r-6); background: color-mix(in srgb, var(--ok) 12%, transparent); font: var(--t-micro) / 1.45 var(--mono); color: var(--ok); }
 .diff-line { display: flex; align-items: center; height: var(--h-diff); }
 .diff-line.dl-add { background: var(--diff-add-row); }
-.diff-line.dl-del { background: rgba(240, 86, 58, 0.06); }
+.diff-line.dl-del { background: color-mix(in srgb, var(--err) 6%, transparent); }
 .diff-num { flex: none; width: 46px; padding-right: var(--s2); text-align: right; font: var(--t-row) / 1.45 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
 .diff-sign { flex: none; width: 14px; text-align: center; font: var(--t-row) / 1.45 var(--mono); color: var(--dim); }
 .dl-add .diff-sign { color: var(--ok); }
@@ -2583,34 +2639,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .diff-text { flex: 1; min-width: 0; padding-right: 14px; white-space: pre; font: var(--t-code) / 1.45 var(--mono); color: var(--diff-text); }
 .dl-context .diff-text { color: var(--muted-2); }
 
-/* The composer has two forms, by how much room the conversation has: wide
-   enough for a hint and two buttons, or a box with an arrow beside it. */
+/* A narrow conversation keeps the buttons and drops the keyboard hint. */
 .panel { container-type: inline-size; }
-.send-arrow { display: none; }
 @container (max-width: 330px) {
   .composer-row .hint, .composer-row .secondary { display: none; }
   .composer-row { justify-content: flex-end; }
-  .composer-row button.primary { width: var(--h-send); height: var(--h-send); padding: 0; border-radius: var(--r-10); background: var(--control-strong); font-size: var(--t-title); }
-  .composer-row button.primary:hover:not(:disabled) { background: var(--control-strong-hover); }
-  .composer-row .send-label { display: none; }
-  .composer-row .send-arrow { display: inline; }
 }
 
 /* D46: the canvas surface and its one control cluster. */
 /* The canvas is painted on the surface BEHIND the dot grid. Painting the pane
    too covered the grid: the pane sits over the background SVG. */
 .react-flow, .canvas { background: var(--canvas); }
-/* The zoom control sits in the corner as one object, in the design's shape:
-   two square buttons with the level between them. Fit, hints and Automatic
-   position keep it company as the same family. */
-.canvas-tools { bottom: 16px; left: 16px; gap: var(--s2); }
-.canvas-tool { min-height: var(--h-pill); padding: 0 10px; border: 0; border-radius: var(--r-7); background: transparent; color: var(--ink-4); font-size: var(--t-row); }
-.canvas-tool:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
-.canvas-tool.icon-only { width: var(--h-pill); padding: 0; }
-.tool-group { padding: 3px; border-radius: var(--r-9, 9px); background: rgba(19, 21, 25, 0.92); gap: 0; }
-.tool-group .canvas-tool, .tool-group .canvas-tool:first-child, .tool-group .canvas-tool:last-child { border-radius: var(--r-7); border: 0; }
-.zoom-level { min-width: 3.25rem; font: var(--t-micro) / 1.45 var(--mono); font-variant-numeric: tabular-nums; }
-.canvas-tools > .canvas-tool, .canvas-hints > .canvas-tool { background: rgba(19, 21, 25, 0.92); }
 /* Edges: an elbow from the parent's + into the child's top edge. Dashed for
    every branch but the one through the selected experiment's ancestors. */
 .bonsai-edge { fill: none; stroke: var(--edge); stroke-width: 1.4; stroke-dasharray: 4 4; }
@@ -2626,7 +2665,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .review.wrap-lines .diff-line { height: auto; min-height: var(--h-tool-line); align-items: flex-start; }
 .review.wrap-lines .diff-text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
-.review-bar { flex-wrap: wrap; height: auto; min-height: 48px; }
 
 .review-bar > button[aria-pressed='true'] { background: var(--accent-soft); border-color: var(--accent); }
 .run-context { margin: 12px 0; font-size: .8rem; color: var(--muted); }
@@ -2640,7 +2678,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .segmented-control button, .review-tools .toolbar-icon { width: 34px; padding: 6px; }
 .review-tools button:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 .review-tools button[aria-pressed='true'] { color: var(--accent-text-dim); background: var(--accent-soft); border-color: var(--line-strong); box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
-.review-tools .toolbar-folder { border-color: var(--line); background: var(--surface-2); padding: 6px 10px; }
 .review-tools .toolbar-icon { margin-left: 2px; }
 .review-tools button:active:not(:disabled), .creation-actions button:active:not(:disabled), .project-actions button:active:not(:disabled) { transform: translateY(1px); }
 
@@ -2653,8 +2690,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dialog[aria-label='Branch experiment'] > label.stacked { gap: 8px; }
 .dialog[aria-label='Branch experiment'] .creation-sources { gap: 8px; }
 
-.new-project { width: min(580px, 94vw); gap: 20px; }
-.new-project h1 { margin: 0; font-size: 1.25rem; letter-spacing: -.02em; }
 .new-project > .muted { margin: -4px 0 0; }
 .new-project button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .new-project .project-source-switch { padding: 4px; gap: 4px; background: var(--void); border: 1px solid var(--line); border-radius: var(--r-12); }
@@ -2695,7 +2730,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 @container (max-width: 520px) { .references-label { display: none; } }
 
 /* The dialog: a list, and an editor reached from it. */
-.reference-back { display: block; padding: 0; margin-bottom: 4px; font-size: var(--fs-xs); text-decoration: none; }
+.reference-back { display: inline-flex; align-items: center; gap: 4px; padding: 0; margin-bottom: 4px; font-size: var(--fs-xs); text-decoration: none; }
 .reference-start { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .reference-start button { display: inline-flex; align-items: center; gap: 6px; }
 .reference-empty { font-size: var(--fs-sm); line-height: 1.55; }
@@ -2716,7 +2751,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* Fill from a conversation: the same inset surface as a new experiment's sources. */
 .dialog section.reference-fill { gap: 10px; padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
 .reference-fill-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s2); }
-.reference-fill-head .dialog-close { font-size: var(--fs-sm); }
 .reference-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .reference-presets button { padding: 4px 10px; border-radius: 999px; background: var(--surface-3); color: var(--text-dim); font-size: var(--fs-2xs); }
 .reference-presets button:hover:not(:disabled) { color: var(--text); }
@@ -2734,9 +2768,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .reference-chip.kind-experiment > .icon, .reference-chip.sent.kind-experiment .icon { color: var(--accent-text); }
 .reference-chip-name { min-width: 0; padding: 0; border: 0; background: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--t-row) / 1.6 var(--mono); color: var(--text); }
 .reference-chip-name:hover:not(:disabled) { background: none; text-decoration: underline; text-underline-offset: 2px; }
-.reference-chip-remove { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 999px; background: none; color: var(--muted-3); }
-.reference-chip-remove:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
-.reference-chip-remove .icon { width: 10px; height: 10px; }
 .reference-chip.sent { padding: 1px 9px; font-family: var(--mono); }
 .reference-chip.sent .icon { width: 11px; height: 11px; color: var(--muted-3); }
 .reference-chip.sent:hover:not(:disabled) { background: var(--control-hover); border-color: var(--accent); color: var(--text); }
@@ -2753,13 +2784,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .mention-name .icon { width: 12px; height: 12px; color: var(--muted-3); }
 .mention-option small { color: var(--muted-3); white-space: nowrap; }
 .mention-empty { margin: 0; padding: 6px 9px; color: var(--muted); font-size: var(--t-row); }
-.composer-row .composer-mention { padding: 0; font-family: var(--mono); }
 
 /* Save as reference: there when the pointer is on the message, or focus is. */
-.save-reference { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; border: 0; border-radius: var(--r-6); background: transparent; color: var(--muted-3); font-size: var(--t-micro); opacity: 0; }
-.save-reference .icon { width: 12px; height: 12px; }
+.save-reference { opacity: 0; }
 .msg:hover > .msg-head > .save-reference, .save-reference:focus-visible { opacity: 1; }
-.save-reference:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 @media (hover: none) { .save-reference { opacity: 1; } }
 
 /* ---- compare -------------------------------------------------------------- */
@@ -2771,7 +2799,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .cmp-3 { --tone: #6aa8f7; }
 .cmp-4 { --tone: #e98bb5; }
 
-.canvas-tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--text); }
 .card.picked { box-shadow: 0 0 0 2px var(--tone), 0 14px 34px -12px color-mix(in srgb, var(--tone) 45%, transparent); }
 .pick-badge, .pick-number { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--tone); color: var(--void); font: 600 var(--t-micro) / 1 var(--mono); }
 
@@ -2781,11 +2808,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .compare-picks { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .pick-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 14rem; padding: 2px 3px 2px 3px; border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--tone) 10%, var(--surface-2)); color: var(--text); }
 .pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pick-remove, .compare-cancel { display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; color: var(--muted-3); }
-.pick-remove { width: 18px; height: 18px; border-radius: 999px; }
-.pick-remove .icon { width: 10px; height: 10px; }
-.compare-cancel { width: var(--h-control); height: var(--h-control); border-radius: var(--r-8); }
-.pick-remove:hover:not(:disabled), .compare-cancel:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 .compare-guidance { color: var(--muted); }
 .compare-bar .primary { display: inline-flex; align-items: center; gap: 6px; height: var(--h-control); padding: 0 14px; border-radius: var(--r-8); }
 .compare-bar .error { flex-basis: 100%; text-align: center; }
@@ -2800,8 +2822,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .compare-title { display: block; max-width: 45vw; padding: 2px 6px; margin-left: -6px; border: 0; border-radius: var(--r-6); background: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; color: inherit; text-align: left; }
 .compare-title:hover:not(:disabled) { background: var(--control-hover); }
 .compare-title-input { min-width: 16rem; font-size: var(--t-title); font-weight: 600; }
-.compare-head .icon-only { display: inline-flex; align-items: center; justify-content: center; width: var(--h-control); height: var(--h-control); padding: 0; border: 0; border-radius: var(--r-8); background: transparent; color: var(--muted-3); }
-.compare-head .icon-only:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 .compare-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s5) var(--s4) var(--s4); }
 .thread-width { width: 100%; max-width: 50rem; margin: 0 auto; }
 .compare-foot { flex: none; display: flex; flex-direction: column; gap: 10px; padding: var(--s3) var(--s4) var(--s4); }
@@ -2817,8 +2837,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .compare-card header { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .compare-card h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-title); color: var(--text); }
 .compare-card-status { font-size: var(--t-meta); color: var(--ink-4); white-space: nowrap; }
-.compare-card .icon-only { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: var(--r-7); background: transparent; color: var(--muted-3); }
-.compare-card .icon-only:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 .compare-card dl { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 6px 10px; margin: 0; font-size: var(--fs-xs); }
 .compare-card dt { color: var(--muted); }
 .compare-card dd { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
@@ -2843,5 +2861,5 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 @media (max-width: 700px) {
   .compare-bar { bottom: 72px; }
-  .compare-head .back > span:not([aria-hidden]) { display: none; }
+  .back-label { display: none; }
 }

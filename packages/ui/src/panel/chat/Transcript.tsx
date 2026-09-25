@@ -14,7 +14,7 @@ import { ActivityGroup } from './Activity.tsx';
 import { Disclosure } from './Disclosure.tsx';
 import { exactTime, clockTime } from './time.ts';
 import type { Delta } from './liveMerge.ts';
-import { Icon } from '../../Icon.tsx';
+import { Icon, IconButton } from '../../Icon.tsx';
 import { useReferences } from '../../state/references.ts';
 import { useExperiments } from '../../state/experiments.ts';
 
@@ -27,11 +27,10 @@ import { useExperiments } from '../../state/experiments.ts';
  * object you can see, and the agent's reply is text on the panel, because one
  * of you is quoting a request and the other is answering at length.
  *
- * Every tool call is one bounded block, in place, in the order it happened: a
- * READ is its 30px header alone, a RUN carries the end of its output, an EDIT
- * the lines that moved. They used to be summarised into "Read ×6 · Grep ×2",
- * which hid WHICH file was read at the moment it mattered -- and the narration
- * between bursts, which is the readable part, lost its anchors.
+ * What the agent did between two things it said folds into one dimmed line
+ * that names the files ("Read chunk_writer.py, ran 2 commands") and opens to
+ * a row per step -- see Activity.tsx. The prose stays bright, so the thread
+ * reads as what the agent said.
  */
 export function Transcript({
   onSave,
@@ -205,7 +204,7 @@ function Turn({
           {running && (
             <div className="working" aria-live="polite">
               <span className="working-dot" aria-hidden="true" />
-              {LIVE_WORDS[phase]}&hellip;
+              {LIVE_WORDS[phase]}
             </div>
           )}
         </div>
@@ -389,15 +388,13 @@ function SaveAsReference({
   label: string;
 }): JSX.Element {
   return (
-    <button
+    <IconButton
+      icon="reference"
+      size="sm"
       className="save-reference"
-      aria-label={label}
-      title={label}
+      label={label}
       onClick={() => onSave(text)}
-    >
-      <Icon name="reference" />
-      <span>Save as reference</span>
-    </button>
+    />
   );
 }
 
@@ -575,9 +572,9 @@ function Clamped({ text }: { text: string }): JSX.Element {
 }
 
 const LIVE_WORDS: Record<RunActivity['state'], string> = {
-  working: 'working',
-  waiting: 'waiting for background work',
-  compacting: 'compacting conversation',
+  working: 'Working',
+  waiting: 'Waiting for background work',
+  compacting: 'Compacting conversation',
 };
 
 /** Anything said without a box: the agent's prose, or a note from Bonsai. */

@@ -1,4 +1,4 @@
-import { Icon } from '../Icon.tsx';
+import { Icon, IconButton } from '../Icon.tsx';
 import { type JSX, useCallback, useContext, useRef, useState } from 'react';
 import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
@@ -11,6 +11,7 @@ import { compareTone } from '../state/compare.ts';
 import { useDismiss } from '../useDismiss.ts';
 import { useStopRun } from '../state/RunControls.tsx';
 import { canDrawFrom } from '../state/references.ts';
+import { plural } from '../words.ts';
 
 /**
  * The node card. Renders from FLAGS, never from a node "type" string
@@ -131,19 +132,19 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               </span>
             )}
             {lod === 'full' && actions !== null && (
-              <button
+              <IconButton
+                icon="more"
+                size="xs"
                 className="card-more nodrag nopan"
-                aria-label={cardMenuLabel(data.displayName)}
+                label={cardMenuLabel(data.displayName)}
+                title="Actions"
                 aria-haspopup="menu"
                 aria-expanded={menu}
-                title="Actions"
                 onClick={(event) => {
                   event.stopPropagation();
                   setMenu((open) => !open);
                 }}
-              >
-                ⋯
-              </button>
+              />
             )}
           </div>
 
@@ -177,7 +178,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                     title={
                       changes === null
                         ? 'Review this experiment’s changes'
-                        : `Review ${changes.files} changed file${changes.files === 1 ? '' : 's'}`
+                        : `Review ${plural(changes.files, 'changed file')}`
                     }
                     onClick={(event) => {
                       event.stopPropagation();
@@ -193,7 +194,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                       </span>
                     )}
                     <span className="review-arrow" aria-hidden="true">
-                      →
+                      <Icon name="arrowRight" />
                     </span>
                   </button>
                 ) : (
@@ -212,7 +213,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                   actions.review(data.id);
                 }}
               >
-                Review changes…
+                Review changes
               </button>
               <button
                 role="menuitem"
@@ -221,19 +222,20 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                   actions.branch(data.id);
                 }}
               >
-                Branch child…
+                Branch experiment
               </button>
               {stopping !== null && (
                 <button
                   role="menuitem"
                   className="stop-run"
                   disabled={stopping.busy}
+                  aria-busy={stopping.busy}
                   onClick={() => {
                     setMenu(false);
                     stopping.stop();
                   }}
                 >
-                  {stopping.busy ? 'Stopping…' : 'Stop this run'}
+                  Stop run
                 </button>
               )}
               <button
@@ -243,7 +245,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                   actions.rename(data);
                 }}
               >
-                Rename…
+                Rename
               </button>
               {data.hasConversation && (
                 <button
@@ -255,7 +257,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                     actions.compact(data);
                   }}
                 >
-                  Compact conversation…
+                  Compact conversation
                 </button>
               )}
               {canDrawFrom(data) && (
@@ -267,7 +269,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                     actions.reference(data);
                   }}
                 >
-                  Create reference from this experiment…
+                  Save as reference
                 </button>
               )}
               <button
@@ -277,8 +279,9 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                   actions.details(data);
                 }}
               >
-                Experiment details…
+                Experiment details
               </button>
+              {data.parentId !== null && <div className="menu-sep" role="separator" />}
               {data.parentId !== null && (
                 <button
                   role="menuitem"
@@ -288,7 +291,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                     actions.remove(data);
                   }}
                 >
-                  Delete this experiment…
+                  Delete experiment
                 </button>
               )}
             </div>

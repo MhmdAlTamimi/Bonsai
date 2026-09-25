@@ -55,6 +55,7 @@ export function ConnectionScreen({
         <div className="row">
           <button
             disabled={busy !== null}
+            aria-busy={busy === 'login'}
             onClick={() =>
               void act('login', async () => {
                 const result = await api.login();
@@ -63,10 +64,11 @@ export function ConnectionScreen({
               })
             }
           >
-            {busy === 'login' ? 'Signing in…' : 'Sign in with Claude'}
+            Sign in with Claude
           </button>
           <button
             disabled={busy !== null}
+            aria-busy={busy === 'check'}
             onClick={() =>
               void act('check', async () => {
                 await api.checkConnection();
@@ -74,7 +76,7 @@ export function ConnectionScreen({
               })
             }
           >
-            {busy === 'check' ? 'Checking…' : 'Recheck'}
+            Recheck
           </button>
         </div>
         {loginOutput !== null && (
@@ -98,11 +100,12 @@ export function ConnectionScreen({
           type="password"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-ant-..."
+          placeholder="Paste your API key (starts with sk-ant-)"
           aria-label="API key"
         />
         <button
           disabled={busy !== null || apiKey.trim() === ''}
+          aria-busy={busy === 'key'}
           onClick={() =>
             void act('key', async () => {
               await api.updateSettings({ authMode: 'api_key', apiKey: apiKey.trim() });
@@ -111,7 +114,7 @@ export function ConnectionScreen({
             })
           }
         >
-          {busy === 'key' ? 'Saving…' : 'Save key and connect'}
+          Save key and connect
         </button>
         {settings?.hasStoredApiKey === true && (
           <p className="hint">A key is already stored. Saving a new one replaces it.</p>
@@ -130,7 +133,11 @@ export function ConnectionScreen({
 function Explanation({ status }: { status: ConnectionStatus }): JSX.Element {
   switch (status.state) {
     case 'unknown':
-      return <p className="muted">Checking the connection…</p>;
+      return (
+        <p className="muted loading" role="status">
+          Checking the connection
+        </p>
+      );
     case 'no_credential':
       return (
         <p className="muted">No working credential was found. Sign in below, or add an API key.</p>

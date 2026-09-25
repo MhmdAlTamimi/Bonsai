@@ -73,7 +73,7 @@ export function Details({
         {/* Last, and monospace: nobody reads this until they are reporting a
             problem, and then it is the first thing asked for. */}
         <div>
-          <dt>node id</dt>
+          <dt>Experiment id</dt>
           <dd>
             <code>{node.id}</code>
           </dd>

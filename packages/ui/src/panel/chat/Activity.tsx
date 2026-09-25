@@ -1,5 +1,8 @@
-import { type JSX, useEffect, useRef, useState } from 'react';
+import { type JSX, useEffect, useState } from 'react';
 
+import { CopyButton } from '../../CopyButton.tsx';
+import { Icon } from '../../Icon.tsx';
+import { plural } from '../../words.ts';
 import { Disclosure } from './Disclosure.tsx';
 import {
   isFailureLine,
@@ -61,6 +64,7 @@ export function ActivityGroup({
   return (
     <div className={`work${open ? ' open' : ''}${running ? ' live' : ''}`}>
       <button className="work-summary" aria-expanded={open} onClick={toggle}>
+        {running !== undefined && <span className="working-dot" aria-hidden="true" />}
         <Words text={running === undefined ? summarise(steps) : runningLabel(running)} />
         {(added > 0 || removed > 0) && <Counts added={added} removed={removed} />}
         {failed > 0 && <span className="work-failed">{failed} failed</span>}
@@ -92,7 +96,7 @@ function StepRow({ id, step }: { id: string; step: Step }): JSX.Element {
           <Counts added={step.added} removed={step.removed} />
         )}
         {step.failed && <span className="work-failed">failed</span>}
-        {step.live && <span className="work-running">running…</span>}
+        {step.live && <span className="work-running">running</span>}
         <Caret open={open} />
       </button>
       {open && (step.kind === 'command' ? <CommandBody step={step} /> : <FileBody step={step} />)}
@@ -155,15 +159,13 @@ function CommandBody({ step }: { step: Step }): JSX.Element {
           $
         </span>
         <span className="work-command-text">{step.detail}</span>
-        <CopyButton text={step.detail} />
+        <CopyButton text={step.detail} label="Copy command" />
       </div>
       {(output.length > 0 || step.live) && (
         <div className="work-code">
           <div className="work-output">
             {dropped !== undefined && (
-              <div className="work-out dim">
-                … {dropped.toLocaleString()} earlier line{dropped === 1 ? '' : 's'} not kept
-              </div>
+              <div className="work-out dim">{plural(dropped, 'earlier line')} not kept</div>
             )}
             {shown.map((line, i) => (
               <div
@@ -173,7 +175,7 @@ function CommandBody({ step }: { step: Step }): JSX.Element {
                 {line}
               </div>
             ))}
-            {step.live && output.length === 0 && <div className="work-out dim">running…</div>}
+            {step.live && output.length === 0 && <div className="work-out dim">No output yet</div>}
           </div>
           {output.length > VISIBLE_LINES && (
             <Disclosure
@@ -216,40 +218,7 @@ function Counts({ added, removed }: { added: number; removed: number }): JSX.Ele
 function Caret({ open }: { open: boolean }): JSX.Element {
   return (
     <span className="work-caret" aria-hidden="true">
-      {open ? '⌄' : '›'}
+      <Icon name={open ? 'chevronDown' : 'chevronRight'} />
     </span>
-  );
-}
-
-/** Copies the command: the thing someone would type again, never its output. */
-function CopyButton({ text }: { text: string }): JSX.Element {
-  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  const copy = (): void => {
-    clearTimeout(timer.current);
-    setState('idle');
-    void navigator.clipboard
-      ?.writeText(text)
-      .then(() => {
-        setState('copied');
-        // Long enough to notice, short enough not to become part of the block.
-        timer.current = setTimeout(() => setState('idle'), 1_200);
-      })
-      // A failure stays: it is news, and it means the text is still only here.
-      .catch(() => setState('failed'));
-  };
-  return (
-    <button
-      className={`tool-copy${state === 'idle' ? '' : ` ${state}`}`}
-      title="Copy command"
-      aria-label="Copy command"
-      onClick={copy}
-    >
-      <span aria-hidden="true">{state === 'copied' ? '✓' : '⧉'}</span>
-      {state !== 'idle' && (
-        <span className="copy-label">{state === 'copied' ? 'Copied' : 'Copy failed'}</span>
-      )}
-    </button>
   );
 }

@@ -8,11 +8,11 @@ export function SaveFeedback({
 }): JSX.Element {
   return (
     <span
-      className={error ? 'error save-feedback' : 'hint save-feedback'}
+      className={`${error ? 'error' : 'hint'} save-feedback${state === 'saving' ? ' loading' : ''}`}
       role={error ? 'alert' : 'status'}
     >
       {state === 'saving'
-        ? 'Saving…'
+        ? 'Saving'
         : state === 'saved'
           ? 'Saved'
           : state === 'failed'

@@ -5,6 +5,7 @@ import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 import { useConfirm } from '../../ConfirmDialog.tsx';
 import { cardMenuButton } from '../../canvas/cardActions.ts';
+import { plural } from '../../words.ts';
 
 /**
  * The things the panel can do to a node.
@@ -78,11 +79,11 @@ export function useNodeActions(
       const impact = await api.deletionImpact(node.id);
       const others = impact.nodes - 1;
 
-      const descendants = others > 0 ? ` and ${others} descendant${others === 1 ? '' : 's'}` : '';
+      const descendants = others > 0 ? ` and ${plural(others, 'descendant')}` : '';
       const ok = await confirm.ask({
         title: `Delete experiment "${node.displayName}"${descendants}?`,
         body: [
-          `This permanently removes ${impact.nodes} experiment${impact.nodes === 1 ? '' : 's'}, their conversations and run history, ` +
+          `This permanently removes ${plural(impact.nodes, 'experiment')}, their conversations and run history, ` +
             'saved code, and their ' +
             'experiment folders on disk, including uncommitted files.',
           ...(others > 0 ? [`Affected experiments: ${impact.names.join(', ')}`] : []),

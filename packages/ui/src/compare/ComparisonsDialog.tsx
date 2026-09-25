@@ -1,10 +1,11 @@
 import type { JSX } from 'react';
 import type { ComparisonSummary } from '@bonsai/shared';
 
-import { Dialog } from '../Dialog.tsx';
+import { Dialog, DialogHeader } from '../Dialog.tsx';
 import { Icon } from '../Icon.tsx';
 import { exactTime, relativeTime } from '../panel/chat/time.ts';
 import { compareTone } from '../state/compare.ts';
+import { plural } from '../words.ts';
 
 /** The project's comparisons, to reopen one. New ones are started from the map. */
 export function ComparisonsDialog({
@@ -20,18 +21,16 @@ export function ComparisonsDialog({
 }): JSX.Element {
   return (
     <Dialog title="Comparisons" className="wide reference-dialog" onClose={onClose}>
-      <header>
-        <div>
-          <h3>Comparisons</h3>
-          <p className="hint">
+      <DialogHeader
+        title="Comparisons"
+        subtitle={
+          <>
             {projectName} · start one from the map: <Icon name="compare" /> Compare, then pick 2 to
             4 experiments
-          </p>
-        </div>
-        <button className="dialog-close" aria-label="Close comparisons" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </header>
+          </>
+        }
+        onClose={onClose}
+      />
       {list.length === 0 ? (
         <p className="muted reference-empty">No comparisons yet.</p>
       ) : (
@@ -45,10 +44,7 @@ export function ComparisonsDialog({
               >
                 <span className="reference-name comparison-title">{comparison.title}</span>
                 <span className="reference-meta">
-                  {comparison.running
-                    ? 'Answering…'
-                    : `${comparison.questions} question${comparison.questions === 1 ? '' : 's'}`}{' '}
-                  ·{' '}
+                  {comparison.running ? 'Answering' : plural(comparison.questions, 'question')} ·{' '}
                   <time title={exactTime(comparison.updatedAt)}>
                     {relativeTime(comparison.updatedAt)}
                   </time>

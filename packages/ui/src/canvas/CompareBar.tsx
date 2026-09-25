@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import type { NodeView } from '@bonsai/shared';
 
-import { Icon } from '../Icon.tsx';
+import { Icon, IconButton } from '../Icon.tsx';
 import { COMPARE_MAX, COMPARE_MIN, compareTone } from '../state/compare.ts';
 
 /**
@@ -53,15 +53,14 @@ export function CompareBar({
                 {position + 1}
               </span>
               <span className="pick-name">{node.displayName}</span>
-              <button
+              <IconButton
+                icon="close"
+                size="xs"
                 className="pick-remove"
-                aria-label={`Remove ${node.displayName}`}
-                title="Remove"
+                label={`Remove ${node.displayName}`}
                 disabled={busy}
                 onClick={() => onRemove(node.id)}
-              >
-                <Icon name="close" />
-              </button>
+              />
             </li>
           ))}
         </ul>
@@ -72,18 +71,22 @@ export function CompareBar({
           {error}
         </span>
       )}
-      <button className="primary" disabled={count < COMPARE_MIN || busy} onClick={onCompare}>
-        {busy ? 'Reading them…' : `Compare ${count < COMPARE_MIN ? '' : count}`.trim()}
-      </button>
       <button
+        className="primary"
+        disabled={count < COMPARE_MIN || busy}
+        aria-busy={busy}
+        onClick={onCompare}
+      >
+        {`Compare ${count < COMPARE_MIN ? '' : count}`.trim()}
+      </button>
+      <IconButton
+        icon="close"
         className="compare-cancel"
-        aria-label="Stop picking"
+        label="Stop picking"
         title="Stop picking (Esc)"
         disabled={busy}
         onClick={onCancel}
-      >
-        <Icon name="close" />
-      </button>
+      />
     </div>
   );
 }

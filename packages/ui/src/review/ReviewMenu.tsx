@@ -1,7 +1,8 @@
 import { type JSX, useCallback, useRef, useState } from 'react';
 import type { NodeView } from '@bonsai/shared';
 
-import { Dialog } from '../Dialog.tsx';
+import { Dialog, DialogHeader } from '../Dialog.tsx';
+import { IconButton } from '../Icon.tsx';
 import { Checks } from '../panel/node/Checks.tsx';
 import { Checkout } from '../panel/node/Checkout.tsx';
 import { useNodeDetail } from '../panel/node/useNodeDetail.ts';
@@ -15,15 +16,7 @@ import { useDismiss } from '../useDismiss.ts';
  * than read. They live on the review screen now, one menu away from the change
  * they describe.
  */
-export function ReviewMenu({
-  node,
-  revision,
-  onError,
-}: {
-  node: NodeView;
-  revision: string;
-  onError: (message: string) => void;
-}): JSX.Element {
+export function ReviewMenu({ node, revision }: { node: NodeView; revision: string }): JSX.Element {
   const [open, setOpen] = useState(false);
   const [dialog, setDialog] = useState<null | 'checks' | 'checkout'>(null);
   const holder = useRef<HTMLDivElement>(null);
@@ -38,16 +31,14 @@ export function ReviewMenu({
 
   return (
     <div className="menu review-menu" ref={holder}>
-      <button
+      <IconButton
+        icon="more"
         className="review-more"
-        aria-label="More about this result"
+        label="More about this result"
         aria-haspopup="menu"
         aria-expanded={open}
-        title="More about this result"
         onClick={() => setOpen((value) => !value)}
-      >
-        ⋯
-      </button>
+      />
       {open && (
         <div className="menu-panel right" role="menu">
           <button
@@ -57,7 +48,7 @@ export function ReviewMenu({
               setDialog('checks');
             }}
           >
-            Recorded checks…
+            Recorded checks
           </button>
           <button
             role="menuitem"
@@ -70,14 +61,14 @@ export function ReviewMenu({
               setDialog('checkout');
             }}
           >
-            Use this code outside Bonsai…
+            Use this code outside Bonsai
           </button>
         </div>
       )}
 
       {dialog === 'checks' && (
         <Dialog title="Recorded checks" onClose={() => setDialog(null)} returnFocus=".review-more">
-          <h3>Recorded checks</h3>
+          <DialogHeader title="Recorded checks" onClose={() => setDialog(null)} />
           <Checks node={node} detail={data} />
           <div className="dialog-actions">
             <button className="primary" onClick={() => setDialog(null)}>
@@ -92,8 +83,8 @@ export function ReviewMenu({
           onClose={() => setDialog(null)}
           returnFocus=".review-more"
         >
-          <h3>Use this code outside Bonsai</h3>
-          <Checkout command={data.checkoutCommand} hint={data.checkoutHint} onError={onError} />
+          <DialogHeader title="Use this code outside Bonsai" onClose={() => setDialog(null)} />
+          <Checkout command={data.checkoutCommand} hint={data.checkoutHint} />
           <div className="dialog-actions">
             <button className="primary" onClick={() => setDialog(null)}>
               Close

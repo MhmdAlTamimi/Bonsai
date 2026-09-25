@@ -20,6 +20,7 @@ export function DiffPane({
   header,
   focused,
   onFocus,
+  empty = false,
 }: {
   file: ReviewFile | null;
   content?: string;
@@ -31,6 +32,8 @@ export function DiffPane({
   header?: JSX.Element;
   focused?: boolean;
   onFocus?: () => void;
+  /** Nothing changed, and the header says so: no file to ask for. */
+  empty?: boolean;
 }): JSX.Element {
   const parsed = useMemo(() => (patch === null ? null : (parsePatch(patch)[0] ?? null)), [patch]);
 
@@ -47,10 +50,10 @@ export function DiffPane({
             {error}
           </p>
         ) : file === null ? (
-          <p className="diff-note">Choose a file to read its changes.</p>
+          !empty && <p className="diff-note">Choose a file to read its changes.</p>
         ) : patch === null ? (
-          <p className="diff-note" role="status">
-            Loading {file.path}…
+          <p className="diff-note loading" role="status">
+            Loading {file.path}
           </p>
         ) : file.binary || parsed?.binary === true ? (
           <p className="diff-note">Binary file — there is no text to show.</p>

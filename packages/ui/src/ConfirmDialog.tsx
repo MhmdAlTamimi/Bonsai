@@ -1,6 +1,6 @@
 import { type JSX, useCallback, useState } from 'react';
 
-import { Dialog } from './Dialog.tsx';
+import { Dialog, DialogHeader } from './Dialog.tsx';
 
 /**
  * Confirmation, in the app rather than in the browser chrome.
@@ -95,9 +95,7 @@ function Confirm({
       onClose={cancel}
       {...(returnFocus === undefined ? {} : { returnFocus })}
     >
-      <header>
-        <h3>{request.title}</h3>
-      </header>
+      <DialogHeader title={request.title} onClose={cancel} />
       {request.body.map((paragraph, i) => (
         <p key={i} className="confirm-body">
           {paragraph}

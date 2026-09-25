@@ -46,7 +46,9 @@ export function Recovery({
         </p>
       ))}
       {loading ? (
-        <p role="status">Checking this experiment’s folder…</p>
+        <p className="loading" role="status">
+          Checking this experiment’s folder
+        </p>
       ) : changed.length === 0 ? (
         <p className="hint">{words.files}</p>
       ) : (

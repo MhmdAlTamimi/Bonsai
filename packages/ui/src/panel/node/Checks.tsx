@@ -1,6 +1,7 @@
 import { type JSX, useState } from 'react';
 import { api } from '../../api/client.ts';
-import { describeError } from '../../api/describeError.ts';
+import { SaveFeedback } from '../SaveFeedback.tsx';
+import { useSave } from '../useSave.ts';
 import type { NodeDetail, NodeView } from '@bonsai/shared';
 import { Markdown } from '../chat/Markdown.tsx';
 
@@ -16,38 +17,46 @@ export function Goal({ detail }: { detail: NodeDetail | null }): JSX.Element | n
 function GoalForm({ detail }: { detail: NodeDetail }): JSX.Element {
   const [goal, setGoal] = useState(detail.successCriteria ?? '');
   const [test, setTest] = useState(detail.verificationHint ?? '');
-  const [feedback, setFeedback] = useState('');
-  const [saving, setSaving] = useState(false);
+  const save = useSave();
   return (
     <section className="checks" aria-label="Goal">
       <h3>Goal and checks</h3>
       <label>
         Success looks like
-        <textarea value={goal} onChange={(e) => setGoal(e.target.value)} />
+        <textarea
+          value={goal}
+          onChange={(e) => {
+            setGoal(e.target.value);
+            save.reset();
+          }}
+        />
       </label>
       <label>
         How to test
-        <textarea value={test} onChange={(e) => setTest(e.target.value)} />
+        <textarea
+          value={test}
+          onChange={(e) => {
+            setTest(e.target.value);
+            save.reset();
+          }}
+        />
       </label>
       <p className="hint">Optional. Applies to the next run.</p>
-      <button
-        disabled={saving}
-        onClick={async () => {
-          setSaving(true);
-          setFeedback('');
-          try {
-            await api.updateNode(detail.node.id, { successCriteria: goal, verificationHint: test });
-            setFeedback('Saved');
-          } catch (e) {
-            setFeedback(describeError(e));
-          } finally {
-            setSaving(false);
+      <div className="save-row">
+        <button
+          disabled={save.busy}
+          onClick={() =>
+            void save.run(() =>
+              api
+                .updateNode(detail.node.id, { successCriteria: goal, verificationHint: test })
+                .then(() => undefined),
+            )
           }
-        }}
-      >
-        {saving ? 'Saving…' : 'Save goal and checks'}
-      </button>
-      <p role="status">{feedback}</p>
+        >
+          Save goal and checks
+        </button>
+        <SaveFeedback {...save} />
+      </div>
     </section>
   );
 }
@@ -66,7 +75,6 @@ export function Checks({
   const current = source !== null && !source.inherited && !source.predatesLatestRun;
   return (
     <section className="checks results-checks" aria-label="Recorded checks">
-      <h3>Recorded checks</h3>
       {!current && (
         <p className="hint">
           {node.status === 'running' || node.status === 'needs_you'

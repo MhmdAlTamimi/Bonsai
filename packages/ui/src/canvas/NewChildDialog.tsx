@@ -1,6 +1,7 @@
 import { useCanRun } from '../state/RunAvailability.ts';
 import { type JSX, useEffect, useRef, useState } from 'react';
-import { Dialog } from '../Dialog.tsx';
+import { Dialog, DialogHeader } from '../Dialog.tsx';
+import { ErrorNote } from '../ErrorNote.tsx';
 import type { ChildPreviewView } from '@bonsai/shared';
 import { NextRunInfo } from '../panel/NextRunInfo.tsx';
 import { Icon } from '../Icon.tsx';
@@ -97,12 +98,11 @@ export function NewChildDialog({
 
   return (
     <Dialog title="Branch experiment" onClose={cancel}>
-      <header>
-        <h3>Branch experiment from {parentName}</h3>
-        <button className="dialog-close" onClick={cancel} aria-label="close">
-          <Icon name="close" />
-        </button>
-      </header>
+      <DialogHeader
+        title={`Branch experiment from ${parentName}`}
+        onClose={cancel}
+        closeDisabled={busy}
+      />
 
       <label className="stacked">
         Experiment name
@@ -112,16 +112,16 @@ export function NewChildDialog({
           value={name}
           onChange={(e) => setName(e.target.value)}
           aria-label="experiment name"
-          placeholder="For example: Argparse approach"
+          placeholder="e.g. Argparse approach"
           disabled={busy}
         />
       </label>
       <label className="stacked">
-        Request (optional for later)
+        Request (optional when saving for later)
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe an experiment or ask a question."
+          placeholder="Describe the change to try, or ask a question"
           disabled={busy}
           aria-label="what should change"
           rows={3}
@@ -137,11 +137,11 @@ export function NewChildDialog({
         />
       </label>
       <label className="stacked">
-        Success looks like… (optional)
+        Success looks like (optional)
         <input
           value={successCriteria}
           onChange={(e) => setSuccessCriteria(e.target.value)}
-          placeholder="the /search endpoint answers in under 100ms"
+          placeholder="e.g. the /search endpoint answers in under 100 ms"
           aria-label="success criteria"
         />
       </label>
@@ -149,11 +149,13 @@ export function NewChildDialog({
         <h4>Starts from</h4>
         {preview === null ? (
           previewError === null ? (
-            <p role="status">Loading code and conversation sources…</p>
-          ) : (
-            <p className="error" role="alert">
-              {previewError} <button onClick={() => setRetry((n) => n + 1)}>Retry sources</button>
+            <p className="loading" role="status">
+              Loading code and conversation sources
             </p>
+          ) : (
+            <ErrorNote onRetry={() => setRetry((n) => n + 1)} retryLabel="Retry sources">
+              {previewError}
+            </ErrorNote>
           )
         ) : (
           <>
@@ -216,7 +218,7 @@ export function NewChildDialog({
           <textarea
             value={verificationHint}
             onChange={(e) => setVerificationHint(e.target.value)}
-            placeholder="pytest tests/test_search.py"
+            placeholder="e.g. pytest tests/test_search.py"
             aria-label="verification hint"
             rows={2}
           />
@@ -248,9 +250,10 @@ export function NewChildDialog({
           disabled={
             !canRun || busy || name.trim() === '' || description.trim() === '' || preview === null
           }
+          aria-busy={busy}
         >
           <Icon name="play" />
-          {busy ? 'Creating…' : canRun ? 'Start experiment' : 'Reconnect agent to run'}
+          {canRun ? 'Start experiment' : 'Reconnect agent to run'}
         </button>
       </div>
     </Dialog>

@@ -41,7 +41,7 @@ describe('the recovery notice says what happened', () => {
     assert.equal(words.files, '3 files not yet saved in any result.');
     assert.equal(words.continueLabel, 'Continue from these files');
     assert.equal(words.leaveLabel, 'Leave uncommitted');
-    assert.equal(words.discardLabel, 'Discard…');
+    assert.equal(words.discardLabel, 'Discard changes');
   });
 
   test('a failure shows its message; an app exit is not called a failure', () => {

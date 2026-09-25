@@ -2,7 +2,9 @@ import { type JSX, useEffect, useState } from 'react';
 import type { DirectoryInspectionView, ProjectView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import { ErrorNote } from '../ErrorNote.tsx';
 import { Icon } from '../Icon.tsx';
+import { plural } from '../words.ts';
 import { Logo } from '../Logo.tsx';
 import { DirectoryPicker } from './DirectoryPicker.tsx';
 
@@ -168,19 +170,25 @@ export function NewProject({
       {mode === 'new' ? (
         <>
           <p className="muted">Start fresh in a new project folder.</p>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="For example: Sales forecast"
-            aria-label="project name"
-          />
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="what should it build?"
-            aria-label="project description"
-            rows={4}
-          />
+          <label className="project-field">
+            Name
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Sales forecast"
+              aria-label="project name"
+            />
+          </label>
+          <label className="project-field">
+            What should it build?
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the goal in a sentence or two"
+              aria-label="project description"
+              rows={4}
+            />
+          </label>
           <div className="stacked">
             <span>Project location</span>
             <p className="hint">
@@ -193,8 +201,8 @@ export function NewProject({
               {choosingLocation
                 ? 'Close folder browser'
                 : location
-                  ? 'Change folder…'
-                  : 'Choose folder…'}
+                  ? 'Change folder'
+                  : 'Choose folder'}
             </button>
             {choosingLocation && (
               <DirectoryPicker
@@ -209,13 +217,12 @@ export function NewProject({
               <p className="note">New project folder: {preview.path}</p>
             )}
             {location !== '' && preview === null && previewError === null && (
-              <p role="status">Checking destination…</p>
+              <p className="loading" role="status">
+                Checking destination
+              </p>
             )}
             {previewError !== null && (
-              <p className="error" role="alert">
-                {previewError}{' '}
-                <button onClick={() => setInspectionRetry((n) => n + 1)}>Retry</button>
-              </p>
+              <ErrorNote onRetry={() => setInspectionRetry((n) => n + 1)}>{previewError}</ErrorNote>
             )}
           </div>
         </>
@@ -224,13 +231,17 @@ export function NewProject({
           <p className="muted">Choose an existing repository or folder.</p>
           <DirectoryPicker value={folder} onChange={setFolder} markRepos />
           {folder !== '' && currentInspection === null && inspectionError === null && (
-            <p role="status">Inspecting selected folder…</p>
+            <p className="loading" role="status">
+              Inspecting selected folder
+            </p>
           )}
           {inspectionError !== null && (
-            <p className="error" role="alert">
-              {inspectionError}{' '}
-              <button onClick={() => setInspectionRetry((n) => n + 1)}>Retry inspection</button>
-            </p>
+            <ErrorNote
+              onRetry={() => setInspectionRetry((n) => n + 1)}
+              retryLabel="Retry inspection"
+            >
+              {inspectionError}
+            </ErrorNote>
           )}
           {matching.length > 0 && (
             <section className="matching-projects" aria-label="Projects in this repository">
@@ -273,30 +284,36 @@ export function NewProject({
                     onChange={(e) => setIncludeUncommitted(e.target.checked)}
                   />
                   <span>
-                    Start nodes from your uncommitted work too ({currentInspection.dirtyFiles} file
-                    {currentInspection.dirtyFiles === 1 ? '' : 's'}). Bonsai takes a snapshot commit
+                    Start experiments from your uncommitted work too (
+                    {plural(currentInspection.dirtyFiles, 'file')}). Bonsai takes a snapshot commit
                     that belongs to no branch; your working folder is not touched either way.
                   </span>
                 </label>
               )}
 
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={
-                  currentInspection?.path == null
-                    ? 'project name (optional)'
-                    : basename(currentInspection.path)
-                }
-                aria-label="project name"
-              />
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="what is this project? (optional)"
-                aria-label="project description"
-                rows={3}
-              />
+              <label className="project-field">
+                Name (optional)
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={
+                    currentInspection?.path == null
+                      ? 'Defaults to the folder name'
+                      : basename(currentInspection.path)
+                  }
+                  aria-label="project name"
+                />
+              </label>
+              <label className="project-field">
+                What is this project? (optional)
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="A sentence the agent can start from"
+                  aria-label="project description"
+                  rows={3}
+                />
+              </label>
             </>
           )}
         </>
@@ -304,14 +321,13 @@ export function NewProject({
 
       <div className="row project-actions">
         {!(mode === 'existing' && (offerExisting || currentInspection?.knownTo)) && (
-          <button className="primary" onClick={() => void submit()} disabled={busy || blocked}>
-            {busy
-              ? mode === 'new'
-                ? 'Creating…'
-                : 'Setting up…'
-              : mode === 'new'
-                ? 'Create project'
-                : 'Create project from folder'}
+          <button
+            className="primary"
+            onClick={() => void submit()}
+            disabled={busy || blocked}
+            aria-busy={busy}
+          >
+            {mode === 'new' ? 'Create project' : 'Create project from folder'}
           </button>
         )}
         {onCancel !== undefined && (
@@ -320,7 +336,7 @@ export function NewProject({
           </button>
         )}
       </div>
-      {error !== null && <p className="error">{error}</p>}
+      {error !== null && <ErrorNote>{error}</ErrorNote>}
     </div>
   );
 }
@@ -371,8 +387,8 @@ function Inspected({
     return (
       <p className="note">
         Not a git repository, and not inside one. Bonsai will run <code>git init</code> here and
-        make one commit of what is already in the folder — {inspection.entryCount} item
-        {inspection.entryCount === 1 ? '' : 's'} — so experiments have something to branch from.
+        make one commit of what is already in the folder — {plural(inspection.entryCount, 'item')} —
+        so experiments have something to branch from.
         {inspection.entryCount > 400 &&
           ' That is a lot of files; check there is no build output or node_modules in there first.'}
       </p>
@@ -411,7 +427,7 @@ function Inspected({
           On <strong>{inspection.branch ?? 'a detached HEAD'}</strong>, at{' '}
           <code>{inspection.headCommit.slice(0, 8)}</code>.{' '}
           {inspection.dirtyFiles > 0
-            ? `${inspection.dirtyFiles} uncommitted change${inspection.dirtyFiles === 1 ? '' : 's'} — left exactly as they are.`
+            ? `${plural(inspection.dirtyFiles, 'uncommitted change')} — left exactly as they are.`
             : 'Clean.'}{' '}
           This branch becomes the starting experiment and stays read-only; experiments branch from
           it.

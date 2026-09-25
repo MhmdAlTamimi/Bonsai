@@ -126,7 +126,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         true,
       );
       await session.eval(
-        "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Choose folder…').click()",
+        "Array.from(document.querySelectorAll('button')).find(b => b.textContent.trim() === 'Choose folder').click()",
       );
       await session.waitFor(
         "!!document.querySelector('.picker input') && !document.querySelector('.picker > button').disabled",
@@ -158,9 +158,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         'a project made by the end-to-end test',
       );
       assert.equal(await session.eval("!!document.querySelector('.checkout-section')"), false);
-      await session.click('.composer-row button.primary');
+      await session.click('.composer-row .send');
       await session.waitFor(
-        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row .send-label')?.textContent === 'Send'",
+        "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row .send')?.getAttribute('aria-label') === 'Send'",
         { timeoutMs: 10000 },
       );
 
@@ -278,7 +278,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         return window.__fetch(url, init);
       };
     })()`);
-    await session.click('.composer-row button.primary');
+    await session.click('.composer-row .send');
     await session.waitFor('!!window.__ack');
     await select('child');
     await session.type('.composer textarea', 'newer child draft');
@@ -385,7 +385,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(await session.eval("!!document.querySelector('.composer-row .secondary')"), false);
     await session.click(`[data-id="${question.node.id}"] .card-more`);
     await session.eval(
-      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Branch child')).click()",
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Branch experiment')).click()",
     );
     await session.waitFor(
       "document.querySelector('.creation-sources')?.textContent.includes('Named approach')",
@@ -416,13 +416,15 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       'Improve the approach',
     );
     assert.equal(
-      await session.eval("document.querySelector('.composer-row .send-label').textContent"),
+      await session.eval(
+        "document.querySelector('.composer-row .send').getAttribute('aria-label')",
+      ),
       'Start first run',
     );
     await session.eval('window.fetch = window.__savedFetch');
-    await session.click('.composer-row button.primary');
+    await session.click('.composer-row .send');
     await session.waitFor(
-      "document.querySelector('.composer-row .send-label').textContent === 'Send' && !document.querySelector('.panel button.stop')",
+      "document.querySelector('.composer-row .send').getAttribute('aria-label') === 'Send' && !document.querySelector('.panel button.stop')",
     );
     const after = (await (
       await fetch(`${BASE}/api/projects/${projectId}/tree`)
@@ -502,9 +504,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const summaries = (await session.eval(
       "JSON.stringify(Array.from(document.querySelectorAll('.work-summary')).map(s => s.textContent))",
     )) as string;
-    assert.match(summaries, /Read run_experiment\.py, ran a command, searched the code›/);
+    assert.match(summaries, /Read run_experiment\.py, ran a command, searched the code/);
     // The file and its notes: two files, named by count, with their total.
-    assert.match(summaries, /Created 2 files\+\d+ −0›/);
+    assert.match(summaries, /Created 2 files\+\d+ −0/);
     assert.equal(
       await session.eval("document.querySelectorAll('.work-group').length"),
       0,
@@ -571,18 +573,18 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "window.__copied = null; Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: async (t) => { window.__copied = t; }}})",
     );
     await session.eval(
-      `${stretch}.querySelector('.work-command .tool-copy').scrollIntoView({ block: 'center' })`,
+      `${stretch}.querySelector('.work-command .copy-button').scrollIntoView({ block: 'center' })`,
     );
-    await session.eval(`${stretch}.querySelector('.work-command .tool-copy').click()`);
+    await session.eval(`${stretch}.querySelector('.work-command .copy-button').click()`);
     await session.waitFor("window.__copied === 'python run_experiment.py --bucket kb-raw'", {
       label: 'the command to be copied — never its output',
     });
     await session.eval(
       "Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: () => Promise.reject(new Error('fixture denied'))}})",
     );
-    await session.eval(`${stretch}.querySelector('.work-command .tool-copy').click()`);
+    await session.eval(`${stretch}.querySelector('.work-command .copy-button').click()`);
     await session.waitFor(
-      `${stretch}.querySelector('.work-command .tool-copy.failed')?.textContent.includes('Copy failed')`,
+      `${stretch}.querySelector('.work-command .copy-button.failed')?.textContent.includes('Copy failed')`,
       { label: 'a refused copy to say so' },
     );
     await session.eval('delete navigator.clipboard');
@@ -622,7 +624,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       label: 'the experiment details dialog',
     });
     const facts = String(await session.eval("document.querySelector('.dialog').textContent"));
-    assert.match(facts, /node id/);
+    assert.match(facts, /Experiment id/);
     assert.match(facts, /Goal/);
     await session.click('.dialog .dialog-actions button');
     await session.waitFor("!document.querySelector('.dialog')");
@@ -1654,7 +1656,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       JSON.stringify(report, null, 2),
     );
 
-    await session.eval('document.querySelector(\'[aria-label="Close settings"]\').click()');
+    await session.eval("document.querySelector('dialog .dialog-close').click()");
     await session.waitFor("!document.querySelector('dialog.settings-dialog')");
     await fetch(`${nodeUrl}/runs`, {
       method: 'POST',
@@ -1678,7 +1680,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.click('.usage-experiment summary');
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-5-usage.png'));
-    await session.click('[aria-label="Close usage"]');
+    await session.click('dialog .dialog-close');
     // On reload, the server still serves saved data but reports an expired credential.
     const script = (await session.send('Page.addScriptToEvaluateOnNewDocument', {
       source: `window.__offlineAgent = true; const nativeFetch = window.fetch; window.fetch = (url, init) => window.__offlineAgent && String(url).endsWith('/connection') ? Promise.resolve(new Response(JSON.stringify({state:'no_credential', model:null, apiKeySource:null, message:'Expired credential fixture'}), {headers:{'content-type':'application/json'}})) : nativeFetch(url, init);`,
@@ -1690,12 +1692,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       );
       await session.type('.composer textarea', 'keep this draft');
       assert.equal(
-        await session.eval("document.querySelector('.composer-row button.primary').disabled"),
+        await session.eval("document.querySelector('.composer-row .send').disabled"),
         true,
       );
       await openUsage();
       await session.waitFor("!!document.querySelector('.usage-totals')");
-      await session.click('[aria-label="Close usage"]');
+      await session.click('dialog .dialog-close');
       await session.click('.settings-button');
       await session.waitFor("document.querySelector('.connection-settings')?.open === true");
       await session.eval('window.__offlineAgent = false');
@@ -1703,13 +1705,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         "Array.from(document.querySelectorAll('.connection-settings button')).find(b => b.textContent === 'Recheck').click()",
       );
       await session.waitFor("!document.body.textContent.includes('Agent unavailable')");
-      await session.click('[aria-label="Close settings"]');
+      await session.click('dialog .dialog-close');
       assert.equal(
         await session.eval("document.querySelector('.composer textarea').value"),
         'keep this draft',
       );
       assert.equal(
-        await session.eval("document.querySelector('.composer-row button.primary').disabled"),
+        await session.eval("document.querySelector('.composer-row .send').disabled"),
         false,
       );
     } finally {
@@ -1719,7 +1721,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     }
     await session.click('.project-picker');
     await session.eval(
-      "Array.from(document.querySelectorAll('.menu-panel button')).find(b => b.textContent.includes('Delete this project')).click()",
+      "Array.from(document.querySelectorAll('.menu-panel button')).find(b => b.textContent.includes('Delete project')).click()",
     );
     await session.waitFor("!!document.querySelector('dialog.confirm[open]')");
     assert.equal(await session.eval('document.activeElement.textContent'), 'Cancel');
@@ -1798,7 +1800,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("!!document.querySelector('[aria-label=Project]')");
     await session.click('[aria-label=Project]');
     await session.eval(
-      "Array.from(document.querySelectorAll('.project-menu button')).find(b=>b.textContent==='Use an existing folder…').click()",
+      "Array.from(document.querySelectorAll('.project-menu button')).find(b=>b.textContent==='Open a folder').click()",
     );
     await session.waitFor("!!document.querySelector('.picker input')");
     await session.type('[aria-label="folder path"]', folder);
@@ -1929,7 +1931,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
 
     // Typed the way Claude Code takes it.
     await session.type('.composer textarea', '/compact keep the test results');
-    await session.click('.composer-row button.primary');
+    await session.click('.composer-row .send');
     await session.waitFor(
       "document.querySelector('.activity')?.textContent.includes('Compacting conversation')",
     );
@@ -1996,7 +1998,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "document.querySelector('dialog .reference-row .reference-name')?.textContent === '@smoke-test'",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'references-library.png'));
-    await session.click('dialog [aria-label="Close references"]');
+    await session.click('dialog .dialog-close');
     await session.waitFor("document.querySelector('.references-count')?.textContent === '1'");
 
     // Attached from the composer: typing @ offers it, choosing it makes a chip.
@@ -2016,7 +2018,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'references-composer.png'));
     await session.type('.composer textarea', '? check this with the reference');
-    await session.click('.composer-row button.primary');
+    await session.click('.composer-row .send');
     await session.waitFor(ready);
 
     // The run read its own copy, and the transcript names it.
@@ -2058,7 +2060,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // Drawn from an experiment's conversation, from its card: one call, undoable.
     await session.click('[aria-label="Actions for master"]');
     await session.eval(
-      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.includes('Create reference from this experiment')).click()",
+      "Array.from(document.querySelectorAll('[role=menuitem]')).find(b=>b.textContent.includes('Save as reference')).click()",
     );
     await session.waitFor(
       "document.querySelector('dialog [aria-label=\"experiment to draw from\"]')?.selectedOptions[0]?.textContent === 'master'",
@@ -2166,7 +2168,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'mention-experiment.png'));
     await session.type('.composer textarea', '? do better than it');
-    await session.click('.composer-row button.primary');
+    await session.click('.composer-row .send');
     await session.waitFor(ready(lru));
 
     await session.waitFor(
@@ -2397,7 +2399,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         `Array.from(document.querySelectorAll('.card-menu > button')).findIndex(b=>b.textContent.includes(${JSON.stringify(item)}))`,
       )) as number;
       assert.ok(index >= 0, `no menu item ${item}`);
-      await session.click(`.card-menu > button:nth-child(${index + 1})`);
+      await session.click(`.card-menu > button:nth-of-type(${index + 1})`);
       await session.waitFor(
         "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent.trim()==='Cancel')",
       );
@@ -2411,7 +2413,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.waitFor(focused);
     };
     await openAndCancel('Rename');
-    await openAndCancel('Delete this experiment');
+    await openAndCancel('Delete experiment');
   });
 
   test('visual workspace supports text sizing, keyboard branching, stable zoom and narrow views', async () => {
@@ -2627,7 +2629,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       const luminance = c => c.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((n,v,i)=>n+v*[.2126,.7152,.0722][i],0);
       const ratio = (a,b) => { const x=luminance(rgb(a)), y=luminance(rgb(b)); return Math.round((Math.max(x,y)+.05)/(Math.min(x,y)+.05)*100)/100; };
       const results = [];
-      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row button.primary', '.panel-meta', '.card-name', '.chip']) {
+      for (const selector of ['.composer textarea', '.composer .hint', '.composer-row .send', '.panel-meta', '.card-name', '.chip']) {
         const el=document.querySelector(selector), style=getComputedStyle(el);
         let parent=el, bg='rgb(13, 14, 17)';
         while(parent) { const candidate=getComputedStyle(parent).backgroundColor; if(candidate.startsWith('rgb(')) {bg=candidate;break;} parent=parent.parentElement; }
@@ -2650,7 +2652,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "document.querySelector('.appearance-settings .save-feedback').textContent === 'Saved' && parseFloat(getComputedStyle(document.body).fontSize) > 18",
     );
-    await session.click('[aria-label="Close settings"]');
+    await session.click('dialog .dialog-close');
     // A transcript worth scrolling, so the reading-position check below cannot
     // pass by having nothing to scroll. One turn per run, so two runs.
     for (const prompt of [
@@ -2688,7 +2690,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // Waited for rather than asserted outright: the assertion is about the
     // settled layout, and a viewport change has not reflowed on the next tick.
     await session.waitFor(
-      "document.querySelector('.composer-row button.primary').getBoundingClientRect().bottom <= 720",
+      "document.querySelector('.composer-row .send').getBoundingClientRect().bottom <= 720",
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-800-large.png'));
     // Narrow: one view at a time, chosen with a two-state segmented switch.
@@ -2757,7 +2759,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       assert.ok(
         Number(
           await session.eval(
-            "document.querySelector('.composer-row button.primary').getBoundingClientRect().right",
+            "document.querySelector('.composer-row .send').getBoundingClientRect().right",
           ),
         ) <= width,
       );
@@ -2800,19 +2802,19 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     assert.ok(Number(await session.eval("document.querySelector('.panel-body').clientHeight")) > 0);
     await session.eval(
-      "document.querySelector('.composer-row button.primary').scrollIntoView({block:'nearest'})",
+      "document.querySelector('.composer-row .send').scrollIntoView({block:'nearest'})",
     );
     assert.ok(
       Number(
         await session.eval(
-          "document.querySelector('.composer-row button.primary').getBoundingClientRect().bottom",
+          "document.querySelector('.composer-row .send').getBoundingClientRect().bottom",
         ),
       ) <= 361,
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-6-zoom-200.png'));
     await session.click('.view-switch button:first-child');
     await session.click('.settings-button');
-    await session.click('[aria-label="Close settings"]');
+    await session.click('dialog .dialog-close');
     await session.send('Emulation.clearDeviceMetricsOverride', {});
     await fetch(`${BASE}/api/settings`, {
       method: 'PATCH',

@@ -1,7 +1,8 @@
 import { type JSX, useCallback, useEffect, useState, useRef } from 'react';
 import type { DirectoryListingView } from '@bonsai/shared';
 import { describeError } from '../api/describeError.ts';
-import { Icon } from '../Icon.tsx';
+import { ErrorNote } from '../ErrorNote.tsx';
+import { IconButton } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 
 /**
@@ -71,14 +72,13 @@ export function DirectoryPicker({
   return (
     <div className="picker">
       <div className="picker-bar">
-        <button
+        <IconButton
           type="button"
-          title="Up one level"
+          icon="arrowUp"
+          label="Up one level"
           disabled={listing?.parent == null}
           onClick={() => listing?.parent != null && void load(listing.parent)}
-        >
-          <Icon name="arrowUp" />
-        </button>
+        />
         <input
           value={typed}
           spellCheck={false}
@@ -100,20 +100,16 @@ export function DirectoryPicker({
           Go
         </button>
         {listing !== null && (
-          <button type="button" title="Home" onClick={() => void load(listing.home)}>
-            <Icon name="home" />
-          </button>
+          <IconButton
+            type="button"
+            icon="home"
+            label="Home folder"
+            onClick={() => void load(listing.home)}
+          />
         )}
       </div>
 
-      {error !== null && (
-        <p className="error" role="alert">
-          {error}{' '}
-          <button type="button" onClick={() => void load(typed)}>
-            Retry
-          </button>
-        </p>
-      )}
+      {error !== null && <ErrorNote onRetry={() => void load(typed)}>{error}</ErrorNote>}
       <p className="hint">Browsing: {listing?.path ?? 'No folder loaded'}</p>
       <button
         type="button"
@@ -127,7 +123,7 @@ export function DirectoryPicker({
       {value !== '' && <p className="hint">Selected: {value}</p>}
       <div className="picker-list">
         {loading && listing === null ? (
-          <p className="muted">Loading…</p>
+          <p className="muted loading">Loading folders</p>
         ) : listing === null || listing.entries.length === 0 ? (
           <p className="muted">No sub-folders here.</p>
         ) : (

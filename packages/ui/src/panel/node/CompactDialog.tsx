@@ -2,7 +2,7 @@ import { useRef, useState, type JSX } from 'react';
 import type { NodeView } from '@bonsai/shared';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
-import { Dialog } from '../../Dialog.tsx';
+import { Dialog, DialogHeader } from '../../Dialog.tsx';
 import { cardMenuButton } from '../../canvas/cardActions.ts';
 
 /** `/compact`, with room to say what the summary should keep. */
@@ -46,11 +46,12 @@ export function CompactDialog({
       onClose={close}
       returnFocus={cardMenuButton(node.displayName)}
     >
-      <h3>Compact {node.displayName}</h3>
-      <p className="hint">
-        Summarises older turns so the agent has room to work. Experiments branched afterwards start
-        from the summary.
-      </p>
+      <DialogHeader
+        title={`Compact ${node.displayName}`}
+        subtitle="Summarises older turns so the agent has room to work. Experiments branched afterwards start from the summary."
+        onClose={close}
+        closeDisabled={busy}
+      />
       <label className="stacked">
         Keep in focus (optional)
         <input
@@ -58,7 +59,7 @@ export function CompactDialog({
           value={focus}
           disabled={busy}
           aria-label="keep in focus"
-          placeholder="the test results and the approach we chose"
+          placeholder="e.g. the test results and the approach we chose"
           onChange={(e) => setFocus(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
@@ -77,8 +78,8 @@ export function CompactDialog({
         <button onClick={close} disabled={busy}>
           Cancel
         </button>
-        <button className="primary" disabled={busy} onClick={() => void start()}>
-          {busy ? 'Starting…' : 'Compact'}
+        <button className="primary" disabled={busy} aria-busy={busy} onClick={() => void start()}>
+          Compact
         </button>
       </div>
     </Dialog>

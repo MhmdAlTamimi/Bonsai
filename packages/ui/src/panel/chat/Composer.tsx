@@ -1,7 +1,9 @@
-import { type JSX, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import { useCanRun } from '../../state/RunAvailability.ts';
 import type { NextRunSettings, NodeView } from '@bonsai/shared';
 import { PERMISSIONS } from '../AgentFields.tsx';
+import { IconButton } from '../../Icon.tsx';
+import { useAutosize } from '../../useAutosize.ts';
 import { useDismiss } from '../../useDismiss.ts';
 import { useAnchoredAbove } from '../../useAnchoredAbove.ts';
 import type { Attachment } from './drafts.ts';
@@ -51,21 +53,7 @@ export function Composer({
     experimentsFor: node.id,
   });
 
-  /**
-   * The box grows with the draft, to five lines, and then scrolls inside
-   * itself — the one place in the panel allowed its own scroll, because Send
-   * must never be pushed out of the window by something you are typing.
-   */
-  useLayoutEffect(() => {
-    const box = ref.current;
-    if (box === null) return;
-    const style = getComputedStyle(box);
-    const line = Number.parseFloat(style.lineHeight) || 20;
-    const padding =
-      Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom) || 0;
-    box.style.height = 'auto';
-    box.style.height = `${Math.min(box.scrollHeight, Math.round(line * MAX_LINES + padding))}px`;
-  }, [value, open]);
+  useAutosize(ref, value, MAX_LINES, open);
 
   // Re-collapse when moving to another frozen node, so the panel does not stay
   // expanded because of a decision made about a different node.
@@ -83,7 +71,7 @@ export function Composer({
             setTimeout(() => ref.current?.focus(), 0);
           }}
         >
-          Ask a question&hellip;
+          Ask a question
         </button>
         <span className="hint">
           {node.frozenReason === 'your_folder'
@@ -114,7 +102,7 @@ export function Composer({
             if (canRun && !busy && !sending && value.trim()) onSend();
           }
         }}
-        placeholder={initial ? 'Describe what the first run should do…' : placeholder(node, busy)}
+        placeholder={initial ? 'Describe what the first run should do' : placeholder(node, busy)}
         rows={1}
         aria-label="message"
       />
@@ -128,30 +116,24 @@ export function Composer({
               ? '⏎ send · ⇧⏎ newline'
               : 'Reconnect the agent to send'}
         </span>
-        <button
+        <IconButton
+          icon="at"
           className="composer-mention"
-          aria-label="Mention a reference or experiment"
-          title="Mention a reference or another experiment — or type @"
+          label="Mention a reference or experiment"
+          title="Mention a reference or another experiment (or type @)"
           onClick={mention.begin}
-        >
-          @
-        </button>
+        />
         {nextRun != null && <NextRun value={nextRun} onProjectSettings={onProjectSettings} />}
-        <button
-          className="primary"
+        <IconButton
+          icon="arrowUp"
+          tone="accent"
+          className="send"
+          label={initial ? 'Start first run' : 'Send'}
+          title={initial ? 'Start first run (⏎)' : 'Send (⏎)'}
+          aria-busy={sending}
           onClick={onSend}
           disabled={!canRun || busy || sending || value.trim() === ''}
-          aria-label={initial ? 'Start first run' : 'Send'}
-        >
-          <span className="send-label">
-            {sending ? (initial ? 'Starting…' : 'Sending…') : initial ? 'Start first run' : 'Send'}
-          </span>
-          {/* Shown instead of the label when the panel is too narrow to hold
-              a hint and two buttons — the design's other composer. */}
-          <span className="send-arrow" aria-hidden="true">
-            ↑
-          </span>
-        </button>
+        />
       </div>
     </div>
   );
@@ -183,17 +165,16 @@ function NextRun({
   );
   return (
     <div className="menu composer-menu" ref={holder}>
-      <button
+      <IconButton
         ref={trigger}
+        icon="more"
         className="composer-more"
-        aria-label="Settings for the next run"
+        label="Settings for the next run"
         aria-haspopup="menu"
         aria-expanded={open}
         title={`Next run · ${value.model ?? 'Agent default'}`}
         onClick={() => setOpen((v) => !v)}
-      >
-        ⋯
-      </button>
+      />
       {open && anchor !== null && (
         <div className="menu-panel anchored next-run" role="menu" style={anchor}>
           <div className="menu-label">Next run</div>
@@ -225,7 +206,7 @@ function NextRun({
                 onProjectSettings();
               }}
             >
-              Project settings…
+              Project settings
             </button>
           )}
         </div>
@@ -235,10 +216,10 @@ function NextRun({
 }
 
 function placeholder(node: NodeView, busy: boolean): string {
-  if (node.status === 'needs_you') return 'Answer the question above to let it carry on.';
-  if (busy) return 'The agent is working…';
-  if (node.writable) return 'Reply, ask a question, or describe a change…';
+  if (node.status === 'needs_you') return 'Answer the question above to let the agent continue';
+  if (busy) return 'Write your next message — send it when the agent finishes';
+  if (node.writable) return 'Reply, ask a question, or describe a change';
   return node.frozenReason === 'your_folder'
-    ? 'Your own folder — ask about it; branch a child to change anything.'
-    : 'This node is frozen — you can still ask questions.';
+    ? 'Ask about your folder — branch an experiment to change it'
+    : 'Ask a question — branch an experiment to change the code';
 }

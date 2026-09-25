@@ -1,6 +1,6 @@
 import { type JSX, useCallback, useRef, useState } from 'react';
 
-import { Icon } from '../Icon.tsx';
+import { IconButton } from '../Icon.tsx';
 import { useDismiss } from '../useDismiss.ts';
 
 /** The comparison's own ⋯: the rare, destructive thing, kept out of the way. */
@@ -15,15 +15,14 @@ export function CompareMenu({ onDelete }: { onDelete: () => void }): JSX.Element
   );
   return (
     <div className="menu review-menu" ref={holder}>
-      <button
+      <IconButton
+        icon="more"
         className="review-more"
-        aria-label="More for this comparison"
+        label="More for this comparison"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-      >
-        <Icon name="more" />
-      </button>
+      />
       {open && (
         <div className="menu-panel right" role="menu">
           <button
@@ -34,7 +33,7 @@ export function CompareMenu({ onDelete }: { onDelete: () => void }): JSX.Element
               onDelete();
             }}
           >
-            Delete comparison…
+            Delete comparison
           </button>
         </div>
       )}

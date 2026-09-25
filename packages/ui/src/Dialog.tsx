@@ -1,6 +1,8 @@
 import { useEffect, useRef, type JSX, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+import { IconButton } from './Icon.tsx';
+
 /** Native focus containment and restoration for focused app tasks. */
 export function Dialog({
   title,
@@ -69,5 +71,43 @@ export function Dialog({
       {children}
     </dialog>,
     document.body,
+  );
+}
+
+/**
+ * Every dialog's top: its title, a line under it when there is something to
+ * say, and the way out in the same corner. Dialogs used to build this each
+ * for themselves, so some had a close and some did not, and the close had a
+ * different name in each.
+ */
+export function DialogHeader({
+  title,
+  subtitle,
+  before,
+  onClose,
+  closeDisabled = false,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  /** Above the title: a way back to where this view was opened from. */
+  before?: ReactNode;
+  onClose: () => void;
+  closeDisabled?: boolean;
+}): JSX.Element {
+  return (
+    <header className="dialog-head">
+      <div className="dialog-heading">
+        {before}
+        <h3>{title}</h3>
+        {subtitle !== undefined && <p className="hint">{subtitle}</p>}
+      </div>
+      <IconButton
+        icon="close"
+        label="Close"
+        className="dialog-close"
+        disabled={closeDisabled}
+        onClick={onClose}
+      />
+    </header>
   );
 }

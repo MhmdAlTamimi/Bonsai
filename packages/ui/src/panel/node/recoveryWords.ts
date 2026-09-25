@@ -92,6 +92,6 @@ export function recoveryWords({
         ? 'The agent is shown exactly what changed and asked to check and finish it. Then the run commits as usual.'
         : 'The agent is shown exactly what landed and asked to finish the request without redoing it.',
     leaveLabel: interrupted ? (nothing ? 'Dismiss' : 'Leave uncommitted') : null,
-    discardLabel: nothing || isYourFolder ? null : 'Discard…',
+    discardLabel: nothing || isYourFolder ? null : 'Discard changes',
   };
 }

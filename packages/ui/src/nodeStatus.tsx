@@ -33,7 +33,7 @@ export const STATUS_LABEL: Record<NodeStatus, string> = {
 
 const STATUS_TITLE: Record<NodeStatus, string> = {
   new: 'Created, but no run has started yet.',
-  running: 'An agent is working in this node now.',
+  running: 'An agent is working in this experiment now.',
   needs_you: 'The agent asked a question and is waiting for an answer.',
   ready: 'The run finished. This does not mean its result was verified.',
   interrupted: 'The last run was stopped or failed. Its work is still in the folder.',

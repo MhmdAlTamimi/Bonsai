@@ -3,8 +3,9 @@ import type { DraftBasis, NodeView, ReferenceView } from '@bonsai/shared';
 
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
-import { Dialog } from '../../Dialog.tsx';
-import { Icon } from '../../Icon.tsx';
+import { Dialog, DialogHeader } from '../../Dialog.tsx';
+import { ErrorNote } from '../../ErrorNote.tsx';
+import { Icon, IconButton } from '../../Icon.tsx';
 import { useCanRun } from '../../state/RunAvailability.ts';
 import {
   canDrawFrom,
@@ -94,17 +95,11 @@ function Library({
   const first = useFocusOnMount<HTMLButtonElement>();
   return (
     <>
-      <header>
-        <div>
-          <h3>References</h3>
-          <p className="hint">
-            {projectName} · give one to any experiment by typing @ in a message
-          </p>
-        </div>
-        <button className="dialog-close" aria-label="Close references" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </header>
+      <DialogHeader
+        title="References"
+        subtitle={`${projectName} · give one to any experiment by typing @ in a message`}
+        onClose={onClose}
+      />
       <div className="reference-start">
         <button ref={first} className="primary" data-dialog-focus onClick={() => onNew(false)}>
           <Icon name="plus" /> New reference
@@ -114,7 +109,7 @@ function Library({
           title={canDraft ? undefined : 'No experiment has a conversation yet.'}
           onClick={() => onNew(true)}
         >
-          Generate from an experiment…
+          New from a conversation
         </button>
       </div>
       {list.length === 0 ? (
@@ -153,12 +148,7 @@ function Library({
 function Missing({ onBack, onClose }: { onBack: () => void; onClose: () => void }): JSX.Element {
   return (
     <>
-      <header>
-        <h3>Reference not found</h3>
-        <button className="dialog-close" aria-label="Close references" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </header>
+      <DialogHeader title="Reference not found" onClose={onClose} />
       <p className="muted">This reference is no longer in the project.</p>
       <div className="dialog-actions">
         <button className="primary" data-dialog-focus onClick={onBack}>
@@ -254,17 +244,15 @@ function Editor({
 
   return (
     <>
-      <header>
-        <div>
+      <DialogHeader
+        before={
           <button className="linkish reference-back" onClick={onBack} disabled={locked}>
-            ← All references
+            <Icon name="arrowLeft" /> All references
           </button>
-          <h3>{reference === null ? 'New reference' : `Edit @${reference.name}`}</h3>
-        </div>
-        <button className="dialog-close" aria-label="Close references" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </header>
+        }
+        title={reference === null ? 'New reference' : `Edit @${reference.name}`}
+        onClose={onClose}
+      />
 
       <label className="stacked">
         Name
@@ -275,7 +263,7 @@ function Editor({
           disabled={busy}
           maxLength={80}
           aria-label="reference name"
-          placeholder="For example: smoke-test"
+          placeholder="e.g. smoke-test"
           onChange={(e) => setName(e.target.value)}
         />
         <span className="hint">Mention it in a message as @{name.trim() || 'name'}.</span>
@@ -292,7 +280,7 @@ function Editor({
           </span>
           {!filling && (
             <button className="linkish" disabled={locked} onClick={() => setFilling(true)}>
-              Fill from a conversation…
+              Fill from a conversation
             </button>
           )}
         </div>
@@ -341,7 +329,7 @@ function Editor({
           disabled={locked}
           rows={12}
           aria-labelledby={contentLabel}
-          placeholder="The steps to run, the result to start from, what to avoid…"
+          placeholder="Steps to run, results to build on, what to avoid"
           onChange={(e) => setContent(e.target.value)}
         />
       </div>
@@ -360,8 +348,13 @@ function Editor({
             <button disabled={busy} onClick={() => setConfirmingDelete(false)}>
               Keep it
             </button>
-            <button className="destructive" disabled={busy} onClick={() => void remove()}>
-              {busy ? 'Deleting…' : 'Delete reference'}
+            <button
+              className="destructive"
+              disabled={busy}
+              aria-busy={busy}
+              onClick={() => void remove()}
+            >
+              Delete reference
             </button>
           </>
         ) : (
@@ -372,7 +365,7 @@ function Editor({
                 disabled={locked}
                 onClick={() => setConfirmingDelete(true)}
               >
-                Delete…
+                Delete
               </button>
             )}
             <span className="hint">
@@ -384,9 +377,10 @@ function Editor({
             <button
               className="primary"
               disabled={locked || name.trim() === '' || content.trim() === ''}
+              aria-busy={busy}
               onClick={() => void save()}
             >
-              {busy ? 'Saving…' : 'Save reference'}
+              Save reference
             </button>
           </>
         )}
@@ -479,14 +473,13 @@ function Fill({
     <section className="reference-fill" aria-label="Fill from a conversation">
       <div className="reference-fill-head">
         <h4>Fill from a conversation</h4>
-        <button
-          className="dialog-close"
-          aria-label="Hide fill from a conversation"
+        <IconButton
+          icon="close"
+          size="sm"
+          label="Hide fill from a conversation"
           disabled={running}
           onClick={onClose}
-        >
-          <Icon name="close" />
-        </button>
+        />
       </div>
       {comparison === null && sources.length === 0 ? (
         <p className="muted">No experiment has a conversation yet.</p>
@@ -519,8 +512,8 @@ function Fill({
               <span role="status">
                 <span className="working-dot" aria-hidden="true" />
                 {comparison !== null
-                  ? 'Reading the comparison…'
-                  : `Reading ${chosen?.displayName ?? ''}’s conversation…`}
+                  ? 'Reading the comparison'
+                  : `Reading ${chosen?.displayName ?? ''}’s conversation`}
               </span>
               <button onClick={() => controller.current?.abort()}>Cancel</button>
             </div>
@@ -538,7 +531,7 @@ function Fill({
                   value={instruction}
                   disabled={disabled || running}
                   aria-label="what to write"
-                  placeholder="Or say what to write…"
+                  placeholder="Or describe what to write"
                   onChange={(e) => setInstruction(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
@@ -565,11 +558,7 @@ function Fill({
           </p>
         </>
       )}
-      {error !== null && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
+      {error !== null && <ErrorNote>{error}</ErrorNote>}
     </section>
   );
 }

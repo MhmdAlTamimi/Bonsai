@@ -46,8 +46,8 @@ export function NewNodeSetup({
             setFiles(e.target.value);
             feedback.reset();
           }}
-          placeholder="No extra files"
-          aria-label="files to copy into each new node"
+          placeholder="e.g. .env"
+          aria-label="files to copy into each new experiment"
           rows={3}
           spellCheck={false}
         />
@@ -64,7 +64,7 @@ export function NewNodeSetup({
             setCommand(e.target.value);
             feedback.reset();
           }}
-          placeholder="npm install"
+          placeholder="e.g. npm install"
           aria-label="setup command"
           spellCheck={false}
         />

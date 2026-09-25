@@ -10,6 +10,7 @@ import {
 import type { NodeView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import { Icon, IconButton } from '../Icon.tsx';
 
 export const hasActiveJob = (node: NodeView): boolean =>
   node.status === 'running' || node.status === 'needs_you';
@@ -94,17 +95,19 @@ export function StopButton({ node }: { node: NodeView }): JSX.Element | null {
   const busy = controls.stopping.has(node.id);
   return (
     <span className="stop-control">
-      <button
+      <IconButton
+        icon="stop"
+        tone="danger"
         className="stop nodrag"
+        label={`Stop ${node.displayName}`}
+        title={busy ? 'Stopping' : 'Stop this run'}
+        aria-busy={busy}
         disabled={busy}
-        title={`Stop ${node.displayName}`}
         onClick={(e) => {
           e.stopPropagation();
           controls.stop(node.id);
         }}
-      >
-        {busy ? 'Stopping…' : '■ Stop'}
-      </button>
+      />
       {controls.errors[node.id] && (
         <span className="error stop-error" role="alert">
           {controls.errors[node.id]}
@@ -129,9 +132,10 @@ export function StopAll({ nodes }: { nodes: readonly NodeView[] }): JSX.Element 
             `${n.displayName}: ${n.queuePosition !== null ? 'queued' : n.status === 'needs_you' ? 'waiting for permission' : 'running'}`,
         )
         .join('\n')}
+      aria-busy={busy}
       onClick={() => active.forEach((n) => controls.stop(n.id))}
     >
-      {busy ? 'Stopping…' : `■ Stop all ${active.length} runs`}
+      <Icon name="stop" /> Stop all {active.length} runs
     </button>
   );
 }

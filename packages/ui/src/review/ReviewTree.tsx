@@ -2,6 +2,8 @@ import { type JSX, useMemo, useRef } from 'react';
 import type { ReviewFile } from '@bonsai/shared';
 
 import { buildTree, fileAfter, rowsOf, type Row } from './fileTree.ts';
+import { Icon } from '../Icon.tsx';
+import { plural } from '../words.ts';
 
 /**
  * The changed files, with the path to the open one drawn.
@@ -42,9 +44,7 @@ export function ReviewTree({
     <div className="review-tree">
       <header>
         <div className="tree-totals">
-          <span className="tree-count">
-            {totals.files} file{totals.files === 1 ? '' : 's'}
-          </span>
+          <span className="tree-count">{plural(totals.files, 'file')}</span>
           <span className="added">+{totals.added.toLocaleString()}</span>
           <span className="tree-removed">−{totals.removed.toLocaleString()}</span>
         </div>
@@ -135,7 +135,7 @@ function TreeRow({
       ))}
       {folder ? (
         <span className={`caret${row.live ? ' live' : ''}`} aria-hidden="true">
-          {row.expanded === true ? '▾' : '▸'}
+          <Icon name={row.expanded === true ? 'chevronDown' : 'chevronRight'} />
         </span>
       ) : (
         <span className={`elbow${selected ? ' selected' : ''}`} aria-hidden="true" />

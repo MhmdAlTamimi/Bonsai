@@ -1,9 +1,10 @@
-import { type JSX, useLayoutEffect, useRef } from 'react';
+import { type JSX, useRef } from 'react';
 
-import { Icon } from '../Icon.tsx';
+import { IconButton } from '../Icon.tsx';
 import { clearSubmittedDraft, isSending, setSending } from '../panel/chat/drafts.ts';
 import { useDraft } from '../panel/chat/useDraft.ts';
 import { useCanRun } from '../state/RunAvailability.ts';
+import { useAutosize } from '../useAutosize.ts';
 
 /** How many lines the box grows to before it scrolls inside itself, as in an experiment's. */
 const MAX_LINES = 5;
@@ -31,17 +32,7 @@ export function CompareComposer({
   const canRun = useCanRun();
   const { key, prompt, setPrompt, sending } = useDraft(projectId, comparisonId, 'compare');
   const box = useRef<HTMLTextAreaElement>(null);
-
-  useLayoutEffect(() => {
-    const element = box.current;
-    if (element === null) return;
-    const style = getComputedStyle(element);
-    const line = Number.parseFloat(style.lineHeight) || 20;
-    const padding =
-      Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom) || 0;
-    element.style.height = 'auto';
-    element.style.height = `${Math.min(element.scrollHeight, Math.round(line * MAX_LINES + padding))}px`;
-  }, [prompt]);
+  useAutosize(box, prompt, MAX_LINES);
 
   const send = (): void => {
     const text = prompt.trim();
@@ -62,7 +53,9 @@ export function CompareComposer({
         rows={1}
         aria-label="question about these experiments"
         placeholder={
-          running ? 'The agent is answering…' : 'Ask about these experiments, or ask for a plan…'
+          running
+            ? 'Write your next question — ask it when this answer finishes'
+            : 'Ask about these experiments, or ask for a plan'
         }
         onChange={(e) => setPrompt(e.target.value)}
         onKeyDown={(e) => {
@@ -77,21 +70,24 @@ export function CompareComposer({
           {canRun ? 'Reads only · ⏎ ask · ⇧⏎ newline' : 'Reconnect the agent to ask'}
         </span>
         {running ? (
-          <button className="secondary" onClick={onStop}>
-            <Icon name="finished" /> Stop
-          </button>
+          <IconButton
+            icon="stop"
+            tone="danger"
+            className="stop"
+            label="Stop answering"
+            onClick={onStop}
+          />
         ) : (
-          <button
-            className="primary"
-            aria-label="Ask"
+          <IconButton
+            icon="arrowUp"
+            tone="accent"
+            className="send"
+            label="Ask"
+            title="Ask (⏎)"
+            aria-busy={sending}
             disabled={!canRun || disabled || sending || prompt.trim() === ''}
             onClick={send}
-          >
-            <span className="send-label">{sending ? 'Asking…' : 'Ask'}</span>
-            <span className="send-arrow" aria-hidden="true">
-              ↑
-            </span>
-          </button>
+          />
         )}
       </div>
     </div>

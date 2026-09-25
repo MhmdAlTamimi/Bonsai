@@ -1,9 +1,10 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { ProjectUsageView } from '@bonsai/shared';
-import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
-import { Dialog } from '../Dialog.tsx';
+import { Dialog, DialogHeader } from '../Dialog.tsx';
+import { ErrorNote } from '../ErrorNote.tsx';
+import { plural } from '../words.ts';
 
 type UsageRun = ProjectUsageView['experiments'][number]['runs'][number];
 const sum = (
@@ -53,25 +54,25 @@ export function UsageDialog({
   const runs = data?.experiments.flatMap((experiment) => experiment.runs) ?? [];
   return (
     <Dialog title="Agent usage" className="wide usage-dialog" onClose={onClose}>
-      <header>
-        <div>
-          <h3>Agent usage</h3>
-          <p className="hint">{projectName} · this project only</p>
-        </div>
-        <button className="dialog-close" aria-label="Close usage" onClick={onClose}>
-          <Icon name="close" />
-        </button>
-      </header>
+      <DialogHeader
+        title="Agent usage"
+        subtitle={`${projectName} · this project only`}
+        onClose={onClose}
+      />
       <p className="hint">
         Recorded API-equivalent estimates, not a bill or account balance. Subscription runs do not
         represent extra charges.
       </p>
-      {loading && <p role="status">{data ? 'Updating usage…' : 'Loading usage…'}</p>}
-      {error && (
-        <p className="error" role="alert">
-          {data && 'Showing previously loaded totals. '}
-          {error} <button onClick={() => setRetry((n) => n + 1)}>Retry usage</button>
+      {loading && (
+        <p className="loading" role="status">
+          {data ? 'Updating usage' : 'Loading usage'}
         </p>
+      )}
+      {error && (
+        <ErrorNote onRetry={() => setRetry((n) => n + 1)} retryLabel="Retry usage">
+          {data && 'Showing previously loaded totals. '}
+          {error}
+        </ErrorNote>
       )}
       {data && (
         <>
@@ -107,7 +108,7 @@ export function UsageDialog({
               <summary>
                 <span>{experiment.name}</span>
                 <span>
-                  {experiment.runs.length} runs · {money(sum(experiment.runs, 'costUsd'))}
+                  {plural(experiment.runs.length, 'run')} · {money(sum(experiment.runs, 'costUsd'))}
                 </span>
               </summary>
               <button

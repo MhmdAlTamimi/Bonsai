@@ -1,5 +1,7 @@
 import type { JSX } from 'react';
 
+import { Icon } from '../../Icon.tsx';
+
 /**
  * The panel's one expand affordance.
  *
@@ -29,7 +31,7 @@ export function Disclosure({
   return (
     <button className="disclosure-row" aria-expanded={open} onClick={onToggle}>
       <span className="caret" aria-hidden="true">
-        {open ? '\u25be' : '\u25b8'}
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} />
       </span>
       <span>
         {label ??

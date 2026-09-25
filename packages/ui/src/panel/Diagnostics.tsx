@@ -1,16 +1,15 @@
 import { useState, type JSX } from 'react';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
+import { CopyButton } from '../CopyButton.tsx';
 
 export function Diagnostics({ nodeId }: { nodeId: string | null }): JSX.Element {
   const [text, setText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copy, setCopy] = useState('');
   const gather = async (): Promise<void> => {
     setBusy(true);
     setError(null);
-    setCopy('');
     setText(null);
     try {
       setText(JSON.stringify(await api.diagnostics(nodeId), null, 2));
@@ -27,8 +26,8 @@ export function Diagnostics({ nodeId }: { nodeId: string | null }): JSX.Element 
         Versions, local paths, counts, run metadata and filtered log events. Names and error text
         are omitted; known credential patterns are redacted. Review before sharing.
       </p>
-      <button disabled={busy} onClick={() => void gather()}>
-        {busy ? 'Generating…' : 'Generate report'}
+      <button disabled={busy} aria-busy={busy} onClick={() => void gather()}>
+        Generate report
       </button>
       {error && (
         <p className="error" role="alert">
@@ -45,18 +44,7 @@ export function Diagnostics({ nodeId }: { nodeId: string | null }): JSX.Element 
             spellCheck={false}
           />
           <div className="save-row">
-            <button
-              disabled={busy}
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(text)
-                  .then(() => setCopy('Copied'))
-                  .catch(() => setCopy('Copy failed. Select the report to copy manually.'));
-              }}
-            >
-              Copy report
-            </button>
-            <span role="status">{copy}</span>
+            <CopyButton text={text} label="Copy report" />
           </div>
         </>
       )}

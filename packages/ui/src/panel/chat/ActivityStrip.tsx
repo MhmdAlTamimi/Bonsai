@@ -10,7 +10,7 @@ import { describeTool, formatElapsed, since, waitingHeadline } from './activity.
 /**
  * What the run is doing right now, above the composer (D43).
  *
- * "Agent working…" was the whole of it, which made a twenty-minute `uv sync`
+ * "Agent working" was the whole of it, which made a twenty-minute `uv sync`
  * look exactly like a hung agent, and a run waiting for its own background
  * job look like a finished one. Now the command and how long it has taken are
  * shown, and a run that is waiting says what for and offers the way to end it.
@@ -64,7 +64,8 @@ export function ActivityStrip({
   if (activity?.state === 'compacting') {
     return (
       <div className="activity activity-line">
-        <span role="status">Compacting conversation&hellip;</span>
+        <span className="working-dot" aria-hidden="true" />
+        <span role="status">Compacting conversation</span>
         {compactingSince !== null && (
           <span className="activity-meta" aria-hidden="true">
             {formatElapsed(now - compactingSince)}
@@ -115,8 +116,8 @@ export function ActivityStrip({
             saves what is there.
           </p>
           <StopButton node={node} />
-          <button className="secondary" onClick={finish} disabled={finishing}>
-            {finishing ? 'Finishing…' : 'Finish now'}
+          <button className="secondary" onClick={finish} disabled={finishing} aria-busy={finishing}>
+            Finish now
           </button>
         </div>
       </section>
@@ -126,7 +127,8 @@ export function ActivityStrip({
   const tool = activity?.tool ?? null;
   return (
     <div className="activity activity-line">
-      <span role="status">{tool === null ? 'Agent working…' : describeTool(tool)}</span>
+      <span className="working-dot" aria-hidden="true" />
+      <span role="status">{tool === null ? 'Agent working' : describeTool(tool)}</span>
       {tool !== null && (
         <span className="activity-meta" aria-hidden="true">
           {since(tool.startedAt, now)}

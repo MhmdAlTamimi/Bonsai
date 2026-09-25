@@ -22,12 +22,12 @@ ancestors when the parent changed no files.
   Finish now ends background waiting and saves remaining changes under the existing
   completion semantics. It is not proof that interrupted tests or jobs succeeded.
 - Compact a conversation with `/compact [focus]` in the composer or Compact conversation in a
-  card's ⋯ menu. The conversation shows "Compacting conversation…" while it runs and a divider
+  card's ⋯ menu. The conversation shows "Compacting conversation" while it runs and a divider
   afterwards, for automatic compaction too. Children branched later copy the compacted version.
 - References are project-wide text written once — a test procedure, a result worth keeping —
   and given to any experiment by typing `@name` in a message (or the composer's @ button).
-  Write one from References on the top bar, from Save as reference on a message, or from
-  Create reference in a card's ⋯ menu, which can fill it from that experiment's conversation
+  Write one from References on the top bar, or with Save as reference on a message or in a
+  card's ⋯ menu, which can fill it from that experiment's conversation
   and `CONTEXT.md` with one tool-less model call. Nothing is saved until you save it. A run
   receives its references as read-only files and keeps the copy it read; the transcript marks
   a reference edited or deleted since and opens that exact copy.

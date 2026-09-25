@@ -1,5 +1,7 @@
 import type { JSX } from 'react';
 
+import { Icon } from '../Icon.tsx';
+
 /**
  * The conversation, collapsed to a rail (D46).
  *
@@ -27,7 +29,7 @@ export function ConversationRail({
       title={'Show the conversation (⌘\\)'}
     >
       <span className="rail-chip" aria-hidden="true">
-        ‹
+        <Icon name="chevronLeft" />
       </span>
       <span className="rail-hairline" aria-hidden="true" />
       <span className="rail-label" aria-hidden="true">

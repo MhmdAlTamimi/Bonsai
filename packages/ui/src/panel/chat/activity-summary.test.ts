@@ -84,11 +84,11 @@ describe('what the agent did, in words', () => {
   test('a running step is said in the present tense', () => {
     assert.equal(
       runningLabel(step({ name: 'Bash', detail: 'pytest -q', live: true })),
-      'Running **pytest -q**…',
+      'Running **pytest -q**',
     );
     assert.equal(
       runningLabel(step({ name: 'Read', detail: 'x/y.md', live: true })),
-      'Reading **y.md**…',
+      'Reading **y.md**',
     );
   });
 

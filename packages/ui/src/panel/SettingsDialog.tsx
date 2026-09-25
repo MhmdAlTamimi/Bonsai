@@ -6,9 +6,8 @@ import {
   type ProjectView,
   type SettingsView,
 } from '@bonsai/shared';
-import { Icon } from '../Icon.tsx';
 import { api } from '../api/client.ts';
-import { Dialog } from '../Dialog.tsx';
+import { Dialog, DialogHeader } from '../Dialog.tsx';
 import { NewNodeSetup } from './NewNodeSetup.tsx';
 import { Diagnostics } from './Diagnostics.tsx';
 import { AgentFields, type AgentValues } from './AgentFields.tsx';
@@ -35,12 +34,7 @@ export function SettingsDialog({
   const [tab, setTab] = useState<'app' | 'project' | 'diagnostics'>(initialTab);
   return (
     <Dialog title="Settings" className="wide settings-dialog" onClose={onClose}>
-      <header>
-        <h3>Settings</h3>
-        <button onClick={onClose} className="dialog-close" aria-label="Close settings">
-          <Icon name="close" />
-        </button>
-      </header>
+      <DialogHeader title="Settings" onClose={onClose} />
       <nav className="settings-tabs" aria-label="Settings scope">
         {(['app', 'project', 'diagnostics'] as const).map((scope) => (
           <button key={scope} aria-pressed={tab === scope} onClick={() => setTab(scope)}>
@@ -305,7 +299,7 @@ function ConnectionSettings({
             value={key}
             disabled={save.busy}
             placeholder={
-              settings.hasStoredApiKey ? 'Leave blank to keep the stored key' : 'Enter API key'
+              settings.hasStoredApiKey ? 'Leave empty to keep the stored key' : 'Paste your API key'
             }
             onChange={(e) => {
               setKey(e.target.value);
@@ -355,6 +349,7 @@ function ConnectionSettings({
       <div className="row">
         <button
           disabled={action.busy}
+          aria-busy={action.busy}
           onClick={() =>
             void action.run(async () => {
               await api.checkConnection();
@@ -362,7 +357,7 @@ function ConnectionSettings({
             })
           }
         >
-          {action.busy ? 'Checking…' : 'Recheck'}
+          Recheck
         </button>
         {settings.hasStoredApiKey && (
           <button

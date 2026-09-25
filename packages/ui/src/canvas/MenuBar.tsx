@@ -1,6 +1,6 @@
 import { type JSX, useCallback, useRef, useState } from 'react';
 import type { ProjectView, SettingsView } from '@bonsai/shared';
-import { Icon } from '../Icon.tsx';
+import { Icon, IconButton } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { Logo } from '../Logo.tsx';
@@ -124,7 +124,7 @@ export function MenuBar({
                 onStart('new');
               }}
             >
-              New project…
+              New project
             </button>
             <button
               role="menuitem"
@@ -133,7 +133,7 @@ export function MenuBar({
                 onStart('existing');
               }}
             >
-              Use an existing folder…
+              Open a folder
             </button>
 
             <div className="menu-sep" />
@@ -153,7 +153,7 @@ export function MenuBar({
                     .catch((e: unknown) => onError(describeError(e)));
               }}
             >
-              Reveal this project in file manager
+              Open project folder
             </button>
             {project?.workDir !== undefined && project.workDir !== '' && (
               <button
@@ -168,7 +168,7 @@ export function MenuBar({
                       .catch((e: unknown) => onError(describeError(e)));
                 }}
               >
-                Reveal the repository folder
+                Open repository folder
               </button>
             )}
             <button
@@ -196,7 +196,7 @@ export function MenuBar({
                 onOpenUsage();
               }}
             >
-              Usage and cost…
+              Usage and cost
             </button>
 
             <div className="menu-sep" />
@@ -232,7 +232,7 @@ export function MenuBar({
                 onDeleteProject();
               }}
             >
-              Delete this project…
+              Delete project
             </button>
           </div>
         )}
@@ -274,25 +274,12 @@ export function MenuBar({
           {references > 0 && <span className="references-count">{references}</span>}
         </button>
       )}
-      <button
-        className="menu-title settings-button"
-        aria-label="Settings"
-        title="Settings"
+      <IconButton
+        icon="settings"
+        className="settings-button"
+        label="Settings"
         onClick={onOpenSettings}
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          aria-hidden="true"
-        >
-          <path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
-      </button>
+      />
     </div>
   );
 }

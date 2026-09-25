@@ -1,7 +1,7 @@
 import type { JSX } from 'react';
 import type { NodeView } from '@bonsai/shared';
 
-import { Dialog } from '../../Dialog.tsx';
+import { Dialog, DialogHeader } from '../../Dialog.tsx';
 import { Details } from './Details.tsx';
 import { Goal } from './Checks.tsx';
 import { Lineage } from './Lineage.tsx';
@@ -25,13 +25,17 @@ export function ExperimentDetails({
   const { data, error } = useNodeDetail(node.id);
   return (
     <Dialog title={node.displayName} onClose={onClose} returnFocus=".card.selected .card-more">
-      <h3>{node.displayName}</h3>
+      <DialogHeader title={node.displayName} subtitle="Experiment details" onClose={onClose} />
       {error !== null && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      {data === null && error === null && <p role="status">Loading experiment details…</p>}
+      {data === null && error === null && (
+        <p className="loading" role="status">
+          Loading experiment details
+        </p>
+      )}
       {data !== null && (
         <>
           <Goal detail={data} />

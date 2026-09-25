@@ -1,7 +1,9 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import type { NodeView, ReviewFile } from '@bonsai/shared';
 
-import { Icon } from '../Icon.tsx';
+import { BackToMap } from '../BackToMap.tsx';
+import { ErrorNote } from '../ErrorNote.tsx';
+import { Icon, IconButton } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { STATUS_LABEL, nodeStatusTitle } from '../nodeStatus.tsx';
@@ -134,13 +136,7 @@ export function Review({
   return (
     <div className={`review${wrap ? ' wrap-lines' : ''}`} ref={root}>
       <header className="review-bar">
-        <button className="back" onClick={onBack} title="Back to the map (Esc)">
-          <span aria-hidden="true">←</span>
-          <span>Back to canvas</span>
-          <span className="keycap" aria-hidden="true">
-            Esc
-          </span>
-        </button>
+        <BackToMap onBack={onBack} />
         <span className="bar-divider" aria-hidden="true" />
         <h1 title={node?.displayName}>{node?.displayName ?? 'No experiment'}</h1>
         {node !== null && (
@@ -189,17 +185,15 @@ export function Review({
           >
             <Icon name="wrap" />
           </button>
-          <button
-            className="toolbar-folder"
-            title="Open experiment folder"
-            aria-label="Open experiment folder"
+          <IconButton
+            icon="folderOpen"
+            className="toolbar-icon"
+            label="Open experiment folder"
             disabled={!node}
             onClick={() => {
               if (node) void api.revealNode(node.id).catch((e) => setError(describeError(e)));
             }}
-          >
-            <Icon name="folderOpen" /> <span>Open folder</span>
-          </button>
+          />
         </div>
         {split ? (
           <ViewToggle split onChange={toggleSplit} />
@@ -209,23 +203,21 @@ export function Review({
             {files.length > 1 && <ViewToggle split={false} onChange={toggleSplit} />}
           </>
         )}
-        {node !== null && <ReviewMenu node={node} revision={revision} onError={setError} />}
+        {node !== null && <ReviewMenu node={node} revision={revision} />}
       </header>
       {error !== null && (
-        <p className="error review-error" role="alert">
-          {error} <button onClick={() => setError(null)}>Dismiss</button>
-        </p>
+        <ErrorNote className="review-error" onDismiss={() => setError(null)}>
+          {error}
+        </ErrorNote>
       )}
 
       <div className="review-body">
         <div className="tree-column" style={{ width: `${treeWidth}px` }}>
           {review.error !== null && review.data === null ? (
-            <p className="error" role="alert">
-              {review.error} <button onClick={review.retry}>Retry</button>
-            </p>
+            <ErrorNote onRetry={review.retry}>{review.error}</ErrorNote>
           ) : review.data === null ? (
-            <p className="tree-empty" role="status">
-              Loading changes…
+            <p className="tree-empty loading" role="status">
+              Loading changes
             </p>
           ) : (
             <ReviewTree
@@ -264,6 +256,7 @@ export function Review({
           truncated={first.data?.truncated}
           focused={split && focusedPane === 0}
           onFocus={() => setFocusedPane(0)}
+          empty={review.data !== null && files.length === 0}
           header={
             split ? (
               <PaneHeader file={openFile(selected[0])} />
