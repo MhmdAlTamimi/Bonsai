@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "npm run build:server && npm run build:ui",
-    "build:server": "tsc -b packages/shared packages/server && cp packages/server/src/db/schema.sql packages/server/dist/db/schema.sql",
+    "build:server": "tsc -b packages/shared packages/server && node -e \"require('node:fs').copyFileSync('packages/server/src/db/schema.sql', 'packages/server/dist/db/schema.sql')\"",
     "build:ui": "npm -w @bonsai/ui run build",
     "start": "npm run build && node --no-warnings packages/server/dist/index.js --open",
     "typecheck": "tsc -p packages/ui --noEmit && tsc -p packages/shared/tsconfig.test.json",
@@ -26,7 +26,7 @@
     "test:e2e": "npm run build:server && npm run build:ui && node --test packages/server/dist/e2e.spec.js",
     "dev": "npm run build:server && node --no-warnings packages/server/dist/index.js",
     "dev:ui": "npm -w @bonsai/ui run dev",
-    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo"
+    "clean": "node -e \"const fs = require('node:fs'); for (const p of ['shared', 'server', 'ui']) for (const f of ['dist', 'tsconfig.tsbuildinfo']) fs.rmSync('packages/' + p + '/' + f, { recursive: true, force: true })\""
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
