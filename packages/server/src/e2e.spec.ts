@@ -1929,6 +1929,52 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.screenshot(join(repoRoot, 'test-results', 'compaction.png'));
   });
 
+  test("closing a dialog opened from a card's menu puts focus back on that menu button", async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'focus-return', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        parentId: created.masterNodeId,
+        displayName: 'Focus child',
+        description: '',
+      }),
+    });
+    await session.goto(`${BASE}/?project=${created.projectId}`);
+    const button = '[aria-label="Actions for Focus child"]';
+    const focused = `document.activeElement?.getAttribute('aria-label') === 'Actions for Focus child'`;
+    const openAndCancel = async (item: string): Promise<void> => {
+      await session.waitFor(`!!document.querySelector(${JSON.stringify(button)})`);
+      await session.click(button);
+      // A real click, which focuses the menu item -- and the item is gone once
+      // the dialog opens, which is exactly the case the fallback exists for.
+      const index = (await session.eval(
+        `Array.from(document.querySelectorAll('.card-menu > button')).findIndex(b=>b.textContent.includes(${JSON.stringify(item)}))`,
+      )) as number;
+      assert.ok(index >= 0, `no menu item ${item}`);
+      await session.click(`.card-menu > button:nth-child(${index + 1})`);
+      await session.waitFor(
+        "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent.trim()==='Cancel')",
+      );
+      const cancel = 'dialog .dialog-actions > button:first-child';
+      assert.equal(
+        await session.eval(`document.querySelector(${JSON.stringify(cancel)})?.textContent.trim()`),
+        'Cancel',
+      );
+      await session.click(cancel);
+      await session.waitFor("!document.querySelector('dialog')");
+      await session.waitFor(focused);
+    };
+    await openAndCancel('Rename');
+    await openAndCancel('Delete this experiment');
+  });
+
   test('visual workspace supports text sizing, keyboard branching, stable zoom and narrow views', async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {

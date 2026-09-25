@@ -6,7 +6,7 @@ import { CODE_TOOLTIP, codeState } from '../nodeCode.ts';
 import type { NodeView } from '@bonsai/shared';
 import { STATUS_LABEL, StatusChip, nodeStatusTitle } from '../nodeStatus.tsx';
 import { BranchContext } from './branchContext.ts';
-import { CardActionsContext } from './cardActions.ts';
+import { CardActionsContext, cardMenuLabel } from './cardActions.ts';
 import { useDismiss } from '../useDismiss.ts';
 import { useStopRun } from '../state/RunControls.tsx';
 
@@ -124,7 +124,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
             {lod === 'full' && actions !== null && (
               <button
                 className="card-more nodrag nopan"
-                aria-label={`Actions for ${data.displayName}`}
+                aria-label={cardMenuLabel(data.displayName)}
                 aria-haspopup="menu"
                 aria-expanded={menu}
                 title="Actions"

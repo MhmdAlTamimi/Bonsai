@@ -3,6 +3,7 @@ import type { NodeView } from '@bonsai/shared';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 import { Dialog } from '../../Dialog.tsx';
+import { cardMenuButton } from '../../canvas/cardActions.ts';
 
 export function RenameDialog({
   node,
@@ -38,7 +39,11 @@ export function RenameDialog({
     }
   };
   return (
-    <Dialog title="Rename experiment" onClose={close} returnFocus='[aria-label="More actions"]'>
+    <Dialog
+      title="Rename experiment"
+      onClose={close}
+      returnFocus={cardMenuButton(node.displayName)}
+    >
       <h3>Rename experiment</h3>
       <p className="hint">
         Changes the map label only. Code, history and conversation stay the same.

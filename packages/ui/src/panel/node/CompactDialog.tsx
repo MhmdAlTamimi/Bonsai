@@ -3,6 +3,7 @@ import type { NodeView } from '@bonsai/shared';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 import { Dialog } from '../../Dialog.tsx';
+import { cardMenuButton } from '../../canvas/cardActions.ts';
 
 /** `/compact`, with room to say what the summary should keep. */
 export function CompactDialog({
@@ -43,7 +44,7 @@ export function CompactDialog({
     <Dialog
       title="Compact conversation"
       onClose={close}
-      returnFocus={`[aria-label="Actions for ${CSS.escape(node.displayName)}"]`}
+      returnFocus={cardMenuButton(node.displayName)}
     >
       <h3>Compact {node.displayName}</h3>
       <p className="hint">

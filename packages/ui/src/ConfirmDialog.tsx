@@ -27,6 +27,12 @@ export interface ConfirmRequest {
   danger?: boolean;
   /** When set, the exact text the user has to type before confirming. */
   requireText?: string;
+  /**
+   * Where focus goes when the dialog closes and the control that opened it is
+   * gone -- a menu item, usually. Omitted, a typed confirmation returns to the
+   * project picker and anything else is left to the opener.
+   */
+  returnFocus?: string;
 }
 
 export function useConfirm(): {
@@ -76,21 +82,19 @@ function Confirm({
   onAnswer: (ok: boolean) => void;
 }): JSX.Element {
   const [typed, setTyped] = useState('');
-  const cancel = useCallback(() => {
-    onAnswer(false);
-    requestAnimationFrame(() =>
-      document
-        .querySelector<HTMLElement>(
-          request.requireText === undefined ? '[aria-label="More actions"]' : '.project-picker',
-        )
-        ?.focus(),
-    );
-  }, [onAnswer, request.requireText]);
+  const cancel = useCallback(() => onAnswer(false), [onAnswer]);
+  const returnFocus =
+    request.returnFocus ?? (request.requireText === undefined ? undefined : '.project-picker');
 
   const locked = request.requireText !== undefined && typed.trim() !== request.requireText;
 
   return (
-    <Dialog title={request.title} className="confirm" onClose={cancel}>
+    <Dialog
+      title={request.title}
+      className="confirm"
+      onClose={cancel}
+      {...(returnFocus === undefined ? {} : { returnFocus })}
+    >
       <header>
         <h3>{request.title}</h3>
       </header>

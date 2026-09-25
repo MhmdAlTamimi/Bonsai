@@ -19,3 +19,16 @@ export interface CardActions {
 }
 
 export const CardActionsContext = createContext<CardActions | null>(null);
+
+/** The accessible name of a card's ⋯ button, so the label and anything looking for it agree. */
+export function cardMenuLabel(displayName: string): string {
+  return `Actions for ${displayName}`;
+}
+
+/**
+ * Where focus goes back to after a dialog opened from a card's ⋯ menu closes.
+ * The menu item that opened it is gone by then, so the button is the target.
+ */
+export function cardMenuButton(displayName: string): string {
+  return `[aria-label="${CSS.escape(cardMenuLabel(displayName))}"]`;
+}

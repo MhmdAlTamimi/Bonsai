@@ -4,6 +4,7 @@ import type { NodeView, RecoverAction } from '@bonsai/shared';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 import { useConfirm } from '../../ConfirmDialog.tsx';
+import { cardMenuButton } from '../../canvas/cardActions.ts';
 
 /**
  * The things the panel can do to a node.
@@ -89,6 +90,8 @@ export function useNodeActions(
         ],
         confirmLabel: others > 0 ? 'Delete experiment and descendants' : 'Delete experiment',
         danger: true,
+        // Opened from the card's ⋯ menu; cancelling goes back to it.
+        returnFocus: cardMenuButton(node.displayName),
       });
       if (!ok) return;
       setBusy(true);
