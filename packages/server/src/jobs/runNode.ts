@@ -772,6 +772,15 @@ export class RunJobs {
       if (!readOnly) await this.ensureSetup(node, project, runId, live);
       if (expectedState) await assertGitState(node.worktree_path, expectedState);
       if (controller.signal.aborted) {
+        // Stopped before the agent started: still a cancellation, and the log
+        // has to say so -- otherwise a run stopped during setup or the git
+        // checks leaves no trace of why it ended.
+        this.log.info('run.cancelled', {
+          runId,
+          nodeId,
+          durationMs: Date.now() - startedAt,
+          beforeAgent: true,
+        });
         await this.endLeftovers(runId, nodeId, node.project_id);
         this.finishRun(runId, nodeId, this.stopped(), { cost, inputTokens, outputTokens });
         return;
