@@ -31,6 +31,28 @@ import { resolve } from 'node:path';
 const GRACE_MS = 800;
 
 /**
+ * How an opener is started: detached, with nothing attached to it, and
+ * VISIBLE.
+ *
+ * `windowsHide` is not about console windows only. On Windows it starts the
+ * process with SW_HIDE, and a GUI program honours that for its first window --
+ * so Explorer opened the folder in a window nobody could see, exited as it
+ * always does, and Bonsai reported success. Every other spawn in the server
+ * runs a command-line tool and should hide its console; this one exists to
+ * put a window on screen. Exported for its test.
+ */
+export const OPENER_SPAWN_OPTIONS = {
+  detached: true,
+  stdio: 'ignore',
+  windowsHide: false,
+} as const;
+
+/** The program that opens a folder, per platform. */
+export function folderOpener(platform: NodeJS.Platform): string {
+  return platform === 'darwin' ? 'open' : platform === 'win32' ? 'explorer.exe' : 'xdg-open';
+}
+
+/**
  * Starts a detached process and reports only what goes wrong immediately.
  *
  * Exported for its tests: the case that matters is a process that does NOT
@@ -47,11 +69,7 @@ export async function launchDetached(command: string, args: readonly string[]): 
       else reject(error);
     };
 
-    const child = spawn(command, [...args], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
+    const child = spawn(command, [...args], OPENER_SPAWN_OPTIONS);
     // Released straight away: the file manager outlives this request, and
     // holding a handle to it would keep Bonsai's event loop referencing a
     // process it has no further interest in.
@@ -101,8 +119,7 @@ export async function revealInFileManager(path: string): Promise<void> {
     throw new Error(`That folder is not on disk any more: ${target}`);
   }
 
-  const command =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
+  const command = folderOpener(process.platform);
 
   try {
     await launchDetached(command, [target]);
