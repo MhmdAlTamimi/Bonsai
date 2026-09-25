@@ -41,6 +41,8 @@ ancestors when the parent changed no files.
   one's conversation, changes, notes and files. It only reads: it cannot run anything or change
   any experiment. When an experiment moves on, Update refreshes its snapshot. Answers can be
   saved as references, and comparisons are kept per project under Comparisons on the top bar.
+  Deleting an experiment names the comparisons that include it first; they keep the copy they
+  read, can still be asked about it, and can no longer update it.
 - Review compares the experiment's inherited base with committed and unfinished work.
   Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
 - Optional success criteria and check instructions go to the agent. Notes currently live

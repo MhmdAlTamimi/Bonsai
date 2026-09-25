@@ -96,6 +96,24 @@ export class ComparisonStore {
     }));
   }
 
+  /**
+   * The comparisons that include any of these experiments, most recent first.
+   * Deleting an experiment says so before it happens: each comparison keeps
+   * its own copy and reads on, but the person deleting should know.
+   */
+  including(nodeIds: readonly string[]): Array<{ id: string; title: string }> {
+    if (nodeIds.length === 0) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT c.id, c.title, c.updated_at FROM comparison c
+           JOIN comparison_experiment e ON e.comparison_id = c.id
+          WHERE e.node_id IN (${nodeIds.map(() => '?').join(', ')})
+          ORDER BY c.updated_at DESC`,
+      )
+      .all(...nodeIds) as unknown as Array<{ id: string; title: string }>;
+    return rows.map((row) => ({ id: row.id, title: row.title }));
+  }
+
   /** A fresh snapshot of one experiment, replacing the old record at its position. */
   replaceExperiment(comparisonId: string, position: number, input: ComparedExperimentInput): void {
     this.db

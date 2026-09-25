@@ -2363,6 +2363,19 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     });
     await session.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' });
     await session.waitFor("!document.querySelector('.compare-bar')");
+
+    // Deleting an experiment a comparison includes says so before it happens.
+    await session.click(`[aria-label="Actions for try-lru"]`);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Delete experiment')).click()",
+    );
+    await session.waitFor(
+      "document.querySelector('dialog')?.textContent.includes('Included in the comparison “try-redis vs try-lru”')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent.trim() === 'Cancel').click()",
+    );
+    await session.waitFor("!document.querySelector('dialog')");
   });
 
   test("closing a dialog opened from a card's menu puts focus back on that menu button", async () => {

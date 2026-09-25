@@ -109,6 +109,55 @@ export class ComparisonJobs {
     return updated;
   }
 
+  /**
+   * Experiments are about to be deleted. Returns what to do once they are:
+   * each comparison that includes one says so in its conversation, and tells
+   * its agent with the next question.
+   *
+   * A comparison is not blocked by this and does not stop working: it holds
+   * its own copy of every experiment it read, outside the experiment's folders,
+   * so it stays readable and can still be asked about. What it can no longer do
+   * is update that experiment. Read before the delete, because deleting clears
+   * the link from the comparison to the experiment.
+   */
+  beforeDeleting(nodeIds: readonly string[]): () => void {
+    const doomed = new Set(nodeIds);
+    const affected = this.store.comparisons.including(nodeIds).map(({ id }) => ({
+      id,
+      names: this.store.comparisons
+        .experiments(id)
+        .filter((experiment) => experiment.nodeId !== null && doomed.has(experiment.nodeId))
+        .map((experiment) => experiment.name),
+    }));
+    return () => {
+      for (const { id, names } of affected) {
+        const row = this.store.comparisons.get(id);
+        if (row === undefined || names.length === 0) continue;
+        const list = names.join(', ');
+        const one = names.length === 1;
+        this.store.comparisons.appendMessage({
+          comparisonId: id,
+          turnId: null,
+          role: 'system',
+          kind: 'text',
+          content:
+            `${list} ${one ? 'was' : 'were'} deleted from the project. This comparison keeps the ` +
+            `copy it read, but can no longer update ${one ? 'it' : 'them'}.`,
+        });
+        const note =
+          `Since your last answer, ${list} ${one ? 'was' : 'were'} deleted from the project. ` +
+          `${one ? 'Its folder' : 'Their folders'} here ${one ? 'is' : 'are'} the only copy left; ` +
+          'say so if a question depends on continuing that work.';
+        this.store.comparisons.setPendingNote(
+          id,
+          row.pending_note === null ? note : `${row.pending_note}\n\n${note}`,
+        );
+        this.store.comparisons.touch(id);
+        this.publish(row);
+      }
+    };
+  }
+
   /** Asks the comparison's agent a question. It answers in the background. */
   ask(comparisonId: string, prompt: string): { turnId: string } {
     const row = this.require(comparisonId);

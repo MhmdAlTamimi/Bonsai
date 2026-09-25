@@ -5,6 +5,7 @@ import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 import { useConfirm } from '../../ConfirmDialog.tsx';
 import { cardMenuButton } from '../../canvas/cardActions.ts';
+import { experimentDeletionMessage } from '../../state/deletionMessage.ts';
 import { plural } from '../../words.ts';
 
 /**
@@ -82,13 +83,7 @@ export function useNodeActions(
       const descendants = others > 0 ? ` and ${plural(others, 'descendant')}` : '';
       const ok = await confirm.ask({
         title: `Delete experiment "${node.displayName}"${descendants}?`,
-        body: [
-          `This permanently removes ${plural(impact.nodes, 'experiment')}, their conversations and run history, ` +
-            'saved code, and their ' +
-            'experiment folders on disk, including uncommitted files.',
-          ...(others > 0 ? [`Affected experiments: ${impact.names.join(', ')}`] : []),
-          'Other experiments and the project’s main folder are kept. This cannot be undone.',
-        ],
+        body: experimentDeletionMessage(impact),
         confirmLabel: others > 0 ? 'Delete experiment and descendants' : 'Delete experiment',
         danger: true,
         // Opened from the card's ⋯ menu; cancelling goes back to it.

@@ -247,6 +247,28 @@ describe('comparisons', () => {
     assert.deepEqual(await comparisons.refresh(row.id), []);
   });
 
+  test('deleting an included experiment is said in the comparison, which can still be asked', async () => {
+    const row = await comparisons.create(projectId, nodes(redis, lru));
+    assert.deepEqual(store.comparisons.including([lru]), [{ id: row.id, title: row.title }]);
+    assert.deepEqual(store.comparisons.including([store.getNode(redis)!.parent_id!]), []);
+
+    const announce = comparisons.beforeDeleting([lru]);
+    store.deleteNode(lru);
+    announce();
+    assert.match(
+      String(store.comparisons.messages(row.id).at(-1)!.content),
+      /try-lru was deleted from the project\. This comparison keeps the copy it read/,
+    );
+    // Its copy is outside the experiment's folders, so the agent can still read it.
+    assert.ok(
+      (await readdir(comparisonFolder(store, projectId, row.id))).some((f) => f.includes('lru')),
+    );
+    comparisons.ask(row.id, 'what did try-lru do?');
+    await settle(() => !comparisons.isRunning(row.id));
+    assert.match(comparer.specs.at(-1)!.prompt, /try-lru was deleted from the project/);
+    assert.match(comparer.specs.at(-1)!.prompt, /what did try-lru do\?$/);
+  });
+
   test('deleting a comparison removes its folder and its conversation', async () => {
     const row = await comparisons.create(projectId, nodes(redis, lru));
     comparisons.ask(row.id, 'q');

@@ -7,6 +7,7 @@ import { diagnosticReport } from './diagnosticPrivacy.js';
 import { resolveRunSettings } from '../jobs/runSettings.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type {
+  NodeDeletionImpactView,
   AnswerQuestionRequest,
   AskComparisonRequest,
   CompactRequest,
@@ -733,20 +734,21 @@ route('GET', '/api/nodes/:id/deletion-impact', (_req, res, params, { store }) =>
     names: doomed.map((node) => node.display_name),
     costUsd: store.runs.costOfMany(doomed.map((n) => n.id)),
     commits: doomed.filter((n) => n.head_commit !== null).length,
-  });
+    comparisons: store.comparisons.including(doomed.map((n) => n.id)),
+  } satisfies NodeDeletionImpactView);
 });
 
-route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs }) => {
+route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs, comparisons }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   if (row.parent_id === null)
     throw new HttpError(400, 'deleting master means deleting the project');
   // Open Question 3, answered: cancel, then delete. Blocking the delete would
   // strand a node behind a run that may never finish.
-  const removed = await jobs.withStoppedNodes(
-    store.descendantsOf(row.id).map((node) => node.id),
-    () => deleteNodeTree(store, row.id),
-  );
+  const doomed = store.descendantsOf(row.id).map((node) => node.id);
+  const announce = comparisons.beforeDeleting(doomed);
+  const removed = await jobs.withStoppedNodes(doomed, () => deleteNodeTree(store, row.id));
+  announce();
   bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
   sendJson(res, 200, { ok: true, removed });
 });

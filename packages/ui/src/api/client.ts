@@ -15,6 +15,7 @@ import type {
   ConnectionStatus,
   CreateProjectRequest,
   DeletionImpactView,
+  NodeDeletionImpactView,
   DiagnosticsView,
   DirectoryInspectionView,
   DirectoryListingView,
@@ -362,9 +363,7 @@ export const api = {
     json<{ ok: true }>(`/api/comparisons/${comparisonId}`, { method: 'DELETE' }),
 
   deletionImpact: (nodeId: string) =>
-    json<{ nodes: number; names: string[]; costUsd: number; commits: number }>(
-      `/api/nodes/${nodeId}/deletion-impact`,
-    ),
+    json<NodeDeletionImpactView>(`/api/nodes/${nodeId}/deletion-impact`),
 };
 
 /** Subscribes to the project's event stream. Returns an unsubscribe function. */

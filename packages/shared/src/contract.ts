@@ -863,6 +863,16 @@ export interface DirectoryInspectionView {
 }
 
 /** What deleting something would destroy, so the UI can say so before it does. */
+/** What deleting an experiment (and its descendants) would take with it. */
+export interface NodeDeletionImpactView {
+  nodes: number;
+  names: string[];
+  costUsd: number;
+  commits: number;
+  /** Comparisons that include any of them. They keep their own copy and stay readable. */
+  comparisons: Array<{ id: string; title: string }>;
+}
+
 export interface DeletionImpactView {
   nodes: number;
   costUsd: number;

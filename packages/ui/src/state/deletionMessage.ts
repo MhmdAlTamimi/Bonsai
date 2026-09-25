@@ -1,4 +1,4 @@
-import type { DeletionImpactView } from '@bonsai/shared';
+import type { DeletionImpactView, NodeDeletionImpactView } from '@bonsai/shared';
 import { plural } from '../words.ts';
 
 /**
@@ -26,14 +26,48 @@ export function deletionMessage(impact: DeletionImpactView): string[] {
   if (impact.keepsDirectory !== null) {
     paragraphs.push(
       `Your folder is left alone: ${impact.keepsDirectory}`,
-      `Its files, its history and its branch are untouched. Only the ${impact.branches} ` +
-        `branch${impact.branches === 1 ? '' : 'es'} Bonsai created there, and the experiment folders ` +
-        'for them, are removed.',
+      `Its files, its history and its branch are untouched. Only the ` +
+        `${plural(impact.branches, 'branch', 'branches')} Bonsai created there, and the experiment ` +
+        'folders for them, are removed.',
     );
   }
   for (const path of impact.removesDirectories) {
     paragraphs.push(`This folder and its contents are deleted from disk: ${path}`);
   }
 
+  return paragraphs;
+}
+
+/**
+ * What to say before deleting an experiment and everything branched from it.
+ *
+ * Comparisons that include any of them are named. They are not blocked on:
+ * a comparison depends on its experiments, never the other way round, and it
+ * already holds its own copy of each one -- conversation, changes, notes and
+ * files -- so it stays readable and marks the experiment as deleted. Refusing
+ * would only send people to delete comparisons first, losing more.
+ */
+export function experimentDeletionMessage(impact: NodeDeletionImpactView): string[] {
+  const others = impact.nodes - 1;
+  const paragraphs = [
+    `This permanently removes ${plural(impact.nodes, 'experiment')}, their conversations and run ` +
+      'history, saved code, and their experiment folders on disk, including uncommitted files.',
+  ];
+  if (others > 0) paragraphs.push(`Affected experiments: ${impact.names.join(', ')}`);
+  const count = impact.comparisons.length;
+  if (count > 0) {
+    const titles = impact.comparisons.map((c) => `“${c.title}”`).join(', ');
+    const deleted = others > 0 ? 'them' : 'it';
+    paragraphs.push(
+      count === 1
+        ? `Included in the comparison ${titles}. It keeps its own copy and will show ${deleted} ` +
+            'as deleted. Delete it from Comparisons if you no longer need it.'
+        : `Included in ${count} comparisons: ${titles}. They keep their own copies and will show ` +
+            `${deleted} as deleted. Delete them from Comparisons if you no longer need them.`,
+    );
+  }
+  paragraphs.push(
+    'Other experiments and the project’s main folder are kept. This cannot be undone.',
+  );
   return paragraphs;
 }
