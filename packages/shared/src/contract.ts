@@ -119,6 +119,23 @@ export interface ArchiveCheck {
   ignored: string[];
 }
 
+/**
+ * An experiment's committed changes as a patch file, and the command that
+ * applies them to your own repository. Bonsai writes the file; running the
+ * command, and committing what it did, is yours.
+ */
+export interface ApplyPatchView {
+  /** Where the patch was written, in Bonsai's data folder. */
+  path: string;
+  /** Ready to paste: `git apply --3way "<path>"`. */
+  command: string;
+  files: number;
+  added: number;
+  removed: number;
+  /** When its parent has committed since it started: how many commits, and which experiment. */
+  behind: { commits: number; parentName: string } | null;
+}
+
 /** What experiment folders take up on disk, for Settings. */
 export interface StorageView {
   folders: number;
@@ -816,19 +833,6 @@ export interface NodeDetail {
   node: NodeView;
   runs: RunView[];
   lineage: NodeLineageView;
-  /**
-   * A shell command that puts this node's branch in front of the user, ready
-   * to copy. Null for a node that has committed nothing, since there is no
-   * branch yet.
-   *
-   * A ready-made STRING rather than a branch name, deliberately: NodeView and
-   * NodeDetail carry nothing git-shaped, so the interface cannot misuse a ref
-   * or a path it was never given. It also lets the command differ by project
-   * kind without the interface knowing that projects have kinds.
-   */
-  checkoutCommand: string | null;
-  /** Where to run it, in words. */
-  checkoutHint: string | null;
   /** What the user said success looks like, as they wrote it. */
   successCriteria: string | null;
   verificationHint: string | null;

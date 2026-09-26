@@ -230,6 +230,18 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               >
                 Review changes
               </button>
+              {data.diffStat !== null && (
+                <button
+                  role="menuitem"
+                  title="Show the command that applies this experiment's committed changes to your own repository"
+                  onClick={() => {
+                    setMenu(false);
+                    actions.apply(data);
+                  }}
+                >
+                  Apply to your repo
+                </button>
+              )}
               <button
                 role="menuitem"
                 onClick={() => {

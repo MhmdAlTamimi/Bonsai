@@ -157,7 +157,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         await session.eval("document.querySelector('.composer textarea').value"),
         'a project made by the end-to-end test',
       );
-      assert.equal(await session.eval("!!document.querySelector('.checkout-section')"), false);
+      assert.equal(await session.eval("!!document.querySelector('.apply-section')"), false);
       await session.click('.composer-row .send');
       await session.waitFor(
         "!document.querySelector('.panel button.stop') && document.querySelector('.composer-row .send')?.getAttribute('aria-label') === 'Send'",
@@ -612,7 +612,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
      */
     assert.equal(
       await session.eval(
-        "!!document.querySelector('.result-details, .experiment-changes, .next-run, .checkout-section, .lineage')",
+        "!!document.querySelector('.result-details, .experiment-changes, .next-run, .apply-section, .lineage')",
       ),
       false,
     );
@@ -2464,6 +2464,18 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(await folder(), 'present');
     await session.goto(`${BASE}/?project=${created.projectId}&node=${child}`);
     await session.waitFor(`!!document.querySelector('[aria-label="Actions for Archive me"]')`);
+
+    // Applying is a command you run yourself, from the card's menu or review.
+    await session.click('[aria-label="Actions for Archive me"]');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Apply to your repo')).click()",
+    );
+    await session.waitFor(
+      "/^git apply --3way \".+\\.patch\"$/.test(document.querySelector('dialog[open] .apply-command')?.textContent ?? '')",
+    );
+    await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
+    await session.waitFor("!document.querySelector('dialog[open]')");
+
     await session.click('[aria-label="Actions for Archive me"]');
     await session.eval(
       "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Archive folder')).click()",

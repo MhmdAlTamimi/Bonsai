@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { resolveRunSettings } from '../../jobs/runSettings.js';
 import type {
   NodeDeletionImpactView,
@@ -10,8 +11,8 @@ import { isUsersOwnCheckout } from '../../db/store.js';
 import { copyParentConversation } from '../../jobs/conversation.js';
 import { allocateNodeWorktree, createChildNode, deleteNodeTree } from '../../projects.js';
 import { archiveCheck, archiveFolder } from '../../archive.js';
+import { writeApplyPatch } from '../applyPatch.js';
 import { nodeDiff, parentSnapshot } from '../../git/diff.js';
-import { checkoutFor } from '../checkout.js';
 import { experimentNotes, reviewOf, reviewPatchOf } from '../review.js';
 import { readWorktreeState } from '../../git/recovery.js';
 import { revealInFileManager } from '../reveal.js';
@@ -114,7 +115,6 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
   const view = withLive(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
   const { contextMd, cwd, head } = await experimentNotes(store, row);
   const project = store.getProject(row.project_id);
-  const checkout = checkoutFor(project, row);
   const notes = testingSection(contextMd);
   const sourceCommit = await testingNotesCommit(cwd, notes, head);
   const source = sourceCommit === null ? null : store.testingSource(sourceCommit);
@@ -127,8 +127,6 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
     node: view,
     runs,
     lineage: store.lineageOf(row),
-    checkoutCommand: checkout?.command ?? null,
-    checkoutHint: checkout?.hint ?? null,
     successCriteria: row.success_criteria,
     verificationHint: row.verification_hint,
     testingNotes: notes,
@@ -263,6 +261,16 @@ route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus })
   }
   await revealInFileManager(node.worktree_path);
   sendJson(res, 200, { ok: true });
+});
+
+/**
+ * Write the experiment's committed changes to a patch in Bonsai's data folder
+ * and return the command that applies it. A POST because it writes a file.
+ */
+route('POST', '/api/nodes/:id/patch', async (_req, res, params, { store, settings }) => {
+  const node = store.getNode(params['id']!);
+  if (!node) throw new HttpError(404, 'No such experiment.');
+  sendJson(res, 200, await writeApplyPatch(store, node, join(settings.view().dataDir, 'patches')));
 });
 
 /** Whether the folder can be archived now, and which ignored files would go with it. */

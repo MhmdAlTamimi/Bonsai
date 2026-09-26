@@ -59,7 +59,10 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   commit and deletion. Preserve drifted work; never silently reset it to match the database.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain
   host access. The Git command hook is a cooperative guard, not arbitrary-code containment.
-  Scoped external approval and Apply are future work, not existing guarantees.
+  Scoped external approval is future work, not an existing guarantee.
+- Apply to your repo only writes a patch into Bonsai's data folder and shows the
+  `git apply --3way` command (`api/applyPatch.ts`). Bonsai never writes to, commits in or
+  merges into the user's repository; running the command is the user's.
 - `CONTEXT.md` currently has special commit behavior at the **worktree root**, independently
   of the selected working subdirectory. Keep that path consistent until notes migration
   is explicitly approved. Preserve existing repository documentation.
@@ -71,5 +74,6 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
 
 Later phases (standing references, running procedures across compared experiments, notes
-migration, scoped external actions, Apply and additional SDK capabilities) require their own
+migration, scoped external actions, applying changes on the user's behalf and additional SDK
+capabilities) require their own
 scoped implementation work.

@@ -12,6 +12,8 @@ import type { NodeView } from '@bonsai/shared';
 export interface CardActions {
   branch: (nodeId: string) => void;
   review: (nodeId: string) => void;
+  /** Shows the command that applies its committed changes to your own repository. */
+  apply: (node: NodeView) => void;
   rename: (node: NodeView) => void;
   compact: (node: NodeView) => void;
   /** Opens a new reference drawn from this experiment's conversation. */
