@@ -8,6 +8,7 @@ import { listDirectory } from '../browse.js';
 import { revealInFileManager } from '../reveal.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { FileLogger } from '../../log.js';
+import { storageUse } from '../../archive.js';
 import { route } from '../routing.js';
 
 /** Connection, settings, diagnostics and the local filesystem. */
@@ -153,6 +154,11 @@ route('GET', '/api/diagnostics', (req, res, _p, { store, settings, connection, j
   );
 });
 
+/** What experiment folders take up on disk. Walks them, so it is asked for, not pushed. */
+route('GET', '/api/storage', async (_req, res, _p, { store }) => {
+  sendJson(res, 200, await storageUse(store));
+});
+
 route('GET', '/api/settings', (_req, res, _p, { settings }) => {
   sendJson(res, 200, settings.view());
 });
@@ -185,6 +191,12 @@ route('PATCH', '/api/settings', async (req, res, _p, { settings, connection, sto
     )
       throw new HttpError(400, `${field} must be a number.`);
   }
+  if (
+    body.archiveAfterDays !== undefined &&
+    body.archiveAfterDays !== null &&
+    (typeof body.archiveAfterDays !== 'number' || !Number.isFinite(body.archiveAfterDays))
+  )
+    throw new HttpError(400, 'archiveAfterDays must be a number of days, or null.');
   if (body.wrapLines !== undefined && typeof body.wrapLines !== 'boolean')
     throw new HttpError(400, 'wrapLines must be boolean.');
   if (body.textScale !== undefined && !TEXT_SCALES.some((scale) => scale === body.textScale))

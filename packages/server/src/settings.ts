@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import {
+  ARCHIVE_AFTER_DAYS,
   CONCURRENCY,
   PANEL_WIDTH,
   TEXT_SCALES,
@@ -30,6 +31,7 @@ interface StoredSettings {
   textScale: number;
   wrapLines: boolean;
   maxConcurrentRuns: number;
+  archiveAfterDays: number | null;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -43,6 +45,7 @@ const DEFAULTS: StoredSettings = {
   textScale: 100,
   wrapLines: false,
   maxConcurrentRuns: CONCURRENCY.default,
+  archiveAfterDays: ARCHIVE_AFTER_DAYS.default,
 };
 
 /*
@@ -130,6 +133,11 @@ export class Settings {
     return clampConcurrency(this.current.maxConcurrentRuns);
   }
 
+  /** Idle days before a folder is archived, or null when only archived by hand. */
+  archiveAfterDays(): number | null {
+    return clampArchiveDays(this.current.archiveAfterDays);
+  }
+
   /** Where new projects are created. Existing ones keep the path they were made with. */
   reposRoot(): string {
     return this.current.reposRoot ?? this.config.reposRoot;
@@ -151,6 +159,7 @@ export class Settings {
         ? this.current.textScale
         : 100,
       maxConcurrentRuns: this.maxConcurrentRuns(),
+      archiveAfterDays: this.archiveAfterDays(),
     };
   }
 
@@ -169,6 +178,8 @@ export class Settings {
     if (patch.maxConcurrentRuns !== undefined) {
       next.maxConcurrentRuns = clampConcurrency(patch.maxConcurrentRuns);
     }
+    if (patch.archiveAfterDays !== undefined)
+      next.archiveAfterDays = clampArchiveDays(patch.archiveAfterDays);
     if (patch.reposRoot !== undefined) {
       // Only affects projects created from now on. Moving an existing root
       // would break every worktree: git stores absolute paths in its worktree
@@ -185,6 +196,12 @@ export class Settings {
 function clampPanel(width: number): number {
   if (!Number.isFinite(width)) return DEFAULTS.panelWidth;
   return Math.min(PANEL_WIDTH.max, Math.max(PANEL_WIDTH.min, Math.round(width)));
+}
+
+function clampArchiveDays(value: number | null): number | null {
+  if (value === null) return null;
+  if (!Number.isFinite(value)) return DEFAULTS.archiveAfterDays;
+  return Math.min(ARCHIVE_AFTER_DAYS.max, Math.max(ARCHIVE_AFTER_DAYS.min, Math.round(value)));
 }
 
 function clampConcurrency(value: number): number {

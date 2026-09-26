@@ -12,6 +12,15 @@ export async function readContextFile(worktreePath: string): Promise<string | nu
   }
 }
 
+/** CONTEXT.md as a commit has it: how an archived experiment's notes are read. */
+export async function contextFileAt(repoPath: string, commit: string): Promise<string | null> {
+  try {
+    return await git(['show', `${commit}:${CONTEXT_FILE}`], repoPath);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The `## Testing` section of a CONTEXT.md, on its own.
  *
@@ -55,9 +64,10 @@ export function testingSection(contextMd: string | null): string | null {
 export async function testingNotesCommit(
   path: string,
   notes: string | null,
+  from = 'HEAD',
 ): Promise<string | null> {
   if (notes === null) return null;
-  const commits = (await git(['log', '--format=%H', '--', CONTEXT_FILE], path))
+  const commits = (await git(['log', '--format=%H', from, '--', CONTEXT_FILE], path))
     .trim()
     .split('\n')
     .filter(Boolean);

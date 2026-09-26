@@ -155,6 +155,24 @@ export class RunJobs {
     }
   }
 
+  /** Nodes whose folder is being archived: nothing may start on them until it is gone. */
+  private readonly archiving = new Set<string>();
+
+  /**
+   * Runs `work` with no run on this node, and none able to start until it
+   * finishes. Refuses a node that is running, queued or being deleted.
+   */
+  async whileIdle<T>(nodeId: string, work: () => Promise<T>): Promise<T> {
+    if (this.isRunning(nodeId) || this.retiring.has(nodeId) || this.archiving.has(nodeId))
+      throw new OperationConflict('It is running. Archive it once it stops.');
+    this.archiving.add(nodeId);
+    try {
+      return await work();
+    } finally {
+      this.archiving.delete(nodeId);
+    }
+  }
+
   activeRunId(nodeId: string): string | null {
     return (
       this.running.get(nodeId)?.runId ??
@@ -373,6 +391,8 @@ export class RunJobs {
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
     if (this.isRetiring(nodeId)) throw new OperationConflict('This experiment is being deleted.');
+    if (this.archiving.has(nodeId))
+      throw new OperationConflict('Its folder is being archived. Try again in a moment.');
     if (this.isRunning(nodeId))
       throw new OperationConflict('This experiment is already running or queued.');
 

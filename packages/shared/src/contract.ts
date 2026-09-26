@@ -90,6 +90,41 @@ export interface SettingsView {
   panelWidth: number;
   textScale: number;
   wrapLines: boolean;
+  /**
+   * Archive an experiment's folder once it has been idle this many days, or
+   * null to only ever archive by hand. See ARCHIVE_AFTER_DAYS.
+   */
+  archiveAfterDays: number | null;
+}
+
+/**
+ * How long an experiment sits idle before its folder is archived.
+ *
+ * On by default: folders are where the disk goes (each is a full checkout,
+ * usually with its dependencies installed), and archiving loses nothing that
+ * cannot be put back -- see NodeView.folder.
+ */
+export const ARCHIVE_AFTER_DAYS = { min: 1, max: 365, default: 14 } as const;
+
+/** Whether an experiment's folder can be archived now, and what archiving would remove. */
+export interface ArchiveCheck {
+  /** Why it cannot be archived, or null when it can. */
+  blocked: string | null;
+  /**
+   * Gitignored files that are not dependencies or build output -- a local
+   * .env, a scratch database. Archiving deletes them and the next run cannot
+   * bring them back, so the interface asks first, and the idle sweep skips
+   * the folder.
+   */
+  ignored: string[];
+}
+
+/** What experiment folders take up on disk, for Settings. */
+export interface StorageView {
+  folders: number;
+  bytes: number;
+  archived: number;
+  projects: Array<{ id: string; name: string; folders: number; bytes: number; archived: number }>;
 }
 
 /**
@@ -129,6 +164,8 @@ export const REVIEW_WIDTH = 285;
 export const CONCURRENCY = { min: 1, max: 10, default: 3 } as const;
 
 export interface UpdateSettingsRequest {
+  /** Null turns automatic archiving off. */
+  archiveAfterDays?: number | null;
   authMode?: 'cli' | 'api_key';
   /** Empty string clears the stored key. */
   apiKey?: string;
@@ -333,8 +370,21 @@ export interface NodeView {
    * ended, its work has not been committed, and Stop still applies.
    */
   activity: RunActivity | null;
+  /**
+   * Whether the experiment's folder is on disk.
+   *
+   *   present     -- it is.
+   *   not_created -- it never was: a new experiment's folder is created by its
+   *                  first run.
+   *   archived    -- it was removed to save space. The branch, the conversation
+   *                  and every run are kept, and the next run (or Open folder)
+   *                  creates it again at the same path.
+   */
+  folder: NodeFolder;
   createdAt: string;
 }
+
+export type NodeFolder = 'present' | 'not_created' | 'archived';
 
 /**
  * The live state of one run (D43).

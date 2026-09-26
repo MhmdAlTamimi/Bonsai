@@ -8,13 +8,14 @@ import type {
 import { deriveNodeName } from '@bonsai/shared';
 import { isUsersOwnCheckout } from '../../db/store.js';
 import { copyParentConversation } from '../../jobs/conversation.js';
-import { createChildNode, deleteNodeTree } from '../../projects.js';
+import { allocateNodeWorktree, createChildNode, deleteNodeTree } from '../../projects.js';
+import { archiveCheck, archiveFolder } from '../../archive.js';
 import { nodeDiff, parentSnapshot } from '../../git/diff.js';
 import { checkoutFor } from '../checkout.js';
-import { reviewOf, reviewPatchOf } from '../review.js';
+import { experimentNotes, reviewOf, reviewPatchOf } from '../review.js';
 import { readWorktreeState } from '../../git/recovery.js';
 import { revealInFileManager } from '../reveal.js';
-import { readContextFile, testingSection, testingNotesCommit } from '../../git/context.js';
+import { testingSection, testingNotesCommit } from '../../git/context.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { route, withLive } from '../routing.js';
 
@@ -111,11 +112,11 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const view = withLive(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
-  const contextMd = await readContextFile(row.worktree_path);
+  const { contextMd, cwd, head } = await experimentNotes(store, row);
   const project = store.getProject(row.project_id);
   const checkout = checkoutFor(project, row);
   const notes = testingSection(contextMd);
-  const sourceCommit = await testingNotesCommit(row.worktree_path, notes);
+  const sourceCommit = await testingNotesCommit(cwd, notes, head);
   const source = sourceCommit === null ? null : store.testingSource(sourceCommit);
   const runs = store.listRuns(row.id);
   const ownFolder = isUsersOwnCheckout(project, row);
@@ -249,12 +250,42 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
 });
 
 /** Review: what this experiment changed, file by file. No patches here. */
-route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store }) => {
+route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus }) => {
   const node = store.getNode(params['id']!);
   if (!node) throw new HttpError(404, 'No such experiment.');
-  if (node.worktree_allocated === 0)
+  if (node.worktree_allocated === 0 && node.archived_at === null)
     throw new HttpError(409, 'The experiment folder is created when its first run starts.');
+  if (node.archived_at !== null) {
+    // Archived: bring the folder back first -- it is what was asked to be seen.
+    // Setup waits for the next run, which is what needs what it installs.
+    await allocateNodeWorktree(store, node);
+    bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+  }
   await revealInFileManager(node.worktree_path);
+  sendJson(res, 200, { ok: true });
+});
+
+/** Whether the folder can be archived now, and which ignored files would go with it. */
+route('GET', '/api/nodes/:id/archive', async (_req, res, params, { store, jobs }) => {
+  const node = store.getNode(params['id']!);
+  if (!node) throw new HttpError(404, 'No such experiment.');
+  sendJson(res, 200, await archiveCheck(store, node, jobs.isRunning(node.id)));
+});
+
+/**
+ * Archive the folder: remove it, keep everything else. `removeIgnored` says
+ * the user has seen the ignored files that go with it (see the check above).
+ */
+route('POST', '/api/nodes/:id/archive', async (req, res, params, { store, bus, jobs, log }) => {
+  const node = store.getNode(params['id']!);
+  if (!node) throw new HttpError(404, 'No such experiment.');
+  const body = await readJson<{ removeIgnored?: boolean }>(req);
+  await jobs.whileIdle(node.id, async () => {
+    const fresh = store.getNode(node.id) ?? node;
+    await archiveFolder(store, fresh, body.removeIgnored === true);
+  });
+  log.info('archive.done', { nodeId: node.id, projectId: node.project_id, by: 'user' });
+  bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
   sendJson(res, 200, { ok: true });
 });
 

@@ -15,6 +15,7 @@ import {
   deleteNodeTree,
 } from '../projects.js';
 import { git, gitLine } from '../git/exec.js';
+import { archiveFolder } from '../archive.js';
 import type { AgentRunner, RunEvent, RunSpec } from '../agent/AgentRunner.js';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -198,4 +199,44 @@ test('failed project creation removes its new directory and rows', async () => {
   );
   assert.equal(store.listProjects().length, 0);
   await assert.rejects(readFile(join(root, 'rollback')), { code: 'ENOENT' });
+});
+
+test('an archived folder comes back at the same path on the next run, and setup runs again', async () => {
+  const p = await create();
+  store.updateProjectSetup(p.projectId, {
+    setupCommand: 'mkdir -p node_modules && echo x > node_modules/installed',
+  });
+  action = async (spec) => {
+    await writeFile(join(spec.cwd, '.gitignore'), 'node_modules/\n');
+    await writeFile(join(spec.cwd, 'work.txt'), 'done');
+  };
+  const child = await createChildNode(store, {
+    projectId: p.projectId,
+    parentId: p.masterNodeId,
+    displayName: 'child',
+    description: '',
+  });
+  jobs.start(child.nodeId, 'work');
+  await settled(child.nodeId);
+  const folder = store.getNode(child.nodeId)!.worktree_path;
+  assert.equal(store.listRuns(child.nodeId).at(-1)?.status, 'done');
+
+  // Nothing may start on the folder while it is being removed.
+  await jobs.whileIdle(child.nodeId, async () => {
+    assert.throws(() => jobs.start(child.nodeId, 'too soon'), /being archived/);
+    await archiveFolder(store, store.getNode(child.nodeId)!, false);
+  });
+  await assert.rejects(readFile(join(folder, 'work.txt')), { code: 'ENOENT' });
+
+  action = async (spec) => {
+    assert.equal(await readFile(join(spec.cwd, 'work.txt'), 'utf8'), 'done');
+    assert.equal(await readFile(join(spec.cwd, 'node_modules', 'installed'), 'utf8'), 'x\n');
+  };
+  jobs.start(child.nodeId, 'more');
+  await settled(child.nodeId);
+  const row = store.getNode(child.nodeId)!;
+  assert.equal(store.listRuns(child.nodeId).at(-1)?.status, 'done');
+  assert.equal(specs.at(-1)?.cwd, folder, 'the same path, which is how the session is found');
+  assert.equal(row.archived_at, null);
+  assert.notEqual(row.setup_ran_at, null);
 });

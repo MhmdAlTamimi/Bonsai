@@ -17,7 +17,7 @@ import {
 import { conversationText } from '../../domain/conversationText.js';
 import { readRunReference } from '../../jobs/runContext.js';
 import { readComparisonReference } from '../../jobs/comparisons.js';
-import { readContextFile } from '../../git/context.js';
+import { experimentNotes } from '../review.js';
 import { HttpError, readJson, sendJson } from '../http.js';
 import { route, requireConnection } from '../routing.js';
 
@@ -148,7 +148,10 @@ async function draftSource(
     kind: 'experiment',
     projectId: node.project_id,
     messages: store.listMessages(node.id, 0),
-    notes: node.worktree_allocated === 0 ? null : await readContextFile(node.worktree_path),
+    notes:
+      node.worktree_allocated === 0 && node.archived_at === null
+        ? null
+        : (await experimentNotes(store, node)).contextMd,
     model: node.model,
     empty: 'This experiment has no conversation to draw from yet.',
   };

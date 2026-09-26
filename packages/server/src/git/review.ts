@@ -1,7 +1,7 @@
 import { workingTreeSnapshot } from './snapshot.js';
 import type { ReviewFile, ReviewStatus } from '@bonsai/shared';
 
-import { git, gitPatch, status } from './exec.js';
+import { git, gitPatch, status, type StatusEntry } from './exec.js';
 
 /**
  * What an experiment changed, as review reads it: one list of files with a
@@ -27,13 +27,36 @@ const DIFF = [
 /** A single file's patch beyond this is cut, and says so. */
 export const MAX_PATCH_BYTES = 2 * 1024 * 1024;
 
+/**
+ * Where review reads from. Normally an experiment's folder, where uncommitted
+ * work counts too. An archived experiment has no folder, and nothing
+ * uncommitted -- archiving refuses that -- so its commits are read from the
+ * repository instead.
+ */
+export interface ReviewSource {
+  cwd: string;
+  committedOnly: boolean;
+}
+
+/** What review reads as "now": the head commit, or a snapshot of uncommitted work. */
+async function current(
+  source: ReviewSource,
+  range: { base: string; head: string } | null,
+): Promise<{ head: string; dirty: StatusEntry[] }> {
+  if (source.committedOnly) return { head: range?.head ?? 'HEAD', dirty: [] };
+  const dirty = await status(source.cwd);
+  return {
+    head: dirty.length === 0 ? (range?.head ?? 'HEAD') : await workingTreeSnapshot(source.cwd),
+    dirty,
+  };
+}
+
 export async function reviewFiles(
-  worktree: string,
+  source: ReviewSource,
   range: { base: string; head: string } | null,
 ): Promise<ReviewFile[]> {
-  const dirty = await status(worktree);
-  const head = dirty.length === 0 ? (range?.head ?? 'HEAD') : await workingTreeSnapshot(worktree);
-  const files = await committedFiles(worktree, { base: range?.base ?? 'HEAD', head });
+  const { head, dirty } = await current(source, range);
+  const files = await committedFiles(source.cwd, { base: range?.base ?? 'HEAD', head });
   return files
     .map((file) => {
       const entry = dirty.find(
@@ -70,16 +93,15 @@ async function committedFiles(
 
 /** Review always compares the inherited base with the complete current snapshot. */
 export async function reviewFilePatch(
-  worktree: string,
+  source: ReviewSource,
   range: { base: string; head: string } | null,
   file: ReviewFile,
 ): Promise<{ patch: string; truncated: boolean }> {
   const paths = file.oldPath === undefined ? [file.path] : [file.oldPath, file.path];
-  const dirty = await status(worktree);
-  const head = dirty.length === 0 ? (range?.head ?? 'HEAD') : await workingTreeSnapshot(worktree);
+  const { head } = await current(source, range);
   return gitPatch(
     [...DIFF, range?.base ?? 'HEAD', head, '--', ...paths],
-    worktree,
+    source.cwd,
     MAX_PATCH_BYTES,
   );
 }
@@ -157,7 +179,7 @@ function letterFor(code: string): ReviewStatus {
 
 /** Read Git objects, never follow a worktree symlink into unrelated host files. */
 export async function reviewFileContent(
-  worktree: string,
+  source: ReviewSource,
   range: { base: string; head: string } | null,
   file: ReviewFile,
 ): Promise<{
@@ -165,13 +187,12 @@ export async function reviewFileContent(
   truncated: boolean;
   contentRevision: 'current' | 'before-deletion';
 }> {
-  const dirty = await status(worktree);
-  const head = dirty.length === 0 ? (range?.head ?? 'HEAD') : await workingTreeSnapshot(worktree);
+  const { head } = await current(source, range);
   const deleted = file.status === 'D';
   const revision = deleted ? (range?.base ?? 'HEAD') : head;
   const result = await gitPatch(
     ['show', `${revision}:${deleted ? (file.oldPath ?? file.path) : file.path}`],
-    worktree,
+    source.cwd,
     MAX_PATCH_BYTES,
   );
   return {

@@ -5,7 +5,7 @@ import type { PermissionMode } from '@bonsai/shared';
 
 import type { NodeRow, ProjectRow, Store } from './db/store.js';
 import { workDirIn } from './db/rows.js';
-import { DEFAULT_BRANCH, branchNameFor, createRepo } from './git/repo.js';
+import { DEFAULT_BRANCH, branchExists, branchNameFor, createRepo } from './git/repo.js';
 import {
   addBranchWorktree,
   addDetachedWorktree,
@@ -297,21 +297,54 @@ export function createChildNode(
   return Promise.resolve({ nodeId: node.id, baseCommit, seeded: [] });
 }
 
-/** Allocates only explicitly unallocated nodes; missing established work is never recreated. */
+/** Folders being created right now, so a run and Open folder asking at once share one checkout. */
+const allocating = new Map<string, Promise<SeedFileOutcome[]>>();
+
+/**
+ * Creates an experiment's folder when it has none: the first time it runs, or
+ * again after it was archived. Missing established work is never recreated --
+ * a folder that should be there and is not is an error, not a reason to make
+ * a new one.
+ */
 export async function allocateNodeWorktree(
   store: Store,
   node: NodeRow,
 ): Promise<SeedFileOutcome[]> {
   if (node.worktree_allocated !== 0) return [];
+  const pending = allocating.get(node.id);
+  if (pending !== undefined) return pending;
+  const work = createFolder(store, node).finally(() => allocating.delete(node.id));
+  allocating.set(node.id, work);
+  return work;
+}
+
+async function createFolder(store: Store, stale: NodeRow): Promise<SeedFileOutcome[]> {
+  // Read again: whoever created it a moment ago has already recorded it.
+  const node = store.getNode(stale.id) ?? stale;
+  if (node.worktree_allocated !== 0) return [];
   const project = store.getProject(node.project_id);
-  if (!project || !node.base_commit) throw new Error('No project or pinned code snapshot.');
+  if (!project) throw new Error('No such project.');
   if (await pathExists(node.worktree_path))
     throw new Error(
       'An unexpected folder occupies this experiment location. Work preserved; inspect it before retrying.',
     );
-  await addDetachedWorktree(project.repo_path, node.worktree_path, node.base_commit);
-  // Mark immediately: later failures must preserve this checkout, never replace it.
-  store.markAllocated(node.id, true);
+  if (node.archived_at !== null) {
+    // Back on its own branch when it has one, at the same path: the agent's
+    // session is keyed by that path, so anywhere else would start it afresh.
+    if (node.branch_name !== null && (await branchExists(project.repo_path, node.branch_name)))
+      await addBranchWorktree(project.repo_path, node.worktree_path, node.branch_name);
+    else {
+      const commit = node.head_commit ?? node.base_commit;
+      if (commit === null) throw new Error('This experiment has no recorded code snapshot.');
+      await addDetachedWorktree(project.repo_path, node.worktree_path, commit);
+    }
+    store.markRestored(node.id);
+  } else {
+    if (!node.base_commit) throw new Error('No project or pinned code snapshot.');
+    await addDetachedWorktree(project.repo_path, node.worktree_path, node.base_commit);
+    // Mark immediately: later failures must preserve this checkout, never replace it.
+    store.markAllocated(node.id, true);
+  }
   const workingDir = workDirIn(node.worktree_path, project.work_dir);
   if (workingDir !== node.worktree_path) await mkdir(workingDir, { recursive: true });
   return project.source_path === null
@@ -345,7 +378,7 @@ function bonsaiDirectoryFor(store: Store, project: ProjectRow): string | null {
  * An adopted project's master worktree IS the user's own folder. Bonsai created
  * every other worktree and may remove them; it must never remove that one.
  */
-function ownsWorktree(project: ProjectRow, node: NodeRow): boolean {
+export function ownsWorktree(project: ProjectRow, node: NodeRow): boolean {
   if (project.source_kind !== 'adopted') return true;
   return resolve(node.worktree_path) !== resolve(project.source_path ?? ' ');
 }

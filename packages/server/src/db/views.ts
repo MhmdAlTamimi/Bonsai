@@ -101,6 +101,12 @@ export class Views {
         // the tree, not about what this process happens to be doing with it.
         queuePosition: null,
         activity: null,
+        folder:
+          row.worktree_allocated !== 0
+            ? 'present'
+            : row.archived_at === null
+              ? 'not_created'
+              : 'archived',
         createdAt: row.created_at,
       } satisfies NodeView;
     });

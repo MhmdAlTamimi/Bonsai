@@ -36,6 +36,8 @@ export interface NodeRow {
   success_criteria: string | null;
   verification_hint: string | null;
   setup_ran_at: string | null;
+  archived_at: string | null;
+  restored_at: string | null;
   position_x: number | null;
   position_y: number | null;
   created_at: string;
