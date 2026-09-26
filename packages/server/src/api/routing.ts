@@ -135,7 +135,7 @@ export async function handleApi(
   if (!url.pathname.startsWith('/api/')) return false;
 
   try {
-    assertLocalRequest(req.headers);
+    assertLocalRequest(req.headers, req.method);
   } catch (error) {
     sendError(res, error);
     return true;

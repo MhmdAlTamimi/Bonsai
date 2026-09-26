@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import type { RunReferenceView } from '@bonsai/shared';
+import { plural, type RunReferenceView } from '@bonsai/shared';
 
 import type { Comparer, RunEvent } from '../agent/AgentRunner.js';
 import type { EventBus } from '../api/events.js';
@@ -363,5 +363,3 @@ export async function readComparisonReference(
     'utf8',
   );
 }
-
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;

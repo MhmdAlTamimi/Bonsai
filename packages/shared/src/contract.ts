@@ -322,7 +322,10 @@ export interface NodeView {
   hasCommits: boolean;
   /** It has a conversation of its own to continue, copy or compact. */
   hasConversation: boolean;
-  /** How many runs it has had, so a copy of it taken earlier can tell it is behind. */
+  /**
+   * How many runs it has finished, so a copy of it taken earlier can tell it
+   * is behind. A run in progress counts once it ends.
+   */
   runCount: number;
   pendingQuestion: {
     id: string;

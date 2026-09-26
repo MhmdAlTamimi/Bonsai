@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { plural } from '@bonsai/shared';
 
 import type { NodeRow, Store } from '../db/store.js';
 import { conversationText } from '../domain/conversationText.js';
@@ -14,9 +15,10 @@ import { git, status } from '../git/exec.js';
  * same three answers -- what was said, what changed, what it noted -- and both
  * need them fixed at a moment, so an answer never mixes two versions of it.
  *
- * Committed work only. Anything uncommitted in its folder is mentioned, never
- * included: it can change while the reader is reading, and it may be a
- * half-finished run's.
+ * Committed work and finished runs only. Anything uncommitted in its folder,
+ * and anything a run still in progress has said, is mentioned, never included:
+ * it can change while the reader is reading. Leaving the run out of the count
+ * too is what makes the copy read as behind once that run finishes.
  */
 export const EXPERIMENT_FILES = {
   conversation: 'conversation.md',
@@ -54,7 +56,11 @@ export async function writeExperimentSnapshot(
     writeFile(join(folder, file), text, mode === undefined ? {} : { flag: 'wx', mode });
   const parent = node.parent_id === null ? undefined : store.getNode(node.parent_id);
 
-  const messages = store.listMessages(node.id, 0);
+  const runs = store.listRuns(node.id);
+  const inProgress = new Set(runs.filter((run) => run.status === 'running').map((run) => run.id));
+  const messages = store
+    .listMessages(node.id, 0)
+    .filter((message) => message.runId === null || !inProgress.has(message.runId));
   const conversation = [`# ${node.display_name}: conversation`, ''];
   if (node.forked_from_message_seq !== null && parent !== undefined) {
     conversation.push(
@@ -67,6 +73,8 @@ export async function writeExperimentSnapshot(
       ? 'It has no conversation of its own yet.'
       : conversationText(messages, null, CONVERSATION_CAP).text,
   );
+  if (inProgress.size > 0)
+    conversation.push('', 'A run was still in progress when this was written; it is not included.');
   await write(EXPERIMENT_FILES.conversation, `${conversation.join('\n')}\n`);
 
   // Lines starting with # before the first `diff --git` are ignored by git
@@ -107,7 +115,7 @@ export async function writeExperimentSnapshot(
 
   return {
     headCommit: head,
-    runs: store.listRuns(node.id).length,
+    runs: runs.length - inProgress.size,
     changedFiles: changed.files,
     added: changed.added,
     removed: changed.removed,
@@ -134,8 +142,6 @@ function lineCounts(patch: string, skip: string): { added: number; removed: numb
   }
   return { added, removed };
 }
-
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 /** A file as it is in a commit, or null when the commit does not have it. */
 async function fileAt(repoPath: string, commit: string, path: string): Promise<string | null> {

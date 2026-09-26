@@ -1917,7 +1917,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const ready = `(async()=> (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`;
 
     // Nothing to compact before the first conversation.
-    const early = await fetch(`${nodeUrl}/compact`, { method: 'POST', body: '{}' });
+    const early = await fetch(`${nodeUrl}/compact`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
     assert.equal(early.status, 409);
 
     await fetch(`${nodeUrl}/runs`, {
