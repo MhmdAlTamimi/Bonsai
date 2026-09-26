@@ -9,6 +9,7 @@ import { revealInFileManager } from '../reveal.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { FileLogger } from '../../log.js';
 import { storageUse } from '../../archive.js';
+import { bundledClaudeCodeVersion } from '../../agent/claudeCode.js';
 import { route } from '../routing.js';
 
 /** Connection, settings, diagnostics and the local filesystem. */
@@ -128,6 +129,7 @@ route('GET', '/api/diagnostics', (req, res, _p, { store, settings, connection, j
       effort: settingsView.effort,
       permissionMode: settingsView.permissionMode,
       standIn: process.env['BONSAI_FAKE_AGENT'] === '1',
+      claudeCodeVersion: bundledClaudeCodeVersion(),
     },
     connection: connection.current(),
     counts: { ...store.counts(), running: jobs.activeCount() },

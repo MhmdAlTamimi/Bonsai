@@ -3,6 +3,7 @@ import { basename, join } from 'node:path';
 import { plural, type RunReferenceView } from '@bonsai/shared';
 
 import type { Comparer, RunEvent } from '../agent/AgentRunner.js';
+import { explainAgentError } from '../agent/claudeCode.js';
 import type { EventBus } from '../api/events.js';
 import type { ComparisonRow, NodeRow, Store } from '../db/store.js';
 import { OperationConflict } from '../domain/errors.js';
@@ -273,7 +274,7 @@ export class ComparisonJobs {
         else this.record(row, turnId, event);
       }
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+      error = explainAgentError(err instanceof Error ? err.message : String(err));
     } finally {
       const status = controller.signal.aborted ? 'cancelled' : error === null ? 'done' : 'failed';
       this.store.comparisons.finishTurn(turnId, { status, costUsd: cost, model, error });

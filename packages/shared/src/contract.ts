@@ -201,6 +201,8 @@ export interface DiagnosticsView {
     effort: string | null;
     permissionMode: PermissionMode;
     standIn: boolean;
+    /** The Claude Code bundled with the Agent SDK, which is the one runs use. */
+    claudeCodeVersion: string | null;
   };
   connection: ConnectionStatus;
   counts: { projects: number; nodes: number; runs: number; running: number };

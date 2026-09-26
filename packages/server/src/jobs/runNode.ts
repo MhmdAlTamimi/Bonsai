@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { CONCURRENCY, recoveryCause, type NodeStatus, type RunActivity } from '@bonsai/shared';
 
 import type { AgentRunner, ChoiceDecision, PermissionDecision } from '../agent/AgentRunner.js';
+import { explainAgentError } from '../agent/claudeCode.js';
 import type { EventBus } from '../api/events.js';
 import { workDirIn } from '../db/rows.js';
 import type { NodeRow, ProjectRow, RunEnd, RunTotals, Store } from '../db/store.js';
@@ -715,7 +716,7 @@ export class RunJobs {
         return;
       }
 
-      const message = err instanceof Error ? err.message : String(err);
+      const message = explainAgentError(err instanceof Error ? err.message : String(err));
       this.connection?.recordFailure(message);
       this.log.error('run.failed', {
         runId,
