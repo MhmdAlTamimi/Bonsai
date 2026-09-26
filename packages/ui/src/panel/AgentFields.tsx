@@ -1,21 +1,13 @@
-import { EFFORTS, type PermissionMode } from '@bonsai/shared';
+import { EFFORTS, type AgentModel, type PermissionMode } from '@bonsai/shared';
 import type { JSX } from 'react';
+
+import { pickerModels } from './models.ts';
 export const PERMISSIONS: Record<PermissionMode, string> = {
   acceptEdits: 'Allow tools and commands',
   default: 'Ask before changes',
   bypassPermissions: 'Bypass permission checks',
   plan: 'Plan (SDK mode)',
 };
-/**
- * The models offered by name, newest first. Anything else stored in settings
- * still shows (as its id), and "default" leaves the choice to Claude Code.
- */
-const MODELS = [
-  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
-  { id: 'claude-opus-5', label: 'Opus 5' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-];
 export interface AgentValues {
   model: string | null;
   effort: string | null;
@@ -26,12 +18,20 @@ export function AgentFields({
   onChange,
   disabled,
   inherited = false,
+  models,
 }: {
   value: AgentValues;
   onChange: (value: AgentValues) => void;
   disabled: boolean;
   inherited?: boolean;
+  /** What Claude Code reported this credential can use; joined with the built-in list. */
+  models?: readonly AgentModel[] | undefined;
 }): JSX.Element {
+  const offered = pickerModels(models);
+  const chosen = offered.find((m) => m.id === value.model);
+  // Only the levels the chosen model takes, when that is known; a saved level
+  // it does not list still shows, so opening settings never changes a value.
+  const efforts: readonly string[] = chosen?.efforts ?? EFFORTS;
   return (
     <div className="agent-fields">
       <label>
@@ -43,11 +43,11 @@ export function AgentFields({
           onChange={(e) => onChange({ ...value, model: e.target.value || null })}
         >
           <option value="">{inherited ? 'App default' : 'Claude Code default'}</option>
-          {value.model && !MODELS.some((m) => m.id === value.model) && (
+          {value.model && chosen === undefined && (
             <option value={value.model}>{value.model}</option>
           )}
-          {MODELS.map((m) => (
-            <option key={m.id} value={m.id}>
+          {offered.map((m) => (
+            <option key={m.id} value={m.id} title={m.description ?? undefined}>
               {m.label}
             </option>
           ))}
@@ -62,7 +62,10 @@ export function AgentFields({
           onChange={(e) => onChange({ ...value, effort: e.target.value || null })}
         >
           <option value="">{inherited ? 'App default' : 'Agent default'}</option>
-          {EFFORTS.map((e) => (
+          {value.effort && !efforts.includes(value.effort) && (
+            <option value={value.effort}>{value.effort}</option>
+          )}
+          {efforts.map((e) => (
             <option key={e} value={e}>
               {e}
             </option>

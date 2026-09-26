@@ -1,5 +1,7 @@
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { ConnectionState, ConnectionStatus } from '@bonsai/shared';
+import { query, type ModelInfo } from '@anthropic-ai/claude-agent-sdk';
+import type { AgentModel, ConnectionState, ConnectionStatus } from '@bonsai/shared';
+
+import { Inbox } from './session.js';
 
 /**
  * Whether Bonsai can actually reach Claude, established by asking it.
@@ -16,6 +18,11 @@ import type { ConnectionState, ConnectionStatus } from '@bonsai/shared';
  * Claude Code preset, no tools, one turn, a two-word answer -- because it runs
  * at startup and whenever the user asks, and it must not cost anything anyone
  * would notice.
+ *
+ * While it is connected it also asks which models this credential can use, so
+ * the model picker follows new releases without a new Bonsai. That is a control
+ * request, which the SDK only answers when the prompt is streamed in -- hence
+ * the Inbox rather than a plain string.
  */
 export async function probeConnection(options: {
   model: string | null;
@@ -27,10 +34,13 @@ export async function probeConnection(options: {
 
   let apiKeySource: string | null = null;
   let model: string | null = null;
+  let models: Promise<AgentModel[] | null> = Promise.resolve(null);
+  const inbox = new Inbox();
+  inbox.send('Reply with the single word: ok');
 
   try {
-    for await (const message of query({
-      prompt: 'Reply with the single word: ok',
+    const session = query({
+      prompt: inbox,
       options: {
         abortController: controller,
         maxTurns: 1,
@@ -45,12 +55,17 @@ export async function probeConnection(options: {
           ? {}
           : { env: { ...process.env, ANTHROPIC_API_KEY: options.apiKey } }),
       },
-    })) {
+    });
+    for await (const message of session) {
       if (message.type === 'system' && message.subtype === 'init') {
         apiKeySource = message.apiKeySource;
         model = message.model;
+        // Asked now, answered while the check runs. A Claude Code that cannot
+        // say leaves the picker on its built-in list; it never fails the check.
+        models = session.supportedModels().then(agentModels, () => null);
       }
       if (message.type === 'result') {
+        inbox.close();
         if (message.subtype !== 'success' || message.is_error) {
           const detail =
             'errors' in message && Array.isArray(message.errors) && message.errors.length > 0
@@ -62,11 +77,13 @@ export async function probeConnection(options: {
         }
         // Reaching a successful result means a model call went through, which
         // is the only thing that actually proves the credential works.
+        const offered = await Promise.race([models, delay(MODELS_WAIT_MS, null)]);
         return {
           state: 'connected',
           apiKeySource: apiKeySource ?? 'unknown',
           model: model ?? options.model ?? 'unknown',
           message: null,
+          ...(offered === null || offered.length === 0 ? {} : { models: offered }),
         };
       }
     }
@@ -82,8 +99,52 @@ export async function probeConnection(options: {
     }
     return classify(err instanceof Error ? err.message : String(err));
   } finally {
+    inbox.close();
     clearTimeout(timeout);
   }
+}
+
+/** How long a finished check waits for the model list before answering without it. */
+const MODELS_WAIT_MS = 5_000;
+
+const delay = <T>(ms: number, value: T): Promise<T> =>
+  new Promise((resolve) => setTimeout(() => resolve(value), ms).unref());
+
+/**
+ * Claude Code's model rows, as the picker offers them.
+ *
+ * Each row is stored by the model id it resolves to (`claude-opus-5-5`), not an
+ * alias like `opus`: a saved choice should keep meaning the model that was
+ * picked, and it matches the ids already in people's settings. A date on the
+ * end (`claude-haiku-4-5-20251001`) is dropped for the same reason -- the id
+ * without it names the same model. The "default" row is left out -- the picker
+ * has its own "Claude Code default" -- and a model under two rows is offered
+ * once. Claude Code names its rows by family only ("Opus"), so the label comes
+ * from the id when the name has no version in it.
+ */
+export function agentModels(rows: readonly ModelInfo[]): AgentModel[] {
+  // When any row says what effort it takes, a row that lists none takes none
+  // (Haiku); when none do, it is simply not known, and the picker offers all.
+  const effortKnown = rows.some(
+    (row) => row.supportedEffortLevels !== undefined || row.supportsEffort !== undefined,
+  );
+  const seen = new Set<string>();
+  const models: AgentModel[] = [];
+  for (const row of rows) {
+    const id = (row.resolvedModel ?? row.value).replace(/-\d{8}$/, '');
+    if (row.value === 'default' || id === '' || seen.has(id)) continue;
+    seen.add(id);
+    models.push({
+      id,
+      label: /\d/.test(row.displayName) ? row.displayName : modelLabel(id, row.displayName),
+      description: row.description || null,
+      efforts:
+        row.supportsEffort === false
+          ? []
+          : (row.supportedEffortLevels ?? (effortKnown ? [] : null)),
+    });
+  }
+  return models;
 }
 
 /**
@@ -131,6 +192,14 @@ function classify(raw: string): ConnectionStatus {
     };
   }
   return { ...base, state: 'error', message: raw };
+}
+
+/** `claude-opus-5-5` → "Opus 5.5", `claude-haiku-4-5` → "Haiku 4.5"; anything else as given. */
+function modelLabel(id: string, fallback: string): string {
+  const match = /^claude-([a-z]+)-(\d+)(?:-(\d+))?$/.exec(id);
+  if (match === null) return fallback || id;
+  const [, family, major, minor] = match;
+  return `${family!.charAt(0).toUpperCase()}${family!.slice(1)} ${major}${minor === undefined ? '' : `.${minor}`}`;
 }
 
 export const DISCONNECTED_STATES: readonly ConnectionState[] = [

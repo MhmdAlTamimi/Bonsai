@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react';
 import {
   CONCURRENCY,
+  type AgentModel,
   TEXT_SCALES,
   type ConnectionStatus,
   type ProjectView,
@@ -49,14 +50,19 @@ export function SettingsDialog({
       <div hidden={tab !== 'app'} className="settings-sections">
         <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
         <Appearance settings={settings} onChanged={onChanged} />
-        <AppDefaults settings={settings} onChanged={onChanged} />
+        <AppDefaults settings={settings} models={connection.models} onChanged={onChanged} />
         <Locations settings={settings} onChanged={onChanged} />
       </div>
       <div hidden={tab !== 'project'} className="settings-sections">
         {project ? (
           <>
             <h4>Project settings — {project.name}</h4>
-            <ProjectAgent key={`agent-${project.id}`} project={project} onChanged={onChanged} />
+            <ProjectAgent
+              key={`agent-${project.id}`}
+              project={project}
+              models={connection.models}
+              onChanged={onChanged}
+            />
             <NewNodeSetup key={`setup-${project.id}`} project={project} onChanged={onChanged} />
           </>
         ) : (
@@ -72,9 +78,11 @@ export function SettingsDialog({
 
 function AppDefaults({
   settings,
+  models,
   onChanged,
 }: {
   settings: SettingsView;
+  models: readonly AgentModel[] | undefined;
   onChanged: () => void;
 }): JSX.Element {
   const [value, setValue] = useState<AgentValues>({
@@ -92,6 +100,7 @@ function AppDefaults({
         effort changes.
       </p>
       <AgentFields
+        models={models}
         value={value}
         disabled={save.busy}
         onChange={(next) => {
@@ -139,9 +148,11 @@ function AppDefaults({
 }
 function ProjectAgent({
   project,
+  models,
   onChanged,
 }: {
   project: ProjectView;
+  models: readonly AgentModel[] | undefined;
   onChanged: () => void;
 }): JSX.Element {
   const [value, setValue] = useState<AgentValues>({
@@ -158,6 +169,7 @@ function ProjectAgent({
         settings.
       </p>
       <AgentFields
+        models={models}
         inherited
         value={value}
         disabled={save.busy}

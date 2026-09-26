@@ -48,6 +48,22 @@ export interface ConnectionStatus {
   model: string | null;
   /** The underlying error, when there is one. Shown verbatim; never invented. */
   message: string | null;
+  /**
+   * The models this credential can use, as Claude Code reported them during the
+   * check. Absent when it could not say (not connected, or an older Claude Code);
+   * the picker then offers its built-in list.
+   */
+  models?: AgentModel[];
+}
+
+/** A model the agent can run on, as offered in the model picker. */
+export interface AgentModel {
+  /** What is stored and passed to the agent: a model id such as `claude-opus-5-5`. */
+  id: string;
+  label: string;
+  description: string | null;
+  /** The effort levels it accepts, when known. */
+  efforts: string[] | null;
 }
 
 export interface SettingsView {

@@ -159,7 +159,10 @@ SDK permission enforcement. The lockfile pins the reviewed dependency versions.
 
 ## Configuration and data
 
-App and project settings cover models, effort, permissions, setup and locations.
+App and project settings cover models, effort, permissions, setup and locations. The model list
+comes from Claude Code during the connection check (with the effort levels each model takes),
+joined with a built-in list, so a model the installed Claude Code knows appears without a new
+Bonsai. Updating `@anthropic-ai/claude-agent-sdk` brings a newer Claude Code and its models.
 Existing projects retain their recorded repository/worktree paths when defaults change.
 
 | Variable | Default / purpose |
