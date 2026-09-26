@@ -1,0 +1,347 @@
+/* ---- panel --------------------------------------------------------------- */
+
+/*
+ * The conversation.
+ *
+ * Three widths and one shape: 380 docked beside the map, 285 in review, 46 as
+ * a rail. The curve is on the LEFT only — the panel is flush to the window's
+ * right edge, and a radius there would float it off the edge it belongs to.
+ *
+ * A fixed column: identity, meta, the thread, the composer. Only the thread
+ * scrolls, and it is anchored to the composer, so the newest turn sits just
+ * above the reply box and a short thread leaves its space at the top.
+ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--surface);
+  border-radius: var(--r-10) 0 0 var(--r-10);
+}
+.panel.empty {
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s5);
+  text-align: center;
+}
+
+.panel-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: var(--h-bar);
+  padding: 0 var(--s4) 0 10px;
+}
+.panel-head .spacer {
+  flex: 1;
+}
+.panel-head h2 {
+  flex: none;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-title);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text);
+}
+.panel-head .run-count {
+  flex: none;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--muted-3);
+  font-variant-numeric: tabular-nums;
+}
+/*
+ * The dot beside the name is IDENTITY: this thread, haloed in the accent, the
+ * same mark the selected node carries on the map.
+ *
+ * It is deliberately not the status. Status belongs where it is actionable —
+ * on the card, in the activity strip above the composer, in the recovery
+ * notice — each time with a word beside it rather than a hue alone (4.6).
+ */
+.node-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* The collapse control reads as the edge it collapses toward: a chevron and a bar. */
+.icon-button.collapse {
+  gap: 3px;
+  padding: 0;
+  color: var(--muted);
+}
+.collapse-bar {
+  width: 1.5px;
+  height: 12px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.panel-meta {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0;
+  padding: 0 var(--s4) 14px;
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--muted-3);
+  font-variant-numeric: tabular-nums;
+}
+.panel-meta .sep,
+.run-foot .sep {
+  color: var(--dim-3);
+}
+.panel-meta .no-change {
+  color: var(--muted-4);
+}
+
+.panel > .note {
+  flex: none;
+  margin: 0 var(--s4) var(--s3);
+  padding: var(--s2) 10px;
+  border-radius: var(--r-8);
+  background: var(--surface-2);
+  color: var(--ink-4);
+  font-size: var(--t-row);
+}
+
+/* The scroll region and the one thing that floats over it. */
+.panel-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-anchor: none;
+  padding: 0 var(--s4);
+}
+/* Its own formatting context, so a child's margin cannot leak out of the scroll. */
+.conversation-content {
+  display: flow-root;
+  min-height: 100%;
+}
+.chat-empty {
+  color: var(--muted-3);
+  font-size: var(--t-body);
+}
+.start h3 {
+  margin: 0 0 var(--s2);
+  font-size: var(--t-title);
+}
+
+.panel-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--s4);
+}
+/*
+ * A pill, floating over the thread it belongs to.
+ *
+ * Anchored to the scroll region rather than to the panel floor: a composer
+ * that grows with a long draft would otherwise run into it, and a full-width
+ * button in the footer pushed the whole conversation up while you read.
+ */
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--h-pill);
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 92%, transparent);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  font: 600 var(--t-micro) / 1.45 var(--mono);
+  color: var(--accent-fg);
+}
+.jump-latest:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+/* The rail: the collapsed conversation, and the way back to it. */
+.conversation-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: var(--conversation-rail);
+  padding: 7px 0 var(--s3);
+  border: 0;
+  border-radius: var(--r-10) 0 0 var(--r-10);
+  background: var(--surface);
+}
+.conversation-rail:hover {
+  background: var(--surface-raised);
+}
+.rail-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-control);
+  height: var(--h-control);
+  border-radius: var(--r-8);
+  background: var(--surface-3);
+  color: var(--muted);
+}
+.rail-hairline {
+  width: 16px;
+  height: 1px;
+  background: var(--line-strong);
+}
+/* The panel's name, set vertically down the rail: clipped rather than
+   wrapped, so a short window loses letters and never the shape. */
+.rail-label {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  writing-mode: vertical-rl;
+  font: 600 var(--t-nano) / 1.45 var(--mono);
+  letter-spacing: 0.14em;
+  color: var(--dim);
+}
+.rail-key {
+  flex: none;
+  padding-bottom: var(--s1);
+  font: 9.5px/1.45 var(--mono);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* ---- panel actions ------------------------------------------------------- */
+
+.start {
+  padding: var(--s3);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+}
+.start h3 {
+  color: var(--text);
+  margin-bottom: 0;
+}
+
+/* PRD §4's divergence: quiet when the two lineages agree, loud when they do not. */
+.lineage {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.lineage strong {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.lineage.diverged {
+  padding: var(--s2) var(--s3);
+  background: color-mix(in srgb, var(--st-needs) 7%, var(--surface-2));
+  border-left: 2px solid color-mix(in srgb, var(--st-needs) 45%, transparent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  color: var(--text-dim);
+}
+.lineage.diverged strong {
+  color: var(--text);
+}
+
+.menu-panel.right {
+  left: auto;
+  right: 0;
+}
+/* A menu that opens upward, for a control sitting on the panel's floor. */
+.menu-panel.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+/* The ⋯ menus on the composer row and the review bar. */
+.composer-menu,
+.review-menu {
+  flex: none;
+  position: relative;
+}
+/* What the next run would use: a reference table, not a set of choices. */
+.menu-panel.next-run {
+  min-width: 15rem;
+  padding: 5px 5px 6px;
+}
+.menu-panel.next-run dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  margin: 4px 0 6px;
+  padding: 0 9px;
+  font-size: var(--t-meta);
+  color: var(--muted-2);
+}
+.menu-panel.next-run dl > div {
+  display: contents;
+}
+.menu-panel.next-run dd {
+  margin: 0;
+  color: var(--text-dim);
+}
+.menu-panel.next-run small {
+  display: block;
+  color: var(--dim);
+  font-size: var(--t-nano);
+}
+
+/* The agent has stopped and wants an answer. Carries the needs_you colour, so
+   the box and the card's chip read as the same event. */
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  background: color-mix(in srgb, var(--st-needs) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--st-needs) 32%, transparent);
+  border-radius: var(--r-md);
+  padding: var(--s3);
+}
+.ask-question {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+}
+
+.recover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  background: color-mix(in srgb, var(--st-interrupted) 8%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--st-interrupted) 30%, transparent);
+  border-radius: var(--r-md);
+  padding: var(--s3);
+}
+
+/* The panel has ONE scroll, the thread. The foot is the single exception, and
+   only in the exceptional states -- a question with many options, a recovery
+   notice -- because the composer must never leave the window. */
+.panel-foot { max-height: 48%; overflow-y: auto; }

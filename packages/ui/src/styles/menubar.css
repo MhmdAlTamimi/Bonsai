@@ -1,0 +1,141 @@
+/* ---- menu bar ------------------------------------------------------------ */
+
+.menubar {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--h-bar);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  padding: 0 10px 0 var(--s4);
+  font-size: var(--t-body);
+  container-type: inline-size;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--accent);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+.branch-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: var(--h-plus);
+  padding: 0 9px;
+  border-radius: var(--r-7);
+  background: var(--surface-3);
+  font: var(--t-meta) / 1.45 var(--mono);
+  color: var(--ink-4);
+}
+
+/* The mark is a mask, so it takes the surrounding text colour and works on any
+   background — the artwork itself is dark line work, which would vanish here. */
+.logo {
+  display: inline-block;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.menu {
+  position: relative;
+}
+.menu-title {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+}
+.menu-title:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text);
+}
+/* A menu is a stack of controls, so it is built from the control family: the
+   panel-alt surface, one radius, and rows at the control's own height. */
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-10);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-lg);
+}
+.menu-panel button {
+  display: flex;
+  align-items: center;
+  min-height: var(--h-control);
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0 9px;
+  border-radius: var(--r-7);
+  color: var(--text-dim);
+  font-size: var(--t-row);
+}
+.menu-panel button:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--text);
+}
+.menu-panel button.danger:hover:not(:disabled) {
+  color: var(--err);
+}
+.menu-sep {
+  height: 1px;
+  background: var(--line);
+  margin: var(--s1) 0;
+}
+.menu-label {
+  padding: var(--s2) 9px var(--s1);
+  color: var(--dim);
+  font-size: var(--t-nano);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.menu-empty {
+  padding: var(--s1) 9px var(--s2);
+  color: var(--dim);
+  font-size: var(--t-meta);
+}
+
+.menubar-spacer {
+  flex: 1;
+}
+
+/* The bar's two interactive parts: the project name, which is a menu, and the
+   settings gear. Everything else that used to live here -- transport health,
+   the model, a Usage button -- said the same thing on every screen, so it is
+   gone or moved into the project's own menu. */
+.project-menu { min-width: 0; flex: 0 1 auto; }
+.project-picker { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: var(--h-ghost); padding: 0 8px; border: 0; border-radius: var(--r-7); background: transparent; color: var(--text); font-size: var(--t-body); }
+.project-picker:hover { background: var(--control-hover); }
+.project-picker-name { flex: 0 1 auto; min-width: 3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 520px) { .brand > span:last-child { display: none; } }
+
+.project-picker > .icon { flex: none; width: 12px; height: 12px; align-self: center; margin-left: var(--s3); color: var(--muted); }
+
+/* Project identity stays visible; the picker has no arbitrary recent-project cutoff. */
+/* One line whatever the bar's width: the path gives way first, then the name. */
+.project-location { flex: 0 100 auto; min-width: 0; max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: .75rem; }
+.project-menu .menu-panel { max-height: 75dvh; overflow-y: auto; width: min(460px, 90vw); }
+.project-menu .menu-panel button small, .matching-projects button small { display: block; color: inherit; font-size: .75rem; overflow-wrap: anywhere; }
+.matching-projects { display: grid; gap: 8px; }

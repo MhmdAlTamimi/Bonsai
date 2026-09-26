@@ -1,0 +1,310 @@
+/* ---- canvas cards -------------------------------------------------------- */
+
+/*
+ * The node card: 248 × 122, and only what you steer by — name, state, and the
+ * weight of the change. Its footer's change summary IS the way into review,
+ * so there is no second row competing with the `+`.
+ *
+ * Renders from FLAGS, never from a node "type" string (PRD §9 constraint 4).
+ */
+.card {
+  position: relative;
+  box-sizing: border-box;
+  width: 248px;
+  min-height: 122px;
+  padding: 12px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border-radius: var(--r-12);
+  background: var(--node);
+  box-shadow: var(--shadow-card);
+  transition:
+    background 0.12s ease-out,
+    box-shadow 0.12s ease-out;
+}
+.card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+.card.selected {
+  box-shadow: var(--shadow-selected);
+}
+/* Dashed means "ran and wrote nothing" — a real outcome, not a failure. */
+.card.code-none {
+  outline: 1px dashed var(--line-strong);
+  outline-offset: -1px;
+}
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.node-status-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--st-new);
+}
+.node-status-dot.st-running {
+  background: var(--st-running);
+}
+.node-status-dot.st-needs_you {
+  background: var(--st-needs);
+}
+.node-status-dot.st-ready {
+  background: var(--st-ready);
+}
+.node-status-dot.st-interrupted {
+  background: var(--st-interrupted);
+}
+.card-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-body);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text);
+}
+/* Hangs from the ⋯ it belongs to: anchored right, sized by its own items --
+   `.menu-panel` anchors left, and inheriting both stretched it card-wide. */
+.card-menu {
+  position: absolute;
+  top: 30px;
+  right: 8px;
+  left: auto;
+  z-index: 3;
+}
+/* Two lines, then an ellipsis: a description that hard-cuts mid-word reads as
+   broken rather than as abbreviated. */
+.card-summary {
+  flex: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--t-row);
+  line-height: 1.5;
+  color: var(--muted-2);
+  text-wrap: pretty;
+}
+.card-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.card-foot .spacer {
+  flex: 1;
+}
+/*
+ * On a card the status is a WORD, and the colour of the state lives in the dot
+ * beside the name. A second coloured object in the footer competed with the
+ * review control -- the one thing on the card you can press -- for the same
+ * attention, so the pill here is the plain control surface.
+ */
+.card-foot .chip {
+  height: var(--h-pill);
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--r-7);
+  background: var(--surface-3);
+  color: var(--muted-2);
+  font-size: var(--t-meta);
+  font-weight: 400;
+}
+.card-foot .chip .glyph {
+  display: none;
+}
+.card .no-change {
+  font: var(--t-micro) / 1.45 var(--mono);
+  color: var(--muted-3);
+}
+.card .glyph.lock {
+  color: var(--muted);
+  font-size: var(--t-row);
+  display: inline-flex;
+}
+
+/*
+ * The Review control carries the word and an accent arrow in EVERY state —
+ * resting is merely dimmer — so a node with changes always looks like
+ * something you can open. It never moves or resizes on hover; only colour
+ * changes.
+ */
+.review-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: var(--h-pill);
+  padding: 0 4px 0 9px;
+  border: 0;
+  border-radius: var(--r-7);
+  background: var(--surface-raised);
+  transition:
+    background 0.12s ease-out,
+    box-shadow 0.12s ease-out,
+    color 0.12s ease-out;
+}
+.review-label {
+  font: 600 var(--t-micro) / 1.45 var(--mono);
+  color: var(--text-dim);
+}
+.review-count {
+  font: var(--t-micro) / 1.45 var(--mono);
+  /* The design rests this at 70% of the green; 85% keeps it visibly dimmer
+     than the lit state while a number nobody can read stays out of it. */
+  color: color-mix(in srgb, var(--ok) 85%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.review-count.running {
+  color: var(--running);
+}
+.review-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-5);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--accent-text-dim);
+  font-size: var(--t-nano);
+}
+.review-control:hover:not(:disabled) {
+  background: var(--control-hover);
+}
+.review-control:hover .review-label {
+  color: var(--text);
+}
+.review-control:hover .review-count {
+  color: var(--ok);
+}
+.review-control:hover .review-arrow,
+.card.selected .review-arrow {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+.card.selected .review-control {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.card.selected .review-label {
+  color: var(--accent-text-dim);
+}
+
+/* Ports: 6px dots ringed in the void, so an edge lands on something. */
+.react-flow__handle {
+  width: 6px;
+  height: 6px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: var(--control-strong);
+  box-shadow: 0 0 0 2px var(--void);
+}
+.react-flow__handle.add-child-handle {
+  width: var(--h-plus);
+  height: var(--h-plus);
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--control);
+  color: var(--ink-4);
+  bottom: -11px;
+  box-shadow: 0 0 0 2px var(--void);
+}
+.add-child-handle .icon {
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+}
+.card:hover .add-child-handle {
+  color: var(--text);
+}
+.card.selected .add-child-handle {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* Level of detail. At a distance a card is a shape, and the shape says what
+   the status is, so the tree still reads while zoomed out (D35). */
+.card.lod-compact {
+  min-height: 0;
+  gap: 0;
+}
+.card.lod-dot {
+  width: 44px;
+  min-height: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+}
+.dot-only .chip {
+  border: 0;
+  background: none;
+  padding: 0;
+}
+
+.transport-notice, .tree-notice { position: absolute; z-index: 7; top: 64px; left: 16px; right: 16px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
+.transport-notice + .tree-notice { top: 110px; }
+.tree-notice.error-note { color: var(--text); font-size: var(--fs-xs); }
+
+/*
+ * THE CANVAS CONTROL FAMILY.
+ *
+ * Zoom, fit, reset, hints and -- on a narrow window -- the Map/Experiment
+ * switch. One height, one radius, one border, one icon weight, one pressed and
+ * one focus state, so they read as a set of things you can do to the canvas
+ * rather than as buttons that happened to land near each other.
+ *
+ * They used to be two toolbars. React Flow's Controls brought its own sizes,
+ * radius, border and hover and sat in its own stack in the corner, which meant
+ * zooming looked like it belonged to a different application from fitting.
+ *
+ * --control-h is the one number. Everything in the family is that tall, and
+ * the icon-only members are that wide too, so nothing in the row is a
+ * different size from its neighbour.
+ */
+.canvas-tools { position: absolute; bottom: 16px; left: 16px; display: flex; align-items: center; gap: var(--s2); z-index: 5; flex-wrap: wrap; max-width: calc(100% - 32px); }
+.canvas-tool { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-height: var(--h-pill); padding: 0 10px; border: 0; border-radius: var(--r-7); background: transparent; color: var(--ink-4); font-size: var(--t-row); white-space: nowrap; }
+.canvas-tool:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
+.canvas-tool:disabled { color: var(--muted); opacity: 1; }
+.canvas-tool[aria-expanded="true"], .canvas-tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--text); }
+.canvas-tool.icon-only { width: var(--h-pill); padding: 0; }
+/* The zoom cluster is one control with three parts: two square buttons with
+   the level between them, on one raised surface. */
+.tool-group { display: inline-flex; gap: 0; padding: 3px; border-radius: 9px; background: color-mix(in srgb, var(--surface) 92%, transparent); }
+.canvas-tools > .canvas-tool, .canvas-hints > .canvas-tool { background: color-mix(in srgb, var(--surface) 92%, transparent); }
+.zoom-level { min-width: 3.25rem; font: var(--t-micro) / 1.45 var(--mono); font-variant-numeric: tabular-nums; }
+/* Canvas hints: a reference you read WHILE looking at the map, so a popover
+   rather than a dialog, and no "close" button inside it -- the trigger, a click
+   away and Escape all already do that. See canvas/CanvasHints.tsx. */
+.canvas-hints { position: relative; }
+.canvas-hints-panel { position: absolute; left: 0; bottom: calc(100% + 8px); width: min(22rem, calc(100vw - 6rem)); padding: var(--s4); background: var(--surface); border: 1px solid var(--control-line); border-radius: var(--r-lg); z-index: 6; box-shadow: var(--shadow-lg); }
+.canvas-hints-panel h3 { margin-bottom: var(--s3); color: var(--text); }
+.canvas-hints-panel dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--s2) var(--s3); margin: 0 0 var(--s3); }
+.canvas-hints-panel dt { color: var(--text-dim); white-space: nowrap; }
+.canvas-hints-panel dd { margin: 0; color: var(--muted); }
+.canvas-hints-panel .hint .icon { vertical-align: -.16em; }
+.react-flow__node:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: 12px; }
+.chip .glyph { display: inline-flex; }
+.dot-only .chip { padding: 0; background: none; font-size: 22px; /* glyph size */ }
+
+/* The map's + is a button now as well as a drag handle: focusable, with the
+   same focus ring as every other control. */
+.react-flow__handle.add-child-handle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: none; }
+
+/* D46: the canvas surface and its one control cluster. */
+/* The canvas is painted on the surface BEHIND the dot grid. Painting the pane
+   too covered the grid: the pane sits over the background SVG. */
+.react-flow, .canvas { background: var(--canvas); }
+/* Edges: an elbow from the parent's + into the child's top edge. Dashed for
+   every branch but the one through the selected experiment's ancestors. */
+.bonsai-edge { fill: none; stroke: var(--edge); stroke-width: 1.4; stroke-dasharray: 4 4; }
+.bonsai-edge.conversation { stroke: var(--edge-dim); }
+.bonsai-edge.live { stroke: var(--edge-live); stroke-dasharray: none; }

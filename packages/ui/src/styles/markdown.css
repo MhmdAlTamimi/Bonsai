@@ -1,0 +1,83 @@
+/* ---- markdown ------------------------------------------------------------ */
+
+.markdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  overflow-wrap: anywhere;
+}
+.markdown p {
+  margin: 0;
+}
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: var(--s1) 0 0;
+  color: var(--text);
+  font-weight: 600;
+}
+.markdown-h1 {
+  font-size: var(--fs-lg);
+}
+.markdown-h2 {
+  font-size: var(--fs-sm);
+}
+.markdown-h3 {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.markdown ul,
+.markdown ol {
+  margin: 0;
+  padding-left: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.markdown blockquote {
+  margin: 0;
+  padding-left: var(--s3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-dim);
+}
+.markdown a {
+  color: var(--text);
+  text-underline-offset: 2px;
+}
+.markdown p code,
+.markdown li code {
+  font: var(--t-row) / 1.5 var(--mono);
+  color: var(--text-dim);
+}
+/* A fenced block is the reason this renderer exists: code in a reply used to
+   arrive as unindented, unmonospaced, wrapped-mid-token prose. */
+.markdown-code {
+  margin: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+  overflow-x: auto;
+  font: var(--t-code) / 1.55 var(--mono);
+  color: var(--text-dim);
+}
+.markdown-code code {
+  background: none;
+  padding: 0;
+  font: inherit;
+}
+
+.markdown-table { overflow-x: auto; overflow-y: hidden; margin: 12px 0; border-radius: var(--r-8); background: var(--surface-2); }
+.markdown-table table { border-collapse: collapse; width: 100%; font-size: inherit; }
+.markdown-table th, .markdown-table td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; }
+.markdown-table th { background: var(--surface-3); }
+.markdown-table .disclosure-row { box-shadow: inset 0 1px 0 var(--line); }
+.markdown-task { list-style: none; }
+.markdown-task > input { width: auto; margin-right: 8px; }
+.markdown-code-block { margin: 12px 0; }
+.code-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; color: var(--muted); font-size: var(--fs-xs); }
+.code-actions .copy-button { margin-left: auto; }
+.markdown-code-block .markdown-code { margin-top: 5px; }
+
+/* Replies take the size of the message they sit in, the same as your own words. */
+.markdown { line-height: 1.7; }

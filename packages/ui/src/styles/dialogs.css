@@ -1,0 +1,371 @@
+/* ---- dialogs and full-screen states -------------------------------------- */
+
+.dialog {
+  width: min(36rem, 94vw);
+  max-height: 90dvh;
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  box-shadow: var(--shadow-lg);
+}
+.dialog.wide {
+  width: min(560px, 94vw);
+}
+/* Title, a line under it, and the close in the same corner of every dialog. */
+.dialog-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.dialog-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dialog-heading h3 {
+  overflow-wrap: anywhere;
+}
+.dialog-head .dialog-close {
+  margin: -4px -6px 0 0;
+}
+.dialog h3 {
+  font-size: var(--fs-xl);
+  color: var(--text);
+}
+.dialog section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+.dialog section:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+/* The way out stays reachable however long the dialog is: a dialog that
+   scrolls must not scroll its own Close off the bottom. */
+.dialog-actions {
+  position: sticky;
+  bottom: calc(var(--s5) * -1);
+  z-index: 2;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  justify-content: flex-end;
+  margin: 0 calc(var(--s5) * -1) calc(var(--s5) * -1);
+  padding: var(--s3) var(--s5);
+  background: var(--surface);
+}
+.dialog-actions .hint {
+  flex: 1;
+}
+
+/*
+ * A label in a dialog is a two-column row: name at a fixed width on the left,
+ * control filling the rest. Applied to the element rather than behind a class
+ * so nothing can opt out by forgetting -- inconsistent label widths were most
+ * of why the settings screen read as unfinished, with every control starting
+ * at a different x.
+ */
+.dialog label,
+.field {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  gap: var(--s3);
+  align-items: center;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+.dialog label > :not(:first-child),
+.field > :not(:first-child) {
+  min-width: 0;
+}
+.dialog label select,
+.dialog label input:not([type='checkbox']) {
+  width: 100%;
+}
+.dialog label.check {
+  display: flex;
+}
+.dialog label.stacked,
+.field.stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.dialog label .row,
+.field .row {
+  min-width: 0;
+}
+.dialog label .row input,
+.dialog label .row select,
+.field .row input,
+.field .row select {
+  flex: 1;
+  min-width: 0;
+}
+.field input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+  flex: none;
+}
+label.check {
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.new-project {
+  width: min(580px, 94vw);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s6);
+  margin: var(--s5) 0;
+  box-shadow: var(--shadow);
+}
+.new-project h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.25rem;
+  letter-spacing: -0.02em;
+}
+.connect h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.connect {
+  width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s6);
+  margin: var(--s5) 0;
+  box-shadow: var(--shadow);
+}
+.connect section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+  padding: 3px;
+}
+.tabs button {
+  flex: 1;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  padding: 6px 10px;
+}
+.tabs button:hover:not(:disabled) {
+  background: none;
+  color: var(--text-dim);
+}
+.tabs button.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.3);
+}
+
+/* A folder picker served by the backend: a browser cannot tell us where a
+   chosen directory is, so the server lists and we render. */
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.picker-bar {
+  display: flex;
+  gap: 6px;
+}
+.picker-bar input {
+  flex: 1;
+  min-width: 0;
+  font: var(--fs-code) / 1.45 var(--mono);
+}
+.picker-bar button {
+  flex: none;
+  padding: 6px 10px;
+}
+/* Up and Home sit beside the path box, so they take its border and height. */
+.picker-bar .icon-button {
+  align-self: stretch;
+  height: auto;
+  padding: 0;
+  border: 1px solid var(--control-line);
+  background: var(--surface-2);
+}
+.picker-list {
+  height: 208px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s1);
+  display: flex;
+  flex-direction: column;
+}
+.picker-list .muted {
+  padding: var(--s2);
+  font-size: var(--fs-xs);
+}
+.picker-entry {
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  text-align: left;
+  padding: 5px 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.picker-entry:hover {
+  background: var(--surface-2);
+  border-color: transparent;
+  color: var(--text);
+}
+.picker-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The error boundary. Still Bonsai talking, not a browser error page. */
+.crash {
+  width: min(680px, 92vw);
+  margin: 48px auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s6);
+}
+.crash .stream {
+  max-height: 320px;
+}
+
+/* ---- confirmation -------------------------------------------------------- */
+
+/*
+ * Destructive confirmations, in the app's own dialog rather than the browser's.
+ * `window.confirm` was doing this at the one moment the interface most needs to
+ * look like it knows what it is doing.
+ */
+.dialog.confirm {
+  width: min(430px, 94vw);
+  gap: var(--s3);
+}
+.confirm-body {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+button.destructive {
+  background: var(--err);
+  border-color: var(--err);
+  color: var(--bg);
+  font-weight: 500;
+}
+button.destructive:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 82%, #fff);
+  border-color: color-mix(in srgb, var(--err) 82%, #fff);
+}
+
+/* Results have a separate reading surface; conversation stays focused on runs. */
+.results-checks h3:not(:first-child) { margin-top: 12px; }
+.evidence-source { color: var(--text-dim); overflow-wrap: anywhere; }
+.testing-notes { padding: 12px; border-left: 2px solid var(--line-strong); background: var(--surface-2); }
+
+/* Focused settings and usage tasks use native modal focus containment. */
+dialog.dialog { color: var(--text); margin: auto; }
+dialog.dialog:not([open]) { display: none; }
+dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px); }
+.dialog.settings-dialog, .dialog.usage-dialog { width: min(47.5rem, 94vw); }
+.settings-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 12px; flex-wrap: wrap; }
+.settings-tabs button[aria-pressed='true'] { background: var(--surface-3); border-color: var(--line-strong); color: var(--text); }
+.settings-dialog form { display: flex; flex-direction: column; gap: 16px; }
+.settings-dialog [hidden] { display: none; }
+.settings-dialog section + section { padding-top: 24px; }
+.settings-dialog .save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.save-feedback { overflow-wrap: anywhere; }
+.diagnostics textarea { width: 100%; min-height: 260px; font: var(--fs-code)/1.6 var(--mono); resize: vertical; }
+.next-run dl > div { display: contents; }
+.next-run dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 14px 0; }
+.next-run dd { margin: 0; color: var(--text); }
+.next-run small { display: block; color: var(--muted); }
+.usage-totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.usage-totals > div { border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.usage-totals span { display: block; font-size: var(--fs-xs); color: var(--muted); margin-bottom: 8px; }
+.usage-totals strong { font-size: var(--fs-3xl); font-weight: 550; }
+.usage-experiment { border-top: 1px solid var(--line); padding-top: 14px; }
+.usage-experiment summary { display: flex; justify-content: space-between; gap: 16px; cursor: pointer; }
+.usage-experiment summary span:first-child { overflow-wrap: anywhere; }
+.usage-experiment summary span:last-child { color: var(--muted); white-space: nowrap; }
+.usage-experiment > button { margin: 12px 0; }
+.usage-table { overflow-x: auto; }
+.usage-table table { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); text-align: left; }
+.usage-table td, .usage-table th { padding: 12px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.usage-table small { display: block; color: var(--muted); margin-top: 5px; }
+@media (max-width: 600px) {
+  .usage-totals { grid-template-columns: repeat(2, 1fr); }
+  .settings-dialog label { display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+}
+
+.connection-settings { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.connection-settings[open] > :not(summary) { margin-top: 16px; }
+
+.agent-fields { display: flex; flex-direction: column; gap: 12px; }
+.settings-tabs button[aria-pressed="true"] { box-shadow: inset 0 -2px var(--accent); }
+.settings-sections > h4 { margin-bottom: 18px; }
+
+.dialog .dialog-actions { flex-wrap: wrap; }
+.dialog-actions button { min-height: 36px; }
+.dialog[aria-label="Branch experiment"] .dialog-actions > .hint { flex-basis: 100%; }
+
+/* Buttons that are only an icon: a square target, not a line of text. */
+.picker-bar button { display: inline-flex; align-items: center; justify-content: center; }
+
+/* Node facts and recorded checks: read in a dialog now, not under the thread. */
+.facts-section h3, .checks h3 { margin: 14px 0 6px; font-size: var(--t-row); font-weight: 600; color: var(--muted-2); }
+.facts-section h3:first-child, .checks h3:first-child { margin-top: 0; }
+.facts-section .stream { max-height: 16rem; overflow: auto; }
+
+.checks label { display: grid; gap: 8px; margin-bottom: 12px; }

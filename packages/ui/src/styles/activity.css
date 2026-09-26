@@ -1,0 +1,60 @@
+/* Recovery stays visible while history scrolls. File review has a bounded viewport. */
+.partial-review[open] { max-height: 30vh; overflow: auto; }
+.partial-review li { overflow-wrap: anywhere; }
+
+.stop-control { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.stop-error { font-size: var(--fs-xs); max-width: 230px; white-space: normal; }
+.activity { margin: 0 0 8px; color: var(--text-dim); font-size: var(--fs-xs); }
+.permission-details { margin: 10px 0; }
+.permission-details pre { max-height: 160px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.permission-action { overflow-wrap: anywhere; max-height: 100px; overflow-y: auto; }
+.ask > h3, .ask > p { margin: 0; }
+.ask label.stacked { display: flex; flex-direction: column; gap: 6px; }
+.ask input { width: 100%; min-width: 0; }
+.ask .permission-details { margin: 2px 0; }
+
+/* D42: a question the agent asked. The same box as a permission prompt -- same
+   Needs you colour, same place -- because to the user it is the same event;
+   only the answer differs. Options are native radios and checkboxes laid out
+   as rows you can hit anywhere on, and "Other" is always the last row. */
+.ask-choice { gap: var(--s3); }
+.choice-question { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.choice-question legend { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); padding: 0; margin-bottom: var(--s2); }
+.choice-text { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.choice-options { display: flex; flex-direction: column; gap: var(--s1); }
+.choice-option { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s2); align-items: baseline; padding: var(--s2) var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); cursor: pointer; }
+.choice-option:hover { border-color: var(--control-line); }
+.choice-option:has(input:checked) { border-color: var(--focus); background: var(--accent-soft); }
+.choice-option input[type="radio"], .choice-option input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.choice-label { color: var(--text); overflow-wrap: anywhere; }
+.choice-description { grid-column: 2; color: var(--muted); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.choice-other-text { grid-column: 2; margin-top: var(--s1); width: 100%; min-width: 0; }
+.choice-preview { margin: 0; padding: var(--s2) var(--s3); max-height: 12rem; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); font: var(--fs-code)/1.5 var(--mono); white-space: pre; }
+.choice-question:disabled .choice-option { cursor: default; opacity: .7; }
+
+/* D43: what a run is doing. One line while the agent works -- the command and
+   how long it has taken, so a long install reads as work rather than a hang.
+   While the run waits for background work it becomes a small box listing the
+   jobs, in the running colour, with the one control that ends the wait. */
+.activity-line { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.activity-line > span[role="status"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-line svg { flex-shrink: 0; align-self: center; color: var(--st-running); }
+.activity-line .working-dot { align-self: center; }
+.activity-line .stop-control .icon { color: inherit; }
+.work-summary > .working-dot { vertical-align: 0.1em; }
+.activity-meta { flex-shrink: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.activity-waiting { display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s3); border: 1px solid color-mix(in srgb, var(--st-running) 35%, transparent); border-radius: var(--r-md); background: color-mix(in srgb, var(--st-running) 7%, var(--surface-2)); font-size: var(--fs-sm); color: var(--text); }
+.activity-waiting .activity-line { font-weight: 600; }
+.activity-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s1); }
+.activity-jobs li { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; font-size: var(--fs-xs); }
+.activity-jobs code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--fs-code)/1.45 var(--mono); }
+.activity-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+.activity-actions .hint { margin: 0; flex: 1 1 14rem; }
+
+/* D45: recovery says what happened in one line, then the files, then verbs. */
+.recover-headline { display: flex; align-items: center; gap: var(--s2); margin: 0; font-weight: 600; color: var(--text); }
+.recover-headline svg { flex-shrink: 0; color: var(--st-interrupted); }
+.recover-detail { margin: 0; overflow-wrap: anywhere; }
+.recover .row { flex-wrap: wrap; }
+.activity-waiting p { margin: 0; }

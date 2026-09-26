@@ -909,7 +909,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(started.status, 202, await started.text());
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor(
-      "!!document.querySelector('.run-foot') && !!document.querySelector('.md-table')",
+      "!!document.querySelector('.run-foot') && !!document.querySelector('.markdown-table')",
     );
     await session.waitFor("document.querySelector('.panel-body').scrollTop > 100");
     await session.eval(
@@ -929,7 +929,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "document.querySelector('.panel').textContent.includes('Showing previously loaded conversation')",
     );
-    assert.equal(await session.eval("!!document.querySelector('.md-table')"), true);
+    assert.equal(await session.eval("!!document.querySelector('.markdown-table')"), true);
     await session.eval('window.__failMessages = false');
     await session.eval(
       "Array.from(document.querySelectorAll('.panel button')).find(b => b.textContent === 'Retry conversation').click()",
@@ -959,7 +959,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("document.querySelector('.panel h2')?.textContent === 'Other reading'");
     await session.click(`[data-id="${created.masterNodeId}"] .card`);
     await session.waitFor(
-      "!!document.querySelector('.md-table') && document.querySelector('.panel-body').scrollTop > 100",
+      "!!document.querySelector('.markdown-table') && document.querySelector('.panel-body').scrollTop > 100",
     );
     assert.ok(
       Math.abs(
@@ -976,7 +976,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // `.run-foot` comes from the node's details, which is when the panel restores
     // its reading position. Scrolling before that is overridden by the restore.
     await session.waitFor(
-      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.md-table') && !!document.querySelector('.run-foot')",
+      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.markdown-table') && !!document.querySelector('.run-foot')",
     );
     await session.eval(
       "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.__dropEvents = true; window.__sources.at(-1).dispatchEvent(new Event('error'));",

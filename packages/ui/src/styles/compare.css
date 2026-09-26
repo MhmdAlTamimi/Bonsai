@@ -1,0 +1,73 @@
+/* ---- compare -------------------------------------------------------------- */
+
+/* An experiment's colour in a comparison, by position: the same on the map
+   while picking, on its card, and wherever the comparison names it. */
+.cmp-1 { --tone: #9d91f8; }
+.cmp-2 { --tone: #4fc1b0; }
+.cmp-3 { --tone: #6aa8f7; }
+.cmp-4 { --tone: #e98bb5; }
+
+.card.picked { box-shadow: 0 0 0 2px var(--tone), 0 14px 34px -12px color-mix(in srgb, var(--tone) 45%, transparent); }
+.pick-badge, .pick-number { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--tone); color: var(--void); font: 600 var(--t-micro) / 1 var(--mono); }
+
+/* Picking, as a bar over the map: what to do, what is picked, and Compare. */
+.compare-bar { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 8; display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; justify-content: center; max-width: min(46rem, calc(100% - 32px)); padding: 8px 8px 8px 14px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-12); box-shadow: var(--shadow-lg); font-size: var(--t-row); color: var(--text-dim); }
+.compare-bar > .icon { width: 16px; height: 16px; color: var(--accent-text); }
+.compare-picks { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.pick-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 14rem; padding: 2px 3px 2px 3px; border: 1px solid color-mix(in srgb, var(--tone) 55%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--tone) 10%, var(--surface-2)); color: var(--text); }
+.pick-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-guidance { color: var(--muted); }
+.compare-bar .primary { display: inline-flex; align-items: center; gap: 6px; height: var(--h-control); padding: 0 14px; border-radius: var(--r-8); }
+.compare-bar .error { flex-basis: 100%; text-align: center; }
+
+/* The Compare screen replaces the whole window, as review replaces the map. */
+.app.compare-mode { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.app.compare-mode > :not(.compare) { display: none !important; }
+.compare { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100dvh; background: var(--void); }
+.compare-head { flex: none; gap: 10px; }
+.compare-head > .icon { width: 16px; height: 16px; color: var(--accent-text); flex: none; }
+.compare-head h1 { flex: 0 1 auto; min-width: 0; overflow: visible; }
+.compare-title { display: block; max-width: 45vw; padding: 2px 6px; margin-left: -6px; border: 0; border-radius: var(--r-6); background: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: inherit; color: inherit; text-align: left; }
+.compare-title:hover:not(:disabled) { background: var(--control-hover); }
+.compare-title-input { min-width: 16rem; font-size: var(--t-title); font-weight: 600; }
+.compare-body { flex: 1; min-height: 0; overflow-y: auto; padding: var(--s5) var(--s4) var(--s4); }
+.thread-width { width: 100%; max-width: 50rem; margin: 0 auto; }
+.compare-foot { flex: none; display: flex; flex-direction: column; gap: 10px; padding: var(--s3) var(--s4) var(--s4); }
+.compare-loading { text-align: center; margin-top: 20vh; }
+
+/* Behind: said once, with the way to catch up. */
+.compare-stale { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; max-width: 75rem; margin: 0 auto var(--s4); padding: var(--s2) var(--s3); background: color-mix(in srgb, var(--st-needs) 7%, var(--surface-2)); border-left: 2px solid color-mix(in srgb, var(--st-needs) 45%, transparent); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: var(--fs-xs); color: var(--text-dim); }
+.compare-stale span { flex: 1 1 16rem; }
+
+/* The experiments, side by side: one column each, the same rows in each. */
+.compare-cards { display: grid; gap: var(--s3); max-width: 75rem; margin: 0 auto var(--s5); padding: 0; list-style: none; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.compare-card { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--tone); border-radius: var(--r-10); }
+.compare-card header { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.compare-card h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-title); color: var(--text); }
+.compare-card-status { font-size: var(--t-meta); color: var(--ink-4); white-space: nowrap; }
+.compare-card dl { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 6px 10px; margin: 0; font-size: var(--fs-xs); }
+.compare-card dt { color: var(--muted); }
+.compare-card dd { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.compare-card dd.clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.compare-files { display: block; margin-top: 2px; color: var(--muted-3); font-family: var(--mono); font-size: var(--t-micro); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compare-card footer { display: flex; align-items: center; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px solid var(--line); font: var(--t-micro) / 1.45 var(--mono); color: var(--muted-3); }
+.compare-card-new { margin-left: auto; color: var(--st-needs); }
+.compare-card-note { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
+
+/* The agent's opening, in the conversation's own voice. */
+.compare-thread { display: flex; flex-direction: column; gap: 20px; }
+.compare-intro p { margin: 0; line-height: 1.65; }
+.compare-name { color: var(--tone); font-weight: 600; }
+.comparison-names { display: flex; gap: 10px; }
+.compare-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.compare-suggestions button { padding: 5px 11px; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--line-strong); color: var(--text-dim); font-size: var(--fs-2xs); }
+.compare-suggestions button:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.compare-composer .composer-row button.secondary { display: inline-flex; align-items: center; gap: 6px; }
+
+.reference-fill-source { margin: 0; font-size: var(--fs-sm); color: var(--text-dim); }
+.reference-fill-source strong { color: var(--text); }
+
+@media (max-width: 700px) {
+  .compare-bar { bottom: 72px; }
+  .back-label { display: none; }
+}

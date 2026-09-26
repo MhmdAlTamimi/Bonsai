@@ -18,7 +18,7 @@ export function Markdown({ source }: { source: string }): JSX.Element {
   // nothing rather than an empty block that takes up a line.
   if (blocks.length === 0) return <></>;
   return (
-    <div className="md">
+    <div className="markdown">
       {blocks.map((block, i) => (
         <BlockView key={i} block={block} />
       ))}
@@ -39,7 +39,7 @@ function BlockView({ block }: { block: Block }): JSX.Element {
       // Offset by three so a reply's `#` is an h4: the panel's own headings are
       // h2/h3, and a reply must not outrank the node it belongs to.
       return (
-        <Tag className={`md-h${block.level}`}>
+        <Tag className={`markdown-h${block.level}`}>
           <InlineList content={block.content} />
         </Tag>
       );
@@ -53,7 +53,7 @@ function BlockView({ block }: { block: Block }): JSX.Element {
       return (
         <Tag>
           {block.items.map((item, i) => (
-            <li key={i} className={item.checked === null ? undefined : 'md-task'}>
+            <li key={i} className={item.checked === null ? undefined : 'markdown-task'}>
               {item.checked !== null && (
                 <input
                   type="checkbox"
@@ -135,7 +135,7 @@ function MdTable({ header, rows }: { header: Inline[][]; rows: Inline[][][] }): 
   const hidden = Math.max(0, rows.length - TABLE_ROWS);
   const shown = open ? rows : rows.slice(0, TABLE_ROWS);
   return (
-    <div className="md-table">
+    <div className="markdown-table">
       <table>
         <thead>
           <tr>
@@ -167,12 +167,12 @@ function MdTable({ header, rows }: { header: Inline[][]; rows: Inline[][][] }): 
 
 function CodeBlock({ text, lang }: { text: string; lang: string | null }): JSX.Element {
   return (
-    <div className="md-code-block">
+    <div className="markdown-code-block">
       <div className="code-actions">
         <span>{lang ?? 'Code'}</span>
         <CopyButton text={text} label="Copy code" />
       </div>
-      <pre className="md-code" data-lang={lang ?? undefined}>
+      <pre className="markdown-code" data-lang={lang ?? undefined}>
         <code>{text}</code>
       </pre>
     </div>
