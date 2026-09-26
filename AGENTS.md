@@ -7,6 +7,11 @@ they are not a scope gate for current work. Follow the user's approved scope.
 
 ## Development
 
+API routes live in `packages/server/src/api/routes/` by area and register on import; the
+first match wins, so keep specific patterns before general ones. Styles live in
+`packages/ui/src/styles/`, one file per area, imported in cascade order by `index.css`;
+window-size overrides stay last in `responsive.css`.
+
 Use Node 22.18+ (CI uses current 22.x), Git, and `npm ci`. Run `npm test` and
 `npm run build:ui`. Browser changes also require `npm run test:e2e` with Chrome/Chromium;
 set `BONSAI_CHROME` to its executable if discovery fails. Tests use temporary repositories
@@ -41,6 +46,12 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   with an experiment folder), recorded on the question like a run's resolved context.
 - Name-only children have no worktree. First execution allocates a detached checkout at
   the pinned base; the first modifying run creates `node/<uuid>`.
+- An archived experiment (`node.archived_at`) has no worktree either, and keeps its branch,
+  rows and session. The next allocation checks the branch out again at the SAME path (the SDK
+  finds the session by cwd) and setup runs again (`setup_ran_at` is cleared on archive).
+  Never archive a running node, one with uncommitted work, or the user's own folder; ignored
+  files that setup or a build cannot recreate need the user's confirmation. Review and notes
+  read an archived node's commits from the repository. See `archive.ts`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.
 - Children do not freeze parents (approved Phase 3). Existing children never move to newer
   parent code automatically. An adopted original checkout remains read-only.
