@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useMemo } from 'react';
 import type { NodeView } from '@bonsai/shared';
 
 /**
@@ -21,3 +21,20 @@ export const ExperimentsContext = createContext<Experiments>({
 });
 
 export const useExperiments = (): Experiments => useContext(ExperimentsContext);
+
+/** The context's value for a tree: rebuilt when the list changes, not on every render. */
+export function useExperimentList(
+  nodes: readonly NodeView[] | undefined,
+  open: (id: string) => void,
+): Experiments {
+  return useMemo<Experiments>(
+    () => ({
+      list: nodes ?? [],
+      byId: new Map((nodes ?? []).map((node) => [node.id, node])),
+      open,
+    }),
+    // `open` selects and shows; its identity does not matter, the list does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes],
+  );
+}

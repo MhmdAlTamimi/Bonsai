@@ -1,48 +1,44 @@
-import { useMemo, type JSX, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type JSX, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { ReactFlowProvider } from 'reactflow';
-import { PANEL_WIDTH, REVIEW_WIDTH, type NodeView } from '@bonsai/shared';
+import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
 
-import { RunAvailability } from './state/RunAvailability.ts';
+import { useConfirm } from './ConfirmDialog.tsx';
+import { PanelResizer } from './PanelResizer.tsx';
 import { api } from './api/client.ts';
 import { describeError } from './api/describeError.ts';
-import { useSelection } from './state/selection.ts';
-import { useConnection } from './state/useConnection.ts';
-import { useProjectTree } from './state/useProjectTree.ts';
-import { useRunStream } from './state/useRunStream.ts';
-import { ConversationRail } from './panel/ConversationRail.tsx';
-import { Review } from './review/Review.tsx';
-import { RenameDialog } from './panel/node/RenameDialog.tsx';
-import { CompactDialog } from './panel/node/CompactDialog.tsx';
-import { ExperimentDetails } from './panel/node/DetailsDialog.tsx';
-import { useNodeActions } from './panel/node/useNodeActions.ts';
-import { readAddress, useAddressBar } from './state/useAddressBar.ts';
-import { useChildCreation } from './state/useChildCreation.ts';
-import { useWorkspaceView } from './state/useWorkspaceView.ts';
 import { Canvas } from './canvas/Canvas.tsx';
-import { Panel } from './panel/Panel.tsx';
-import { StartScreen } from './panel/StartScreen.tsx';
-import { NewChildDialog } from './canvas/NewChildDialog.tsx';
-import { MenuBar } from './canvas/MenuBar.tsx';
-import { UsageDialog } from './panel/UsageDialog.tsx';
-import { SettingsDialog } from './panel/SettingsDialog.tsx';
-import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
-import { PanelResizer } from './PanelResizer.tsx';
-import { RunControls, StopAll } from './state/RunControls.tsx';
-import { useConfirm } from './ConfirmDialog.tsx';
-import { ErrorNote } from './ErrorNote.tsx';
-import {
-  ReferencesContext,
-  useProjectReferences,
-  type References,
-  type ReferenceTarget,
-} from './state/references.ts';
-import { ReferencesDialog } from './panel/references/ReferencesDialog.tsx';
-import { SnapshotDialog } from './panel/references/SnapshotDialog.tsx';
-import { ExperimentsContext, type Experiments } from './state/experiments.ts';
-import { COMPARE_MAX, useComparisons } from './state/compare.ts';
+import { CanvasNotices } from './canvas/CanvasNotices.tsx';
 import { CompareBar } from './canvas/CompareBar.tsx';
+import { MenuBar } from './canvas/MenuBar.tsx';
+import { NewChildDialog } from './canvas/NewChildDialog.tsx';
+import { useCardActions } from './canvas/useCardActions.tsx';
 import { ComparePage } from './compare/ComparePage.tsx';
 import { ComparisonsDialog } from './compare/ComparisonsDialog.tsx';
+import { ConnectionScreen } from './panel/ConnectionScreen.tsx';
+import { ConversationRail } from './panel/ConversationRail.tsx';
+import { Panel } from './panel/Panel.tsx';
+import { SettingsDialog } from './panel/SettingsDialog.tsx';
+import { StartScreen } from './panel/StartScreen.tsx';
+import { UsageDialog } from './panel/UsageDialog.tsx';
+import { ReferencesDialog } from './panel/references/ReferencesDialog.tsx';
+import { SnapshotDialog } from './panel/references/SnapshotDialog.tsx';
+import { Review } from './review/Review.tsx';
+import { RunAvailability } from './state/RunAvailability.ts';
+import { RunControls, StopAll } from './state/RunControls.tsx';
+import { useComparisons } from './state/compare.ts';
+import { ExperimentsContext, useExperimentList, type Experiments } from './state/experiments.ts';
+import { ReferencesContext, useReferenceLibrary, type References } from './state/references.ts';
+import { useSelection } from './state/selection.ts';
+import { readAddress, useAddressBar } from './state/useAddressBar.ts';
+import { useChildCreation } from './state/useChildCreation.ts';
+import { useComparePicking } from './state/useComparePicking.ts';
+import { useConnection } from './state/useConnection.ts';
+import { usePanelWidth } from './state/usePanelWidth.ts';
+import { useProjectTree } from './state/useProjectTree.ts';
+import { useRestoredSelection } from './state/useRestoredSelection.ts';
+import { useRunStream } from './state/useRunStream.ts';
+import { useTextScale } from './state/useTextScale.ts';
+import { useWorkspaceView } from './state/useWorkspaceView.ts';
 
 /**
  * Composition, and as little else as possible.
@@ -65,6 +61,7 @@ export function App(): JSX.Element {
     error: connectionError,
     checking,
   } = useConnection();
+  useTextScale(settings?.textScale);
   // One confirmation dialog for the whole app, so nothing falls back to the
   // browser's own modal. Project deletion asks through it; node deletion has
   // its own, rendered inside the panel.
@@ -75,6 +72,8 @@ export function App(): JSX.Element {
   const projectTree = useProjectTree(report, confirm.ask, arrivedAt.projectId);
   const { projects, projectId, tree, noProjects } = projectTree;
   const selection = useSelection();
+  useRestoredSelection(tree, selection, arrivedAt);
+  const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
   /**
    * Map and Experiment, and which of them a window this wide can show.
    *
@@ -87,86 +86,10 @@ export function App(): JSX.Element {
     selection.select(id);
     view.selected();
   };
-  useEffect(() => {
-    document.documentElement.style.setProperty(
-      '--text-scale',
-      String((settings?.textScale ?? 100) / 100),
-    );
-  }, [settings?.textScale]);
-  /**
-   * Comparing: picking experiments on the map, then the comparison itself.
-   * `picks` is null when not picking, which is what the map reads to decide
-   * whether a click selects or picks. The open comparison is in the URL.
-   */
-  const [picks, setPicks] = useState<string[] | null>(null);
-  const [pickBusy, setPickBusy] = useState(false);
-  const [pickError, setPickError] = useState<string | null>(null);
-  const [comparing, setComparing] = useState<string | null>(arrivedAt.compareId);
-  const [showComparisons, setShowComparisons] = useState(false);
-  useAddressBar({ projectId, nodeId: selection.primary, compareId: comparing });
-  /**
-   * ⌘\ (Ctrl+\) collapses the conversation and brings it back — the one
-   * shortcut in the workspace, because the panel is the thing you hide to
-   * look at the map and want back a second later.
-   */
-  const toggleConversation = view.toggleExperiment;
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== '\\' || !(event.metaKey || event.ctrlKey)) return;
-      event.preventDefault();
-      toggleConversation();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [toggleConversation]);
+  const comparing = useComparePicking(projectId, selection.primary, arrivedAt.compareId);
+  useAddressBar({ projectId, nodeId: selection.primary, compareId: comparing.comparing });
   const live = useRunStream(projectId, projectTree.refresh);
   const comparisonList = useComparisons(projectId, live.comparisonsRevision);
-  // Another project is another set of experiments: nothing picked carries over.
-  const shownProject = useRef(projectId);
-  useEffect(() => {
-    if (shownProject.current === projectId) return;
-    shownProject.current = projectId;
-    setPicks(null);
-    setComparing(null);
-  }, [projectId]);
-  /**
-   * A card clicked while picking, or ⌘/Ctrl/Shift-clicked at any time. Picking
-   * that way starts from the experiment already open, which is usually the
-   * one you want to compare against.
-   */
-  const pick = (id: string): void => {
-    setPickError(null);
-    setPicks((current) => {
-      const list =
-        current ??
-        (selection.primary !== null && selection.primary !== id ? [selection.primary] : []);
-      if (list.includes(id)) return list.filter((picked) => picked !== id);
-      return list.length >= COMPARE_MAX ? list : [...list, id];
-    });
-  };
-  const compare = (): void => {
-    if (projectId === null || picks === null) return;
-    setPickBusy(true);
-    setPickError(null);
-    api
-      .createComparison(projectId, picks)
-      .then((view) => {
-        setPicks(null);
-        setComparing(view.id);
-      })
-      .catch((e: unknown) => setPickError(describeError(e)))
-      .finally(() => setPickBusy(false));
-  };
-  // Escape stops picking, unless a dialog or menu has it.
-  useEffect(() => {
-    if (picks === null) return;
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
-      setPicks(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [picks]);
   /**
    * Re-read the credential when a run reports a failure, and not otherwise.
    *
@@ -181,118 +104,14 @@ export function App(): JSX.Element {
     if (live.agentRevision === 0) return;
     reload();
   }, [live.agentRevision, reload]);
-  /**
-   * The project's references and the one dialog that shows them. Opened from
-   * the menu bar, a card, a message or a chip, so it is offered to all of them
-   * through a context rather than threaded through each.
-   */
-  const referenceList = useProjectReferences(projectId, live.referencesRevision, report);
-  const [referenceTarget, setReferenceTarget] = useState<ReferenceTarget | null>(null);
-  const references = useMemo<References>(
-    () => ({
-      list: referenceList,
-      byId: new Map(referenceList.map((reference) => [reference.id, reference])),
-      open: setReferenceTarget,
-    }),
-    [referenceList],
-  );
-  const treeNodes = tree?.nodes;
-  const experiments = useMemo<Experiments>(
-    () => ({
-      list: treeNodes ?? [],
-      byId: new Map((treeNodes ?? []).map((node) => [node.id, node])),
-      open: (id) => {
-        selection.select(id);
-        view.selected();
-      },
-    }),
-    // `view` and `selection` are stable; the list is what changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [treeNodes],
-  );
+  const library = useReferenceLibrary(projectId, live.referencesRevision, report);
+  const experiments = useExperimentList(tree?.nodes, selectExperiment);
   const child = useChildCreation({
     projectId,
     onCreated: selection.select,
     onError: report,
     refresh: projectTree.refresh,
   });
-
-  /**
-   * The experiment actions a card's ⋯ offers. They live here because the cards
-   * are drawn by the canvas and the dialogs they open belong to the window,
-   * not to any one card.
-   */
-  const [renaming, setRenaming] = useState<NodeView | null>(null);
-  const [detailing, setDetailing] = useState<NodeView | null>(null);
-  const [compacting, setCompacting] = useState<NodeView | null>(null);
-  const nodeActions = useNodeActions(projectTree.refresh, (message) => {
-    if (message !== null) report(message);
-  });
-  const cardActions = useMemo(
-    () => ({
-      branch: (nodeId: string) => {
-        const node = tree?.nodes.find((n) => n.id === nodeId);
-        if (node !== undefined)
-          child.begin({ parentId: node.id, parentName: node.displayName, position: null });
-      },
-      review: (nodeId: string) => {
-        selectExperiment(nodeId);
-        setReviewing(true);
-      },
-      rename: setRenaming,
-      compact: setCompacting,
-      reference: (node: NodeView) =>
-        setReferenceTarget({ kind: 'new', sourceNodeId: node.id, draft: true }),
-      details: setDetailing,
-      remove: (node: NodeView) => void nodeActions.remove(node),
-    }),
-    // `child.begin` and the tree change identity on every refetch; the actions
-    // only need to be rebuilt when the tree does.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tree, nodeActions.remove],
-  );
-
-  const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'app' | 'project'>('app');
-  const [showUsage, setShowUsage] = useState(false);
-  const openProjectSettings = (): void => {
-    setSettingsTab('project');
-    setShowSettings(true);
-  };
-  const settingsChanged = (): void => {
-    reload();
-    projectTree.refresh();
-  };
-  /** Set when the user asked for the start screen, and which half of it. */
-  const [startMode, setStartMode] = useState<'new' | 'existing' | null>(null);
-
-  /**
-   * Restore the node named in the URL, once, when its tree arrives.
-   *
-   * Guarded by a ref rather than by "is nothing selected", which would keep
-   * re-selecting it every time the user clicked the canvas background.
-   * An id that is not in the tree is simply not selected -- a stale link
-   * lands you in the right project with nothing chosen, which is recoverable.
-   */
-  const restored = useRef(false);
-  useEffect(() => {
-    if (restored.current || tree === null || arrivedAt.nodeId === null) return;
-    restored.current = true;
-    if (tree.nodes.some((n) => n.id === arrivedAt.nodeId)) selection.select(arrivedAt.nodeId);
-  }, [tree, arrivedAt.nodeId, selection]);
-
-  const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
-  const openedProject = useRef<string | null>(null);
-  useEffect(() => {
-    if (!tree || tree.nodes.length === 0 || openedProject.current === tree.project.id) return;
-    openedProject.current = tree.project.id;
-    const requested = tree.project.id === arrivedAt.projectId ? arrivedAt.nodeId : null;
-    const chosen =
-      tree.nodes.find((n) => n.id === requested) ??
-      tree.nodes.find((n) => n.id === selection.primary) ??
-      tree.nodes.find((n) => n.parentId === null);
-    if (chosen) selection.select(chosen.id);
-  }, [tree, selection, arrivedAt.projectId, arrivedAt.nodeId]);
 
   /**
    * Review is a full-screen replacement for the map, not an overlay: reading a
@@ -303,33 +122,35 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (selected === null) setReviewing(false);
   }, [selected]);
+  const panelWidth = usePanelWidth(reviewing, view, settings?.panelWidth, setSettings);
 
-  /**
-   * How wide the conversation is, and whether it is open at all, is a property
-   * of WHAT YOU ARE DOING.
-   *
-   * On the canvas the graph has width to spare and the thread is the point, so
-   * the panel is open at its saved width. In review the diff is why you came,
-   * so it starts collapsed to the rail and opens to three quarters of that
-   * width — and each mode remembers what you last did to it, so review does not
-   * keep re-collapsing something you deliberately opened.
-   */
-  const mode: 'canvas' | 'review' = reviewing ? 'review' : 'canvas';
-  const [reviewWidth, setReviewWidth] = useState(REVIEW_WIDTH);
-  const canvasWidth = settings?.panelWidth ?? PANEL_WIDTH.default;
-  const openByMode = useRef<Record<'canvas' | 'review', boolean>>({ canvas: true, review: false });
-  const lastMode = useRef(mode);
-  const { experimentOpen, narrow, showExperiment, showMap } = view;
-  useEffect(() => {
-    if (lastMode.current === mode) return;
-    openByMode.current[lastMode.current] = experimentOpen;
-    lastMode.current = mode;
-    // Narrow windows show one thing at a time; the mode's default would fight
-    // the Map/Experiment switch the user is steering with.
-    if (narrow) return;
-    if (openByMode.current[mode]) showExperiment();
-    else showMap();
-  }, [mode, experimentOpen, narrow, showExperiment, showMap]);
+  const cards = useCardActions({
+    nodes: tree?.nodes,
+    refresh: projectTree.refresh,
+    report,
+    branch: child.begin,
+    review: (nodeId) => {
+      selectExperiment(nodeId);
+      setReviewing(true);
+    },
+    select: selectExperiment,
+    openReference: library.setTarget,
+  });
+
+  const [showComparisons, setShowComparisons] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'app' | 'project'>('app');
+  const [showUsage, setShowUsage] = useState(false);
+  const openSettings = (tab: 'app' | 'project'): void => {
+    setSettingsTab(tab);
+    setShowSettings(true);
+  };
+  const settingsChanged = (): void => {
+    reload();
+    projectTree.refresh();
+  };
+  /** Set when the user asked for the start screen, and which half of it. */
+  const [startMode, setStartMode] = useState<'new' | 'existing' | null>(null);
 
   if (connection.state === 'unknown' && projects.length === 0)
     return (
@@ -368,12 +189,12 @@ export function App(): JSX.Element {
   return (
     <WindowContexts
       connected={connection.state === 'connected'}
-      references={references}
+      references={library.references}
       experiments={experiments}
     >
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
         <div
-          className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}${comparing !== null && tree !== null ? ' compare-mode' : ''}`}
+          className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}${comparing.comparing !== null && tree !== null ? ' compare-mode' : ''}`}
         >
           {/*
            * Two controls, not one dressed as two.
@@ -427,61 +248,29 @@ export function App(): JSX.Element {
                 projectTree.open(id);
               }}
               onStart={(mode) => setStartMode(mode)}
-              onOpenSettings={() => {
-                setSettingsTab('app');
-                setShowSettings(true);
-              }}
+              onOpenSettings={() => openSettings('app')}
               onOpenUsage={() => setShowUsage(true)}
-              references={tree === null ? null : referenceList.length}
-              onOpenReferences={() => setReferenceTarget({ kind: 'library' })}
+              references={tree === null ? null : library.references.list.length}
+              onOpenReferences={() => library.setTarget({ kind: 'library' })}
               comparisons={comparisonList.length}
               onOpenComparisons={() => setShowComparisons(true)}
               onDeleteProject={() =>
                 void projectTree.deleteCurrent().catch((e: unknown) => report(describeError(e)))
               }
             />
-            {connection.state !== 'connected' && (
-              <div className="transport-notice" role="status">
-                Agent unavailable · Saved experiments are available.{' '}
-                <button
-                  onClick={() => {
-                    setSettingsTab('app');
-                    setShowSettings(true);
-                  }}
-                >
-                  Reconnect agent
-                </button>
-              </div>
-            )}
-            {error !== null && (
-              <ErrorNote className="banner" onDismiss={() => setError(null)}>
-                {error}
-              </ErrorNote>
-            )}
-            {connectionError !== null && (
-              <ErrorNote className="banner" onRetry={reload} retryLabel="Retry connection">
-                {connectionError}
-              </ErrorNote>
-            )}
-            {live.health === 'reconnecting' && (
-              <div className="transport-notice loading" role="status">
-                Reconnecting to Bonsai · showing the last received state
-              </div>
-            )}
-            {projectTree.error !== null ? (
-              <ErrorNote
-                className="tree-notice"
-                onRetry={projectTree.retry}
-                retryLabel="Retry project"
-              >
-                {tree !== null && 'Project updates unavailable. '}
-                {projectTree.error}
-              </ErrorNote>
-            ) : projectTree.loading && tree === null ? (
-              <div className="tree-notice loading" role="status">
-                Loading project
-              </div>
-            ) : null}
+            <CanvasNotices
+              agentAvailable={connection.state === 'connected'}
+              onReconnectAgent={() => openSettings('app')}
+              error={error}
+              onDismissError={() => setError(null)}
+              connectionError={connectionError}
+              onRetryConnection={reload}
+              reconnecting={live.health === 'reconnecting'}
+              treeError={projectTree.error}
+              treeShown={tree !== null}
+              treeLoading={projectTree.loading}
+              onRetryTree={projectTree.retry}
+            />
             <StopAll nodes={tree?.nodes ?? []} />
 
             <Canvas
@@ -501,36 +290,33 @@ export function App(): JSX.Element {
                   .catch((e: unknown) => report(describeError(e)));
               }}
               onBranch={child.begin}
-              actions={cardActions}
-              picks={picks}
-              onPick={pick}
-              onPicking={(on) => {
-                setPickError(null);
-                setPicks(on ? [] : null);
-              }}
+              actions={cards.actions}
+              picks={comparing.picks}
+              onPick={comparing.pick}
+              onPicking={comparing.setPicking}
             />
-            {picks !== null && (
+            {comparing.picks !== null && (
               <CompareBar
-                picks={picks}
+                picks={comparing.picks}
                 nodes={tree?.nodes ?? []}
-                busy={pickBusy}
-                error={pickError}
-                onCompare={compare}
-                onRemove={pick}
-                onCancel={() => setPicks(null)}
+                busy={comparing.busy}
+                error={comparing.error}
+                onCompare={comparing.compare}
+                onRemove={comparing.pick}
+                onCancel={() => comparing.setPicking(false)}
               />
             )}
           </div>
 
-          {comparing !== null && tree !== null && (
+          {comparing.comparing !== null && tree !== null && (
             <ComparePage
-              key={comparing}
-              comparisonId={comparing}
+              key={comparing.comparing}
+              comparisonId={comparing.comparing}
               projectId={tree.project.id}
               revision={`${live.comparisonsRevision}:${live.revision}`}
-              onBack={() => setComparing(null)}
+              onBack={() => comparing.open(null)}
               onOpenExperiment={(id) => {
-                setComparing(null);
+                comparing.open(null);
                 selectExperiment(id);
               }}
               ask={confirm.ask}
@@ -542,7 +328,7 @@ export function App(): JSX.Element {
               list={comparisonList}
               onOpen={(id) => {
                 setShowComparisons(false);
-                setComparing(id);
+                comparing.open(id);
               }}
               onClose={() => setShowComparisons(false)}
             />
@@ -586,24 +372,10 @@ export function App(): JSX.Element {
           )}
 
           <PanelResizer
-            width={reviewing ? reviewWidth : canvasWidth}
+            width={panelWidth.width}
             min={PANEL_WIDTH.min}
             max={PANEL_WIDTH.max}
-            onCommit={(panelWidth) => {
-              // A width dragged in review belongs to review, and only for this
-              // session: the saved width is the one the canvas reads.
-              if (reviewing) {
-                setReviewWidth(panelWidth);
-                return;
-              }
-              // Fire and forget: the width is already applied to the CSS variable,
-              // so a failed save costs this session nothing and the next one a
-              // default. Not worth a banner.
-              void api
-                .updateSettings({ panelWidth })
-                .then(setSettings)
-                .catch(() => undefined);
-            }}
+            onCommit={panelWidth.commit}
           />
 
           <Panel
@@ -623,53 +395,32 @@ export function App(): JSX.Element {
             visible={view.experimentOpen}
             narrow={view.narrow}
             onHide={view.showMap}
-            onProjectSettings={openProjectSettings}
+            onProjectSettings={() => openSettings('project')}
             onChanged={projectTree.refresh}
             /* The panel does not own a second, weaker version of this form any
            more -- it opens the one dialog, with no position, and dagre places
            the node. */
           />
 
-          {renaming !== null && (
-            <RenameDialog
-              node={renaming}
-              onClose={() => setRenaming(null)}
-              onChanged={projectTree.refresh}
-            />
-          )}
-          {detailing !== null && (
-            <ExperimentDetails node={detailing} onClose={() => setDetailing(null)} />
-          )}
-          {compacting !== null && (
-            <CompactDialog
-              node={compacting}
-              onClose={() => setCompacting(null)}
-              onStarted={(nodeId) => {
-                // Show the conversation it is compacting, so the progress is visible.
-                selectExperiment(nodeId);
-                projectTree.refresh();
-              }}
-            />
-          )}
-          {referenceTarget !== null &&
+          {cards.dialogs}
+          {library.target !== null &&
             tree !== null &&
-            (referenceTarget.kind === 'snapshot' ? (
+            (library.target.kind === 'snapshot' ? (
               <SnapshotDialog
-                runId={referenceTarget.runId}
-                reference={referenceTarget.reference}
-                onOpenCurrent={(id) => setReferenceTarget({ kind: 'edit', id })}
-                onClose={() => setReferenceTarget(null)}
+                runId={library.target.runId}
+                reference={library.target.reference}
+                onOpenCurrent={(id) => library.setTarget({ kind: 'edit', id })}
+                onClose={() => library.setTarget(null)}
               />
             ) : (
               <ReferencesDialog
-                target={referenceTarget}
+                target={library.target}
                 projectId={tree.project.id}
                 projectName={tree.project.name}
                 nodes={tree.nodes}
-                onClose={() => setReferenceTarget(null)}
+                onClose={() => library.setTarget(null)}
               />
             ))}
-          {nodeActions.confirmDialog}
           {confirm.dialog}
         </div>
       </RunControls>
