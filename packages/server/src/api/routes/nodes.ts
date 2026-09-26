@@ -12,6 +12,7 @@ import { copyParentConversation } from '../../jobs/conversation.js';
 import { allocateNodeWorktree, createChildNode, deleteNodeTree } from '../../projects.js';
 import { archiveCheck, archiveFolder } from '../../archive.js';
 import { writeApplyPatch } from '../applyPatch.js';
+import { behindBy } from '../behind.js';
 import { nodeDiff, parentSnapshot } from '../../git/diff.js';
 import { experimentNotes, reviewOf, reviewPatchOf } from '../review.js';
 import { readWorktreeState } from '../../git/recovery.js';
@@ -140,7 +141,7 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
           },
     partialWork,
     contextMd,
-    baseIsPinnedBehindLiveWalk: store.baseDiverges(row),
+    behind: await behindBy(store, row, project!.repo_path),
   };
   sendJson(res, 200, body);
 });

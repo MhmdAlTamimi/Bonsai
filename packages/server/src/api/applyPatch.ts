@@ -4,8 +4,9 @@ import type { ApplyPatchView } from '@bonsai/shared';
 
 import type { NodeRow, Store } from '../db/store.js';
 import { CONTEXT_FILE } from '../git/commit.js';
-import { git, gitLine } from '../git/exec.js';
+import { git } from '../git/exec.js';
 import { parseNumstat } from '../git/review.js';
+import { behindBy } from './behind.js';
 import { HttpError } from './http.js';
 import { reviewRange } from './review.js';
 
@@ -74,28 +75,8 @@ export async function writeApplyPatch(
     files: numbers.size,
     added: counts.reduce((n, c) => n + c.additions, 0),
     removed: counts.reduce((n, c) => n + c.deletions, 0),
-    behind: await behindParent(store, row, project.repo_path),
+    behind: await behindBy(store, row, project.repo_path),
   };
-}
-
-/**
- * How far the experiment's code source has moved on since it started: the
- * nearest ancestor that has committed, which is where its code came from.
- */
-async function behindParent(
-  store: Store,
-  row: NodeRow,
-  repoPath: string,
-): Promise<ApplyPatchView['behind']> {
-  if (row.base_commit === null) return null;
-  let cursor = row.parent_id === null ? undefined : store.getNode(row.parent_id);
-  while (cursor?.head_commit === null)
-    cursor = cursor.parent_id === null ? undefined : store.getNode(cursor.parent_id);
-  if (cursor?.head_commit == null || cursor.head_commit === row.base_commit) return null;
-  const commits = Number(
-    await gitLine(['rev-list', '--count', `${row.base_commit}..${cursor.head_commit}`], repoPath),
-  );
-  return commits > 0 ? { commits, parentName: cursor.display_name } : null;
 }
 
 /** A file name from a display name: plain letters, digits and dashes. */

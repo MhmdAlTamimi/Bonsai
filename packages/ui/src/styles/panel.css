@@ -345,3 +345,8 @@
    only in the exceptional states -- a question with many options, a recovery
    notice -- because the composer must never leave the window. */
 .panel-foot { max-height: 48%; overflow-y: auto; }
+
+/* Behind: the fact, then the one way forward, on one line when there is room. */
+.behind-note { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+.behind-note p { margin: 0; flex: 1 1 16rem; }
+.behind-note button { flex: none; }

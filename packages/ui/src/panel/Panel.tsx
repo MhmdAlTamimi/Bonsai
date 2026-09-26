@@ -28,6 +28,7 @@ export function Panel({
   streamRevision,
   onProjectSettings,
   onHide,
+  onStartFromLatest,
   onChanged,
   startError,
   onRunStarted,
@@ -43,6 +44,8 @@ export function Panel({
   streamRevision: number;
   onProjectSettings: () => void;
   onHide: () => void;
+  /** Opens a new experiment on the current code, carrying this one's work to redo. */
+  onStartFromLatest: (node: NodeView) => void;
   onChanged: () => void;
   startError: string | null;
   onRunStarted: () => void;
@@ -76,6 +79,7 @@ export function Panel({
       liveActivity={liveActivity}
       streamRevision={streamRevision}
       onHide={onHide}
+      onStartFromLatest={onStartFromLatest}
       visible={visible}
       narrow={narrow}
       onProjectSettings={onProjectSettings}
@@ -94,6 +98,7 @@ function NodePanel({
   streamRevision,
   onProjectSettings,
   onHide,
+  onStartFromLatest,
   onChanged,
   startError,
   onRunStarted,
@@ -107,6 +112,8 @@ function NodePanel({
   streamRevision: number;
   onProjectSettings: () => void;
   onHide: () => void;
+  /** Opens a new experiment on the current code, carrying this one's work to redo. */
+  onStartFromLatest: (node: NodeView) => void;
   onChanged: () => void;
   startError: string | null;
   onRunStarted: () => void;
@@ -242,13 +249,18 @@ function NodePanel({
           Your own folder — read only. Branch an experiment to make changes.
         </p>
       )}
-      {detail?.baseIsPinnedBehindLiveWalk === true && (
-        <p
-          className="note"
-          title="This experiment keeps the code snapshot and the conversation it was created with."
-        >
-          Parent code has moved ahead. This experiment keeps its pinned code snapshot.
-        </p>
+      {node.behind !== null && (
+        <div className="note behind-note">
+          <p>
+            <strong>
+              {detail?.behind != null
+                ? `${plural(detail.behind.commits, 'commit')} behind ${node.behind.parentName}.`
+                : `Behind ${node.behind.parentName}.`}
+            </strong>{' '}
+            This experiment keeps its original code and won&rsquo;t be updated.
+          </p>
+          <button onClick={() => onStartFromLatest(node)}>Start from latest</button>
+        </div>
       )}
 
       {/*

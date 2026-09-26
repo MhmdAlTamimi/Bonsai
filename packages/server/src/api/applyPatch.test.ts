@@ -153,7 +153,16 @@ describe('the apply command', () => {
     await commit(created.masterNodeId, { 'app.txt': 'base, improved\n' });
 
     const patch = await writeApplyPatch(store, store.getNode(nodeId)!, patches);
-    assert.deepEqual(patch.behind, { commits: 1, parentName: 'master' });
+    assert.deepEqual(patch.behind, {
+      commits: 1,
+      parentId: created.masterNodeId,
+      parentName: 'master',
+    });
+    // The card says so too, without asking git.
+    const card = store.treeView(created.projectId).find((n) => n.id === nodeId)!;
+    assert.deepEqual(card.behind, { parentId: created.masterNodeId, parentName: 'master' });
+    const master = store.treeView(created.projectId).find((n) => n.id === created.masterNodeId)!;
+    assert.equal(master.behind, null);
 
     // Any clone stands in for "your repository" here.
     const clone = join(root, 'clone');

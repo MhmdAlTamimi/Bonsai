@@ -65,6 +65,18 @@ export class Views {
       else bucket.push(row);
     }
 
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    /** Behind: the nearest ancestor that committed has moved on from where this one started. */
+    const behindOf = (row: NodeRow): NodeView['behind'] => {
+      let source = row.parent_id === null ? undefined : byId.get(row.parent_id);
+      while (source?.head_commit === null)
+        source = source.parent_id === null ? undefined : byId.get(source.parent_id);
+      if (row.base_commit === null || source?.head_commit == null) return null;
+      return source.head_commit === row.base_commit
+        ? null
+        : { parentId: source.id, parentName: source.display_name };
+    };
+
     return rows.map((row) => {
       const children = childrenOf.get(row.id) ?? [];
       const flags = deriveFlags(
@@ -107,6 +119,7 @@ export class Views {
             : row.archived_at === null
               ? 'not_created'
               : 'archived',
+        behind: behindOf(row),
         createdAt: row.created_at,
       } satisfies NodeView;
     });

@@ -32,7 +32,9 @@ const paths = {
   arrowUp: 'M12 19V5M6 11l6-6 6 6',
   arrowDown: 'M12 5v14M6 13l6 6 6-6',
   home: 'M4 11 12 4l8 7M6 10v9h12v-9',
-  more: 'M6 12h.01M12 12h.01M18 12h.01',
+  // Three filled dots: drawn as line caps they were a fraction of a pixel wide
+  // at small sizes, and the ⋯ that opens a card's actions faded out with them.
+  more: 'M4.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0M10.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0M16.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0',
   settings:
     'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
   reference: 'M6 3h12v18l-6-4-6 4Z',
@@ -54,7 +56,7 @@ const paths = {
 export type IconName = keyof typeof paths;
 
 /** Drawn solid rather than as a line: a stop is a filled square in every player ever made. */
-const FILLED: ReadonlySet<IconName> = new Set(['stop']);
+const FILLED: ReadonlySet<IconName> = new Set(['stop', 'more']);
 
 export function Icon({ name }: { name: IconName }): JSX.Element {
   const filled = FILLED.has(name);

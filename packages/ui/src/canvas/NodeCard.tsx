@@ -92,6 +92,13 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
   // turns into single-digit pixels -- nodes that read as having vanished.
   const dotStyle =
     lod === 'dot' ? { width: `${44 / zoom}px`, height: `${44 / zoom}px` } : undefined;
+  // The ⋯ stays a usable size on screen as the map zooms out: at least 16px
+  // wherever the card still has room for it, rather than shrinking with it.
+  const more = Math.max(22, Math.round(16 / zoom));
+  const moreStyle =
+    more === 22
+      ? undefined
+      : { width: `${more}px`, height: `${more}px`, fontSize: `${Math.round(more * 0.72)}px` };
 
   return (
     <div
@@ -136,6 +143,14 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 <Icon name="lock" />
               </span>
             )}
+            {data.behind !== null && (
+              <span
+                className="behind-mark"
+                title={`Behind ${data.behind.parentName}: it has committed since this experiment started. This experiment keeps the code it started from.`}
+              >
+                Behind
+              </span>
+            )}
             {data.folder === 'archived' && (
               <span
                 className="glyph archived-glyph"
@@ -146,11 +161,12 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 <Icon name="archive" />
               </span>
             )}
-            {lod === 'full' && actions !== null && (
+            {actions !== null && (
               <IconButton
                 icon="more"
-                size="xs"
+                size="sm"
                 className="card-more nodrag nopan"
+                style={moreStyle}
                 label={cardMenuLabel(data.displayName)}
                 title="Actions"
                 aria-haspopup="menu"
@@ -220,7 +236,12 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
           )}
 
           {menu && actions !== null && (
-            <div className="menu-panel card-menu nodrag nopan" role="menu">
+            <div
+              className="menu-panel card-menu nodrag nopan"
+              role="menu"
+              // Readable at any zoom: the menu is for choosing, not part of the map's scale.
+              style={zoom < 1 ? { transform: `scale(${1 / zoom})` } : undefined}
+            >
               <button
                 role="menuitem"
                 onClick={() => {

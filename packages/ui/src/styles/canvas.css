@@ -129,6 +129,15 @@
   font: var(--t-micro) / 1.45 var(--mono);
   color: var(--muted-3);
 }
+/* Behind its code source: said in a word and in no status colour, because it is
+   something to know about rather than something wrong, and the status colours
+   already mean running, needs you, ready and failed. */
+.behind-mark { flex: none; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text-dim); font-size: var(--t-nano); line-height: 1.6; white-space: nowrap; }
+/* The ⋯ is how a card's actions are found, so it reads at rest, not only on hover. */
+.card .card-more { color: var(--text-dim); font-size: 16px; }
+.card .card-more:hover:not(:disabled), .card .card-more[aria-expanded='true'] { color: var(--text); background: var(--control-hover); }
+/* Scaled up from its corner when the map is zoomed out, so it stays readable. */
+.card-menu { transform-origin: top right; }
 .card .glyph.lock,
 .card .glyph.archived-glyph {
   color: var(--muted);

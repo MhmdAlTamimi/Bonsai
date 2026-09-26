@@ -1839,7 +1839,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     interface Detail {
       node: { writable: boolean };
       runs: unknown[];
-      baseIsPinnedBehindLiveWalk: boolean;
+      behind: { commits: number; parentName: string } | null;
       lineage: { conversationFrom: { id: string } | null; codeFrom: { id: string } | null };
     }
     const detail = async (id: string): Promise<Detail> =>
@@ -1891,10 +1891,35 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await run(child, '? child follows up');
     const latest = await detail(child);
     // Code stays pinned; the conversation stays the copy it was given.
-    assert.equal(latest.baseIsPinnedBehindLiveWalk, true);
+    assert.equal(latest.behind?.parentName, 'master');
+    assert.ok((latest.behind?.commits ?? 0) >= 1, 'the parent committed since the child started');
     assert.equal(latest.lineage.conversationFrom?.id, created.masterNodeId);
     await session.waitFor("!!document.querySelector('.panel .turn')");
     await session.screenshot(join(repoRoot, 'test-results', 'phase-3-context.png'));
+
+    // Behind says so on the card and in the panel, with one way forward: a new
+    // experiment on the current code that carries this one's work to redo.
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${child}`);
+    await session.waitFor(
+      `document.querySelector('[data-id="${child}"] .behind-mark')?.textContent === 'Behind'`,
+    );
+    await session.waitFor(
+      "/behind master\\./.test(document.querySelector('.panel .behind-note')?.textContent ?? '')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.behind-note button')).find(b => b.textContent === 'Start from latest').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('dialog[open] [aria-label=\"what should change\"]')?.value.startsWith('Redo the change from @Later experiment')",
+    );
+    assert.equal(
+      await session.eval(
+        'document.querySelector(\'dialog[open] [aria-label="experiment name"]\').value',
+      ),
+      'Later experiment (latest)',
+    );
+    await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
+    await session.waitFor("!document.querySelector('dialog[open]')");
 
     const fresh = await saveChildForLater('Fresh experiment', true);
     const freshDetail = await detail(fresh);

@@ -133,7 +133,7 @@ export interface ApplyPatchView {
   added: number;
   removed: number;
   /** When its parent has committed since it started: how many commits, and which experiment. */
-  behind: { commits: number; parentName: string } | null;
+  behind: ExperimentBehind | null;
 }
 
 /** What experiment folders take up on disk, for Settings. */
@@ -403,7 +403,19 @@ export interface NodeView {
    *                  creates it again at the same path.
    */
   folder: NodeFolder;
+  /**
+   * The experiment its code came from has committed since this one started,
+   * or null when it has not. See NodeDetail.behind for how far.
+   */
+  behind: { parentId: string; parentName: string } | null;
   createdAt: string;
+}
+
+/** How far behind its code source an experiment is. */
+export interface ExperimentBehind {
+  commits: number;
+  parentId: string;
+  parentName: string;
 }
 
 export type NodeFolder = 'present' | 'not_created' | 'archived';
@@ -857,13 +869,11 @@ export interface NodeDetail {
   /** D22: a human-readable record shown in the panel. Null until a run commits one. */
   contextMd: string | null;
   /**
-   * Diagnostic only, and deliberately not a commit sha: whether this node's
-   * pinned git base still agrees with what a live walk up the tree would say.
-   * They diverge when an ancestor commits after this node was created, which is
-   * expected and correct — the pin is what keeps a child's code and its
-   * inherited conversation describing the same tree.
+   * When the code it started from has moved on: how many commits its code
+   * source (the nearest ancestor that committed) has made since. The
+   * experiment keeps its original code and is never updated to them.
    */
-  baseIsPinnedBehindLiveWalk: boolean;
+  behind: ExperimentBehind | null;
 }
 
 export interface TreeResponse {
