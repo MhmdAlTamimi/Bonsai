@@ -2424,6 +2424,75 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("!document.querySelector('dialog')");
   });
 
+  test('an archived folder is dimmed on the map and comes back with the next message', async () => {
+    const post = async (path: string, body: unknown): Promise<Response> =>
+      fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const created = (await (
+      await post('/api/projects', { name: 'archiving', description: '' })
+    ).json()) as {
+      projectId: string;
+      masterNodeId: string;
+    };
+    const child = (
+      (await (
+        await post(`/api/projects/${created.projectId}/nodes`, {
+          parentId: created.masterNodeId,
+          displayName: 'Archive me',
+          description: '',
+        })
+      ).json()) as { node: { id: string } }
+    ).node.id;
+    const nodeUrl = `${BASE}/api/nodes/${child}`;
+    const folder = async (): Promise<string> =>
+      ((await (await fetch(nodeUrl)).json()) as { node: { folder: string } }).node.folder;
+    const run = async (prompt: string): Promise<void> => {
+      assert.equal((await post(`/api/nodes/${child}/runs`, { prompt })).status, 202);
+      await session.waitFor(
+        `(async()=> (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+      );
+    };
+
+    await run('child commits a result');
+    assert.equal(await folder(), 'present');
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${child}`);
+    await session.waitFor(`!!document.querySelector('[aria-label="Actions for Archive me"]')`);
+    await session.click('[aria-label="Actions for Archive me"]');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Archive folder')).click()",
+    );
+    // Dimmed with its own mark, never dashed; the panel says what the next message does.
+    await session.waitFor("!!document.querySelector('.card.archived .archived-glyph')");
+    await session.waitFor("!!document.querySelector('.panel .archived-note')");
+    assert.equal(await folder(), 'archived');
+    // Its changes are still there to review, read from the repository.
+    const review = (await (await fetch(`${nodeUrl}/review`)).json()) as { files: unknown[] };
+    assert.ok(review.files.length > 0);
+
+    await run('child keeps working');
+    assert.equal(await folder(), 'present');
+    await session.waitFor(
+      "!document.querySelector('.card.archived') && !document.querySelector('.archived-note')",
+    );
+
+    // Settings measures the folders and holds the idle rule.
+    await session.click('.settings-button');
+    await session.waitFor(
+      "document.querySelector('.settings-storage [role=status]')?.textContent.includes('on disk')",
+    );
+    assert.equal(
+      await session.eval(
+        'document.querySelector(\'[aria-label="Days idle before archiving"]\').value',
+      ),
+      '14',
+    );
+    await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
+    await session.waitFor("!document.querySelector('dialog[open]')");
+  });
+
   test("closing a dialog opened from a card's menu puts focus back on that menu button", async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {

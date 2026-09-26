@@ -21,7 +21,8 @@
   box-shadow: var(--shadow-card);
   transition:
     background 0.12s ease-out,
-    box-shadow 0.12s ease-out;
+    box-shadow 0.12s ease-out,
+    opacity 0.12s ease-out;
 }
 .card:hover {
   box-shadow: var(--shadow-card-hover);
@@ -34,6 +35,11 @@
   outline: 1px dashed var(--line-strong);
   outline-offset: -1px;
 }
+/* Archived: the folder is put away, the experiment is not. Dimmed rather than
+   dashed, because dashed already says "wrote nothing" -- and back to full
+   strength when it is the one you are pointing at or reading. */
+.card.archived { opacity: .7; }
+.card.archived:hover, .card.archived.selected, .card.archived:focus-within { opacity: 1; }
 .card-head {
   display: flex;
   align-items: center;
@@ -123,7 +129,8 @@
   font: var(--t-micro) / 1.45 var(--mono);
   color: var(--muted-3);
 }
-.card .glyph.lock {
+.card .glyph.lock,
+.card .glyph.archived-glyph {
   color: var(--muted);
   font-size: var(--t-row);
   display: inline-flex;

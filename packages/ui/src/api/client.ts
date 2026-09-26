@@ -1,4 +1,6 @@
 import type {
+  ArchiveCheck,
+  StorageView,
   AdoptProjectRequest,
   ComparisonSummary,
   ComparisonView,
@@ -100,6 +102,13 @@ export const api = {
     json<SettingsView>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
 
   revealNode: (id: string) => json<{ ok: true }>(`/api/nodes/${id}/reveal`, { method: 'POST' }),
+  archiveCheck: (id: string) => json<ArchiveCheck>(`/api/nodes/${id}/archive`),
+  archive: (id: string, removeIgnored: boolean) =>
+    json<{ ok: true }>(`/api/nodes/${id}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ removeIgnored }),
+    }),
+  storage: () => json<StorageView>('/api/storage'),
 
   reveal: (path: string) =>
     json<{ ok: true }>('/api/reveal', { method: 'POST', body: JSON.stringify({ path }) }),

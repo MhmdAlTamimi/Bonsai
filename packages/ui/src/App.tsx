@@ -135,6 +135,7 @@ export function App(): JSX.Element {
     },
     select: selectExperiment,
     openReference: library.setTarget,
+    ask: confirm.ask,
   });
 
   const [showComparisons, setShowComparisons] = useState(false);

@@ -17,6 +17,8 @@ export interface CardActions {
   /** Opens a new reference drawn from this experiment's conversation. */
   reference: (node: NodeView) => void;
   details: (node: NodeView) => void;
+  /** Removes the folder to save space; everything else is kept. */
+  archive: (node: NodeView) => void;
   remove: (node: NodeView) => void;
 }
 

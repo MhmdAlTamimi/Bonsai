@@ -94,6 +94,9 @@
 .run-foot.pinned {
   padding: 0 2px;
 }
+/* Words, not numbers: the run line's size and colour, in the text face. */
+.archived-note { font-family: inherit; }
+.archived-note .icon { color: var(--muted); }
 .run-foot-label {
   color: var(--dim);
 }

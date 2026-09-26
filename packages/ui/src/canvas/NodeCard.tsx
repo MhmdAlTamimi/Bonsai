@@ -40,6 +40,10 @@ function lodFor(zoom: number): Lod {
 }
 
 /** Why the padlock is there. The two reasons lead to different next steps. */
+const ARCHIVED_TOOLTIP =
+  'Archived: its folder was removed to save space. The branch, conversation and runs are kept, ' +
+  'and the next run (or Open folder) brings the folder back and runs setup again.';
+
 const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
   child_committed: "Frozen — a child has committed, so this experiment's code cannot change.",
   your_folder:
@@ -75,6 +79,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
     `code-${code}`,
     data.writable ? 'writable' : 'frozen',
     selected ? 'selected' : '',
+    data.folder === 'archived' ? 'archived' : '',
     pick === undefined ? '' : `picked ${compareTone(pick)}`,
     `lod-${lod}`,
   ]
@@ -129,6 +134,16 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 title={FROZEN_TOOLTIP[data.frozenReason ?? 'child_committed']}
               >
                 <Icon name="lock" />
+              </span>
+            )}
+            {data.folder === 'archived' && (
+              <span
+                className="glyph archived-glyph"
+                role="img"
+                aria-label={ARCHIVED_TOOLTIP}
+                title={ARCHIVED_TOOLTIP}
+              >
+                <Icon name="archive" />
               </span>
             )}
             {lod === 'full' && actions !== null && (
@@ -281,6 +296,19 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
               >
                 Experiment details
               </button>
+              {data.folder === 'present' && data.frozenReason !== 'your_folder' && (
+                <button
+                  role="menuitem"
+                  disabled={data.status === 'running' || data.status === 'needs_you'}
+                  title="Remove the folder to save space. The branch, conversation and runs stay, and the next run brings it back."
+                  onClick={() => {
+                    setMenu(false);
+                    actions.archive(data);
+                  }}
+                >
+                  Archive folder
+                </button>
+              )}
               {data.parentId !== null && <div className="menu-sep" role="separator" />}
               {data.parentId !== null && (
                 <button

@@ -356,6 +356,12 @@ function NodePanel({
         />
         {/* The latest run's numbers, in the place the activity strip holds while it runs. */}
         {!chat.busy && latestRun?.status === 'done' && <RunFoot run={latestRun} label="Last run" />}
+        {!chat.busy && node.folder === 'archived' && (
+          <p className="run-foot pinned archived-note">
+            <Icon name="archive" />
+            Folder archived · the next message brings it back and runs setup again
+          </p>
+        )}
         {node.pendingQuestion === null && (
           <Composer
             node={node}
