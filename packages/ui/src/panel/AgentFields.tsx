@@ -6,7 +6,12 @@ export const PERMISSIONS: Record<PermissionMode, string> = {
   bypassPermissions: 'Bypass permission checks',
   plan: 'Plan (SDK mode)',
 };
+/**
+ * The models offered by name, newest first. Anything else stored in settings
+ * still shows (as its id), and "default" leaves the choice to Claude Code.
+ */
 const MODELS = [
+  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
   { id: 'claude-opus-5', label: 'Opus 5' },
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5' },
