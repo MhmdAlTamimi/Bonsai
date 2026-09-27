@@ -133,7 +133,7 @@ export function MenuBar({
                 onStart('existing');
               }}
             >
-              Open a folder
+              New project from a folder
             </button>
 
             <div className="menu-sep" />

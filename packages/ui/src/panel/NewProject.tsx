@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from 'react';
-import type { DirectoryInspectionView, ProjectView } from '@bonsai/shared';
+import type { DirectoryInspectionView, ProjectView, StartPointView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { ErrorNote } from '../ErrorNote.tsx';
@@ -7,19 +7,22 @@ import { Icon } from '../Icon.tsx';
 import { plural } from '../words.ts';
 import { Logo } from '../Logo.tsx';
 import { DirectoryPicker } from './DirectoryPicker.tsx';
+import { relativeTime } from './chat/time.ts';
 
 /**
  * Starting a project, the two ways it can start.
  *
- * NEW builds a fresh repository in a folder you choose, and Bonsai owns all of
+ * FRESH builds a new repository in a folder you choose, and Bonsai owns all of
  * it -- including deleting it later.
  *
- * EXISTING uses a folder you already have, in place. Nothing is copied and
- * nothing is moved: that folder becomes the project's repository, master is
- * that folder on the branch it is already on, and every node you make is an
- * ordinary `node/<uuid>` branch inside your own repo. The consequence worth
- * knowing is the one stated on the form: master is read-only, because writing
- * there would mean Bonsai committing to the branch you work on yourself.
+ * FROM A FOLDER starts from one version of a repository you already have: the
+ * branch the folder is on, or any other branch, remote branch or tag. Master
+ * is a read-only copy of that version and every experiment works on a copy of
+ * its own, so the folder is only read. The one thing worth saying on the form
+ * is the consequence: the project does not follow later changes in the folder.
+ *
+ * Written for someone who has never seen Bonsai: one line per choice, and
+ * detail only where a decision needs it.
  */
 export function NewProject({
   onCreated,
@@ -42,6 +45,7 @@ export function NewProject({
   const [location, setLocation] = useState('');
   const [folder, setFolder] = useState('');
   const [includeUncommitted, setIncludeUncommitted] = useState(false);
+  const [startFrom, setStartFrom] = useState<string | null>(null);
   const [choosingLocation, setChoosingLocation] = useState(false);
   const [preview, setPreview] = useState<{ key: string; path: string } | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -80,6 +84,7 @@ export function NewProject({
     setInspectedFolder('');
     setInspectionError(null);
     setIncludeUncommitted(false);
+    setStartFrom(null);
     if (mode !== 'existing' || folder === '') {
       setInspection(null);
       return;
@@ -119,7 +124,8 @@ export function NewProject({
           path: folder,
           ...(name.trim() === '' ? {} : { name: name.trim() }),
           description,
-          includeUncommitted,
+          includeUncommitted: includeUncommitted && start?.current === true,
+          ...(start === null ? {} : { startFrom: start.ref }),
         });
         onCreated(projectId, masterNodeId);
       }
@@ -131,6 +137,9 @@ export function NewProject({
   };
 
   const currentInspection = inspectedFolder === folder ? inspection : null;
+  const points = currentInspection?.startPoints ?? [];
+  // What the folder has checked out, unless another version was picked.
+  const start = points.find((p) => p.ref === startFrom) ?? points.find((p) => p.current) ?? null;
   const matching =
     currentInspection?.repoRoot == null
       ? []
@@ -146,9 +155,11 @@ export function NewProject({
 
   return (
     <div className="new-project">
-      <h1>
-        <Logo size={26} /> {mode === 'new' ? 'New project' : 'Open a folder'}
-      </h1>
+      <header className="start-brand">
+        <Logo size={64} />
+        <h1>Bonsai</h1>
+        <p>Try ideas with Claude side by side, then keep the best one.</p>
+      </header>
 
       <div className="tabs project-source-switch" role="group" aria-label="Project source">
         <button
@@ -156,20 +167,24 @@ export function NewProject({
           className={mode === 'new' ? 'on' : ''}
           onClick={() => setMode('new')}
         >
-          <Icon name="plus" /> New project
+          <Icon name="plus" /> Start fresh
         </button>
         <button
           aria-pressed={mode === 'existing'}
           className={mode === 'existing' ? 'on' : ''}
           onClick={() => setMode('existing')}
         >
-          <Icon name="folderOpen" /> Open a folder
+          <Icon name="folderOpen" /> Start from a folder
         </button>
       </div>
+      <p className="muted source-line">
+        {mode === 'new'
+          ? 'Bonsai makes a new folder, and Claude builds from scratch.'
+          : 'Experiments work on a copy of your code. Your folder is never changed.'}
+      </p>
 
       {mode === 'new' ? (
         <>
-          <p className="muted">Start fresh in a new project folder.</p>
           <label className="project-field">
             Name
             <input
@@ -186,15 +201,15 @@ export function NewProject({
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the goal in a sentence or two"
               aria-label="project description"
-              rows={4}
+              rows={3}
             />
           </label>
           <div className="stacked">
-            <span>Project location</span>
+            <span>Where</span>
             <p className="hint">
               {location === ''
-                ? 'Choose a parent folder. Bonsai will create a new project subfolder inside it.'
-                : `Parent folder: ${location}`}
+                ? 'Bonsai makes the project folder inside the folder you choose.'
+                : `Inside ${location}`}
             </p>
             <button type="button" onClick={() => setChoosingLocation((v) => !v)}>
               <Icon name="folderOpen" />
@@ -213,9 +228,7 @@ export function NewProject({
                 }}
               />
             )}
-            {preview?.key === previewKey && (
-              <p className="note">New project folder: {preview.path}</p>
-            )}
+            {preview?.key === previewKey && <p className="note">New folder: {preview.path}</p>}
             {location !== '' && preview === null && previewError === null && (
               <p className="loading" role="status">
                 Checking destination
@@ -228,11 +241,10 @@ export function NewProject({
         </>
       ) : (
         <>
-          <p className="muted">Choose an existing repository or folder.</p>
           <DirectoryPicker value={folder} onChange={setFolder} markRepos />
           {folder !== '' && currentInspection === null && inspectionError === null && (
             <p className="loading" role="status">
-              Inspecting selected folder
+              Looking at the folder
             </p>
           )}
           {inspectionError !== null && (
@@ -245,62 +257,55 @@ export function NewProject({
           )}
           {matching.length > 0 && (
             <section className="matching-projects" aria-label="Projects in this repository">
-              <h3>Existing projects</h3>
+              <h3>Already in Bonsai</h3>
               {matching.map((project) => (
                 <div className="existing-project-row" key={project.id}>
                   <Icon name="folderOpen" />
                   <div className="existing-project-identity">
                     <strong>{project.name}</strong>
                     <small>
-                      {project.workDir || 'Repository root'} · {project.id.slice(0, 8)}
+                      {project.branchLabel === null ? 'Started' : `From ${project.branchLabel}`},{' '}
+                      {relativeTime(project.createdAt)}
+                      {project.workDir === '' ? '' : ` · works in ${project.workDir}`}
                     </small>
                   </div>
                   <button
                     aria-label={`Open project ${project.name}`}
                     onClick={() => onOpenExisting?.(project.id, null)}
                   >
-                    Open project <Icon name="arrowRight" />
+                    Open <Icon name="arrowRight" />
                   </button>
                 </div>
               ))}
               {offerExisting && (
                 <button className="linkish" onClick={() => setCreateAnother(true)}>
-                  <Icon name="plus" /> Create another project here
+                  <Icon name="plus" /> New project from the current code
                 </button>
               )}
             </section>
           )}
           {!offerExisting && (
-            <Inspected inspection={currentInspection} onOpenExisting={onOpenExisting} />
+            <Inspected
+              inspection={currentInspection}
+              start={start}
+              onStartFrom={(ref) => {
+                setStartFrom(ref);
+                if (!points.find((p) => p.ref === ref)?.current) setIncludeUncommitted(false);
+              }}
+              includeUncommitted={includeUncommitted}
+              onIncludeUncommitted={setIncludeUncommitted}
+              onOpenExisting={onOpenExisting}
+            />
           )}
 
-          {!offerExisting && currentInspection?.knownTo == null && (
+          {!offerExisting && currentInspection !== null && currentInspection.knownTo === null && (
             <>
-              {currentInspection !== null && currentInspection.dirtyFiles > 0 && (
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={includeUncommitted}
-                    onChange={(e) => setIncludeUncommitted(e.target.checked)}
-                  />
-                  <span>
-                    Start experiments from your uncommitted work too (
-                    {plural(currentInspection.dirtyFiles, 'file')}). Bonsai takes a snapshot commit
-                    that belongs to no branch; your working folder is not touched either way.
-                  </span>
-                </label>
-              )}
-
               <label className="project-field">
                 Name (optional)
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={
-                    currentInspection?.path == null
-                      ? 'Defaults to the folder name'
-                      : basename(currentInspection.path)
-                  }
+                  placeholder={basename(currentInspection.path)}
                   aria-label="project name"
                 />
               </label>
@@ -309,9 +314,9 @@ export function NewProject({
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="A sentence the agent can start from"
+                  placeholder="A sentence Claude can start from"
                   aria-label="project description"
-                  rows={3}
+                  rows={2}
                 />
               </label>
             </>
@@ -327,7 +332,7 @@ export function NewProject({
             disabled={busy || blocked}
             aria-busy={busy}
           >
-            {mode === 'new' ? 'Create project' : 'Create project from folder'}
+            Create project
           </button>
         )}
         {onCancel !== undefined && (
@@ -341,15 +346,23 @@ export function NewProject({
   );
 }
 
-/** Says plainly what Bonsai found, so nothing about the folder is a surprise. */
+/** Says what Bonsai found, and asks the one question left: which version to start from. */
 function Inspected({
   inspection,
+  start,
+  onStartFrom,
+  includeUncommitted,
+  onIncludeUncommitted,
   onOpenExisting,
 }: {
   inspection: DirectoryInspectionView | null;
+  start: StartPointView | null;
+  onStartFrom: (ref: string) => void;
+  includeUncommitted: boolean;
+  onIncludeUncommitted: (include: boolean) => void;
   onOpenExisting?: (projectId: string, nodeId: string | null) => void;
-}): JSX.Element {
-  if (inspection === null) return <p className="hint">Choose a folder above.</p>;
+}): JSX.Element | null {
+  if (inspection === null) return null;
 
   // Bonsai's own folder. Not an error -- you found something real, it just
   // already exists here, so the useful thing to offer is a way to it.
@@ -365,7 +378,8 @@ function Inspected({
             </>
           ) : (
             <>
-              the node <strong>{nodeName}</strong> in your project <strong>{projectName}</strong>
+              the experiment <strong>{nodeName}</strong> in your project{' '}
+              <strong>{projectName}</strong>
             </>
           )}
           . It is already in Bonsai.
@@ -383,60 +397,69 @@ function Inspected({
     return <p className="error">{inspection.blockedReason}</p>;
   }
 
-  if (inspection.repoRoot === null) {
+  // Not a repository yet, or one with nothing committed: Bonsai makes the first
+  // version, which does change the folder, so it is said.
+  if (inspection.repoRoot === null || start === null) {
     return (
       <p className="note">
-        Not a git repository, and not inside one. Bonsai will run <code>git init</code> here and
-        make one commit of what is already in the folder — {plural(inspection.entryCount, 'item')} —
-        so experiments have something to branch from.
+        {inspection.repoRoot === null
+          ? 'This folder is not a git repository yet. Bonsai will make it one and save its files as the first version.'
+          : 'This repository has no saved versions yet. Bonsai will save its files as the first one.'}
         {inspection.entryCount > 400 &&
-          ' That is a lot of files; check there is no build output or node_modules in there first.'}
+          ' That is a lot of files: check there is no build output or node_modules in there first.'}
       </p>
     );
   }
 
+  const groups: Array<[StartPointView['kind'], string]> = [
+    ['commit', 'Checked out'],
+    ['branch', 'Branches'],
+    ['remote', 'Remote branches'],
+    ['tag', 'Tags'],
+  ];
   return (
     <div className="note inspected">
-      {/*
-       * The two facts that are genuinely separate, said separately (D37).
-       *
-       * A folder inside a repository used to be refused with advice to pick the
-       * root instead, which made a monorepo an all-or-nothing choice. It is
-       * accepted now, so the form has to be explicit about which folder is
-       * which: git still sees the whole repository, and the agent works in the
-       * folder that was picked.
-       */}
-      <dl className="scope">
-        <dt>Repository</dt>
-        <dd>
-          <code>{inspection.repoRoot}</code>
-          {inspection.workDir !== '' && ' — its whole history, branches and commits'}
-        </dd>
-        <dt>Agent works in</dt>
-        <dd>
-          {inspection.workDir === '' ? 'the repository root' : <code>{inspection.workDir}</code>}
-        </dd>
-      </dl>
-      {inspection.headCommit === null ? (
-        <p>
-          The repository has no commits yet. Bonsai will make the first one from what is in it,
-          because a branch needs somewhere to start.
-        </p>
-      ) : (
-        <p>
-          On <strong>{inspection.branch ?? 'a detached HEAD'}</strong>, at{' '}
-          <code>{inspection.headCommit.slice(0, 8)}</code>.{' '}
-          {inspection.dirtyFiles > 0
-            ? `${plural(inspection.dirtyFiles, 'uncommitted change')} — left exactly as they are.`
-            : 'Clean.'}{' '}
-          This branch becomes the starting experiment and stays read-only; experiments branch from
-          it.
-        </p>
+      <label className="start-from">
+        <span>Start from</span>
+        <select
+          value={start.ref}
+          onChange={(e) => onStartFrom(e.target.value)}
+          aria-label="start from"
+        >
+          {groups.map(([kind, label]) => {
+            const options = inspection.startPoints.filter((p) => p.kind === kind);
+            return options.length === 0 ? null : (
+              <optgroup key={kind} label={label}>
+                {options.map((p) => (
+                  <option key={p.ref} value={p.ref}>
+                    {p.name}
+                    {p.current ? ' (checked out)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
+        </select>
+        <small title={start.commit}>
+          {start.commit.slice(0, 7)} · {relativeTime(start.date)}
+        </small>
+      </label>
+      {start.current && inspection.dirtyFiles > 0 && (
+        <label className="include-unsaved">
+          <input
+            type="checkbox"
+            checked={includeUncommitted}
+            onChange={(e) => onIncludeUncommitted(e.target.checked)}
+          />
+          <span>Include my {plural(inspection.dirtyFiles, 'unsaved change')}</span>
+        </label>
       )}
+      <p className="hint">
+        Experiments start from this exact version. Later changes in your folder won&rsquo;t appear.
+      </p>
       {inspection.workDir !== '' && (
         <p className="hint">
-          Bonsai will not create a second repository inside this folder, and will not make a branch
-          because you chose a subfolder. Commits, history and diffs stay whole-repository.
+          Claude works in <code>{inspection.workDir}</code>; commits cover the whole repository.
         </p>
       )}
     </div>

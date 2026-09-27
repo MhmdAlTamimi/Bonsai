@@ -281,7 +281,7 @@ function NodePanel({
       <div className="panel-scroll">
         <div className="panel-body" ref={reading.scrollRef} onScroll={reading.onScroll}>
           <div ref={reading.contentRef} className="conversation-content">
-            {node.status === 'new' && (
+            {node.status === 'new' && node.writable && (
               <section className="start">
                 <h3>Ready for the first run</h3>
                 <p className="hint">
@@ -318,7 +318,9 @@ function NodePanel({
               chat.pending.length === 0 &&
               !chat.busy && (
                 <p className="muted chat-empty">
-                  No conversation yet. Ask for a change, or ask a question.
+                  {node.writable
+                    ? 'No conversation yet. Ask for a change, or ask a question.'
+                    : 'No conversation yet. Ask a question about this code.'}
                 </p>
               )}
             {(chat.messages.length > 0 || chat.pending.length > 0) && (

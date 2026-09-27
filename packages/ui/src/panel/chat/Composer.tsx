@@ -40,7 +40,8 @@ export function Composer({
   onProjectSettings?: () => void;
 }): JSX.Element {
   const canRun = useCanRun();
-  const initial = node.status === 'new';
+  // A read-only node is never waiting for a first run: it can only be asked.
+  const initial = node.status === 'new' && node.writable;
   const frozen = !node.writable;
   const [open, setOpen] = useState(!frozen);
   const ref = useRef<HTMLTextAreaElement>(null);
