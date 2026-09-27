@@ -59,8 +59,11 @@ ancestors when the parent changed no files.
   build output (a local `.env`, a scratch database) are listed and confirmed first, and the
   idle sweep leaves those folders alone.
   Settings > Storage also shows what experiment folders take up.
-- Review compares the experiment's inherited base with committed and unfinished work.
-  Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
+- Review shows what the experiment itself changed, committed and unfinished, compared with
+  the code it started from. Below master's direct children, **Whole line** adds what its
+  parents changed since the line left master, which is what Apply takes; an experiment that
+  has changed nothing itself yet opens on it. Per-run diffs remain commit-specific.
+  Oversized patches explicitly report truncation.
 - Optional success criteria and check instructions go to the agent. Notes currently live
   in `CONTEXT.md` at the worktree root. Notes-only edits retain the existing special
   commit/revert behavior; moving notes into Bonsai records is separate planned work.
@@ -120,13 +123,19 @@ refuses unexpected Git state; inspect and resolve drift before retrying. Deletio
 experiment; archiving (above) only removes its folder.
 
 To take an experiment's changes to your own repository, use Apply to your repo in Review or
-in the card's ⋯ menu. Bonsai writes the experiment's committed changes (without `CONTEXT.md`
-and without uncommitted work) to a patch in its data folder and shows the command to run in
-your repository:
+in the card's ⋯ menu. Bonsai writes the committed changes of the experiment's whole line (its
+parents' and its own, since the line left master; without `CONTEXT.md` and without
+uncommitted work) to a patch in its data folder, and shows the command. For a project made
+from a folder it names that folder, so it works from any terminal:
 
 ```bash
-git apply --3way "<data dir>/patches/try-redis-c99c2d3.patch"
+git -C "/path/to/your/folder" apply --3way "<data dir>/patches/try-redis-c99c2d3.patch"
 ```
+
+For a project Bonsai created, run `git apply --3way "<patch>"` in the repository you want the
+changes in. "Only this experiment" applies just its own step, for when its parents' changes
+are already in your folder. Download patch saves the same file, for a Git app's Apply patch.
+The dialog says when your folder is on a different branch than the project started from.
 
 The changes land uncommitted (staged, as `--3way` does); review and commit them yourself.
 Git refuses to change a file with uncommitted edits of your own, and leaves conflict markers

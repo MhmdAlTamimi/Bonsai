@@ -107,6 +107,76 @@ describe('the apply command', () => {
     assert.equal(await gitLine(['rev-parse', 'HEAD'], folder), head);
   });
 
+  test('a grandchild applies its whole line, from any folder, and its own step only when asked', async () => {
+    const folder = await mine();
+    const adopted = await adoptProject(store, {
+      path: folder,
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const a = await createChildNode(store, {
+      projectId: adopted.projectId,
+      parentId: adopted.masterNodeId,
+      displayName: 'add login',
+      description: '',
+    });
+    await commit(a.nodeId, { 'login.py': 'def login(): pass\n', 'util.py': 'x = 1\n' });
+    const b = await createChildNode(store, {
+      projectId: adopted.projectId,
+      parentId: a.nodeId,
+      displayName: 'improve login',
+      description: '',
+    });
+    await commit(b.nodeId, { 'login.py': 'def login(user):\n    return user\n' });
+
+    // B's own step modifies a file only A added: alone, it cannot apply.
+    const own = await writeApplyPatch(store, store.getNode(b.nodeId)!, patches, 'own');
+    assert.deepEqual([own.scope, own.files, own.scopes], ['own', 1, { own: 1, line: 2 }]);
+    assert.equal((await run(own.command, root)).ok, false);
+
+    // The whole line is the default, names your folder, and works from anywhere.
+    const line = await writeApplyPatch(store, store.getNode(b.nodeId)!, patches);
+    assert.deepEqual([line.scope, line.files, line.folder], ['line', 2, folder]);
+    assert.ok(line.command.startsWith(`git -C "${folder}" apply --3way `), line.command);
+    const result = await run(line.command, root);
+    assert.equal(result.ok, true, `${line.command}\n${result.stderr}`);
+    assert.equal(
+      await readFile(join(folder, 'login.py'), 'utf8'),
+      'def login(user):\n    return user\n',
+    );
+    assert.equal(await readFile(join(folder, 'util.py'), 'utf8'), 'x = 1\n');
+
+    // Master's direct child has one step: nothing to choose between.
+    assert.equal((await writeApplyPatch(store, store.getNode(a.nodeId)!, patches)).scopes, null);
+  });
+
+  test('says when your folder is on another branch than the project started from', async () => {
+    const folder = await mine();
+    const adopted = await adoptProject(store, {
+      path: folder,
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const { nodeId } = await createChildNode(store, {
+      projectId: adopted.projectId,
+      parentId: adopted.masterNodeId,
+      displayName: 'change',
+      description: '',
+    });
+    await commit(nodeId, { 'app.txt': 'ONE\ntwo\nthree\nfour\nfive\n' });
+    assert.equal(
+      (await writeApplyPatch(store, store.getNode(nodeId)!, patches)).branchMismatch,
+      null,
+    );
+    await git(['switch', '-c', 'elsewhere'], folder);
+    assert.deepEqual(
+      (await writeApplyPatch(store, store.getNode(nodeId)!, patches)).branchMismatch,
+      { startedFrom: 'main', folderOn: 'elsewhere' },
+    );
+  });
+
   test('never overwrites a file you are still editing', async () => {
     const folder = await mine();
     const adopted = await adoptProject(store, {

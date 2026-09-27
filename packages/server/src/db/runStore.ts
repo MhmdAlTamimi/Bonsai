@@ -185,6 +185,22 @@ export class RunStore {
    * One query for the whole project rather than one per node: the tree view is
    * rebuilt on every refetch, and every finished run triggers one.
    */
+  /**
+   * Every commit an experiment's run made in this project -- master's left
+   * out. A node whose base is one of them started with an experiment's work.
+   */
+  experimentCommits(projectId: string): Set<string> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.commit_sha
+           FROM run r
+           JOIN node n ON n.id = r.node_id
+          WHERE n.project_id = ? AND n.parent_id IS NOT NULL AND r.commit_sha IS NOT NULL`,
+      )
+      .all(projectId) as unknown as Array<{ commit_sha: string }>;
+    return new Set(rows.map((row) => row.commit_sha));
+  }
+
   statsByNode(projectId: string): Map<string, { files: number; added: number; removed: number }> {
     const rows = this.db
       .prepare(

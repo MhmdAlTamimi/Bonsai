@@ -2498,6 +2498,18 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "/^git apply --3way \".+\\.patch\"$/.test(document.querySelector('dialog[open] .apply-command')?.textContent ?? '')",
     );
+    // The same patch, downloaded as a file for a Git app.
+    const href = String(
+      await session.eval(
+        "document.querySelector('dialog[open] .apply-download a')?.getAttribute('href') ?? ''",
+      ),
+    );
+    const download = await fetch(`${BASE}${href}`);
+    assert.match(
+      download.headers.get('content-disposition') ?? '',
+      /^attachment; filename="archive-me-[0-9a-f]{7}\.patch"$/,
+    );
+    assert.match(await download.text(), /^diff --git /);
     await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
     await session.waitFor("!document.querySelector('dialog[open]')");
 

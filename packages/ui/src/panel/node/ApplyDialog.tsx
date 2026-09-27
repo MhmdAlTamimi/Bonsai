@@ -1,17 +1,21 @@
 import { type JSX, useEffect, useState } from 'react';
-import { plural, type ApplyPatchView, type NodeView } from '@bonsai/shared';
+import { plural, type ApplyPatchView, type ChangeScope, type NodeView } from '@bonsai/shared';
 
 import { CopyButton } from '../../CopyButton.tsx';
 import { Dialog, DialogHeader } from '../../Dialog.tsx';
 import { ErrorNote } from '../../ErrorNote.tsx';
+import { Icon } from '../../Icon.tsx';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 
 /**
  * Taking an experiment's changes to your own repository: one command, run by
- * you. Bonsai writes the patch into its own data folder when this opens --
- * fresh each time, since the experiment may have moved on -- and never touches
- * your repository.
+ * you, or the same patch downloaded for a Git app. Bonsai writes the patch
+ * into its own data folder when this opens -- fresh each time, since the
+ * experiment may have moved on -- and never touches your repository.
+ *
+ * The whole line by default: your folder is at master's code, so the patch
+ * has to carry what the experiment's parents did as well as its own step.
  *
  * Opened from the review screen and from a card's ⋯ menu; the same dialog in
  * both, so it says the same thing wherever you find it.
@@ -25,14 +29,21 @@ export function ApplyDialog({
   onClose: () => void;
   returnFocus?: string;
 }): JSX.Element {
+  const [scope, setScope] = useState<ChangeScope>('line');
   const [patch, setPatch] = useState<ApplyPatchView | null>(null);
+  // Kept across a switch, so the choice does not vanish while the other loads.
+  const [scopes, setScopes] = useState<ApplyPatchView['scopes']>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
+    setPatch(null);
+    setError(null);
     api
-      .applyPatch(node.id)
+      .applyPatch(node.id, scope)
       .then((view) => {
-        if (alive) setPatch(view);
+        if (!alive) return;
+        setPatch(view);
+        setScopes(view.scopes);
       })
       .catch((e: unknown) => {
         if (alive) setError(describeError(e));
@@ -40,11 +51,34 @@ export function ApplyDialog({
     return () => {
       alive = false;
     };
-  }, [node.id]);
+  }, [node.id, scope]);
 
   return (
     <Dialog title="Apply to your repo" onClose={onClose} returnFocus={returnFocus}>
       <DialogHeader title="Apply to your repo" onClose={onClose} />
+      {scopes !== null && (
+        <div
+          className="segmented-control review-scope apply-scope"
+          role="group"
+          aria-label="Changes to apply"
+        >
+          <button
+            aria-pressed={scope === 'line'}
+            title="Everything this experiment and its parents changed"
+            onClick={() => setScope('line')}
+          >
+            Whole line <span className="scope-count">{scopes.line}</span>
+          </button>
+          <button
+            aria-pressed={scope === 'own'}
+            disabled={scopes.own === 0}
+            title="Only this experiment's own step, for when its parents' changes are already in your folder"
+            onClick={() => setScope('own')}
+          >
+            Only this experiment <span className="scope-count">{scopes.own}</span>
+          </button>
+        </div>
+      )}
       {error !== null ? (
         <ErrorNote>{error}</ErrorNote>
       ) : patch === null ? (
@@ -53,27 +87,56 @@ export function ApplyDialog({
         </p>
       ) : (
         <section className="apply-section" aria-label="Apply command">
-          <div className="row">
-            <code className="apply-command">{patch.command}</code>
-            <CopyButton text={patch.command} label="Copy command" />
-          </div>
-          <p className="hint">
-            Run this in your repository&rsquo;s folder. The changes land uncommitted: review them
-            with <code>git diff --staged</code>, then commit them yourself. Git refuses to change a
-            file that has uncommitted changes of your own, and if your code changed the same lines,
-            it leaves conflict markers for you to resolve.
-          </p>
           <p className="hint apply-stats">
             {plural(patch.files, 'file')} · +{patch.added.toLocaleString()} −
-            {patch.removed.toLocaleString()} · excludes Bonsai&rsquo;s CONTEXT.md and any
-            uncommitted work
+            {patch.removed.toLocaleString()}
           </p>
+          <ol className="apply-steps">
+            <li>
+              Copy this command.
+              <div className="row">
+                <code className="apply-command">{patch.command}</code>
+                <CopyButton text={patch.command} label="Copy command" />
+              </div>
+            </li>
+            <li>
+              {patch.folder !== null ? (
+                <>
+                  Paste it into a terminal and press Enter. It changes the files in{' '}
+                  <code>{patch.folder}</code>.
+                </>
+              ) : (
+                'Paste it into a terminal, in the repository you want the changes in, and press Enter.'
+              )}
+            </li>
+            <li>
+              Look over the changes (<code>git diff --staged</code>), then commit them yourself.
+            </li>
+          </ol>
+          {patch.branchMismatch !== null && (
+            <p className="note">
+              This project started from <strong>{patch.branchMismatch.startedFrom}</strong>, but
+              your folder is on <strong>{patch.branchMismatch.folderOn}</strong>: the changes would
+              land there.
+            </p>
+          )}
           {patch.behind !== null && (
             <p className="note">
               This experiment is {plural(patch.behind.commits, 'commit')} behind{' '}
               {patch.behind.parentName}, so applying it may conflict.
             </p>
           )}
+          <p className="hint">
+            Git never overwrites your unsaved edits, and where you changed the same lines it marks
+            both versions for you to choose. Bonsai&rsquo;s notes and anything uncommitted in the
+            experiment are left out.
+          </p>
+          <p className="hint apply-download">
+            Using a Git app instead?
+            <a href={api.patchFileUrl(node.id, scope)} download>
+              <Icon name="apply" /> Download patch
+            </a>
+          </p>
         </section>
       )}
       <div className="dialog-actions">

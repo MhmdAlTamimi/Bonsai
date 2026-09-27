@@ -1,5 +1,6 @@
 import type {
   ApplyPatchView,
+  ChangeScope,
   ArchiveCheck,
   StorageView,
   AdoptProjectRequest,
@@ -103,7 +104,11 @@ export const api = {
     json<SettingsView>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
 
   revealNode: (id: string) => json<{ ok: true }>(`/api/nodes/${id}/reveal`, { method: 'POST' }),
-  applyPatch: (id: string) => json<ApplyPatchView>(`/api/nodes/${id}/patch`, { method: 'POST' }),
+  applyPatch: (id: string, scope: ChangeScope = 'line') =>
+    json<ApplyPatchView>(`/api/nodes/${id}/patch?scope=${scope}`, { method: 'POST' }),
+  /** Where the browser downloads the same patch as a file. */
+  patchFileUrl: (id: string, scope: ChangeScope = 'line') =>
+    `/api/nodes/${id}/patch/file?scope=${scope}`,
   archiveCheck: (id: string) => json<ArchiveCheck>(`/api/nodes/${id}/archive`),
   archive: (id: string, removeIgnored: boolean) =>
     json<{ ok: true }>(`/api/nodes/${id}/archive`, {
@@ -169,8 +174,8 @@ export const api = {
   diff: (nodeId: string) => json<NodeDiffView>(`/api/nodes/${nodeId}/diff`),
 
   /** Review: what an experiment changed, file by file. Counts only, never patches. */
-  review: (nodeId: string, signal?: AbortSignal) =>
-    json<ReviewView>(`/api/nodes/${nodeId}/review`, { signal }),
+  review: (nodeId: string, signal?: AbortSignal, scope: ChangeScope = 'own') =>
+    json<ReviewView>(`/api/nodes/${nodeId}/review?scope=${scope}`, { signal }),
 
   /** One file's patch, for the pane reading it. */
   reviewFile: (
@@ -178,9 +183,10 @@ export const api = {
     path: string,
     signal?: AbortSignal,
     view: 'diff' | 'file' = 'diff',
+    scope: ChangeScope = 'own',
   ) =>
     json<ReviewFilePatchView>(
-      `/api/nodes/${nodeId}/review/file?path=${encodeURIComponent(path)}&view=${view}`,
+      `/api/nodes/${nodeId}/review/file?path=${encodeURIComponent(path)}&view=${view}&scope=${scope}`,
       {
         signal,
       },

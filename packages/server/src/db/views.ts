@@ -48,8 +48,9 @@ export class Views {
   /**
    * Building a tree issues a constant number of queries, whatever its size.
    *
-   * Six: the project, the nodes, the costs, the diff stats, the run counts and
-   * the latest run status. It used to be that plus one per node for cost alone.
+   * Seven: the project, the nodes, the costs, the diff stats, the run counts,
+   * the latest run status and the commits experiments made. It used to be that
+   * plus one per node for cost alone.
    */
   tree(projectId: string): NodeView[] {
     const project = this.projects.get(projectId);
@@ -58,6 +59,7 @@ export class Views {
     const rows = this.nodes.list(projectId);
     const lastRuns = this.runs.latestEndReasonByNode(projectId);
     const runCounts = this.runs.countsByNode(projectId);
+    const experimentCommits = this.runs.experimentCommits(projectId);
     const childrenOf = new Map<string, NodeRow[]>();
     for (const row of rows) {
       if (row.parent_id === null) continue;
@@ -126,6 +128,9 @@ export class Views {
               ? 'not_created'
               : 'archived',
         behind: behindOf(row),
+        // Started from a commit an experiment made: its code already holds
+        // changes, even before it has made any of its own.
+        inherits: row.base_commit !== null && experimentCommits.has(row.base_commit),
         createdAt: row.created_at,
       } satisfies NodeView;
     });

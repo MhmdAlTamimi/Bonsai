@@ -8,7 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createProject } from '../projects.js';
+import { createChildNode as createNode, createProject } from '../projects.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { git } from '../git/exec.js';
 import { reviewOf, reviewPatchOf } from './review.js';
@@ -89,6 +89,58 @@ describe('an experiment’s changes, for review', () => {
     const deleted = await reviewPatchOf(store, childRow, 'code.txt', true);
     assert.equal(deleted.content, 'first\nunchanged\nlast\n');
     assert.equal(deleted.contentRevision, 'before-deletion');
+  });
+
+  test('a child shows its own step by default, and its whole line when asked, before it has a folder', async () => {
+    const { projectId, masterNodeId } = await createProject(store, {
+      name: 'p',
+      description: '',
+      model: null,
+      permissionMode: 'acceptEdits',
+    });
+    await run(masterNodeId, { 'base.py': 'x\n' });
+    const a = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'A',
+      description: '',
+    });
+    await run(a.nodeId, { 'login.py': 'login\n', 'base.py': 'y\n' });
+    // Created and never run: no folder, and nothing of its own yet.
+    const b = await createNode(store, {
+      projectId,
+      parentId: a.nodeId,
+      displayName: 'B',
+      description: '',
+    });
+    const fresh = store.getNode(b.nodeId)!;
+    assert.equal(fresh.worktree_allocated, 0);
+
+    const own = await reviewOf(store, fresh);
+    assert.deepEqual([own.scope, own.files.length], ['own', 0]);
+    assert.deepEqual(own.scopes, { own: 0, line: 2 });
+    assert.deepEqual(own.line, ['master', 'A', 'B']);
+
+    const line = await reviewOf(store, fresh, 'line');
+    // What it inherited from A, not master's own base.py commit before A.
+    assert.deepEqual(
+      line.files.map((f) => [f.path, f.status]),
+      [
+        ['base.py', 'M'],
+        ['login.py', 'A'],
+      ],
+    );
+    assert.match(line.baseLabel, /master had when this line began/);
+    assert.match((await reviewPatchOf(store, fresh, 'login.py', false, 'line')).patch, /\+login/);
+
+    // Master and its direct children have one step: nothing to switch.
+    assert.equal((await reviewOf(store, store.getNode(masterNodeId)!)).scopes, null);
+    assert.equal((await reviewOf(store, store.getNode(a.nodeId)!)).scopes, null);
+    // The card knows without git: B started from a commit A made; A from master's.
+    const cards = new Map(store.treeView(projectId).map((n) => [n.id, n]));
+    assert.equal(cards.get(b.nodeId)!.inherits, true);
+    assert.equal(cards.get(a.nodeId)!.inherits, false);
+    assert.equal(cards.get(masterNodeId)!.inherits, false);
   });
 
   test('committed and uncommitted work are one list, each file with its letter', async () => {
