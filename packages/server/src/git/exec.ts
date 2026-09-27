@@ -122,6 +122,19 @@ export async function status(worktreePath: string): Promise<StatusEntry[]> {
   return out;
 }
 
+/**
+ * Gitignored paths in a checkout, as git lists them: a directory that is
+ * ignored as a whole appears once, with a trailing slash, rather than file by
+ * file -- which keeps a node_modules to one line.
+ */
+export async function ignoredPaths(worktreePath: string): Promise<string[]> {
+  const raw = await git(['status', '--porcelain', '-z', '--ignored'], worktreePath);
+  return raw
+    .split('\0')
+    .filter((record) => record.startsWith('!! '))
+    .map((record) => record.slice(3));
+}
+
 /** Drain Git output with bounded memory. Truncation is explicit; errors still propagate. */
 export async function gitPatch(
   args: readonly string[],

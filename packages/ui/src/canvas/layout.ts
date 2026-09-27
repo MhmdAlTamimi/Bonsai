@@ -3,7 +3,7 @@ import type { NodeView } from '@bonsai/shared';
 import type { Edge, Node } from 'reactflow';
 import { codeState } from '../nodeCode.ts';
 
-/** The card's drawn size, kept in step with `.card` in styles.css. */
+/** The card's drawn size, kept in step with `.card` in styles/canvas.css. */
 export const CARD_WIDTH = 248;
 export const CARD_HEIGHT = 122;
 

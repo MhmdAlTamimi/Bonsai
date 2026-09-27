@@ -8,7 +8,7 @@ import { Icon } from '../Icon.tsx';
 import { CanvasHints } from './CanvasHints.tsx';
 import { MAX_ZOOM, MIN_ZOOM } from './zoom.ts';
 
-/** The canvas grid, in step with `--canvas-dot` in styles.css. */
+/** The canvas grid, in step with `--canvas-dot` in styles/tokens.css. */
 const CANVAS_DOT = 'rgba(255, 255, 255, 0.075)';
 import { NodeCard } from './NodeCard.tsx';
 import { BonsaiEdge } from './BonsaiEdge.tsx';

@@ -1,0 +1,22 @@
+/*
+ * Bonsai's stylesheet, by area. The order is the cascade: tokens first, then
+ * the shared primitives, then each area, and the window-size overrides last.
+ */
+@import './tokens.css';
+@import './base.css';
+@import './primitives.css';
+@import './shell.css';
+@import './menubar.css';
+@import './canvas.css';
+@import './panel.css';
+@import './thread.css';
+@import './markdown.css';
+@import './tools.css';
+@import './composer.css';
+@import './activity.css';
+@import './dialogs.css';
+@import './creation.css';
+@import './review.css';
+@import './references.css';
+@import './compare.css';
+@import './responsive.css';

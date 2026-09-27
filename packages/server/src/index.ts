@@ -11,6 +11,7 @@ import { EventBus } from './api/events.js';
 import { handleApi } from './api/router.js';
 import { RunJobs } from './jobs/runNode.js';
 import { ComparisonJobs } from './jobs/comparisons.js';
+import { ArchiveSweeper } from './archive.js';
 import { FakeRunner } from './agent/FakeRunner.js';
 import { ClaudeSdkRunner } from './agent/ClaudeSdkRunner.js';
 import { Settings } from './settings.js';
@@ -47,6 +48,9 @@ const connection = new Connection(settings, useStandIn);
 const runner = useStandIn ? new FakeRunner() : new ClaudeSdkRunner();
 const jobs = new RunJobs(store, bus, runner, settings, log, connection);
 const comparisons = new ComparisonJobs(store, bus, runner, settings, log);
+// Idle experiment folders are archived to save space; see archive.ts.
+const archiver = new ArchiveSweeper({ store, bus, log, jobs, settings });
+archiver.start();
 if (useStandIn) {
   process.stdout.write('[bonsai] agent: STAND-IN (BONSAI_FAKE_AGENT=1) — output is fake\n');
 }
@@ -167,6 +171,7 @@ function openInBrowser(url: string): void {
 }
 
 const shutdown = (): void => {
+  archiver.stop();
   bus.closeAll();
   server.close(() => {
     // Let cancelled runs unwind before the database goes away, or their final

@@ -1,0 +1,235 @@
+/*
+ * Bonsai's visual system.
+ *
+ * Written as tokens plus a small set of primitives, because the thing that
+ * made the old stylesheet read as a prototype was not any single colour: it was
+ * that nothing agreed. Six spacings, four radii, type at 10/11/12/13 with no
+ * relationship, and one accent doing selection, links, buttons, user messages,
+ * the connection indicator and the create-child handle at once — so nothing on
+ * screen read as more important than anything else.
+ *
+ * The rules, in order of how much they matter:
+ *
+ *   ONE ACCENT, ONE JOB. --accent means "this is the action here". It is the
+ *   primary button and the selection ring, and nothing else. A running node is
+ *   blue, a link is plain text with an underline, the user's own messages are
+ *   a surface. If a second thing on a screen wants the accent, one of them is
+ *   not the primary action.
+ *
+ *   STATUS IS NEVER COLOUR ALONE. Every status has a glyph and a word as well
+ *   as a hue (4.6). An 8-pixel coloured dot is invisible to eight percent of
+ *   men, and it was carrying the single most important fact on the card.
+ *
+ *   ONE SPACING SCALE, ONE TYPE SCALE. Both below. Nothing hard-codes a pixel
+ *   that could be a step.
+ */
+
+:root {
+  /*
+   * SURFACES SEPARATE BY VALUE, NEVER BY A RULE.
+   *
+   * void behind everything, canvas for the map and the diff, panel for every
+   * panel, control for anything you can press. A 1px structural line between
+   * two panels is what made the old app read as boxes inside boxes; the seam
+   * is 8px of void instead.
+   */
+  --void: #0b0c0e;
+  --bg: var(--void);
+  --canvas: #0e0f12;
+  --surface: #131519;
+  --surface-2: #15181c;
+  --surface-3: #1b1e24;
+  --surface-raised: #171a1f;
+  --control: #1f232a;
+  --control-hover: #23262d;
+  --control-strong: #242832;
+  --control-strong-hover: #2b303b;
+  --node: #14171b;
+  --tool-block: #101216;
+  /* The canvas grid: a 2px dot every 24px. Passed to React Flow from
+     Canvas.tsx, which writes it as an SVG fill. */
+  --canvas-dot: rgba(255, 255, 255, 0.075);
+
+  /* Hairlines are for dividing content inside one surface, not panels. */
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  /* The border a form control keeps against the panel, and the focus ring. */
+  --control-line: #777f90;
+  --focus: #b3aaff;
+  --rail-idle: rgba(255, 255, 255, 0.07);
+  --rail-live: rgba(109, 93, 246, 0.42);
+
+  /*
+   * One ink ramp. Each step has a job: prose, secondary labels, metadata,
+   * then the greys that are structure rather than text.
+   */
+  --text: #eceef2;
+  --ink-2: #dfe3ea;
+  --text-dim: #b8c0cc;
+  --ink-4: #8b93a0;
+  --ink-5: #858d9a;
+  /*
+   * The design's lower ramp, lifted where it carries words.
+   *
+   * Its dimmest inks are 2:1 to 3.9:1 on the panel, and everything below
+   * --dim here is TEXT you are meant to read: hints, metadata, cost lines,
+   * tool labels. Small text at 3:1 is not readable for a lot of people, and
+   * this project tests 4.5:1 (4.6). So the steps that carry words are raised
+   * to clear it, and the ones that carry structure -- line-number gutters and
+   * `·` separators, which repeat information already on screen -- keep the
+   * design's values.
+   */
+  --muted: #9aa3b1;
+  --muted-2: #8b93a0;
+  --muted-3: #828b99;
+  --muted-4: #767f8d;
+  --dim: #6b7482;
+  --dim-2: #5f6874;
+  --dim-3: #4b525c;
+
+  /*
+   * ONE ACCENT, ONE JOB. The primary action, the selection, and the live path
+   * through the tree. Green, amber and red are status only, never decoration.
+   */
+  --accent: #6d5df6;
+  --accent-hover: #7d70f8;
+  --accent-text: #9d91f8;
+  --accent-text-dim: #c9c2ff;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(109, 93, 246, 0.16);
+
+  --ok: #3fb950;
+  --err: #f0563a;
+  /* The same two, lifted for text on the deepest surface: line numbers and
+     failure lines in a command's output. */
+  --ok-text: #6fbf7c;
+  --err-text: #ee8672;
+  --running: #e3a008;
+  --warn: var(--running);
+
+  /* Status is never colour alone -- every one has a glyph and a word (4.6). */
+  --st-new: var(--muted-4);
+  --st-running: var(--running);
+  --st-needs: var(--accent-text);
+  --st-ready: var(--ok);
+  --st-interrupted: var(--err);
+
+  --edge: rgba(255, 255, 255, 0.13);
+  --edge-dim: rgba(255, 255, 255, 0.08);
+  --edge-live: rgba(109, 93, 246, 0.55);
+
+  /* Diff tints: a wash on the row, never a border or a bar. */
+  --diff-add-row: rgba(63, 185, 80, 0.06);
+  --diff-add-inline: rgba(63, 185, 80, 0.09);
+  --diff-del-inline: rgba(240, 86, 58, 0.09);
+  --diff-text: #d3dbd6;
+  --diff-text-del: #d8c8c4;
+
+  /* One spacing scale, on an 8px step. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+
+  /* Radii, largest to smallest: window, node, panel, control, row, chip. */
+  --r-14: 14px;
+  --r-12: 12px;
+  --r-10: 10px;
+  --r-8: 8px;
+  --r-7: 7px;
+  --r-6: 6px;
+  --r-5: 5px;
+  --r-4: 4px;
+  --r-sm: var(--r-5);
+  --r-md: var(--r-8);
+  --r-lg: var(--r-12);
+
+  --shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 20px 48px rgb(0 0 0 / 0.5);
+  --shadow-card: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 6px 18px rgba(0, 0, 0, 0.4);
+  --shadow-card-hover: inset 0 0 0 1px rgba(255, 255, 255, 0.13), 0 10px 26px rgba(0, 0, 0, 0.46);
+  --shadow-selected: 0 0 0 1.5px #6d5df6, 0 14px 34px -10px rgba(109, 93, 246, 0.5),
+    0 6px 18px rgba(0, 0, 0, 0.42);
+
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /*
+   * TWO TYPE FAMILIES, SEVEN STEPS.
+   *
+   * Every step is in rem, so the whole scale moves with the text-size
+   * preference: --text-scale multiplies the root size and nothing else has to
+   * know. Pixel equivalents are at 100%.
+   *
+   * Never set line-height: 1 on mono -- underscores and descenders clip. 1.45
+   * is the floor, and every step below assumes it.
+   */
+  --t-title: 0.8125rem; /* 13.0 - panel title, node and screen identity */
+  --t-body: 0.78125rem; /* 12.5 - message body, node title */
+  --t-code: 0.75rem; /* 12.0 - diff line text */
+  --t-row: 0.71875rem; /* 11.5 - tree rows, paths, labels */
+  --t-meta: 0.6875rem; /* 11.0 - metadata rows, status pills */
+  --t-micro: 0.65625rem; /* 10.5 - cost lines, review pill, tool-block lines */
+  --t-nano: 0.625rem; /* 10.0 - git status letter, RUN / EDIT labels */
+
+  /*
+   * The older scale, still used by the screens this redesign has not reached
+   * yet -- settings, the start screen, dialogs. They keep working unchanged
+   * while the three redesigned surfaces use the steps above.
+   */
+  --fs-2xs: 0.75rem;
+  --fs-xs: 0.8125rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 0.90625rem;
+  --fs-lg: 0.9375rem;
+  --fs-xl: 1.125rem;
+  --fs-2xl: 1.28125rem;
+  --fs-3xl: 1.46875rem;
+  --fs-code: 0.84375rem;
+
+  /*
+   * Heights, in rem for the same reason as the type: a row that does not grow
+   * with its text clips it. Pixel equivalents at 100%.
+   */
+  --h-bar: 3.25rem; /* 52 - top bar, panel header */
+  --h-send: 2.75rem; /* 44 - composer send */
+  --h-file: 2.25rem; /* 36 - diff file header */
+  --h-hunk: 2rem; /* 32 - hunk header */
+  --h-control: 1.875rem; /* 30 - control, tool-block header */
+  --h-ghost: 1.75rem; /* 28 - ghost icon button */
+  --h-row: 1.625rem; /* 26 - tree row */
+  --h-pill: 1.5rem; /* 24 - status pill, segment */
+  --h-plus: 1.375rem; /* 22 - node + button, small pill */
+  --h-diff: 1.3125rem; /* 21 - diff line */
+  --h-tool-line: 1.25rem; /* 20 - tool-block line */
+  --control-h: var(--h-control);
+
+  /* The conversation's three widths, and the tree's. */
+  --conversation-docked: 380px;
+  --conversation-review: 285px;
+  --conversation-rail: 46px;
+  --tree-width: 272px;
+  --panel-width: var(--conversation-docked);
+  /* The gap between two panels: void, never a rule. */
+  --seam: 8px;
+  font-size: calc(16px * var(--text-scale, 1));
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    var(--fs-md)/1.55 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

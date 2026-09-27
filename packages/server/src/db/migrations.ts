@@ -194,6 +194,14 @@ export const MIGRATIONS: readonly Migration[] = [
       if (exists !== undefined) addColumn(db, 'comparison_turn', 'references_json', 'TEXT');
     },
   },
+  {
+    version: 20,
+    name: 'node: archived folders',
+    up: (db) => {
+      addColumn(db, 'node', 'archived_at', 'TEXT');
+      addColumn(db, 'node', 'restored_at', 'TEXT');
+    },
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

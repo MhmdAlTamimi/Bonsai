@@ -82,6 +82,8 @@ export class NodeStore {
       success_criteria: blankToNull(input.successCriteria),
       verification_hint: blankToNull(input.verificationHint),
       setup_ran_at: null,
+      archived_at: null,
+      restored_at: null,
       position_x: null,
       position_y: null,
       created_at: now(),
@@ -233,6 +235,46 @@ export class NodeStore {
     this.db
       .prepare('UPDATE node SET worktree_allocated = ? WHERE id = ?')
       .run(allocated ? 1 : 0, id);
+  }
+
+  /**
+   * The folder is gone; everything else stays. Setup runs again when the
+   * folder is created again, because what it installed went with it.
+   */
+  markArchived(id: string): void {
+    this.db
+      .prepare(
+        `UPDATE node SET worktree_allocated = 0, archived_at = ?, setup_ran_at = NULL WHERE id = ?`,
+      )
+      .run(now(), id);
+  }
+
+  /** An archived folder created again, at the same path. */
+  markRestored(id: string): void {
+    this.db
+      .prepare(
+        `UPDATE node SET worktree_allocated = 1, archived_at = NULL, restored_at = ? WHERE id = ?`,
+      )
+      .run(now(), id);
+  }
+
+  /**
+   * When each of a project's experiments was last used: its newest run, or
+   * when its folder was created again, or when it was created. Idle time for
+   * automatic archiving counts from here.
+   */
+  lastActive(projectId: string): Map<string, string> {
+    const rows = this.db
+      .prepare(
+        `SELECT n.id AS id,
+                MAX(n.created_at,
+                    COALESCE(n.restored_at, ''),
+                    COALESCE((SELECT MAX(COALESCE(r.ended_at, r.started_at)) FROM run r
+                              WHERE r.node_id = n.id), '')) AS at
+         FROM node n WHERE n.project_id = ?`,
+      )
+      .all(projectId) as unknown as Array<{ id: string; at: string }>;
+    return new Map(rows.map((row) => [row.id, row.at]));
   }
 
   setSessionId(id: string, sessionId: string): void {

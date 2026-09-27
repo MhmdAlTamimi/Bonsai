@@ -1,0 +1,159 @@
+/* ---- tool blocks --------------------------------------------------------- */
+
+/*
+ * WHAT THE AGENT DID, DIMMED.
+ *
+ * Between two things the agent said, every tool call folds into one summary
+ * line in the dim prose colour, file names lifted -- "Read chunk_writer.py,
+ * ran a command ›". It opens into one quiet container, a row per step,
+ * separated by the only rule inside it; a step opens in place to its path and
+ * lines, or to `$ command` and its output. Prose stays bright, so the thread
+ * reads as what the agent said. See panel/chat/Activity.tsx.
+ */
+.work { display: flex; flex-direction: column; gap: var(--s2); }
+/* Close under the prose it belongs to; the next thing said keeps its distance. */
+.msg.agent > .work + :not(.work) { margin-top: 5px; }
+/* Text flow rather than flex, so a wrapping line keeps its counts and caret
+   after its last word instead of dropping them onto a line of their own. */
+.work-summary,
+.work-step-head {
+  display: block;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: inherit;
+  font-size: var(--t-code);
+  line-height: 1.55;
+  color: var(--muted-2);
+  user-select: none;
+}
+.work-summary {
+  align-self: flex-start;
+  padding: 2px 0;
+  border-radius: var(--r-5);
+}
+.work-summary:hover:not(:disabled),
+.work-step-head:hover:not(:disabled) {
+  background: none;
+  color: var(--text-dim);
+}
+.work-lift { color: var(--ink-2); font-weight: 500; }
+.work-summary > * + *,
+.work-step-head > * + * { margin-left: 6px; }
+.work-sub { margin-right: 6px; }
+.work-sub + * { margin-left: 0; }
+.work-counts { font: var(--t-meta) / 1.55 var(--mono); font-variant-numeric: tabular-nums; }
+.work-counts .added { color: var(--ok); }
+.work-counts .removed { color: var(--err); }
+/* A failure is the only thing in a folded stretch that shouts. */
+.work-failed { font: var(--t-meta) / 1.55 var(--mono); color: var(--err); }
+.work-running { font: var(--t-meta) / 1.55 var(--mono); color: var(--running); }
+.work-caret { white-space: nowrap; color: var(--muted-3); }
+.work.live .work-summary { color: var(--text-dim); }
+.work-group {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-10);
+  background: var(--tool-block);
+  overflow: hidden;
+}
+.work-step + .work-step { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.work-step-head { width: 100%; padding: var(--s2) var(--s3); }
+.work-step-head:hover:not(:disabled) { background: var(--surface-2); }
+.work-sub {
+  font: var(--t-nano) / 1.55 var(--mono);
+  color: var(--accent-text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.work-body { display: flex; flex-direction: column; gap: var(--s2); padding: 0 var(--s3) var(--s3); }
+.work-path { font: var(--t-micro) / 1.5 var(--mono); color: var(--muted-2); word-break: break-all; }
+.work-code { border-radius: var(--r-8); background: var(--void); overflow: hidden; }
+.work-lines { padding: 6px 0; }
+.work-line { display: flex; align-items: flex-start; min-height: var(--h-tool-line); }
+.work-sign,
+.work-num,
+.work-text { font: var(--t-micro) / var(--h-tool-line) var(--mono); }
+.work-sign { flex: none; width: 14px; padding-left: 6px; text-align: center; color: var(--muted-3); }
+.work-num {
+  flex: none;
+  width: 26px;
+  padding-right: 10px;
+  text-align: right;
+  color: var(--muted-3);
+  font-variant-numeric: tabular-nums;
+}
+.work-text {
+  flex: 1;
+  min-width: 0;
+  padding-right: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-dim);
+}
+.work-line.dl-add { background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.work-line.dl-del { background: color-mix(in srgb, var(--err) 10%, transparent); }
+.work-line.dl-add .work-sign { color: var(--ok); }
+.work-line.dl-del .work-sign { color: var(--err); }
+.work-line.dl-add .work-num { color: var(--ok-text); }
+.work-line.dl-del .work-num { color: var(--err-text); }
+.work-line.dl-add .work-text { color: var(--diff-text); }
+.work-line.dl-del .work-text { color: var(--diff-text-del); }
+.work-command {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  padding: var(--s2) 6px var(--s2) 10px;
+  border-radius: var(--r-8);
+  background: var(--surface-3);
+}
+.work-prompt,
+.work-command-text { font: var(--t-meta) / 1.6 var(--mono); }
+.work-prompt { flex: none; color: var(--muted-3); }
+.work-command-text { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; color: var(--ink-2); }
+.work-output { display: flex; flex-direction: column; padding: var(--s2) 10px; }
+.work-out {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: var(--t-micro) / 1.65 var(--mono);
+  color: var(--text-dim);
+}
+.work-out.last { color: var(--ink-2); }
+.work-out.fail { color: var(--err-text); }
+.work-out.dim { color: var(--muted-3); }
+.work-code .disclosure-row { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05); }
+.work-omitted { margin: 0; padding: 0 11px 7px; font: var(--t-micro) / 1.45 var(--mono); color: var(--dim); }
+.tool-tally {
+  flex: none;
+  font: var(--t-nano) / 1.45 var(--mono);
+}
+/*
+ * THE PANEL'S ONE DISCLOSURE.
+ *
+ * The same 24px row wherever something is longer than its bound: a block's
+ * output, and a prompt past its clamp. Opening flips the caret and the verb —
+ * same row, same height, so nothing below it jumps.
+ */
+.disclosure-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: var(--h-pill);
+  padding: 0 11px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  font: var(--t-micro) / 1.45 var(--mono);
+  color: var(--dim);
+  text-align: left;
+}
+.disclosure-row:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--muted-3);
+}
+.disclosure-row .caret {
+  display: inline-flex;
+  font-size: var(--t-code);
+}

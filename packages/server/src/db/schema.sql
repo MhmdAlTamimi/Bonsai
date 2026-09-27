@@ -101,6 +101,15 @@ CREATE TABLE IF NOT EXISTS node (
   -- not run, which is what makes "run it once, before the first agent run"
   -- survive a restart in the middle.
   setup_ran_at  TEXT,
+  -- When its folder was archived (removed to save space), or null while the
+  -- folder is on disk or has never been created. worktree_allocated is 0 for
+  -- both of those; this is what tells them apart. Archiving also clears
+  -- setup_ran_at, because the setup command's output went with the folder.
+  archived_at   TEXT,
+  -- When an archived folder was last created again: idle time counts from
+  -- here as well as from the last run, so a folder brought back to look at is
+  -- not archived again the same hour.
+  restored_at   TEXT,
   position_x    REAL,
   position_y    REAL,
   created_at    TEXT NOT NULL,

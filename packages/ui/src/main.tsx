@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Root } from './App.tsx';
 import { ErrorBoundary } from './ErrorBoundary.tsx';
-import './styles.css';
+import './styles/index.css';
 
 const container = document.getElementById('root');
 if (container === null) throw new Error('missing #root');

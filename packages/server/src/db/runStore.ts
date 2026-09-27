@@ -226,11 +226,15 @@ export class RunStore {
   }
 
   /** How many runs each node in a project has had, in one query. */
+  /**
+   * Finished runs by node. A run still going is not counted until it ends, so
+   * a snapshot taken during one still reads as behind once it finishes.
+   */
   countsByNode(projectId: string): Map<string, number> {
     const rows = this.db
       .prepare(
         `SELECT r.node_id AS id, COUNT(*) AS runs FROM run r JOIN node n ON n.id = r.node_id
-         WHERE n.project_id = ? GROUP BY r.node_id`,
+         WHERE n.project_id = ? AND r.status != 'running' GROUP BY r.node_id`,
       )
       .all(projectId) as unknown as Array<{ id: string; runs: number }>;
     return new Map(rows.map((r) => [r.id, Number(r.runs)]));

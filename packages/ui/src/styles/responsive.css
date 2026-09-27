@@ -1,0 +1,31 @@
+/* The one width where the canvas and the panel stop both being useful.
+   Kept in step with NARROW_MAX in state/useWorkspaceView.ts. */
+@media (max-width: 900px) {
+  .app:not(.single) { display: flex; flex-direction: column; }
+  .app > .view-switch { display: flex; position: static; padding: 10px 12px; gap: 0; background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .view-switch .segment { flex: 1; justify-content: center; border-radius: 0; border-right-width: 0; }
+  .view-switch .segment:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
+  .view-switch .segment:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; border-right-width: 1px; }
+  /* The joined edge has to stay visible over its neighbour's border. */
+  .view-switch .segment[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--focus); color: var(--text); position: relative; z-index: 1; border-right-width: 1px; }
+  .view-switch .segment:disabled { color: var(--muted); }
+  .app > .panel-resizer { display: none; }
+  .app > .canvas, .app > .panel { flex: 1; min-height: 0; width: 100%; }
+  .app:not(.panel-hidden) > .canvas, .app:not(.panel-hidden) > .review { display: none; }
+  .app.panel-hidden > .canvas { display: block; }
+  .app.panel-hidden > .review { display: flex; }
+  /* Below this width the tree and a diff cannot share a row, so review is one
+     pane and the file list opens above it. */
+  .review-body { flex-direction: column; padding: var(--s2); }
+  .tree-column { width: auto !important; max-height: 38vh; }
+  .grip { display: none; }
+  .dialog label { grid-template-columns: 1fr; gap: 8px; }
+  .dialog label > :not(:first-child) { grid-column: 1; }
+}
+
+/* Short, zoomed windows use one reading scroll instead of a compressed transcript. */
+@media (max-height: 500px) {
+  .panel { overflow-y: auto; }
+  .panel-body { flex: none; overflow: visible; }
+  .panel-foot { flex-shrink: 0; max-height: none; overflow: visible; }
+}

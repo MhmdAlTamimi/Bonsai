@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { NodeView, ReferenceView, RunReferenceView } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
@@ -85,4 +85,31 @@ export const canDrawFrom = (node: NodeView): boolean => node.status !== 'new';
 /** "1.2k chars" -- the size of a reference, for chips and lists. */
 export function referenceSize(size: number): string {
   return size >= 1000 ? `${(size / 1000).toFixed(1)}k chars` : `${size} chars`;
+}
+
+/**
+ * The project's references and the one dialog that shows them. Opened from
+ * the menu bar, a card, a message or a chip, so it is offered to all of them
+ * through a context rather than threaded through each.
+ */
+export function useReferenceLibrary(
+  projectId: string | null,
+  revision: number,
+  onError: (message: string) => void,
+): {
+  references: References;
+  target: ReferenceTarget | null;
+  setTarget: (target: ReferenceTarget | null) => void;
+} {
+  const list = useProjectReferences(projectId, revision, onError);
+  const [target, setTarget] = useState<ReferenceTarget | null>(null);
+  const references = useMemo<References>(
+    () => ({
+      list,
+      byId: new Map(list.map((reference) => [reference.id, reference])),
+      open: setTarget,
+    }),
+    [list],
+  );
+  return { references, target, setTarget };
 }

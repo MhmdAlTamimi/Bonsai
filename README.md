@@ -45,6 +45,14 @@ ancestors when the parent changed no files.
   Comparisons on the top bar.
   Deleting an experiment names the comparisons that include it first; they keep the copy they
   read, can still be asked about it, and can no longer update it.
+- Archive an experiment's folder with Archive folder in its card's ⋯ menu, or let Bonsai do it
+  after the experiment sits idle (Settings > Storage, 14 days by default, or off). Archiving
+  removes the checkout and keeps the branch, conversation, runs and Claude session; the card is
+  dimmed. The next run, or Open folder, checks it out again at the same path and setup runs
+  again. A running experiment, one with uncommitted work, and your own folder are never
+  archived. Ignored files other than dependencies and build output (a local `.env`, a scratch
+  database) are listed and confirmed first, and the idle sweep leaves those folders alone.
+  Settings > Storage also shows what experiment folders take up.
 - Review compares the experiment's inherited base with committed and unfinished work.
   Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
 - Optional success criteria and check instructions go to the agent. Notes currently live
@@ -94,7 +102,7 @@ appear in the conversation. A separate retry/versioned setup lifecycle is still 
 Deleting an adopted project removes its app-owned worktrees and recorded branches while
 preserving the original checkout and branch. Deleting a created project removes its owned
 repository and checkout. Deletion refuses unexpected Git state; inspect and resolve drift
-before retrying. It is not an archive operation.
+before retrying. Deletion removes the experiment; archiving (above) only removes its folder.
 
 To use a committed experiment outside Bonsai, use the command shown in node details.
 For an adopted repository, create a **new** branch from the experiment in your original
@@ -192,13 +200,15 @@ and cleanup failures are recorded rather than described as successful stops.
 | Path | Responsibility |
 | --- | --- |
 | `packages/shared` | Shared API/data contracts |
-| `packages/server/src/api` | HTTP endpoints and SSE |
+| `packages/server/src/api` | HTTP routing (`routing.ts`), endpoints by area (`routes/`) and SSE |
 | `packages/server/src/db` | SQLite storage and compatibility migrations |
 | `packages/server/src/domain` | Lineage, permissions/flags and conflicts |
 | `packages/server/src/git` | Git execution, snapshots, ownership, commits and review |
 | `packages/server/src/agent` | Claude SDK adapter and fake runner |
-| `packages/server/src/jobs` | Run scheduling, questions, cancellation and recovery |
+| `packages/server/src/jobs` | Run scheduling (`runNode.ts`), preparing a run (`workspace.ts`, `setup.ts`), its transcript, questions, background work and comparisons |
+| `packages/server/src/archive.ts` | Archiving idle experiment folders and measuring disk use |
 | `packages/ui` | React canvas, conversations, review and settings |
+| `packages/ui/src/styles` | Stylesheets by area, in cascade order via `index.css` |
 
 Standing (pinned) references, running a procedure across compared experiments, multiple
 code parents, Apply and broader SDK exposure belong to later phases. Stabilization does not introduce those features or migrate existing data.

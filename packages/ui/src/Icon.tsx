@@ -45,6 +45,8 @@ const paths = {
   copy: 'M9 9h11v11H9ZM5 15H4V4h11v1',
   check: 'm5 12 5 5 9-10',
   stop: 'M7 7h10v10H7Z',
+  // A box with its lid: an experiment whose folder is put away, not gone.
+  archive: 'M3 4h18v4H3ZM5 8v12h14V8M10 12h4',
   at: 'M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm0 0v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-4 7.5',
 } as const;
 export type IconName = keyof typeof paths;

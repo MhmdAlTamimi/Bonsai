@@ -1,0 +1,132 @@
+/* ---- shell --------------------------------------------------------------- */
+
+.app {
+  display: grid;
+  /* The panel stops at half the window (PANEL_SHARE in the contract). */
+  grid-template-columns: minmax(0, 1fr) var(--seam) min(var(--panel-width), 50vw);
+  height: 100dvh;
+  overflow: hidden;
+}
+.app.single {
+  grid-template-columns: 1fr;
+  place-items: center;
+  overflow-y: auto;
+}
+.app.single .panel-resizer {
+  display: none;
+}
+.canvas {
+  position: relative;
+  min-width: 0;
+}
+.react-flow__attribution {
+  display: none;
+}
+
+/*
+ * The seam between the canvas and the conversation: 8px of void carrying a
+ * grip, not a 1px rule. Panels separate by surface value; a hairline between
+ * them is what made the old app read as boxes inside boxes.
+ */
+.panel-resizer {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: var(--r-5);
+}
+.panel-resizer::after {
+  content: '';
+  width: 2px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--rail-idle);
+}
+.panel-resizer:hover,
+.panel-resizer:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.panel-resizer:hover {
+  outline: none;
+  box-shadow: none;
+}
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after {
+  background: var(--accent);
+}
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+body.resizing .panel-resizer {
+  background: var(--accent);
+}
+
+.banner {
+  position: absolute;
+  z-index: 10;
+  top: 80px;
+  left: var(--s4);
+  right: var(--s4);
+  background: color-mix(in srgb, var(--err) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  box-shadow: var(--shadow);
+}
+
+.stop-all {
+  position: absolute;
+  z-index: 9;
+  top: 138px;
+  right: var(--s4);
+}
+
+/* Collapsed: the conversation keeps a 46px rail rather than vanishing, so the
+   seam stays where it was and the way back is in the place it went. */
+.app.panel-hidden { grid-template-columns: minmax(0, 1fr) var(--conversation-rail); }
+.app.panel-hidden > .panel, .app.panel-hidden > .panel-resizer { display: none; }
+/* Map and Experiment: two controls, not one dressed as two.
+   WIDE -- both views are on screen, so there is nothing to switch; a collapsed
+   panel gets one button that brings it back. The segmented switch used to
+   render here too, leaving Map pressed and inert.
+   NARROW -- the views are alternatives, so it becomes a segmented two-state
+   switch. See state/useWorkspaceView.ts. */
+.view-switch { display: none; }
+/* Wide only, and scoped by a media query rather than by a class: the narrow
+   rules below are less specific than `.app.panel-hidden >`, so a floating
+   switch would have won there too and covered the canvas controls. */
+/*
+ * Review, wide: the bar spans the WHOLE window and everything else starts
+ * below it. `.review` dissolves into the app grid so its bar can do that —
+ * a panel header breaking the bar in two is what made the old screen read as
+ * two applications side by side.
+ */
+@media (min-width: 901px) {
+  .app.review-mode {
+    grid-template-rows: var(--h-bar) minmax(0, 1fr);
+  }
+  .app.review-mode > .review {
+    display: contents;
+  }
+  .app.review-mode .review-bar {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .app.review-mode .review-body {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .app.review-mode > .panel-resizer,
+  .app.review-mode > .panel,
+  .app.review-mode > .conversation-rail {
+    grid-row: 2;
+  }
+}
+.view-switch button { min-height: var(--control-h); border-radius: var(--r-md); }

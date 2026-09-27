@@ -1,9 +1,46 @@
 import type { ReviewFilePatchView, ReviewView } from '@bonsai/shared';
 
 import type { NodeRow, Store } from '../db/store.js';
+import { contextFileAt, readContextFile } from '../git/context.js';
 import { parentSnapshot } from '../git/diff.js';
-import { reviewFileContent, reviewFilePatch, reviewFiles, totalsOf } from '../git/review.js';
+import {
+  reviewFileContent,
+  reviewFilePatch,
+  reviewFiles,
+  totalsOf,
+  type ReviewSource,
+} from '../git/review.js';
 import { HttpError } from './http.js';
+
+/**
+ * Where an experiment's changes are read: its folder, or the repository once
+ * the folder is archived. Null when it has never had a folder.
+ */
+export function reviewSource(store: Store, row: NodeRow): ReviewSource | null {
+  if (row.worktree_allocated !== 0) return { cwd: row.worktree_path, committedOnly: false };
+  if (row.archived_at === null) return null;
+  const project = store.getProject(row.project_id);
+  return project === undefined ? null : { cwd: project.repo_path, committedOnly: true };
+}
+
+/**
+ * An experiment's CONTEXT.md, and where its history can be read: the folder,
+ * or -- once it is archived -- the repository at the experiment's last commit.
+ */
+export async function experimentNotes(
+  store: Store,
+  row: NodeRow,
+): Promise<{ contextMd: string | null; cwd: string; head: string }> {
+  const source = reviewSource(store, row);
+  const head = row.head_commit ?? row.base_commit;
+  if (source?.committedOnly !== true || head === null)
+    return {
+      contextMd: await readContextFile(row.worktree_path),
+      cwd: row.worktree_path,
+      head: 'HEAD',
+    };
+  return { contextMd: await contextFileAt(source.cwd, head), cwd: source.cwd, head };
+}
 
 /**
  * The two commits an experiment's change sits between, or null when it has
@@ -20,7 +57,7 @@ export async function reviewRange(
   const base =
     row.base_commit ??
     (first?.commitSha != null
-      ? await parentSnapshot(row.worktree_path, first.commitSha)
+      ? await parentSnapshot(reviewSource(store, row)?.cwd ?? row.worktree_path, first.commitSha)
       : row.head_commit);
   if (base === null) return null;
   const hasCommits = row.parent_id === null ? first !== undefined : row.head_commit !== null;
@@ -34,10 +71,8 @@ export function baseLabel(store: Store, row: NodeRow): string {
 }
 
 export async function reviewOf(store: Store, row: NodeRow): Promise<ReviewView> {
-  const files =
-    row.worktree_allocated === 0
-      ? []
-      : await reviewFiles(row.worktree_path, await reviewRange(store, row));
+  const source = reviewSource(store, row);
+  const files = source === null ? [] : await reviewFiles(source, await reviewRange(store, row));
   return {
     nodeId: row.id,
     displayName: row.display_name,
@@ -61,10 +96,10 @@ export async function reviewPatchOf(
   path: string,
   fullFile = false,
 ): Promise<ReviewFilePatchView> {
-  if (row.worktree_allocated === 0)
-    throw new HttpError(404, 'This experiment has not created a checkout yet.');
+  const source = reviewSource(store, row);
+  if (source === null) throw new HttpError(404, 'This experiment has not created a checkout yet.');
   const range = await reviewRange(store, row);
-  const file = (await reviewFiles(row.worktree_path, range)).find((f) => f.path === path);
+  const file = (await reviewFiles(source, range)).find((f) => f.path === path);
   if (file === undefined) throw new HttpError(404, 'This experiment did not change that file.');
   if (fullFile)
     return {
@@ -72,7 +107,7 @@ export async function reviewPatchOf(
       patch: '',
       ...(file.binary
         ? { content: '', truncated: false }
-        : await reviewFileContent(row.worktree_path, range, file)),
+        : await reviewFileContent(source, range, file)),
     };
-  return { file, ...(await reviewFilePatch(row.worktree_path, range, file)) };
+  return { file, ...(await reviewFilePatch(source, range, file)) };
 }

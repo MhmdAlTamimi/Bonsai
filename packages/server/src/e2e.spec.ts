@@ -909,7 +909,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(started.status, 202, await started.text());
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor(
-      "!!document.querySelector('.run-foot') && !!document.querySelector('.md-table')",
+      "!!document.querySelector('.run-foot') && !!document.querySelector('.markdown-table')",
     );
     await session.waitFor("document.querySelector('.panel-body').scrollTop > 100");
     await session.eval(
@@ -929,7 +929,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "document.querySelector('.panel').textContent.includes('Showing previously loaded conversation')",
     );
-    assert.equal(await session.eval("!!document.querySelector('.md-table')"), true);
+    assert.equal(await session.eval("!!document.querySelector('.markdown-table')"), true);
     await session.eval('window.__failMessages = false');
     await session.eval(
       "Array.from(document.querySelectorAll('.panel button')).find(b => b.textContent === 'Retry conversation').click()",
@@ -959,7 +959,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("document.querySelector('.panel h2')?.textContent === 'Other reading'");
     await session.click(`[data-id="${created.masterNodeId}"] .card`);
     await session.waitFor(
-      "!!document.querySelector('.md-table') && document.querySelector('.panel-body').scrollTop > 100",
+      "!!document.querySelector('.markdown-table') && document.querySelector('.panel-body').scrollTop > 100",
     );
     assert.ok(
       Math.abs(
@@ -976,7 +976,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // `.run-foot` comes from the node's details, which is when the panel restores
     // its reading position. Scrolling before that is overridden by the restore.
     await session.waitFor(
-      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.md-table') && !!document.querySelector('.run-foot')",
+      "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.markdown-table') && !!document.querySelector('.run-foot')",
     );
     await session.eval(
       "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.__dropEvents = true; window.__sources.at(-1).dispatchEvent(new Event('error'));",
@@ -1917,7 +1917,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const ready = `(async()=> (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`;
 
     // Nothing to compact before the first conversation.
-    const early = await fetch(`${nodeUrl}/compact`, { method: 'POST', body: '{}' });
+    const early = await fetch(`${nodeUrl}/compact`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    });
     assert.equal(early.status, 409);
 
     await fetch(`${nodeUrl}/runs`, {
@@ -2422,6 +2426,75 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent.trim() === 'Cancel').click()",
     );
     await session.waitFor("!document.querySelector('dialog')");
+  });
+
+  test('an archived folder is dimmed on the map and comes back with the next message', async () => {
+    const post = async (path: string, body: unknown): Promise<Response> =>
+      fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const created = (await (
+      await post('/api/projects', { name: 'archiving', description: '' })
+    ).json()) as {
+      projectId: string;
+      masterNodeId: string;
+    };
+    const child = (
+      (await (
+        await post(`/api/projects/${created.projectId}/nodes`, {
+          parentId: created.masterNodeId,
+          displayName: 'Archive me',
+          description: '',
+        })
+      ).json()) as { node: { id: string } }
+    ).node.id;
+    const nodeUrl = `${BASE}/api/nodes/${child}`;
+    const folder = async (): Promise<string> =>
+      ((await (await fetch(nodeUrl)).json()) as { node: { folder: string } }).node.folder;
+    const run = async (prompt: string): Promise<void> => {
+      assert.equal((await post(`/api/nodes/${child}/runs`, { prompt })).status, 202);
+      await session.waitFor(
+        `(async()=> (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
+      );
+    };
+
+    await run('child commits a result');
+    assert.equal(await folder(), 'present');
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${child}`);
+    await session.waitFor(`!!document.querySelector('[aria-label="Actions for Archive me"]')`);
+    await session.click('[aria-label="Actions for Archive me"]');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Archive folder')).click()",
+    );
+    // Dimmed with its own mark, never dashed; the panel says what the next message does.
+    await session.waitFor("!!document.querySelector('.card.archived .archived-glyph')");
+    await session.waitFor("!!document.querySelector('.panel .archived-note')");
+    assert.equal(await folder(), 'archived');
+    // Its changes are still there to review, read from the repository.
+    const review = (await (await fetch(`${nodeUrl}/review`)).json()) as { files: unknown[] };
+    assert.ok(review.files.length > 0);
+
+    await run('child keeps working');
+    assert.equal(await folder(), 'present');
+    await session.waitFor(
+      "!document.querySelector('.card.archived') && !document.querySelector('.archived-note')",
+    );
+
+    // Settings measures the folders and holds the idle rule.
+    await session.click('.settings-button');
+    await session.waitFor(
+      "document.querySelector('.settings-storage [role=status]')?.textContent.includes('on disk')",
+    );
+    assert.equal(
+      await session.eval(
+        'document.querySelector(\'[aria-label="Days idle before archiving"]\').value',
+      ),
+      '14',
+    );
+    await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
+    await session.waitFor("!document.querySelector('dialog[open]')");
   });
 
   test("closing a dialog opened from a card's menu puts focus back on that menu button", async () => {

@@ -21,6 +21,25 @@ test('local API rejects remote origins, opaque origins and DNS rebinding hosts',
   assert.doesNotThrow(() => assertLocalRequest({ host: '127.0.0.1:8787' }));
 });
 
+test('local API accepts changes as JSON only, so a cross-site form cannot make one', () => {
+  const local = { host: '127.0.0.1:8787' };
+  for (const type of [
+    'text/plain;charset=UTF-8',
+    'application/x-www-form-urlencoded',
+    'multipart/form-data; boundary=x',
+  ])
+    assert.throws(
+      () => assertLocalRequest({ ...local, 'content-type': type }, 'POST'),
+      /JSON only/,
+    );
+  assert.doesNotThrow(() =>
+    assertLocalRequest({ ...local, 'content-type': 'application/json' }, 'POST'),
+  );
+  // No body at all is fine, and reading is never refused for its type.
+  assert.doesNotThrow(() => assertLocalRequest(local, 'POST'));
+  assert.doesNotThrow(() => assertLocalRequest({ ...local, 'content-type': 'text/plain' }, 'GET'));
+});
+
 test('JSON request bodies reject non-object payloads before route access', async () => {
   for (const body of ['null', '[]', '42', '"text"', '{'])
     await assert.rejects(readJson(Readable.from([Buffer.from(body)]) as IncomingMessage), /JSON/);

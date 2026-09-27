@@ -188,7 +188,11 @@ export function Review({
           <IconButton
             icon="folderOpen"
             className="toolbar-icon"
-            label="Open experiment folder"
+            label={
+              node?.folder === 'archived'
+                ? 'Open experiment folder (brings it back from the archive)'
+                : 'Open experiment folder'
+            }
             disabled={!node}
             onClick={() => {
               if (node) void api.revealNode(node.id).catch((e) => setError(describeError(e)));

@@ -1,0 +1,56 @@
+/* ---- type scale ---------------------------------------------------------- */
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+h1 {
+  font-size: var(--fs-2xl);
+}
+h2 {
+  font-size: var(--fs-xl);
+}
+h3 {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+h4 {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0;
+}
+.hint {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  margin: 0;
+}
+.error {
+  color: var(--err);
+  font-size: var(--fs-xs);
+  margin: 0;
+}
+.summary {
+  margin: 0;
+}
+code {
+  font: var(--fs-code)/1.5 var(--mono);
+}
+
+
+/* ONE ICON FAMILY. Every glyph in the app is a 24px-grid stroke of the same
+   weight from Icon.tsx, sized in em so it tracks the text beside it and the
+   text-size preference along with it. The typographic characters it replaced --
+   a multiplication sign for close, three dots for more, an arrow, a house --
+   came from the font instead, so each had its own weight and baseline. */
+.icon { width: 1em; height: 1em; display: inline-block; vertical-align: -.12em; flex: none; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }

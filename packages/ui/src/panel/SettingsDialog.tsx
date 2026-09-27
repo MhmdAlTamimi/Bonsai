@@ -1,13 +1,17 @@
-import { useState, type JSX } from 'react';
+import { useEffect, useState, type JSX } from 'react';
 import {
+  ARCHIVE_AFTER_DAYS,
   CONCURRENCY,
   type AgentModel,
   TEXT_SCALES,
   type ConnectionStatus,
   type ProjectView,
   type SettingsView,
+  type StorageView,
 } from '@bonsai/shared';
 import { api } from '../api/client.ts';
+import { describeError } from '../api/describeError.ts';
+import { bytes, plural } from '../words.ts';
 import { Dialog, DialogHeader } from '../Dialog.tsx';
 import { NewNodeSetup } from './NewNodeSetup.tsx';
 import { Diagnostics } from './Diagnostics.tsx';
@@ -51,6 +55,7 @@ export function SettingsDialog({
         <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
         <Appearance settings={settings} onChanged={onChanged} />
         <AppDefaults settings={settings} models={connection.models} onChanged={onChanged} />
+        <Storage settings={settings} onChanged={onChanged} />
         <Locations settings={settings} onChanged={onChanged} />
       </div>
       <div hidden={tab !== 'project'} className="settings-sections">
@@ -195,6 +200,98 @@ function ProjectAgent({
     </section>
   );
 }
+/**
+ * Experiment folders, what they take up, and when an idle one is archived.
+ * Measured when Settings opens, because it means walking every folder.
+ */
+function Storage({
+  settings,
+  onChanged,
+}: {
+  settings: SettingsView;
+  onChanged: () => void;
+}): JSX.Element {
+  const [enabled, setEnabled] = useState(settings.archiveAfterDays !== null);
+  const [days, setDays] = useState(settings.archiveAfterDays ?? ARCHIVE_AFTER_DAYS.default);
+  const [use, setUse] = useState<StorageView | null>(null);
+  const [useError, setUseError] = useState<string | null>(null);
+  const save = useSave();
+  useEffect(() => {
+    let alive = true;
+    api
+      .storage()
+      .then((view) => {
+        if (alive) setUse(view);
+      })
+      .catch((e: unknown) => {
+        if (alive) setUseError(describeError(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return (
+    <section className="settings-storage">
+      <h4>Storage</h4>
+      <p className="hint" role="status">
+        {use === null
+          ? (useError ?? 'Measuring experiment folders')
+          : `${plural(use.folders, 'experiment folder')} on disk, ${bytes(use.bytes)} in all. ${plural(use.archived, 'experiment')} archived.`}
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={save.busy}
+          onChange={(e) => {
+            setEnabled(e.target.checked);
+            save.reset();
+          }}
+        />
+        <span>Archive the folders of experiments that sit idle</span>
+      </label>
+      <label>
+        Idle for
+        <span className="row">
+          <input
+            type="number"
+            aria-label="Days idle before archiving"
+            min={ARCHIVE_AFTER_DAYS.min}
+            max={ARCHIVE_AFTER_DAYS.max}
+            value={days}
+            disabled={!enabled || save.busy}
+            onChange={(e) => {
+              setDays(Number(e.target.value));
+              save.reset();
+            }}
+          />
+          <span>days</span>
+        </span>
+      </label>
+      <p className="hint">
+        Archiving removes an experiment&rsquo;s folder and keeps its branch, conversation and runs.
+        The next run brings the folder back and runs setup again. A folder with uncommitted work, or
+        with ignored files other than dependencies and build output, is never archived on its own;
+        archive it from its ⋯ menu instead.
+      </p>
+      <div className="save-row">
+        <button
+          disabled={save.busy}
+          onClick={() =>
+            void save.run(async () => {
+              await api.updateSettings({ archiveAfterDays: enabled ? days : null });
+              onChanged();
+            })
+          }
+        >
+          Save storage settings
+        </button>
+        <SaveFeedback {...save} />
+      </div>
+    </section>
+  );
+}
+
 function Locations({
   settings,
   onChanged,

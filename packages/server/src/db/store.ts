@@ -152,6 +152,15 @@ export class Store {
   markSetupRan(nodeId: string): void {
     this.nodes.markSetupRan(nodeId);
   }
+  markArchived(id: string): void {
+    this.nodes.markArchived(id);
+  }
+  markRestored(id: string): void {
+    this.nodes.markRestored(id);
+  }
+  lastActive(projectId: string): Map<string, string> {
+    return this.nodes.lastActive(projectId);
+  }
   recordCommit(id: string, branchName: string, headCommit: string): void {
     this.nodes.recordCommit(id, branchName, headCommit);
   }

@@ -1,4 +1,4 @@
-import { recoveryCause, type RunView } from '@bonsai/shared';
+import { plural, recoveryCause, type RunView } from '@bonsai/shared';
 
 /**
  * What the recovery notice says, by what actually happened (D45).
@@ -39,7 +39,6 @@ export function recoveryWords({
   const last = runs.at(-1);
   const cause = recoveryCause(last);
   const nothing = changedFiles === 0;
-  const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
   const headline = interrupted
     ? {
@@ -64,17 +63,17 @@ export function recoveryWords({
   }
   if (last !== undefined && last.stoppedBackground > 0) {
     details.push(
-      `${last.stoppedBackground} background ${plural(last.stoppedBackground, 'job was', 'jobs were')} still running and ${plural(last.stoppedBackground, 'was', 'were')} stopped.`,
+      `${plural(last.stoppedBackground, 'background job was', 'background jobs were')} still running and ${last.stoppedBackground === 1 ? 'was' : 'were'} stopped.`,
     );
   }
 
-  const count = `${changedFiles} ${plural(changedFiles, 'file', 'files')}`;
+  const count = plural(changedFiles, 'file');
   const files = nothing
     ? isYourFolder
       ? 'Nothing was written — this experiment only reads your folder.'
       : 'Nothing was written, so there is nothing to keep.'
     : cause === 'changed_after_finish'
-      ? `${count} changed after the last commit and ${plural(changedFiles, 'is', 'are')} not saved in any result.`
+      ? `${count} changed after the last commit and ${changedFiles === 1 ? 'is' : 'are'} not saved in any result.`
       : `${count} not yet saved in any result.`;
 
   return {

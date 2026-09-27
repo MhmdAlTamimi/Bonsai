@@ -122,7 +122,7 @@ test('review uses cumulative changes, including a dirty rename, deletion and new
   await rm(join(repo, 'later-deleted.txt'));
   await writeFile(join(repo, 'new.txt'), 'new\n');
   const range = { base, head };
-  const files = await reviewFiles(repo, range);
+  const files = await reviewFiles({ cwd: repo, committedOnly: false }, range);
   assert.equal(
     files.some((f) => f.path === 'later-deleted.txt'),
     false,
@@ -133,7 +133,7 @@ test('review uses cumulative changes, including a dirty rename, deletion and new
   assert.equal(renamed.additions, 2);
   assert.equal(renamed.uncommitted, true);
   assert.deepEqual(totalsOf(files), { files: 2, added: 3, removed: 0 });
-  const patch = await reviewFilePatch(repo, range, renamed);
+  const patch = await reviewFilePatch({ cwd: repo, committedOnly: false }, range, renamed);
   assert.match(patch.patch, /\+three/);
   assert.match(patch.patch, /\+four/);
 });

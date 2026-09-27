@@ -9,6 +9,22 @@ import { useCallback, useEffect, useState } from 'react';
  */
 export const NARROW_MAX = 900;
 
+export interface WorkspaceView {
+  narrow: boolean;
+  /** True when the experiment workspace is on screen. */
+  experimentOpen: boolean;
+  showMap: () => void;
+  showExperiment: () => void;
+  /** ⌘\: hide the conversation, or bring it back. */
+  toggleExperiment: () => void;
+  /**
+   * Called when the user picks an experiment. On a narrow window that IS the
+   * request to look at it; on a wide one the panel is already there, and a
+   * collapsed panel stays collapsed until it is asked back.
+   */
+  selected: () => void;
+}
+
 /**
  * Which of the two workspace views is showing, and whether the window can hold
  * both.
@@ -25,21 +41,7 @@ export const NARROW_MAX = 900;
  * cannot survive losing their layout box -- a scroll position, above all --
  * know to restore themselves when they come back.
  */
-export function useWorkspaceView(): {
-  narrow: boolean;
-  /** True when the experiment workspace is on screen. */
-  experimentOpen: boolean;
-  showMap: () => void;
-  showExperiment: () => void;
-  /** ⌘\: hide the conversation, or bring it back. */
-  toggleExperiment: () => void;
-  /**
-   * Called when the user picks an experiment. On a narrow window that IS the
-   * request to look at it; on a wide one the panel is already there, and a
-   * collapsed panel stays collapsed until it is asked back.
-   */
-  selected: () => void;
-} {
+export function useWorkspaceView(): WorkspaceView {
   const [narrow, setNarrow] = useState(
     () => typeof window !== 'undefined' && window.innerWidth <= NARROW_MAX,
   );
@@ -65,12 +67,28 @@ export function useWorkspaceView(): {
     if (!narrow) setExperimentOpen(true);
   }, [narrow]);
 
+  const toggleExperiment = useCallback(() => setExperimentOpen((open) => !open), []);
+  /**
+   * ⌘\ (Ctrl+\) collapses the conversation and brings it back — the one
+   * shortcut in the workspace, because the panel is the thing you hide to
+   * look at the map and want back a second later.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== '\\' || !(event.metaKey || event.ctrlKey)) return;
+      event.preventDefault();
+      toggleExperiment();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleExperiment]);
+
   return {
     narrow,
     experimentOpen,
     showMap: useCallback(() => setExperimentOpen(false), []),
     showExperiment: useCallback(() => setExperimentOpen(true), []),
-    toggleExperiment: useCallback(() => setExperimentOpen((open) => !open), []),
+    toggleExperiment,
     selected: useCallback(() => {
       // On a narrow window nothing else would change on screen, so choosing an
       // experiment and looking at it are the same gesture.

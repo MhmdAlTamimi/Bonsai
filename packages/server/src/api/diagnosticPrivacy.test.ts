@@ -19,6 +19,7 @@ test('diagnostics omit free-form errors/names/log content and redact credentials
       effort: null,
       permissionMode: 'default',
       standIn: false,
+      claudeCodeVersion: null,
     },
     connection: {
       state: 'error',
