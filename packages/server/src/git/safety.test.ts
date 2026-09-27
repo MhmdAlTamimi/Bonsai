@@ -94,6 +94,7 @@ test('a clean external commit is detected and never silently adopted', async () 
       repoPath: repo,
       worktreePath: repo,
       branchName: 'main',
+      ref: 'refs/bonsai/test/main',
       message: 'app',
       expectedState,
     }),

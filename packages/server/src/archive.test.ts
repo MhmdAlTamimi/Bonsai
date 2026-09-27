@@ -10,13 +10,14 @@ import { reviewOf } from './api/review.js';
 import { EventBus } from './api/events.js';
 import { openInMemory } from './db/open.js';
 import { Store } from './db/store.js';
-import { commitMessageFor, commitRunOutput } from './git/commit.js';
+import { commitMessageFor, commitRunOutput, currentBranch } from './git/commit.js';
 import { gitLine } from './git/exec.js';
-import { expectedGitState, readGitState } from './git/ownership.js';
+import { assertGitState, expectedGitState } from './git/ownership.js';
 import { branchExists, branchNameFor } from './git/repo.js';
 import { silentLogger } from './log.js';
 import { allocateNodeWorktree, createProject, deleteNodeTree } from './projects.js';
 import { createAllocatedChild } from './testing/allocatedChild.js';
+import { nodeRef, readRef } from './git/refs.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -58,6 +59,7 @@ describe('archiving an experiment’s folder', () => {
       repoPath: project.repo_path,
       worktreePath: node.worktree_path,
       branchName: node.branch_name ?? branchNameFor(nodeId),
+      ref: nodeRef(node.project_id, nodeId),
       message: commitMessageFor(node.display_name, node.description),
       baseCommit: node.base_commit,
     });
@@ -129,9 +131,13 @@ describe('archiving an experiment’s folder', () => {
       store.treeView(archived.project_id).find((n) => n.id === childId)!.folder,
       'archived',
     );
-    // The branch and its commit are still there.
+    // The branch and its commit are still there, and so is its ref.
     assert.equal(
       await gitLine(['rev-parse', `refs/heads/${archived.branch_name}`], project.repo_path),
+      archived.head_commit,
+    );
+    assert.equal(
+      await readRef(project.repo_path, nodeRef(project.id, childId)),
       archived.head_commit,
     );
     // Review reads the commits from the repository.
@@ -147,9 +153,10 @@ describe('archiving an experiment’s folder', () => {
     assert.equal(restored.worktree_allocated, 1);
     assert.equal(restored.archived_at, null);
     assert.notEqual(restored.restored_at, null);
-    // On its branch, at its last commit: exactly what the next run checks for.
-    assert.deepEqual(
-      await readGitState(restored.worktree_path),
+    // On its branch, at its last commit, its ref there too: exactly what the
+    // next run checks for.
+    await assertGitState(
+      restored.worktree_path,
       await expectedGitState(project.repo_path, restored),
     );
   });
@@ -160,8 +167,9 @@ describe('archiving an experiment’s folder', () => {
     await archiveFolder(store, node, false);
     await allocateNodeWorktree(store, store.getNode(childId)!);
     const project = store.getProject(node.project_id)!;
-    assert.deepEqual(
-      await readGitState(node.worktree_path),
+    assert.equal(await currentBranch(node.worktree_path), null);
+    await assertGitState(
+      node.worktree_path,
       await expectedGitState(project.repo_path, store.getNode(childId)!),
     );
   });

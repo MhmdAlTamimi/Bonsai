@@ -5,6 +5,7 @@ import { OperationConflict } from '../domain/errors.js';
 
 import { git, gitLine, status } from './exec.js';
 import { parentSnapshot } from './diff.js';
+import { moveRef, pinRef, readRef } from './refs.js';
 
 /** D22/D28: a single human-readable record, written by the agent, committed by the app. */
 export const CONTEXT_FILE = 'CONTEXT.md';
@@ -58,6 +59,8 @@ export async function commitRunOutput(opts: {
   repoPath: string;
   worktreePath: string;
   branchName: string;
+  /** The node's own ref (`nodeRef`). It moves to every commit made here. */
+  ref: string;
   message: string;
   /** Written as CONTEXT.md if the run changed files and the agent wrote none. */
   fallbackContext?: string;
@@ -108,6 +111,14 @@ export async function commitRunOutput(opts: {
 
   if (opts.expectedState) await assertGitState(worktreePath, opts.expectedState);
 
+  // The node's ref must be where this commit's parent is before anything is
+  // written. Made here when missing: that only adds protection.
+  const before = await gitLine(['rev-parse', 'HEAD'], worktreePath);
+  if ((await pinRef(opts.repoPath, opts.ref, before)) !== before)
+    throw new OperationConflict(
+      'The experiment’s saved code moved outside Bonsai. Work is preserved.',
+    );
+
   // Detached until now. Creating the branch here, at the moment of the first
   // commit, is the whole point: the ref is deferred, not chosen up front.
   if (onBranch === null) {
@@ -120,6 +131,15 @@ export async function commitRunOutput(opts: {
   await git(['commit', '-m', message], worktreePath);
 
   const commit = await gitLine(['rev-parse', 'HEAD'], worktreePath);
+  // Git checks the ref still points at `before`, so a move by anyone else in
+  // the meantime fails here rather than being overwritten.
+  await moveRef(opts.repoPath, opts.ref, commit, before).catch(async (error: unknown) => {
+    if ((await readRef(opts.repoPath, opts.ref)) !== before)
+      throw new OperationConflict(
+        'The experiment’s saved code moved outside Bonsai while this run was saving. Its new commit is kept in its folder.',
+      );
+    throw error;
+  });
   const parent = await parentSnapshot(worktreePath, commit);
   if (opts.expectedState) {
     if (parent !== opts.expectedState.head)

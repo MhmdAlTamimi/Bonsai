@@ -47,10 +47,10 @@ ancestors when the parent changed no files.
   read, can still be asked about it, and can no longer update it.
 - Archive an experiment's folder with Archive folder in its card's ⋯ menu, or let Bonsai do it
   after the experiment sits idle (Settings > Storage, 14 days by default, or off). Archiving
-  removes the checkout and keeps the branch, conversation, runs and Claude session; the card is
+  removes the checkout and keeps the code, conversation, runs and Claude session; the card is
   dimmed. The next run, or Open folder, checks it out again at the same path and setup runs
-  again. A running experiment, one with uncommitted work, and your own folder are never
-  archived. Ignored files other than dependencies and build output (a local `.env`, a scratch
+  again. A running experiment, one with uncommitted work, one whose Git state changed outside
+  Bonsai, and your own folder are never archived. Ignored files other than dependencies and build output (a local `.env`, a scratch
   database) are listed and confirmed first, and the idle sweep leaves those folders alone.
   Settings > Storage also shows what experiment folders take up.
 - Review compares the experiment's inherited base with committed and unfinished work.
@@ -67,9 +67,15 @@ current scope or supersede implementation. Contributor instructions are in [AGEN
 
 Bonsai owns experiment branches, worktrees and commits. The agent is instructed to ask
 for a new node instead of creating branches itself, and to provide instructions for
-changes outside the experiment. Unexpected Git HEAD, branch or common-repository changes
+changes outside the experiment. Unexpected Git HEAD, branch, ref or common-repository changes
 stop app mutations and leave work available for inspection. Bonsai does not silently
-reconcile an externally modified branch with its database.
+reconcile an externally modified branch or ref with its database.
+
+Every experiment has a hidden ref, `refs/bonsai/<project>/<experiment>`, at its latest commit
+(or the one it starts from). Git removes commits nothing refers to; this ref keeps an
+experiment's code while it has no folder, including a snapshot of uncommitted work taken when a
+folder was adopted. These refs are not branches: `git branch`, branch pickers and
+`git push --all` do not show or send them, while `git log --all` and mirror clones include them.
 
 **Worktrees are not security sandboxes.** Writable SDK tools and setup commands execute
 with the host user's access. The Git command hook catches common commands; it does not
@@ -99,8 +105,8 @@ refuses the copy. A setup command runs before the first writable agent run. It i
 once even if the command fails; cancellation leaves it eligible to run again. Setup errors
 appear in the conversation. A separate retry/versioned setup lifecycle is still planned.
 
-Deleting an adopted project removes its app-owned worktrees and recorded branches while
-preserving the original checkout and branch. Deleting a created project removes its owned
+Deleting an adopted project removes its app-owned worktrees, recorded branches and
+`refs/bonsai/<project>/` refs while preserving the original checkout and branch. Deleting a created project removes its owned
 repository and checkout. Deletion refuses unexpected Git state; inspect and resolve drift
 before retrying. Deletion removes the experiment; archiving (above) only removes its folder.
 

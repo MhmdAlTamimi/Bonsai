@@ -3,9 +3,11 @@ import { join } from 'node:path';
 import type { ArchiveCheck, StorageView } from '@bonsai/shared';
 
 import type { EventBus } from './api/events.js';
-import type { NodeRow, Store } from './db/store.js';
+import type { NodeRow, ProjectRow, Store } from './db/store.js';
 import { OperationConflict } from './domain/errors.js';
 import { ignoredPaths, status } from './git/exec.js';
+import { expectedGitState, readGitState } from './git/ownership.js';
+import { nodeRef, pinNode, readRef } from './git/refs.js';
 import { removeWorktree } from './git/worktree.js';
 import type { Logger } from './log.js';
 import { ownsWorktree } from './projects.js';
@@ -17,7 +19,8 @@ import { ownsWorktree } from './projects.js';
  * The folder is the only part of an experiment that is expensive to keep --
  * a full checkout, usually with its dependencies installed -- and the only
  * part that can be made again. The branch holds every commit, the database
- * holds the conversation and the runs, and Claude keeps its session. The next
+ * holds the conversation and the runs, and Claude keeps its session; the
+ * node's ref keeps its code even when no branch does (git/refs.ts). The next
  * run (or Open folder) checks the branch out again at the same path, which
  * matters because the session is found by that path, and runs setup again.
  *
@@ -110,6 +113,12 @@ export async function archiveCheck(
     return blocked(
       `It has changes no run has committed (${dirty.length === 1 ? '1 file' : `${dirty.length} files`}). Resume or discard them first.`,
     );
+  // A commit made in the folder by hand is kept only by the folder until
+  // something refers to it, so the folder must be where Bonsai left it.
+  if (await drifted(project, node))
+    return blocked(
+      'Its Git state changed outside Bonsai, by a commit or a branch switch. Inspect it with your Git tools first.',
+    );
   const copyFiles = store.projectView(project).setup.copyFiles;
   const ignored = (await ignoredPaths(node.worktree_path)).filter(
     (path) => !isRebuilt(path, copyFiles),
@@ -136,8 +145,23 @@ export async function archiveFolder(
       `Archiving would delete ignored files that the next run cannot bring back: ${check.ignored.join(', ')}`,
     );
   const project = store.getProject(node.project_id)!;
+  // With the folder gone, the node's ref is what keeps its code.
+  await pinNode(project.repo_path, node);
   await removeWorktree(project.repo_path, node.worktree_path);
   store.markArchived(node.id);
+}
+
+/** Whether the folder or the node's ref is somewhere other than Bonsai recorded. */
+async function drifted(project: ProjectRow, node: NodeRow): Promise<boolean> {
+  const expected = await expectedGitState(project.repo_path, node);
+  const actual = await readGitState(node.worktree_path);
+  const pinned = await readRef(project.repo_path, nodeRef(project.id, node.id));
+  return (
+    actual.head !== expected.head ||
+    actual.branch !== expected.branch ||
+    actual.commonDir !== expected.commonDir ||
+    (pinned !== null && pinned !== expected.head)
+  );
 }
 
 /** Bytes a folder takes on disk. Symlinks are counted as links, never followed. */

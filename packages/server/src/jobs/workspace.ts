@@ -3,6 +3,7 @@ import type { RunActivity } from '@bonsai/shared';
 import type { EventBus } from '../api/events.js';
 import type { NodeRow, ProjectRow, Store } from '../db/store.js';
 import { assertGitState, expectedGitState, type GitState } from '../git/ownership.js';
+import { pinNode } from '../git/refs.js';
 import type { Logger } from '../log.js';
 import { allocateNodeWorktree } from '../projects.js';
 import { resolveRunContext, type RunAttachments } from './runContext.js';
@@ -18,9 +19,9 @@ import { ensureSetup } from './setup.js';
  *      recorded, before anything is awaited that could let an edit slip in;
  *   2. the folder is allocated -- created at its recorded path the first time,
  *      or again after it was archived -- and its copy-in files are seeded;
- *   3. the git state is read and checked, the setup command runs once, and the
- *      state is checked again, because setup writes files under the same rules
- *      as the agent.
+ *   3. the node's ref is made if it has none, the git state is read and
+ *      checked, the setup command runs once, and the state is checked again,
+ *      because setup writes files under the same rules as the agent.
  *
  * A read-only run skips the git state and setup: it changes nothing, so there
  * is nothing to protect and nothing to install.
@@ -64,6 +65,8 @@ export async function prepareRun(
     if (!outcome.copied)
       note(`Could not copy ${outcome.path}: ${outcome.reason ?? 'unknown reason'}`);
 
+  // A node from before refs existed gets its ref here, at the latest.
+  if (!readOnly) await pinNode(project.repo_path, node);
   const expectedState = readOnly ? null : await expectedGitState(project.repo_path, node);
   if (expectedState) await assertGitState(node.worktree_path, expectedState);
   // Setup mutates files and obeys the same ownership boundary as agent writes.

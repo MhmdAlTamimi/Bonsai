@@ -15,6 +15,7 @@ import {
   deleteNodeTree,
 } from '../projects.js';
 import { git, gitLine } from '../git/exec.js';
+import { nodeRef } from '../git/refs.js';
 import { archiveFolder } from '../archive.js';
 import type { AgentRunner, RunEvent, RunSpec } from '../agent/AgentRunner.js';
 import type { DatabaseSync } from 'node:sqlite';
@@ -138,17 +139,24 @@ test('recovery selects the request, never the later permission answer; legacy fa
 
 test('failed lazy allocation preserves its row and closes the failed run', async () => {
   const p = await create();
-  db.prepare('UPDATE node SET head_commit = ? WHERE id = ?').run('missing-object', p.masterNodeId);
   const child = await createChildNode(store, {
     projectId: p.projectId,
     parentId: p.masterNodeId,
     displayName: 'bad',
     description: '',
   });
+  // A node from before refs existed, whose code git has since removed.
+  const repo = store.getProject(p.projectId)!.repo_path;
+  await git(['update-ref', '-d', nodeRef(p.projectId, child.nodeId)], repo);
+  db.prepare('UPDATE node SET base_commit = ? WHERE id = ?').run('d'.repeat(40), child.nodeId);
   jobs.start(child.nodeId, 'start');
   await settled(child.nodeId);
   assert.equal(store.listNodes(p.projectId).length, 2);
   assert.equal(store.listRuns(child.nodeId).at(-1)?.status, 'failed');
+  assert.match(
+    String(db.prepare('SELECT error FROM run WHERE node_id = ?').get(child.nodeId)?.['error']),
+    /commit ddddddd\) is no longer in the repository/,
+  );
   assert.equal(jobs.activeCount(), 0);
 });
 

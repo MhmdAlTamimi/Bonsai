@@ -14,6 +14,7 @@ import { branchNameFor } from '../git/repo.js';
 import { git, gitLine } from '../git/exec.js';
 import { runCommand } from '../exec/command.js';
 import { writeApplyPatch } from './applyPatch.js';
+import { nodeRef } from '../git/refs.js';
 
 /**
  * The command that takes an experiment's changes to your own repository.
@@ -49,6 +50,7 @@ describe('the apply command', () => {
       repoPath: store.getProject(node.project_id)!.repo_path,
       worktreePath: node.worktree_path,
       branchName: node.branch_name ?? branchNameFor(nodeId),
+      ref: nodeRef(node.project_id, nodeId),
       message: 'work',
       baseCommit: node.base_commit,
     });

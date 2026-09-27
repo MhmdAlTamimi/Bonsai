@@ -5,7 +5,13 @@ import type { PermissionMode } from '@bonsai/shared';
 
 import type { NodeRow, ProjectRow, Store } from './db/store.js';
 import { workDirIn } from './db/rows.js';
-import { DEFAULT_BRANCH, branchExists, branchNameFor, createRepo } from './git/repo.js';
+import {
+  DEFAULT_BRANCH,
+  branchExists,
+  branchNameFor,
+  commitExists,
+  createRepo,
+} from './git/repo.js';
 import {
   addBranchWorktree,
   addDetachedWorktree,
@@ -17,6 +23,16 @@ import { toLineage } from './db/store.js';
 import { adoptDirectory, snapshotUncommitted, suggestProjectName } from './git/adopt.js';
 import { assertGitState, expectedGitState } from './git/ownership.js';
 import { gitLine } from './git/exec.js';
+import {
+  deleteProjectRefs,
+  deleteRef,
+  nodeRef,
+  pinNode,
+  projectRefs,
+  readRef,
+  tipOf,
+} from './git/refs.js';
+import type { Logger } from './log.js';
 import { OperationConflict } from './domain/errors.js';
 import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
 
@@ -34,6 +50,9 @@ import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
  *   uses it in place: that folder IS the repository, master is that folder on
  *   its existing branch, and nodes are `node/<uuid>` branches inside THEIR
  *   repository. Bonsai may delete only what it created.
+ *
+ * Either way every node has a hidden ref, `refs/bonsai/<project>/<node>`, at
+ * its latest commit, which is what keeps its code in git (see git/refs.ts).
  */
 
 export async function createProject(
@@ -84,6 +103,7 @@ export async function createProject(
       rootBranchName: DEFAULT_BRANCH,
       ...(chosen === null ? {} : { worktreePath: chosen }),
     });
+    await pinNode(project.repo_path, master);
 
     await addBranchWorktree(project.repo_path, master.worktree_path, DEFAULT_BRANCH);
     checkout = master.worktree_path;
@@ -248,6 +268,10 @@ export async function adoptProject(
       // The user's own directory, not a worktree Bonsai created.
       worktreePath: adopted.repoPath,
     });
+    // The commit every experiment here starts from. Their branch may move on,
+    // and a snapshot of uncommitted work was never on it: no folder is ever
+    // checked out at it either, so this ref is all that keeps it.
+    await pinNode(adopted.repoPath, master);
   } catch (error) {
     store.deleteProject(project.id);
     throw error;
@@ -270,7 +294,7 @@ export async function adoptProject(
  * and none is named in git until the node's first commit, which is what makes
  * `creates_branch` an outcome rather than a creation-time choice.
  */
-export function createChildNode(
+export async function createChildNode(
   store: Store,
   input: {
     projectId: string;
@@ -291,10 +315,22 @@ export function createChildNode(
   // Computed here as well as inside createNode so the value that reaches git is
   // provably the same one that reaches the database.
   const baseCommit = resolveBaseCommit(toLineage(parent));
+  // Refused before anything is made: nothing can start from code git has lost.
+  if (!(await commitExists(project.repo_path, baseCommit)))
+    throw new OperationConflict(
+      `The code this experiment would start from (commit ${baseCommit.slice(0, 7)}) is no longer in the repository.`,
+    );
 
   const node = store.createNode(input);
   store.markAllocated(node.id, false);
-  return Promise.resolve({ nodeId: node.id, baseCommit, seeded: [] });
+  // From now on its code is kept whether or not it ever gets a folder.
+  try {
+    await pinNode(project.repo_path, node);
+  } catch (error) {
+    store.deleteNode(node.id);
+    throw error;
+  }
+  return { nodeId: node.id, baseCommit, seeded: [] };
 }
 
 /** Folders being created right now, so a run and Open folder asking at once share one checkout. */
@@ -328,6 +364,9 @@ async function createFolder(store: Store, stale: NodeRow): Promise<SeedFileOutco
     throw new Error(
       'An unexpected folder occupies this experiment location. Work preserved; inspect it before retrying.',
     );
+  // Also where a node from before refs existed gets one, and where code git
+  // no longer has is reported as that rather than as git's own error.
+  await pinNode(project.repo_path, node);
   if (node.archived_at !== null) {
     // Back on its own branch when it has one, at the same path: the agent's
     // session is keyed by that path, so anywhere else would start it afresh.
@@ -424,6 +463,7 @@ export async function deleteNodeTree(store: Store, nodeId: string): Promise<numb
     if (ownsBranch(project, row)) {
       await deleteBranch(project.repo_path, row.branch_name!);
     }
+    await deleteNodeRef(project, row);
   }
 
   for (const row of doomed)
@@ -470,6 +510,9 @@ export async function deleteProjectTree(
   }
 
   if (project.source_kind === 'adopted') {
+    // Every ref of this project, including any no node names any more. Only
+    // `refs/bonsai/<project>/`, which nothing but Bonsai writes.
+    if (await pathExists(project.repo_path)) await deleteProjectRefs(project.repo_path, project.id);
     // Their repository stays. Bonsai's own folder for this project -- which
     // held the node worktrees and nothing else -- does not; leaving it behind
     // was a slow disk leak and, worse, made "deleted" mean two different
@@ -557,6 +600,14 @@ export function projectDeletionImpact(
 
 /** Check the whole deletion set before changing anything. External drift is preserved. */
 async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void> {
+  // Every node's, the user's own folder included: the ref is Bonsai's either way.
+  if (await pathExists(project.repo_path)) {
+    const pinned = await readRef(project.repo_path, nodeRef(project.id, node.id));
+    if (pinned !== null && pinned !== tipOf(node))
+      throw new OperationConflict(
+        'An experiment’s saved code changed outside Bonsai. Nothing was deleted.',
+      );
+  }
   if (!ownsWorktree(project, node)) return;
   if (
     node.branch_name !== null &&
@@ -583,4 +634,49 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
         'The recorded branch changed outside Bonsai. Nothing was deleted.',
       );
   }
+}
+
+/** Removes a node's ref, which verifyDeletion found at its tip or missing. */
+async function deleteNodeRef(project: ProjectRow, node: NodeRow): Promise<void> {
+  const tip = tipOf(node);
+  if (tip === null || !(await pathExists(project.repo_path))) return;
+  await deleteRef(project.repo_path, nodeRef(project.id, node.id), tip);
+}
+
+/**
+ * Gives every node that has none a ref: nodes made before refs existed.
+ *
+ * Run at startup, and cheap after the first time -- one listing per project.
+ * The nodes this matters most for are exactly the ones nothing else would
+ * reach: saved for later or archived, with no folder and no run coming.
+ * Failures are logged and skipped; a run or an archive of that node pins it
+ * again, and reports what is wrong there.
+ */
+export async function pinExistingNodes(store: Store, log: Logger): Promise<number> {
+  let pinned = 0;
+  for (const project of store.listProjects()) {
+    try {
+      if (!(await pathExists(project.repo_path))) continue;
+      const refs = await projectRefs(project.repo_path, project.id);
+      for (const node of store.listNodes(project.id)) {
+        if (tipOf(node) === null || refs.has(nodeRef(project.id, node.id))) continue;
+        try {
+          await pinNode(project.repo_path, node);
+          pinned += 1;
+        } catch (error) {
+          log.warn('node.pin_failed', {
+            projectId: project.id,
+            nodeId: node.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } catch (error) {
+      log.warn('project.pin_failed', {
+        projectId: project.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return pinned;
 }

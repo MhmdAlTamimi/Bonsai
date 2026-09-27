@@ -21,6 +21,7 @@ import { commitRunOutput } from './commit.js';
 import { branchNameFor } from './repo.js';
 import { inspectDirectory } from './adopt.js';
 import { git, gitLine } from './exec.js';
+import { nodeRef } from './refs.js';
 
 /**
  * Adopting a directory the user already has, against real git.
@@ -83,6 +84,7 @@ describe('adopting a directory', () => {
       repoPath: project.repo_path,
       worktreePath: node.worktree_path,
       branchName: node.branch_name ?? branchNameFor(nodeId),
+      ref: nodeRef(node.project_id, nodeId),
       message: 'node work',
     });
     if (outcome.committed) store.recordCommit(nodeId, outcome.branch!, outcome.commit!);

@@ -14,6 +14,7 @@ import { commitMessageFor, commitRunOutput, currentBranch } from './commit.js';
 import { branchNameFor } from './repo.js';
 import { nodeDiff, runDiff, parentSnapshot } from './diff.js';
 import { gitLine } from './exec.js';
+import { nodeRef } from './refs.js';
 
 /**
  * Integration tests against real git in temp directories. No mocks: the point
@@ -49,6 +50,7 @@ describe('git layer', () => {
       repoPath: project.repo_path,
       worktreePath: node.worktree_path,
       branchName: node.branch_name ?? branchNameFor(nodeId),
+      ref: nodeRef(node.project_id, nodeId),
       message: commitMessageFor(node.display_name, node.description),
     });
     if (outcome.committed) store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
@@ -444,6 +446,7 @@ describe('diff stats (2.3)', () => {
         repoPath,
         worktreePath: node.worktree_path,
         branchName: branchNameFor(nodeId),
+        ref: nodeRef(node.project_id, nodeId),
         message: 'work',
         baseCommit: node.base_commit,
       });
@@ -475,6 +478,7 @@ describe('diff stats (2.3)', () => {
         repoPath,
         worktreePath: master.worktree_path,
         branchName: master.branch_name ?? branchNameFor(master.id),
+        ref: nodeRef(master.project_id, master.id),
         message: 'work',
         baseCommit,
       });
@@ -511,6 +515,7 @@ describe('diff stats (2.3)', () => {
       repoPath: store.getProject(project.projectId)!.repo_path,
       worktreePath: node.worktree_path,
       branchName: branchNameFor(nodeId),
+      ref: nodeRef(node.project_id, nodeId),
       message: 'nothing',
       baseCommit: node.base_commit,
     });
@@ -539,6 +544,7 @@ describe('diff stats (2.3)', () => {
       repoPath,
       worktreePath: master.worktree_path,
       branchName: 'master',
+      ref: nodeRef(master.project_id, master.id),
       message: 'seed',
     });
     store.recordCommit(project.masterNodeId, seeded.branch!, seeded.commit!);
@@ -556,6 +562,7 @@ describe('diff stats (2.3)', () => {
       repoPath,
       worktreePath: node.worktree_path,
       branchName: branchNameFor(nodeId),
+      ref: nodeRef(node.project_id, nodeId),
       message: 'trim',
       baseCommit: node.base_commit,
     });

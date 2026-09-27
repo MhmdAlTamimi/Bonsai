@@ -46,12 +46,18 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   with an experiment folder), recorded on the question like a run's resolved context.
 - Name-only children have no worktree. First execution allocates a detached checkout at
   the pinned base; the first modifying run creates `node/<uuid>`.
+- Every node has a hidden ref, `refs/bonsai/<projectId>/<nodeId>`, at its tip
+  (`head_commit ?? base_commit`): created with the node, moved by each commit with the old
+  value as a guard, checked with the Git state, removed with the node (`git/refs.ts`). It is
+  what keeps code git would otherwise prune. A ref pointing elsewhere is drift: report it,
+  never move it to match the database. Startup, allocation and runs pin nodes that have none.
 - An archived experiment (`node.archived_at`) has no worktree either, and keeps its branch,
-  rows and session. The next allocation checks the branch out again at the SAME path (the SDK
-  finds the session by cwd) and setup runs again (`setup_ran_at` is cleared on archive).
-  Never archive a running node, one with uncommitted work, or the user's own folder; ignored
-  files that setup or a build cannot recreate need the user's confirmation. Review and notes
-  read an archived node's commits from the repository. See `archive.ts`.
+  ref, rows and session. The next allocation checks the branch out again at the SAME path (the
+  SDK finds the session by cwd) and setup runs again (`setup_ran_at` is cleared on archive).
+  Never archive a running node, one with uncommitted work or drifted Git state, or the user's
+  own folder; ignored files that setup or a build cannot recreate need the user's
+  confirmation. Review and notes read an archived node's commits from the repository. See
+  `archive.ts`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.
 - Children do not freeze parents (approved Phase 3). Existing children never move to newer
   parent code automatically. An adopted original checkout remains read-only.
