@@ -10,9 +10,10 @@ ancestors when the parent changed no files.
 
 - Create a new project or adopt an existing repository. New projects use a Bonsai-owned
   bare repository plus a checkout. Adopting uses the repository in place: master becomes a
-  read-only checkout, in Bonsai's folder, of the commit your folder was at (or a snapshot of
-  its uncommitted work), and every experiment starts from it. It does not follow later changes
-  in your folder; start a new project to work from those. Your folder is only read.
+  read-only checkout, in Bonsai's folder, of the version you pick (the branch your folder is
+  on by default, or another branch, remote branch or tag), and every experiment starts from
+  it. It does not follow later changes in your folder; start a new project to work from
+  those. Your folder is only read, and never switched to the version you pick.
 - Selecting a repository subdirectory sets the agent's working directory. Git still
   operates on the whole repository. Bonsai does not initialize a nested repository.
 - A child's checkout is allocated when it first runs, detached at its pinned base. A modifying
@@ -99,9 +100,10 @@ Bash and agent delegation. They skip setup. These are SDK tool restrictions, not
 filesystem containment. Unit adapter tests pin the configuration; verifying a different
 SDK version's actual behavior requires the opt-in live probes under `scripts/`.
 
-Adoption refuses detached HEAD: select the intended branch with your own Git tools first.
-Including uncommitted work snapshots tracked and eligible untracked files without changing
-your index, checkout or branches; ignored files are excluded. Projects adopted before master
+A folder on no branch (a detached checkout) starts from the commit it is on. Unsaved changes
+can be included only when starting from what the folder has checked out; that snapshots
+tracked and eligible untracked files without changing your index, checkout or branches, and
+ignored files are excluded. Projects adopted before master
 had a checkout of its own keep using your folder as master, read-only. A folder with no repository or
 no commits is initialized/committed during adoption, which changes that folder.
 

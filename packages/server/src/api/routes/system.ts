@@ -75,6 +75,7 @@ route('POST', '/api/inspect', async (req, res, _p, { store }) => {
       isDirectory: true,
       isGitRepo: true,
       branch: null,
+      startPoints: [],
       headCommit: null,
       dirtyFiles: 0,
       entryCount: 0,

@@ -220,6 +220,8 @@ export async function adoptProject(
     effort?: string | null;
     /** Let nodes branch from uncommitted work, without committing it anywhere. */
     includeUncommitted?: boolean;
+    /** A branch, remote branch or tag to start from (`refs/...`). The checked-out one by default. */
+    startFrom?: string;
   },
 ): Promise<{
   projectId: string;
@@ -231,11 +233,17 @@ export async function adoptProject(
   /** The chosen folder relative to it. '' when the repository root was chosen. */
   workDir: string;
 }> {
-  const adopted = await adoptDirectory(input.path);
+  const adopted = await adoptDirectory(input.path, input.startFrom);
 
   let base = adopted.headCommit;
   let snapshot = false;
   if (input.includeUncommitted === true) {
+    // Unsaved changes sit on top of what the folder has checked out, and mean
+    // nothing on top of any other version.
+    if (!adopted.current)
+      throw new OperationConflict(
+        `Your unsaved changes belong to the version your folder has checked out, not to ${adopted.label}.`,
+      );
     const sha = await snapshotUncommitted(adopted.repoPath);
     if (sha !== null) {
       base = sha;
@@ -262,7 +270,7 @@ export async function adoptProject(
       // that is what git owns and what deletion must leave alone. Where the
       // agent stands inside it is `workDir` (D37).
       sourcePath: adopted.repoPath,
-      protectedBranch: adopted.branch,
+      protectedBranch: adopted.label,
       workDir: adopted.workDir,
     },
   });
@@ -274,7 +282,7 @@ export async function adoptProject(
       id: masterId,
       projectId: project.id,
       parentId: null,
-      displayName: adopted.branch,
+      displayName: adopted.label,
       description: input.description,
       rootCommit: base,
       // Detached at the snapshot rather than on their branch, which is checked

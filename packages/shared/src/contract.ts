@@ -270,8 +270,9 @@ export interface ProjectView {
   /** `sourcePath` and `workDir` joined: the folder to reveal or name. */
   workPath: string | null;
   /**
-   * The branch the project's own repository is on — `main`, `master`, whatever
-   * an adopted repository uses.
+   * What an adopted project started from — `main`, `feature-x`, `origin/fix`,
+   * `v2.1` — which for projects adopted before that could be chosen is the
+   * branch the folder was on.
    *
    * Null for a project Bonsai created, where the only branch is its master's;
    * experiments have none (older ones may have a `node/<uuid>`, which D33 says
@@ -910,6 +911,12 @@ export interface AdoptProjectRequest {
   description?: string;
   /** Branch nodes from uncommitted work, without committing it to their branch. */
   includeUncommitted?: boolean;
+  /**
+   * Which version to start from: a `ref` from the inspection's `startPoints`.
+   * Omitted, the one the folder has checked out. Never checked out in the
+   * folder itself.
+   */
+  startFrom?: string;
 }
 
 /**
@@ -926,12 +933,28 @@ export interface KnownFolderView {
   nodeName: string | null;
 }
 
+/** A version a project can start from: a branch, a remote branch, a tag or a detached commit. */
+export interface StartPointView {
+  /** The full ref (`refs/heads/feature-x`), or `HEAD` for a detached checkout. What `startFrom` takes. */
+  ref: string;
+  /** What people call it: `feature-x`, `origin/fix`, `v2.1`, or a short commit. */
+  name: string;
+  kind: 'branch' | 'remote' | 'tag' | 'commit';
+  commit: string;
+  /** When its latest commit was made (a tag's: when it was tagged), ISO 8601. */
+  date: string;
+  /** What the folder has checked out: the only version its unsaved changes belong to. */
+  current: boolean;
+}
+
 export interface DirectoryInspectionView {
   path: string;
   exists: boolean;
   isDirectory: boolean;
   isGitRepo: boolean;
   branch: string | null;
+  /** The versions a project can start from, newest first. See StartPointView. */
+  startPoints: StartPointView[];
   headCommit: string | null;
   dirtyFiles: number;
   entryCount: number;

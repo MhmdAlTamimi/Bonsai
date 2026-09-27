@@ -267,6 +267,121 @@ describe('adopting a directory', () => {
     assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
   });
 
+  // -- which version a project starts from ------------------------------------
+
+  /** Their repo with a second branch, `feature`, one commit ahead and not checked out. */
+  async function withFeatureBranch(): Promise<{ path: string; feature: string; main: string }> {
+    const path = await userRepo();
+    const main = await gitLine(['rev-parse', 'HEAD'], path);
+    await git(['switch', '-c', 'feature'], path);
+    await writeFile(join(path, 'feature.txt'), 'committed on feature\n', 'utf8');
+    await git(['add', '-A'], path);
+    await git(['commit', '-m', 'feature work'], path);
+    const feature = await gitLine(['rev-parse', 'HEAD'], path);
+    await git(['switch', 'main'], path);
+    return { path, feature, main };
+  }
+
+  test('lists the branches, remote branches and tags a project can start from', async () => {
+    const { path, feature, main } = await withFeatureBranch();
+    await git(['tag', '-a', 'v1', '-m', 'first release', main], path);
+    await git(['update-ref', 'refs/remotes/origin/fix', feature], path);
+    await git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/fix'], path);
+
+    const points = (await inspectDirectory(path)).startPoints;
+    const byName = new Map(points.map((p) => [p.name, p]));
+    assert.deepEqual(byName.get('main'), {
+      ref: 'refs/heads/main',
+      name: 'main',
+      kind: 'branch',
+      commit: main,
+      date: byName.get('main')!.date,
+      current: true,
+    });
+    assert.equal(byName.get('feature')?.current, false);
+    assert.equal(byName.get('feature')?.commit, feature);
+    assert.equal(byName.get('origin/fix')?.kind, 'remote');
+    // An annotated tag names a tag object; what it starts from is the commit.
+    assert.equal(byName.get('v1')?.commit, main);
+    assert.equal(byName.has('origin/HEAD'), false, 'it only names another remote branch');
+    assert.ok(points.every((p) => !Number.isNaN(Date.parse(p.date))));
+  });
+
+  test('a project can start from a branch the folder is not on, and the folder stays put', async () => {
+    const { path, feature } = await withFeatureBranch();
+    await writeFile(join(path, 'README.md'), '# mine, unsaved\n', 'utf8');
+    const { projectId, masterNodeId } = await adoptProject(store, {
+      path,
+      description: '',
+      model: null,
+      permissionMode: 'default',
+      startFrom: 'refs/heads/feature',
+    });
+
+    const master = store.getNode(masterNodeId)!;
+    assert.equal(master.head_commit, feature);
+    assert.equal(master.display_name, 'feature');
+    assert.equal(store.projectView(store.getProject(projectId)!).branchLabel, 'feature');
+    await allocateNodeWorktree(store, master);
+    assert.equal(
+      await readFile(join(master.worktree_path, 'feature.txt'), 'utf8'),
+      'committed on feature\n',
+    );
+    // Their folder: still on main, unsaved edit and all.
+    assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
+    assert.equal(existsSync(join(path, 'feature.txt')), false);
+    assert.equal(await readFile(join(path, 'README.md'), 'utf8'), '# mine, unsaved\n');
+
+    // Kept even once the branch is gone and git has cleaned up.
+    await git(['branch', '-D', 'feature'], path);
+    await git(['reflog', 'expire', '--expire-unreachable=now', '--all'], path);
+    await git(['gc', '--prune=now', '--quiet'], path);
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'child',
+      description: '',
+    });
+    assert.equal(store.getNode(nodeId)!.base_commit, feature);
+  });
+
+  test('unsaved changes can only come along from the version the folder is on', async () => {
+    const { path } = await withFeatureBranch();
+    await writeFile(join(path, 'README.md'), '# mine, unsaved\n', 'utf8');
+    await assert.rejects(
+      adoptProject(store, {
+        path,
+        description: '',
+        model: null,
+        permissionMode: 'default',
+        startFrom: 'refs/heads/feature',
+        includeUncommitted: true,
+      }),
+      /unsaved changes belong to the version your folder has checked out/,
+    );
+    assert.equal(store.listProjects().length, 0);
+    await assert.rejects(
+      adoptProject(store, {
+        path,
+        description: '',
+        model: null,
+        permissionMode: 'default',
+        startFrom: 'feature',
+      }),
+      /Choose a branch, a remote branch or a tag/,
+    );
+    await assert.rejects(
+      adoptProject(store, {
+        path,
+        description: '',
+        model: null,
+        permissionMode: 'default',
+        startFrom: 'refs/heads/gone',
+      }),
+      /gone is no longer in this repository/,
+    );
+  });
+
   // -- repository identity and working scope (D37) ---------------------------
 
   test('a folder inside a repository adopts the repository and works in the folder', async () => {

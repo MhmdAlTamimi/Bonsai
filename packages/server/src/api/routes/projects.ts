@@ -61,6 +61,7 @@ route('POST', '/api/projects/adopt', async (req, res, _p, { store, bus, settings
     permissionMode: settings.permissionMode(),
     effort: settings.effort(),
     includeUncommitted: body.includeUncommitted === true,
+    ...(typeof body.startFrom === 'string' ? { startFrom: body.startFrom } : {}),
   });
   bus.publish(created.projectId, { type: 'tree.updated', projectId: created.projectId });
   sendJson(res, 201, created);
