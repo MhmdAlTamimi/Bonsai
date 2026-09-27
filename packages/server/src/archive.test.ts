@@ -11,13 +11,12 @@ import { EventBus } from './api/events.js';
 import { openInMemory } from './db/open.js';
 import { Store } from './db/store.js';
 import { commitMessageFor, commitRunOutput, currentBranch } from './git/commit.js';
-import { gitLine } from './git/exec.js';
+import { git, gitLine } from './git/exec.js';
 import { assertGitState, expectedGitState } from './git/ownership.js';
-import { branchExists, branchNameFor } from './git/repo.js';
 import { silentLogger } from './log.js';
 import { allocateNodeWorktree, createProject, deleteNodeTree } from './projects.js';
 import { createAllocatedChild } from './testing/allocatedChild.js';
-import { nodeRef, readRef } from './git/refs.js';
+import { branchOf, nodeRef, readRef } from './git/refs.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -58,7 +57,7 @@ describe('archiving an experiment’s folder', () => {
     const outcome = await commitRunOutput({
       repoPath: project.repo_path,
       worktreePath: node.worktree_path,
-      branchName: node.branch_name ?? branchNameFor(nodeId),
+      branchName: branchOf(node),
       ref: nodeRef(node.project_id, nodeId),
       message: commitMessageFor(node.display_name, node.description),
       baseCommit: node.base_commit,
@@ -111,7 +110,7 @@ describe('archiving an experiment’s folder', () => {
     assert.equal(isRebuilt('.env', ['.env']), true);
   });
 
-  test('removes the folder, keeps the branch, and brings it back at the same path', async () => {
+  test('removes the folder, keeps the code, and brings it back at the same path', async () => {
     const { childId } = await experiment();
     await run(childId, { 'app.py': 'print(2)\n' });
     store.markSetupRan(childId);
@@ -131,15 +130,9 @@ describe('archiving an experiment’s folder', () => {
       store.treeView(archived.project_id).find((n) => n.id === childId)!.folder,
       'archived',
     );
-    // The branch and its commit are still there, and so is its ref.
-    assert.equal(
-      await gitLine(['rev-parse', `refs/heads/${archived.branch_name}`], project.repo_path),
-      archived.head_commit,
-    );
-    assert.equal(
-      await readRef(project.repo_path, nodeRef(project.id, childId)),
-      archived.head_commit,
-    );
+    // Its ref still holds its commit: nothing else refers to it now.
+    assert.equal(archived.branch_name, nodeRef(project.id, childId));
+    assert.equal(await readRef(project.repo_path, archived.branch_name), archived.head_commit);
     // Review reads the commits from the repository.
     const review = await reviewOf(store, archived);
     assert.deepEqual(
@@ -153,12 +146,39 @@ describe('archiving an experiment’s folder', () => {
     assert.equal(restored.worktree_allocated, 1);
     assert.equal(restored.archived_at, null);
     assert.notEqual(restored.restored_at, null);
-    // On its branch, at its last commit, its ref there too: exactly what the
-    // next run checks for.
+    // Detached at its last commit, its ref there too: exactly what the next
+    // run checks for.
+    assert.equal(await currentBranch(restored.worktree_path), null);
     await assertGitState(
       restored.worktree_path,
       await expectedGitState(project.repo_path, restored),
     );
+  });
+
+  test('an experiment from before refs comes back on its own branch', async () => {
+    const { childId } = await experiment();
+    await run(childId, { 'app.py': 'print(2)\n' });
+    // As older versions of Bonsai left it: on `node/<uuid>`, with no ref.
+    const project = store.getProject(store.getNode(childId)!.project_id)!;
+    const branch = `node/${childId}`;
+    await git(['switch', '-c', branch], store.getNode(childId)!.worktree_path);
+    await git(['update-ref', '-d', nodeRef(project.id, childId)], project.repo_path);
+    db.prepare('UPDATE node SET branch_name = ? WHERE id = ?').run(branch, childId);
+
+    await archiveFolder(store, store.getNode(childId)!, false);
+    await allocateNodeWorktree(store, store.getNode(childId)!);
+    const restored = store.getNode(childId)!;
+    assert.equal(await currentBranch(restored.worktree_path), branch);
+    await assertGitState(
+      restored.worktree_path,
+      await expectedGitState(project.repo_path, restored),
+    );
+    // And it keeps committing there, its ref alongside.
+    await run(childId, { 'app.py': 'print(3)\n' });
+    const after = store.getNode(childId)!;
+    assert.equal(after.branch_name, branch);
+    assert.equal(await gitLine(['rev-parse', branch], project.repo_path), after.head_commit);
+    assert.equal(await readRef(project.repo_path, nodeRef(project.id, childId)), after.head_commit);
   });
 
   test('an experiment that committed nothing comes back where it started', async () => {
@@ -234,8 +254,8 @@ describe('archiving an experiment’s folder', () => {
     await deleteNodeTree(store, childId);
     assert.equal(store.getNode(childId), undefined);
     assert.equal(
-      await branchExists(store.getProject(node.project_id)!.repo_path, node.branch_name!),
-      false,
+      await readRef(store.getProject(node.project_id)!.repo_path, node.branch_name!),
+      null,
     );
   });
 

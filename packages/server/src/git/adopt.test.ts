@@ -21,7 +21,7 @@ import { commitRunOutput } from './commit.js';
 import { branchNameFor } from './repo.js';
 import { inspectDirectory } from './adopt.js';
 import { git, gitLine } from './exec.js';
-import { nodeRef } from './refs.js';
+import { branchOf, nodeRef } from './refs.js';
 
 /**
  * Adopting a directory the user already has, against real git.
@@ -83,7 +83,7 @@ describe('adopting a directory', () => {
     const outcome = await commitRunOutput({
       repoPath: project.repo_path,
       worktreePath: node.worktree_path,
-      branchName: node.branch_name ?? branchNameFor(nodeId),
+      branchName: branchOf(node),
       ref: nodeRef(node.project_id, nodeId),
       message: 'node work',
     });
@@ -173,7 +173,7 @@ describe('adopting a directory', () => {
     assert.equal(await readFile(join(path, 'draft.txt'), 'utf8'), 'half an idea\n');
   });
 
-  test('a child gets its own worktree, on a node/ branch inside the user repo', async () => {
+  test('a child gets its own worktree, and its commits add no branch to the user repo', async () => {
     const path = await userRepo();
     const { projectId, masterNodeId } = await adopt(path);
 
@@ -186,12 +186,13 @@ describe('adopting a directory', () => {
     await run(nodeId, { 'feature.txt': 'new\n' });
 
     const child = store.getNode(nodeId)!;
-    assert.equal(child.branch_name, branchNameFor(nodeId));
+    assert.equal(child.branch_name, nodeRef(projectId, nodeId));
     assert.ok(!child.worktree_path.startsWith(path), "the worktree lives in Bonsai's directory");
-    // But the branch is in the user's repository, so their git can see it --
-    // which is what makes an export feature unnecessary.
-    const branches = await gitLine(['branch', '--format=%(refname:short)'], path);
-    assert.ok(branches.split('\n').includes(child.branch_name));
+    // The commit is in the user's repository, kept by a ref that is not a
+    // branch: their `git branch` (and branch pickers, and `push --all`) never
+    // see it.
+    assert.equal(await gitLine(['rev-parse', child.branch_name], path), child.head_commit);
+    assert.equal(await gitLine(['branch', '--format=%(refname:short)'], path), 'main');
     assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
   });
 
@@ -531,16 +532,32 @@ describe('adopting a directory', () => {
       description: '',
     });
     await run(nodeId, { 'feature.txt': 'new\n' });
+    // And one as older versions of Bonsai left it: on a `node/<uuid>` branch.
+    const older = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'older',
+      description: '',
+    });
+    await run(older.nodeId, { 'older.txt': 'old\n' });
+    const olderPath = store.getNode(older.nodeId)!.worktree_path;
+    await git(['switch', '-c', branchNameFor(older.nodeId)], olderPath);
+    db.prepare('UPDATE node SET branch_name = ? WHERE id = ?').run(
+      branchNameFor(older.nodeId),
+      older.nodeId,
+    );
 
     const impact = projectDeletionImpact(store, projectId)!;
     assert.equal(impact.keepsDirectory, path);
     assert.equal(impact.removesDirectory, null);
-    assert.equal(impact.branches, 1);
-    assert.equal(impact.nodes, 2);
+    assert.equal(impact.branches, 1, 'only the older experiment has one');
+    assert.equal(impact.nodes, 3);
 
     const result = await deleteProjectTree(store, projectId);
     assert.equal(result.keptDirectory, impact.keepsDirectory);
     assert.equal(result.removedDirectory, impact.removesDirectory);
+    assert.equal(await gitLine(['branch', '--format=%(refname:short)'], path), 'main');
+    assert.equal(await gitLine(['for-each-ref', 'refs/bonsai/'], path), '');
   });
 
   // -- created projects, for contrast ----------------------------------------

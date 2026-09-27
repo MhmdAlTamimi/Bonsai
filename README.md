@@ -13,8 +13,9 @@ ancestors when the parent changed no files.
 - Selecting a repository subdirectory sets the agent's working directory. Git still
   operates on the whole repository. Bonsai does not initialize a nested repository.
 - A child's checkout is allocated when it first runs, detached at its pinned base. A modifying
-  run creates its branch and app-owned commit. Further modifying runs append commits;
-  no-change conversations are valid.
+  run makes an app-owned commit there, kept by the experiment's hidden ref (see Repository
+  safety); Bonsai creates no branches. Further modifying runs append commits; no-change
+  conversations are valid.
 - Children do not freeze their parent, and existing children never move to newer parent code.
   An adopted project's original checkout remains read-only.
 - Runs stream conversation, tool output, questions and background activity. Stop cancels
@@ -65,7 +66,7 @@ current scope or supersede implementation. Contributor instructions are in [AGEN
 
 ## Repository safety and permissions
 
-Bonsai owns experiment branches, worktrees and commits. The agent is instructed to ask
+Bonsai owns experiment worktrees, refs and commits. The agent is instructed to ask
 for a new node instead of creating branches itself, and to provide instructions for
 changes outside the experiment. Unexpected Git HEAD, branch, ref or common-repository changes
 stop app mutations and leave work available for inspection. Bonsai does not silently
@@ -105,10 +106,11 @@ refuses the copy. A setup command runs before the first writable agent run. It i
 once even if the command fails; cancellation leaves it eligible to run again. Setup errors
 appear in the conversation. A separate retry/versioned setup lifecycle is still planned.
 
-Deleting an adopted project removes its app-owned worktrees, recorded branches and
-`refs/bonsai/<project>/` refs while preserving the original checkout and branch. Deleting a created project removes its owned
-repository and checkout. Deletion refuses unexpected Git state; inspect and resolve drift
-before retrying. Deletion removes the experiment; archiving (above) only removes its folder.
+Deleting an adopted project removes its app-owned worktrees, its `refs/bonsai/<project>/` refs
+and any `node/<uuid>` branches older experiments left, while preserving the original checkout
+and branch. Deleting a created project removes its owned repository and checkout. Deletion
+refuses unexpected Git state; inspect and resolve drift before retrying. Deletion removes the
+experiment; archiving (above) only removes its folder.
 
 To take an experiment's changes to your own repository, use Apply to your repo in Review or
 in the card's ⋯ menu. Bonsai writes the experiment's committed changes (without `CONTEXT.md`

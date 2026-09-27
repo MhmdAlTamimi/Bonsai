@@ -24,6 +24,7 @@ import { adoptDirectory, snapshotUncommitted, suggestProjectName } from './git/a
 import { assertGitState, expectedGitState } from './git/ownership.js';
 import { gitLine } from './git/exec.js';
 import {
+  branchOf,
   deleteProjectRefs,
   deleteRef,
   nodeRef,
@@ -48,11 +49,12 @@ import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
  *
  *   ADOPTED - the user points Bonsai at a directory they already have. Bonsai
  *   uses it in place: that folder IS the repository, master is that folder on
- *   its existing branch, and nodes are `node/<uuid>` branches inside THEIR
- *   repository. Bonsai may delete only what it created.
+ *   its existing branch, and nodes are commits inside THEIR repository. Bonsai
+ *   may delete only what it created.
  *
  * Either way every node has a hidden ref, `refs/bonsai/<project>/<node>`, at
  * its latest commit, which is what keeps its code in git (see git/refs.ts).
+ * Experiments get no branches; older ones may still have a `node/<uuid>`.
  */
 
 export async function createProject(
@@ -186,9 +188,10 @@ function slugify(name: string): string {
  * Adopts a directory the user already has.
  *
  * Nothing is copied and nothing is moved. Master's worktree IS the user's
- * folder; child nodes get worktrees under Bonsai's own directory, on branches
- * inside the user's repository -- so work done in a node is reachable with
- * their ordinary git tools, and Bonsai needs no export feature to hand it back.
+ * folder; child nodes get detached worktrees under Bonsai's own directory,
+ * their commits kept by hidden refs inside the user's repository -- never
+ * branches, which would crowd their `git branch` and go out with a
+ * `push --all`. Work goes back to them as a patch (Apply, api/applyPatch.ts).
  *
  * MASTER ENDS UP FROZEN, on purpose. Its worktree is the user's working
  * directory, so a run there would have Bonsai committing onto the branch they
@@ -370,8 +373,10 @@ async function createFolder(store: Store, stale: NodeRow): Promise<SeedFileOutco
   if (node.archived_at !== null) {
     // Back on its own branch when it has one, at the same path: the agent's
     // session is keyed by that path, so anywhere else would start it afresh.
-    if (node.branch_name !== null && (await branchExists(project.repo_path, node.branch_name)))
-      await addBranchWorktree(project.repo_path, node.worktree_path, node.branch_name);
+    // Detached at its tip otherwise, which its ref keeps.
+    const branch = branchOf(node);
+    if (branch !== null && (await branchExists(project.repo_path, branch)))
+      await addBranchWorktree(project.repo_path, node.worktree_path, branch);
     else {
       const commit = node.head_commit ?? node.base_commit;
       if (commit === null) throw new Error('This experiment has no recorded code snapshot.');
@@ -609,14 +614,11 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
       );
   }
   if (!ownsWorktree(project, node)) return;
+  const branch = branchOf(node);
   if (
-    node.branch_name !== null &&
-    node.branch_name !== branchNameFor(node.id) &&
-    !(
-      project.source_kind === 'created' &&
-      node.parent_id === null &&
-      node.branch_name === DEFAULT_BRANCH
-    )
+    branch !== null &&
+    branch !== branchNameFor(node.id) &&
+    !(project.source_kind === 'created' && node.parent_id === null && branch === DEFAULT_BRANCH)
   ) {
     throw new OperationConflict(
       'This branch is not owned by this Bonsai node. Nothing was deleted.',
@@ -624,9 +626,9 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
   }
   const expected = await expectedGitState(project.repo_path, node);
   if (await pathExists(node.worktree_path)) await assertGitState(node.worktree_path, expected);
-  if (node.branch_name !== null) {
+  if (branch !== null) {
     const head = await gitLine(
-      ['rev-parse', '--verify', `refs/heads/${node.branch_name}`],
+      ['rev-parse', '--verify', `refs/heads/${branch}`],
       project.repo_path,
     );
     if (head !== expected.head)

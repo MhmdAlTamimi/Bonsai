@@ -14,6 +14,11 @@ export interface CommitOutcome {
   /** False when the run changed nothing, which is what makes it conversation-only. */
   committed: boolean;
   commit: string | null;
+  /**
+   * What the commit landed on, recorded as the node's `branch_name`: the
+   * branch its checkout is on, or its ref when it is detached, as every
+   * experiment is now.
+   */
   branch: string | null;
   /** Paths the run touched, excluding CONTEXT.md. */
   changedPaths: string[];
@@ -39,15 +44,21 @@ export interface DiffStat {
 /**
  * Turns whatever a run left in the worktree into either a commit or nothing.
  *
- * This is where the emergent model actually happens. A node has no branch and
- * no commit until this function decides it earned one, so `creates_branch` is
- * an outcome and the lineage walk's "pass through a node with no commit" clause
- * is exercised on every conversation-only run rather than once in the demo.
+ * This is where the emergent model actually happens. A node has no commit
+ * until this function decides it earned one, so `creates_branch` is an outcome
+ * and the lineage walk's "pass through a node with no commit" clause is
+ * exercised on every conversation-only run rather than once in the demo.
+ *
+ * NO BRANCH IS CREATED. An experiment commits on its detached checkout and the
+ * commit is kept by the node's ref, which moves with it: a branch would show
+ * in the user's `git branch` and go out with their `git push --all`, and would
+ * keep nothing the ref does not. A checkout that is on a branch -- master, or
+ * an experiment from before this -- commits onto it as it always did.
  *
  * CONTEXT.md IS EXCLUDED FROM THE CHANGE TEST BUT INCLUDED IN THE COMMIT.
  *
  * D28 has the agent write CONTEXT.md as its final action on every run. Counted
- * as a change, that would make every run commit, every node get a branch, and
+ * as a change, that would make every run commit, every node get a commit, and
  * no node ever be conversation-only -- it would silently delete the emergent
  * model. So it records a run; it does not get a vote on whether there was one.
  *
@@ -58,7 +69,8 @@ export interface DiffStat {
 export async function commitRunOutput(opts: {
   repoPath: string;
   worktreePath: string;
-  branchName: string;
+  /** The branch the checkout is on (`branchOf`), or null when it is detached. */
+  branchName: string | null;
   /** The node's own ref (`nodeRef`). It moves to every commit made here. */
   ref: string;
   message: string;
@@ -72,8 +84,7 @@ export async function commitRunOutput(opts: {
   const { worktreePath, branchName, message } = opts;
 
   if (opts.expectedState) await assertGitState(worktreePath, opts.expectedState);
-  const onBranch = await currentBranch(worktreePath);
-  if (onBranch !== null && onBranch !== branchName) {
+  if ((await currentBranch(worktreePath)) !== branchName) {
     throw new OperationConflict('The experiment is on an unexpected branch. Work is preserved.');
   }
   const contextFile = opts.contextFile ?? CONTEXT_FILE;
@@ -119,12 +130,6 @@ export async function commitRunOutput(opts: {
       'The experiment’s saved code moved outside Bonsai. Work is preserved.',
     );
 
-  // Detached until now. Creating the branch here, at the moment of the first
-  // commit, is the whole point: the ref is deferred, not chosen up front.
-  if (onBranch === null) {
-    await git(['switch', '-c', branchName], worktreePath);
-  }
-
   // `git add -A` rather than a path list: it stages deletions and untracked
   // files alike, which a path list assembled from a diff would miss (D31).
   await git(['add', '-A'], worktreePath);
@@ -153,7 +158,7 @@ export async function commitRunOutput(opts: {
   return {
     committed: true,
     commit,
-    branch: branchName,
+    branch: branchName ?? opts.ref,
     changedPaths: changed.map((e) => e.path).sort(),
     // Measured HERE, once, while git is already open on this worktree. Doing
     // it while building the tree view would mean shelling out per node on

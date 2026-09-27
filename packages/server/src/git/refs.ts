@@ -29,6 +29,21 @@ export function nodeRef(projectId: string, nodeId: string): string {
   return `refs/bonsai/${projectId}/${nodeId}`;
 }
 
+/**
+ * The branch a node's checkout is on, when it has one: master (a created
+ * project's own, or an adopted project's, which is the user's) and experiments
+ * that committed before Bonsai stopped making `node/<uuid>` branches. Every
+ * other node is detached, and once it has commits its `branch_name` records
+ * its ref instead -- what the commits landed on.
+ */
+export function branchOf(node: {
+  id: string;
+  project_id: string;
+  branch_name: string | null;
+}): string | null {
+  return node.branch_name === nodeRef(node.project_id, node.id) ? null : node.branch_name;
+}
+
 /** A node's tip: the commit its ref points at. Null only before master has a commit. */
 export function tipOf(node: {
   head_commit: string | null;

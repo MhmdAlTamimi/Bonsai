@@ -22,8 +22,8 @@ import {
 import { createAllocatedChild } from '../testing/allocatedChild.js';
 import { commitRunOutput } from './commit.js';
 import { git, gitLine } from './exec.js';
-import { nodeRef, readRef } from './refs.js';
-import { branchNameFor, commitExists } from './repo.js';
+import { branchOf, nodeRef, readRef } from './refs.js';
+import { commitExists } from './repo.js';
 
 /**
  * Hidden refs against real git: what they keep, and what they refuse.
@@ -94,7 +94,7 @@ describe('hidden refs', () => {
     const outcome = await commitRunOutput({
       repoPath: store.getProject(node.project_id)!.repo_path,
       worktreePath: node.worktree_path,
-      branchName: node.branch_name ?? branchNameFor(nodeId),
+      branchName: branchOf(node),
       ref: nodeRef(node.project_id, nodeId),
       message: 'work',
     });
@@ -134,6 +134,20 @@ describe('hidden refs', () => {
       await gitLine(['rev-parse', 'HEAD'], restored.worktree_path),
       restored.base_commit,
     );
+  });
+
+  test('experiments add no branches, and `git push --all` sends none of their work', async () => {
+    const path = await userRepo();
+    const project = await adopt(path);
+    const { nodeId } = await child(project.projectId, project.masterNodeId);
+    const commit = await run(nodeId, { 'idea.txt': 'an experiment\n' });
+
+    assert.equal(await gitLine(['branch', '--format=%(refname:short)'], path), 'main');
+    const remote = join(root, 'remote.git');
+    await git(['init', '--bare', '--initial-branch=main', remote], root);
+    await git(['push', '--all', remote], path);
+    assert.equal(await gitLine(['for-each-ref', '--format=%(refname)'], remote), 'refs/heads/main');
+    assert.equal(await commitExists(remote, commit), false);
   });
 
   test('a node’s ref follows each commit it makes', async () => {

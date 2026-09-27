@@ -247,7 +247,7 @@ export interface ProjectView {
   /**
    * 'created' — Bonsai made the repository and owns it outright.
    * 'adopted' — the user pointed Bonsai at a directory they already had, so
-   * Bonsai's nodes are branches inside THEIR repository and deleting the
+   * Bonsai's nodes are commits inside THEIR repository and deleting the
    * project must not touch their files.
    */
   sourceKind: 'created' | 'adopted';
@@ -273,9 +273,9 @@ export interface ProjectView {
    * The branch the project's own repository is on — `main`, `master`, whatever
    * an adopted repository uses.
    *
-   * Null for a project Bonsai created, where the only branches are the
-   * `node/<uuid>` ones an experiment owns, and D33 says those are never shown:
-   * they are generated once, never renamed, and mean nothing to anyone.
+   * Null for a project Bonsai created, where the only branch is its master's;
+   * experiments have none (older ones may have a `node/<uuid>`, which D33 says
+   * is never shown: generated once, never renamed, and meaningless to anyone).
    */
   branchLabel: string | null;
   setup: ProjectSetupView;
@@ -398,7 +398,7 @@ export interface NodeView {
    *   present     -- it is.
    *   not_created -- it never was: a new experiment's folder is created by its
    *                  first run.
-   *   archived    -- it was removed to save space. The branch, the conversation
+   *   archived    -- it was removed to save space. The code, the conversation
    *                  and every run are kept, and the next run (or Open folder)
    *                  creates it again at the same path.
    */
@@ -968,7 +968,10 @@ export interface DeletionImpactView {
   removesDirectories: string[];
   /** The user's own directory, left exactly as it was. Adopted projects only. */
   keepsDirectory: string | null;
-  /** Branches Bonsai created inside the user's repository and will remove. */
+  /**
+   * Branches Bonsai created inside the user's repository and will remove. Only
+   * experiments from before Bonsai stopped creating branches have one.
+   */
   branches: number;
 }
 

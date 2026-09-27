@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { OperationConflict } from '../domain/errors.js';
 import { gitLine } from './exec.js';
-import { nodeRef, readRef, tipOf } from './refs.js';
+import { branchOf, nodeRef, readRef, tipOf } from './refs.js';
 
 export interface GitState {
   head: string;
@@ -52,7 +52,8 @@ export async function expectedGitState(
   if (head === null) throw new OperationConflict('This experiment has no recorded code snapshot.');
   return {
     head,
-    branch: node.branch_name,
+    // Detached, unless this node's checkout is on a branch of its own.
+    branch: branchOf(node),
     commonDir: resolve(
       await gitLine(['rev-parse', '--path-format=absolute', '--git-common-dir'], repoPath),
     ),

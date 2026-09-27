@@ -12,8 +12,7 @@ import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { parentSnapshot } from '../git/diff.js';
 import { assertGitState, type GitState } from '../git/ownership.js';
 import { readWorktreeState, resumePrompt } from '../git/recovery.js';
-import { branchNameFor } from '../git/repo.js';
-import { nodeRef } from '../git/refs.js';
+import { branchOf, nodeRef } from '../git/refs.js';
 import { silentLogger, type Logger } from '../log.js';
 import { detachedJobs, endLeftovers, trackedJobs } from './background.js';
 import { LEFT_TO_AGENT, QuestionDesk } from './questions.js';
@@ -785,7 +784,7 @@ export class RunJobs {
       : await commitRunOutput({
           repoPath: project.repo_path,
           worktreePath: node.worktree_path,
-          branchName: node.branch_name ?? branchNameFor(nodeId),
+          branchName: branchOf(node),
           ref: nodeRef(node.project_id, nodeId),
           message: commitMessageFor(node.display_name, node.description),
           fallbackContext: contextFallback(node.display_name, run.prompt),

@@ -12,9 +12,8 @@ import { Store } from '../db/store.js';
 import { createProject } from '../projects.js';
 import { rejectPath, seedFiles } from './seedWorktree.js';
 import { commitRunOutput } from './commit.js';
-import { branchNameFor } from './repo.js';
 import { git, gitLine } from './exec.js';
-import { nodeRef } from './refs.js';
+import { branchOf, nodeRef } from './refs.js';
 
 /**
  * Giving a new node what git left behind.
@@ -140,7 +139,7 @@ describe('seeding a new node', () => {
     const outcome = await commitRunOutput({
       repoPath: store.getProject(created.projectId)!.repo_path,
       worktreePath: node.worktree_path,
-      branchName: branchNameFor(nodeId),
+      branchName: branchOf(node),
       ref: nodeRef(node.project_id, nodeId),
       message: 'work',
     });
