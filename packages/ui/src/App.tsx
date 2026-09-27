@@ -362,6 +362,7 @@ export function App(): JSX.Element {
             <NewChildDialog
               parentName={child.pending.parentName}
               parentId={child.pending.parentId}
+              redo={child.pending.redo}
               onSelectSource={selection.select}
               onCancel={child.cancel}
               onCreate={child.create}
@@ -397,6 +398,15 @@ export function App(): JSX.Element {
             narrow={view.narrow}
             onHide={view.showMap}
             onProjectSettings={() => openSettings('project')}
+            onStartFromLatest={(behind) => {
+              if (behind.behind === null) return;
+              child.begin({
+                parentId: behind.behind.parentId,
+                parentName: behind.behind.parentName,
+                position: null,
+                redo: { id: behind.id, name: behind.displayName },
+              });
+            }}
             onChanged={projectTree.refresh}
             /* The panel does not own a second, weaker version of this form any
            more -- it opens the one dialog, with no position, and dagre places

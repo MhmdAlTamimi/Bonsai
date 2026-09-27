@@ -13,18 +13,25 @@ import type { NewChild } from '../state/useChildCreation.ts';
 export function NewChildDialog({
   parentName,
   parentId,
+  redo,
   onSelectSource,
   onCancel,
   onCreate,
 }: {
   parentName: string;
   parentId: string;
+  /** Redoing an experiment that is behind: the request is prefilled, and its work goes to the first run. */
+  redo?: { id: string; name: string };
   onSelectSource: (id: string) => void;
   onCancel: () => void;
   onCreate: (child: NewChild) => Promise<void>;
 }): JSX.Element {
-  const [description, setDescription] = useState('');
-  const [name, setName] = useState('');
+  const [description, setDescription] = useState(
+    redo === undefined
+      ? ''
+      : `Redo the change from @${redo.name} on this code. Read what it did, then make the same change here.`,
+  );
+  const [name, setName] = useState(redo === undefined ? '' : `${redo.name} (latest)`);
   const [successCriteria, setSuccessCriteria] = useState('');
   const [verificationHint, setVerificationHint] = useState('');
   const [startFresh, setStartFresh] = useState(false);
@@ -124,7 +131,7 @@ export function NewChildDialog({
           placeholder="Describe the change to try, or ask a question"
           disabled={busy}
           aria-label="what should change"
-          rows={3}
+          rows={redo === undefined ? 3 : 4}
           onKeyDown={(e) => {
             // Enter creates. A description is one line more often than not, and
             // reaching for the mouse to start a run is the friction this whole
@@ -136,6 +143,12 @@ export function NewChildDialog({
           }}
         />
       </label>
+      {redo !== undefined && (
+        <p className="hint">
+          Starting now gives the agent {redo.name}&rsquo;s conversation, changes and notes to read.{' '}
+          {redo.name} itself stays as it is.
+        </p>
+      )}
       <label className="stacked">
         Success looks like (optional)
         <input

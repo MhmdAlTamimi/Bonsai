@@ -2,8 +2,6 @@
 .creation-sources { padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
 .creation-sources h4 { margin: 0 0 8px; }
 .creation-sources p { margin: 6px 0; }
-.checkout-section > .row { margin-top: 12px; }
-.checkout-section .checkout { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .source-pair { display: grid; gap: 8px; }
 .source-row { display: grid; grid-template-columns: 94px minmax(0, 1fr) auto; align-items: center; gap: 10px; }

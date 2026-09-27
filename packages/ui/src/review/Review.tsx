@@ -12,6 +12,7 @@ import { Grip } from './Grip.tsx';
 import { ReviewTree } from './ReviewTree.tsx';
 import { buildTree, fileAfter, rowsOf } from './fileTree.ts';
 import { ReviewMenu } from './ReviewMenu.tsx';
+import { ApplyDialog } from '../panel/node/ApplyDialog.tsx';
 import { useFilePatch, useReview } from './useReview.ts';
 
 /** The tree never goes below this, or the paths stop being readable. */
@@ -41,6 +42,7 @@ export function Review({
   const [mode, setMode] = useState<'diff' | 'file'>('diff');
   const [wrap, setWrap] = useState(false);
   const [savingWrap, setSavingWrap] = useState(false);
+  const [applying, setApplying] = useState(false);
   useEffect(() => {
     void api
       .settings()
@@ -198,6 +200,13 @@ export function Review({
               if (node) void api.revealNode(node.id).catch((e) => setError(describeError(e)));
             }}
           />
+          <IconButton
+            icon="apply"
+            className="toolbar-icon apply-button"
+            label="Apply to your repo"
+            disabled={node?.diffStat == null}
+            onClick={() => setApplying(true)}
+          />
         </div>
         {split ? (
           <ViewToggle split onChange={toggleSplit} />
@@ -209,6 +218,9 @@ export function Review({
         )}
         {node !== null && <ReviewMenu node={node} revision={revision} />}
       </header>
+      {applying && node !== null && (
+        <ApplyDialog node={node} onClose={() => setApplying(false)} returnFocus=".apply-button" />
+      )}
       {error !== null && (
         <ErrorNote className="review-error" onDismiss={() => setError(null)}>
           {error}

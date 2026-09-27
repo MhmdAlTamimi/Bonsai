@@ -369,3 +369,10 @@ dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px
 .facts-section .stream { max-height: 16rem; overflow: auto; }
 
 .checks label { display: grid; gap: 8px; margin-bottom: 12px; }
+
+/* The apply command: the command on one line with its copy button, then what it does. */
+.apply-section { display: flex; flex-direction: column; gap: var(--s3); }
+.apply-section > .row { align-items: flex-start; gap: var(--s2); }
+.apply-command { flex: 1; min-width: 0; padding: var(--s2) var(--s3); border-radius: var(--r-sm); background: var(--surface-2); font: var(--fs-code)/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.apply-section .hint { margin: 0; }
+.apply-section .note { margin: 0; }

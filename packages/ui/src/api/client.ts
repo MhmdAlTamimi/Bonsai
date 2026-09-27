@@ -1,4 +1,5 @@
 import type {
+  ApplyPatchView,
   ArchiveCheck,
   StorageView,
   AdoptProjectRequest,
@@ -102,6 +103,7 @@ export const api = {
     json<SettingsView>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
 
   revealNode: (id: string) => json<{ ok: true }>(`/api/nodes/${id}/reveal`, { method: 'POST' }),
+  applyPatch: (id: string) => json<ApplyPatchView>(`/api/nodes/${id}/patch`, { method: 'POST' }),
   archiveCheck: (id: string) => json<ArchiveCheck>(`/api/nodes/${id}/archive`),
   archive: (id: string, removeIgnored: boolean) =>
     json<{ ok: true }>(`/api/nodes/${id}/archive`, {

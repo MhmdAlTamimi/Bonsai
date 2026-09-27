@@ -21,6 +21,11 @@ export interface ChildTarget {
   parentName: string;
   /** Where the user dropped it, or null to let auto-layout decide. */
   position: { x: number; y: number } | null;
+  /**
+   * An experiment that is behind, to be redone on this code: its first run
+   * gets that experiment's work to read, the way an `@` mention does.
+   */
+  redo?: { id: string; name: string };
 }
 
 /** Everything the create dialog decided. */
@@ -91,7 +96,12 @@ export function useChildCreation(opts: {
         }
       }
       try {
-        if (startNow) await api.startRun(node.id, description);
+        if (startNow)
+          await api.startRun(
+            node.id,
+            description,
+            pending.redo === undefined ? {} : { experimentIds: [pending.redo.id] },
+          );
       } catch (e) {
         setFailedStart({
           nodeId: node.id,

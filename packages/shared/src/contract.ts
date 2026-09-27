@@ -119,6 +119,23 @@ export interface ArchiveCheck {
   ignored: string[];
 }
 
+/**
+ * An experiment's committed changes as a patch file, and the command that
+ * applies them to your own repository. Bonsai writes the file; running the
+ * command, and committing what it did, is yours.
+ */
+export interface ApplyPatchView {
+  /** Where the patch was written, in Bonsai's data folder. */
+  path: string;
+  /** Ready to paste: `git apply --3way "<path>"`. */
+  command: string;
+  files: number;
+  added: number;
+  removed: number;
+  /** When its parent has committed since it started: how many commits, and which experiment. */
+  behind: ExperimentBehind | null;
+}
+
 /** What experiment folders take up on disk, for Settings. */
 export interface StorageView {
   folders: number;
@@ -386,7 +403,19 @@ export interface NodeView {
    *                  creates it again at the same path.
    */
   folder: NodeFolder;
+  /**
+   * The experiment its code came from has committed since this one started,
+   * or null when it has not. See NodeDetail.behind for how far.
+   */
+  behind: { parentId: string; parentName: string } | null;
   createdAt: string;
+}
+
+/** How far behind its code source an experiment is. */
+export interface ExperimentBehind {
+  commits: number;
+  parentId: string;
+  parentName: string;
 }
 
 export type NodeFolder = 'present' | 'not_created' | 'archived';
@@ -816,19 +845,6 @@ export interface NodeDetail {
   node: NodeView;
   runs: RunView[];
   lineage: NodeLineageView;
-  /**
-   * A shell command that puts this node's branch in front of the user, ready
-   * to copy. Null for a node that has committed nothing, since there is no
-   * branch yet.
-   *
-   * A ready-made STRING rather than a branch name, deliberately: NodeView and
-   * NodeDetail carry nothing git-shaped, so the interface cannot misuse a ref
-   * or a path it was never given. It also lets the command differ by project
-   * kind without the interface knowing that projects have kinds.
-   */
-  checkoutCommand: string | null;
-  /** Where to run it, in words. */
-  checkoutHint: string | null;
   /** What the user said success looks like, as they wrote it. */
   successCriteria: string | null;
   verificationHint: string | null;
@@ -853,13 +869,11 @@ export interface NodeDetail {
   /** D22: a human-readable record shown in the panel. Null until a run commits one. */
   contextMd: string | null;
   /**
-   * Diagnostic only, and deliberately not a commit sha: whether this node's
-   * pinned git base still agrees with what a live walk up the tree would say.
-   * They diverge when an ancestor commits after this node was created, which is
-   * expected and correct — the pin is what keeps a child's code and its
-   * inherited conversation describing the same tree.
+   * When the code it started from has moved on: how many commits its code
+   * source (the nearest ancestor that committed) has made since. The
+   * experiment keeps its original code and is never updated to them.
    */
-  baseIsPinnedBehindLiveWalk: boolean;
+  behind: ExperimentBehind | null;
 }
 
 export interface TreeResponse {

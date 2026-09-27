@@ -5,6 +5,7 @@ import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import type { ConfirmRequest } from '../ConfirmDialog.tsx';
 
+import { ApplyDialog } from '../panel/node/ApplyDialog.tsx';
 import { CompactDialog } from '../panel/node/CompactDialog.tsx';
 import { ExperimentDetails } from '../panel/node/DetailsDialog.tsx';
 import { RenameDialog } from '../panel/node/RenameDialog.tsx';
@@ -75,6 +76,7 @@ export function useCardActions({
   const [renaming, setRenaming] = useState<NodeView | null>(null);
   const [detailing, setDetailing] = useState<NodeView | null>(null);
   const [compacting, setCompacting] = useState<NodeView | null>(null);
+  const [applying, setApplying] = useState<NodeView | null>(null);
   const nodeActions = useNodeActions(refresh, (message) => {
     if (message !== null) report(message);
   });
@@ -86,6 +88,7 @@ export function useCardActions({
           branch({ parentId: node.id, parentName: node.displayName, position: null });
       },
       review,
+      apply: setApplying,
       rename: setRenaming,
       compact: setCompacting,
       reference: (node) => openReference({ kind: 'new', sourceNodeId: node.id, draft: true }),
@@ -116,6 +119,13 @@ export function useCardActions({
             select(nodeId);
             refresh();
           }}
+        />
+      )}
+      {applying !== null && (
+        <ApplyDialog
+          node={applying}
+          onClose={() => setApplying(null)}
+          returnFocus={cardMenuButton(applying.displayName)}
         />
       )}
       {nodeActions.confirmDialog}

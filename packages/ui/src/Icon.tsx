@@ -32,7 +32,9 @@ const paths = {
   arrowUp: 'M12 19V5M6 11l6-6 6 6',
   arrowDown: 'M12 5v14M6 13l6 6 6-6',
   home: 'M4 11 12 4l8 7M6 10v9h12v-9',
-  more: 'M6 12h.01M12 12h.01M18 12h.01',
+  // Three filled dots: drawn as line caps they were a fraction of a pixel wide
+  // at small sizes, and the ⋯ that opens a card's actions faded out with them.
+  more: 'M4.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0M10.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0M16.6 12a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0',
   settings:
     'M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1ZM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
   reference: 'M6 3h12v18l-6-4-6 4Z',
@@ -45,6 +47,8 @@ const paths = {
   copy: 'M9 9h11v11H9ZM5 15H4V4h11v1',
   check: 'm5 12 5 5 9-10',
   stop: 'M7 7h10v10H7Z',
+  // Down into a tray: an experiment's changes taken into your own repository.
+  apply: 'M12 4v11m-4-4 4 4 4-4M4 15v5h16v-5',
   // A box with its lid: an experiment whose folder is put away, not gone.
   archive: 'M3 4h18v4H3ZM5 8v12h14V8M10 12h4',
   at: 'M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm0 0v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-4 7.5',
@@ -52,7 +56,7 @@ const paths = {
 export type IconName = keyof typeof paths;
 
 /** Drawn solid rather than as a line: a stop is a filled square in every player ever made. */
-const FILLED: ReadonlySet<IconName> = new Set(['stop']);
+const FILLED: ReadonlySet<IconName> = new Set(['stop', 'more']);
 
 export function Icon({ name }: { name: IconName }): JSX.Element {
   const filled = FILLED.has(name);

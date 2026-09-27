@@ -104,17 +104,19 @@ preserving the original checkout and branch. Deleting a created project removes 
 repository and checkout. Deletion refuses unexpected Git state; inspect and resolve drift
 before retrying. Deletion removes the experiment; archiving (above) only removes its folder.
 
-To use a committed experiment outside Bonsai, use the command shown in node details.
-For an adopted repository, create a **new** branch from the experiment in your original
-checkout after saving its work, for example:
+To take an experiment's changes to your own repository, use Apply to your repo in Review or
+in the card's ⋯ menu. Bonsai writes the experiment's committed changes (without `CONTEXT.md`
+and without uncommitted work) to a patch in its data folder and shows the command to run in
+your repository:
 
 ```bash
-git switch -c my-result node/ACTUAL-NODE-ID
+git apply --3way "<data dir>/patches/try-redis-c99c2d3.patch"
 ```
 
-Replace the placeholder with the command Bonsai provides. Switching directly onto an
-experiment branch fails while that branch is checked out in its Bonsai worktree.
-This excludes unfinished work and does not apply, merge, publish or sync changes.
+The changes land uncommitted (staged, as `--3way` does); review and commit them yourself.
+Git refuses to change a file with uncommitted edits of your own, and leaves conflict markers
+where your code changed the same lines. Bonsai does not touch your repository, commit, merge,
+publish or sync. Patches older than a week are removed from the data folder.
 
 ## Install and run
 
@@ -211,4 +213,4 @@ and cleanup failures are recorded rather than described as successful stops.
 | `packages/ui/src/styles` | Stylesheets by area, in cascade order via `index.css` |
 
 Standing (pinned) references, running a procedure across compared experiments, multiple
-code parents, Apply and broader SDK exposure belong to later phases. Stabilization does not introduce those features or migrate existing data.
+code parents, applying changes on your behalf and broader SDK exposure belong to later phases. Stabilization does not introduce those features or migrate existing data.
