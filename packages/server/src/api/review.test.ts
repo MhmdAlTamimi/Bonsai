@@ -10,9 +10,9 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { createProject } from '../projects.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
-import { branchNameFor } from '../git/repo.js';
 import { git } from '../git/exec.js';
 import { reviewOf, reviewPatchOf } from './review.js';
+import { branchOf, nodeRef } from '../git/refs.js';
 
 /**
  * What review reads: one list of files with a status letter, and one file's
@@ -48,7 +48,8 @@ describe('an experiment’s changes, for review', () => {
     const outcome = await commitRunOutput({
       repoPath: project.repo_path,
       worktreePath: node.worktree_path,
-      branchName: node.branch_name ?? branchNameFor(nodeId),
+      branchName: branchOf(node),
+      ref: nodeRef(node.project_id, nodeId),
       message: commitMessageFor(node.display_name, node.description),
       baseCommit: node.base_commit,
     });

@@ -10,10 +10,10 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { adoptProject, createProject } from '../projects.js';
 import { commitRunOutput } from '../git/commit.js';
-import { branchNameFor } from '../git/repo.js';
 import { git, gitLine } from '../git/exec.js';
 import { runCommand } from '../exec/command.js';
 import { writeApplyPatch } from './applyPatch.js';
+import { branchOf, nodeRef } from '../git/refs.js';
 
 /**
  * The command that takes an experiment's changes to your own repository.
@@ -48,7 +48,8 @@ describe('the apply command', () => {
     const outcome = await commitRunOutput({
       repoPath: store.getProject(node.project_id)!.repo_path,
       worktreePath: node.worktree_path,
-      branchName: node.branch_name ?? branchNameFor(nodeId),
+      branchName: branchOf(node),
+      ref: nodeRef(node.project_id, nodeId),
       message: 'work',
       baseCommit: node.base_commit,
     });

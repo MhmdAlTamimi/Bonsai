@@ -45,24 +45,48 @@ export async function git(
   env?: Record<string, string>,
 ): Promise<string> {
   try {
-    const { stdout } = await run('git', [...args], {
-      cwd,
-      env: { ...process.env, ...IDENTITY, ...env },
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: 120_000,
-      windowsHide: true,
-    });
+    const { stdout } = await run('git', [...args], options(cwd, env));
     return stdout;
   } catch (err) {
-    const e = err as { stderr?: string; stdout?: string; message?: string; code?: unknown };
-    throw new GitError(
-      `git ${args.join(' ')} failed: ${(e.stderr ?? e.message ?? '').trim()}`,
-      args,
-      e.stderr ?? '',
-      typeof e.code === 'number' ? e.code : null,
-      e.stdout ?? '',
-    );
+    throw gitError(err, args);
   }
+}
+
+/** `git` reading `input` on standard input, for update-ref's transactions. */
+export async function gitInput(
+  args: readonly string[],
+  cwd: string,
+  input: string,
+): Promise<string> {
+  try {
+    const pending = run('git', [...args], options(cwd));
+    pending.child.stdin?.end(input);
+    const { stdout } = await pending;
+    return stdout;
+  } catch (err) {
+    throw gitError(err, args);
+  }
+}
+
+function options(cwd: string, env?: Record<string, string>) {
+  return {
+    cwd,
+    env: { ...process.env, ...IDENTITY, ...env },
+    maxBuffer: 32 * 1024 * 1024,
+    timeout: 120_000,
+    windowsHide: true,
+  };
+}
+
+function gitError(err: unknown, args: readonly string[]): GitError {
+  const e = err as { stderr?: string; stdout?: string; message?: string; code?: unknown };
+  return new GitError(
+    `git ${args.join(' ')} failed: ${(e.stderr ?? e.message ?? '').trim()}`,
+    args,
+    e.stderr ?? '',
+    typeof e.code === 'number' ? e.code : null,
+    e.stdout ?? '',
+  );
 }
 
 /**

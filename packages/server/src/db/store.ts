@@ -24,7 +24,7 @@ import type { NodeRow, ProjectRow, RunEnd, RunTotals } from './rows.js';
 import type { ReferenceRow } from './referenceStore.js';
 
 export type { NodeRow, ProjectRow, RunEnd, RunTotals };
-export { isUsersOwnCheckout, toLineage } from './rows.js';
+export { isAdoptedRoot, isUsersOwnCheckout, toLineage } from './rows.js';
 export type { NodeChecks, TestingSource } from './checkStore.js';
 export type { StoredQuestion } from './messageStore.js';
 export type { ReferenceRow } from './referenceStore.js';

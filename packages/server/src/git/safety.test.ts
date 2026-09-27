@@ -27,14 +27,17 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test('detached adoption rejects without changing main or the checkout', async () => {
+test('a detached checkout starts from its commit, without changing main or the checkout', async () => {
   const main = await gitLine(['rev-parse', 'main'], repo);
   await git(['checkout', '--detach'], repo);
   await writeFile(join(repo, 'file.txt'), 'detached work');
   await git(['add', '-A'], repo);
   await git(['commit', '-m', 'detached'], repo);
   const head = await gitLine(['rev-parse', 'HEAD'], repo);
-  await assert.rejects(adoptDirectory(repo), /detached HEAD/);
+  const adopted = await adoptDirectory(repo);
+  assert.equal(adopted.headCommit, head);
+  assert.equal(adopted.label, head.slice(0, 7));
+  assert.equal(adopted.current, true);
   assert.equal(await gitLine(['rev-parse', 'main'], repo), main);
   assert.equal(await gitLine(['rev-parse', 'HEAD'], repo), head);
   assert.equal(await gitLine(['branch', '--show-current'], repo), '');
@@ -94,6 +97,7 @@ test('a clean external commit is detected and never silently adopted', async () 
       repoPath: repo,
       worktreePath: repo,
       branchName: 'main',
+      ref: 'refs/bonsai/test/main',
       message: 'app',
       expectedState,
     }),

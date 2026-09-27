@@ -9,14 +9,15 @@ import { git, gitLine, status } from './exec.js';
  * Adopting a directory the user already has.
  *
  * "Import" here does not mean copying anything anywhere: Bonsai uses the
- * directory in place. The folder becomes the project's repository, master is
- * that directory on whatever branch it is already on, and child nodes are
- * worktrees elsewhere on `node/<uuid>` branches INSIDE the user's repository.
+ * directory's repository in place. Master is a checkout of one version of it
+ * -- the branch the folder is on, or any other branch, remote branch or tag the
+ * user picks -- and every node is a worktree elsewhere, its commits kept by
+ * hidden refs INSIDE the user's repository (git/refs.ts). The folder itself is
+ * only read, so picking a branch never switches the folder to it.
  *
- * That has a consequence worth being deliberate about: work done in a node
- * lands on a real branch in the user's own repo, reachable with their normal
- * tools. It also means Bonsai writes refs into a repository it did not create,
- * which is why deletion is so carefully constrained (see projects.ts).
+ * Bonsai still writes into a repository it did not create -- objects, refs,
+ * worktree records -- which is why deletion is so carefully constrained (see
+ * projects.ts).
  *
  * Existing branches are NOT turned into nodes. Git branches form a DAG rather
  * than a tree, git does not record which branch was forked from which, and --
@@ -47,6 +48,12 @@ export interface DirectoryInspection {
   isGitRepo: boolean;
   /** The checked-out branch, when there is one. */
   branch: string | null;
+  /**
+   * The versions a project can start from, newest first: local branches,
+   * remote branches and tags, plus the checked-out commit when the folder is
+   * on none of them. Empty outside a repository or before its first commit.
+   */
+  startPoints: StartPoint[];
   /** Null for a repo with no commits yet. */
   headCommit: string | null;
   /** Uncommitted changes; nodes branch from the last commit unless snapshotted. */
@@ -69,6 +76,19 @@ export interface DirectoryInspection {
   workDir: string;
 }
 
+export interface StartPoint {
+  /** The full ref (`refs/heads/feature-x`), or `HEAD` for a detached checkout. Sent back to start from it. */
+  ref: string;
+  /** What people call it: `feature-x`, `origin/fix`, `v2.1`, or a short commit. */
+  name: string;
+  kind: 'branch' | 'remote' | 'tag' | 'commit';
+  commit: string;
+  /** When its latest commit was made (a tag's: when it was tagged). */
+  date: string;
+  /** What the folder has checked out: the one version its unsaved changes belong to. */
+  current: boolean;
+}
+
 /**
  * Note what is NOT in the interface above: anything Bonsai knows about its own
  * projects. This module shells out to git and must not gain a database
@@ -85,6 +105,7 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
     isDirectory: false,
     isGitRepo: false,
     branch: null,
+    startPoints: [],
     headCommit: null,
     dirtyFiles: 0,
     entryCount: 0,
@@ -168,10 +189,10 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
       repoRoot,
       workDir: relativeWorkDir(repoRoot, full),
       branch: branch === '' ? null : branch,
-      blockedReason:
-        branch === ''
-          ? 'This repository has a detached HEAD. Choose an existing branch in your Git tools before opening it in Bonsai; Bonsai will not move your branches.'
-          : null,
+      // A detached checkout is no longer refused: master is a checkout of its
+      // own, so any version can be where a project starts.
+      blockedReason: null,
+      startPoints: head === null ? [] : await listStartPoints(repoRoot),
       headCommit: head,
       dirtyFiles: (await status(repoRoot)).length,
     };
@@ -220,8 +241,12 @@ export interface AdoptedRepo {
    * D37: the repository is what git sees; this is where the agent stands.
    */
   workDir: string;
-  branch: string;
+  /** What the project starts from, as people call it: `main`, `origin/fix`, `v2.1`. */
+  label: string;
+  /** The commit it starts from. */
   headCommit: string;
+  /** Whether that is what the folder has checked out, which its unsaved changes sit on. */
+  current: boolean;
   /** True when Bonsai had to create the repository or its first commit. */
   initialised: boolean;
 }
@@ -238,7 +263,7 @@ export interface AdoptedRepo {
  * it (D37). Bonsai will not create a nested repository inside someone's
  * repository, and will not invent a branch because a subfolder was chosen.
  */
-export async function adoptDirectory(path: string): Promise<AdoptedRepo> {
+export async function adoptDirectory(path: string, startFrom?: string): Promise<AdoptedRepo> {
   const full = resolve(path);
   const inspection = await inspectDirectory(full);
   if (inspection.blockedReason !== null) throw new Error(inspection.blockedReason);
@@ -254,11 +279,7 @@ export async function adoptDirectory(path: string): Promise<AdoptedRepo> {
   }
 
   const workDir = relativeWorkDir(repoRoot, full);
-
   const branch = await gitLine(['branch', '--show-current'], repoRoot);
-  if (branch === '') {
-    throw new Error('Choose an existing branch before adopting this repository.');
-  }
 
   let head: string;
   try {
@@ -272,7 +293,110 @@ export async function adoptDirectory(path: string): Promise<AdoptedRepo> {
     initialised = true;
   }
 
-  return { repoPath: repoRoot, workDir, branch, headCommit: head, initialised };
+  const checkedOut = { label: branch === '' ? head.slice(0, 7) : branch, commit: head };
+  if (startFrom === undefined || startFrom === 'HEAD' || startFrom === `refs/heads/${branch}`) {
+    return {
+      repoPath: repoRoot,
+      workDir,
+      label: checkedOut.label,
+      headCommit: checkedOut.commit,
+      current: true,
+      initialised,
+    };
+  }
+  // Only what the page offered: a branch, a remote branch or a tag. Read, never
+  // checked out -- the folder stays on whatever it is on.
+  const kind = START_POINT_KINDS.find(([prefix]) => startFrom.startsWith(prefix));
+  if (kind === undefined)
+    throw new Error('Choose a branch, a remote branch or a tag to start from.');
+  let commit: string;
+  try {
+    commit = await gitLine(['rev-parse', '--verify', '--quiet', `${startFrom}^{commit}`], repoRoot);
+  } catch {
+    throw new Error(`${startFrom.slice(kind[0].length)} is no longer in this repository.`);
+  }
+  return {
+    repoPath: repoRoot,
+    workDir,
+    label: startFrom.slice(kind[0].length),
+    headCommit: commit,
+    current: false,
+    initialised,
+  };
+}
+
+const START_POINT_KINDS = [
+  ['refs/heads/', 'branch'],
+  ['refs/remotes/', 'remote'],
+  ['refs/tags/', 'tag'],
+] as const;
+
+/** How many of each kind are offered at most: a repository can have thousands of tags. */
+const START_POINT_LIMIT = { branch: 200, remote: 100, tag: 30 } as const;
+
+/**
+ * Every version a project can start from, newest first.
+ *
+ * One `for-each-ref` for all of them. A tag can point at a tag object rather
+ * than a commit, so the peeled fields (`*`) are read as well; a tag of
+ * something that is not a commit is left out, and so is `origin/HEAD`, which
+ * only names another remote branch.
+ */
+export async function listStartPoints(repoRoot: string): Promise<StartPoint[]> {
+  const format = [
+    '%(refname)',
+    '%(objecttype)',
+    '%(objectname)',
+    '%(*objecttype)',
+    '%(*objectname)',
+    '%(creatordate:iso-strict)',
+  ].join('%09');
+  const [out, checkedOut, head] = await Promise.all([
+    git(
+      [
+        'for-each-ref',
+        '--sort=-creatordate',
+        `--format=${format}`,
+        'refs/heads',
+        'refs/remotes',
+        'refs/tags',
+      ],
+      repoRoot,
+    ),
+    git(['symbolic-ref', '-q', 'HEAD'], repoRoot).then(
+      (ref) => ref.trim(),
+      () => null,
+    ),
+    gitLine(['rev-parse', 'HEAD'], repoRoot),
+  ]);
+
+  const points: StartPoint[] = [];
+  const counts = { branch: 0, remote: 0, tag: 0 };
+  for (const line of out.split('\n')) {
+    const [ref, type, object, peeledType, peeled, date] = line.split('\t');
+    if (ref === undefined || ref === '' || ref.endsWith('/HEAD')) continue;
+    const commit = type === 'commit' ? object : peeledType === 'commit' ? peeled : undefined;
+    const match = START_POINT_KINDS.find(([prefix]) => ref.startsWith(prefix));
+    if (commit === undefined || match === undefined) continue;
+    const [prefix, kind] = match;
+    const current = ref === checkedOut;
+    if (!current && counts[kind] >= START_POINT_LIMIT[kind]) continue;
+    counts[kind] += 1;
+    points.push({ ref, name: ref.slice(prefix.length), kind, commit, date: date ?? '', current });
+  }
+  // A detached checkout is on no branch, and is still a version to start from.
+  if (checkedOut === null) {
+    const date = await gitLine(['show', '-s', '--format=%cI', head], repoRoot);
+    points.unshift({
+      ref: 'HEAD',
+      name: head.slice(0, 7),
+      kind: 'commit',
+      commit: head,
+      date,
+      current: true,
+    });
+  }
+  return points;
 }
 
 /** Snapshot tracked and untracked, nonignored files without touching the user's index or refs. */

@@ -19,6 +19,7 @@ import { revisionOf, type ReferenceRow } from './referenceStore.js';
 import type { RunStore } from './runStore.js';
 import {
   isInside,
+  isAdoptedRoot,
   isUsersOwnCheckout,
   parseStringArray,
   toLineage,
@@ -95,13 +96,18 @@ export class Views {
         status: row.status,
         lastRunEndReason: lastRuns.get(row.id) ?? null,
         ...flags,
-        // An adopted project's master worktree IS the user's own folder, on
-        // their own branch. Nothing Bonsai does may write there, so master is
-        // read-only from the moment the project exists rather than from its
-        // first child. Expressed as the `writable` flag rather than a separate
-        // rule so every renderer and the run gate agree without being told.
-        writable: !isUsersOwnCheckout(project, row),
-        frozenReason: isUsersOwnCheckout(project, row) ? 'your_folder' : null,
+        // An adopted project's master is the code the project started from,
+        // so it is read-only from the moment the project exists rather than
+        // from its first child. Older projects' master is the user's own
+        // folder, on their own branch, where nothing Bonsai does may write.
+        // Expressed as the `writable` flag rather than a separate rule so
+        // every renderer and the run gate agree without being told.
+        writable: !isAdoptedRoot(project, row),
+        frozenReason: !isAdoptedRoot(project, row)
+          ? null
+          : isUsersOwnCheckout(project, row)
+            ? 'your_folder'
+            : 'snapshot',
         pendingQuestion: question,
         hasConversation: row.session_id !== null,
         runCount: runCounts.get(row.id) ?? 0,

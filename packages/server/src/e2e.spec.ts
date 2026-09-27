@@ -1800,7 +1800,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("!!document.querySelector('[aria-label=Project]')");
     await session.click('[aria-label=Project]');
     await session.eval(
-      "Array.from(document.querySelectorAll('.project-menu button')).find(b=>b.textContent==='Open a folder').click()",
+      "Array.from(document.querySelectorAll('.project-menu button')).find(b=>b.textContent==='New project from a folder').click()",
     );
     await session.waitFor("!!document.querySelector('.picker input')");
     await session.type('[aria-label="folder path"]', folder);
@@ -1816,7 +1816,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'phase-2-reopening.png'));
     await session.eval(
-      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.textContent.trim()==='Create another project here').click()",
+      "Array.from(document.querySelectorAll('.matching-projects button')).find(b=>b.textContent.trim()==='New project from the current code').click()",
     );
     await session.waitFor("!document.querySelector('.new-project .row button').disabled");
     await session.eval(

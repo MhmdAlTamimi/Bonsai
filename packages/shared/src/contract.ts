@@ -247,7 +247,7 @@ export interface ProjectView {
   /**
    * 'created' — Bonsai made the repository and owns it outright.
    * 'adopted' — the user pointed Bonsai at a directory they already had, so
-   * Bonsai's nodes are branches inside THEIR repository and deleting the
+   * Bonsai's nodes are commits inside THEIR repository and deleting the
    * project must not touch their files.
    */
   sourceKind: 'created' | 'adopted';
@@ -270,12 +270,13 @@ export interface ProjectView {
   /** `sourcePath` and `workDir` joined: the folder to reveal or name. */
   workPath: string | null;
   /**
-   * The branch the project's own repository is on — `main`, `master`, whatever
-   * an adopted repository uses.
+   * What an adopted project started from — `main`, `feature-x`, `origin/fix`,
+   * `v2.1` — which for projects adopted before that could be chosen is the
+   * branch the folder was on.
    *
-   * Null for a project Bonsai created, where the only branches are the
-   * `node/<uuid>` ones an experiment owns, and D33 says those are never shown:
-   * they are generated once, never renamed, and mean nothing to anyone.
+   * Null for a project Bonsai created, where the only branch is its master's;
+   * experiments have none (older ones may have a `node/<uuid>`, which D33 says
+   * is never shown: generated once, never renamed, and meaningless to anyone).
    */
   branchLabel: string | null;
   setup: ProjectSetupView;
@@ -317,11 +318,13 @@ export interface ProjectSetupView {
  * Why a node is not writable. Null when it is.
  *
  * Not a node type — `writable` remains the flag everything gates on, and this
- * only says which of the two reasons produced it. There are two because they
- * lead to different advice: a frozen node is finished and you branch off it,
- * whereas your own folder was never going to be written to at all.
+ * only says which reason produced it. They lead to different advice: a frozen
+ * node is finished and you branch off it, whereas an adopted project's master
+ * was never going to be written to at all -- either because it is your own
+ * folder (projects adopted before master had a checkout of its own), or
+ * because it is the snapshot of it every experiment starts from.
  */
-export type FrozenReason = 'child_committed' | 'your_folder';
+export type FrozenReason = 'child_committed' | 'your_folder' | 'snapshot';
 
 export interface NodeView {
   id: string;
@@ -398,7 +401,7 @@ export interface NodeView {
    *   present     -- it is.
    *   not_created -- it never was: a new experiment's folder is created by its
    *                  first run.
-   *   archived    -- it was removed to save space. The branch, the conversation
+   *   archived    -- it was removed to save space. The code, the conversation
    *                  and every run are kept, and the next run (or Open folder)
    *                  creates it again at the same path.
    */
@@ -908,6 +911,12 @@ export interface AdoptProjectRequest {
   description?: string;
   /** Branch nodes from uncommitted work, without committing it to their branch. */
   includeUncommitted?: boolean;
+  /**
+   * Which version to start from: a `ref` from the inspection's `startPoints`.
+   * Omitted, the one the folder has checked out. Never checked out in the
+   * folder itself.
+   */
+  startFrom?: string;
 }
 
 /**
@@ -924,12 +933,28 @@ export interface KnownFolderView {
   nodeName: string | null;
 }
 
+/** A version a project can start from: a branch, a remote branch, a tag or a detached commit. */
+export interface StartPointView {
+  /** The full ref (`refs/heads/feature-x`), or `HEAD` for a detached checkout. What `startFrom` takes. */
+  ref: string;
+  /** What people call it: `feature-x`, `origin/fix`, `v2.1`, or a short commit. */
+  name: string;
+  kind: 'branch' | 'remote' | 'tag' | 'commit';
+  commit: string;
+  /** When its latest commit was made (a tag's: when it was tagged), ISO 8601. */
+  date: string;
+  /** What the folder has checked out: the only version its unsaved changes belong to. */
+  current: boolean;
+}
+
 export interface DirectoryInspectionView {
   path: string;
   exists: boolean;
   isDirectory: boolean;
   isGitRepo: boolean;
   branch: string | null;
+  /** The versions a project can start from, newest first. See StartPointView. */
+  startPoints: StartPointView[];
   headCommit: string | null;
   dirtyFiles: number;
   entryCount: number;
@@ -968,7 +993,10 @@ export interface DeletionImpactView {
   removesDirectories: string[];
   /** The user's own directory, left exactly as it was. Adopted projects only. */
   keepsDirectory: string | null;
-  /** Branches Bonsai created inside the user's repository and will remove. */
+  /**
+   * Branches Bonsai created inside the user's repository and will remove. Only
+   * experiments from before Bonsai stopped creating branches have one.
+   */
   branches: number;
 }
 

@@ -37,7 +37,9 @@ export function Details({
               ? 'yes, nothing has branched off it'
               : isYourFolder
                 ? 'no — this is your own folder, so Bonsai only reads it'
-                : 'frozen — a child committed'}
+                : node.frozenReason === 'snapshot'
+                  ? 'no — it is the code this project started from'
+                  : 'frozen — a child committed'}
           </dd>
         </div>
         <div>

@@ -12,6 +12,7 @@ import { handleApi } from './api/router.js';
 import { RunJobs } from './jobs/runNode.js';
 import { ComparisonJobs } from './jobs/comparisons.js';
 import { ArchiveSweeper } from './archive.js';
+import { pinExistingNodes } from './projects.js';
 import { FakeRunner } from './agent/FakeRunner.js';
 import { ClaudeSdkRunner } from './agent/ClaudeSdkRunner.js';
 import { Settings } from './settings.js';
@@ -84,6 +85,16 @@ const orphaned = store.markOrphanedRunsInterrupted();
 if (orphaned > 0) {
   process.stdout.write(`[bonsai] marked ${orphaned} interrupted run(s) from a previous session\n`);
 }
+
+// Experiments made before hidden refs existed get theirs now, so git keeps
+// their code even while they have no folder (see git/refs.ts).
+void pinExistingNodes(store, log)
+  .then((pinned) => {
+    if (pinned > 0) log.info('node.pinned', { pinned });
+  })
+  .catch((error: unknown) => {
+    log.warn('node.pin_failed', { error: error instanceof Error ? error.message : String(error) });
+  });
 
 const UI_DIST = resolve(fileURLToPath(new URL('../../ui/dist', import.meta.url)));
 

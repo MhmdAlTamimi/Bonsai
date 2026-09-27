@@ -13,8 +13,8 @@ import { createProject } from '../projects.js';
 import { git, gitLine } from './exec.js';
 import { testingNotesCommit } from './context.js';
 import { commitMessageFor, commitRunOutput } from './commit.js';
-import { branchNameFor } from './repo.js';
 import { discardWorktreeChanges, isDirty, readWorktreeState, resumePrompt } from './recovery.js';
+import { branchOf, nodeRef } from './refs.js';
 
 describe('interrupted-run recovery (§6.6 / D31)', () => {
   let root: string;
@@ -49,7 +49,8 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     const outcome = await commitRunOutput({
       repoPath: proj.repo_path,
       worktreePath: node.worktree_path,
-      branchName: node.branch_name ?? branchNameFor(nodeId),
+      branchName: branchOf(node),
+      ref: nodeRef(node.project_id, nodeId),
       message: commitMessageFor(node.display_name, node.description),
     });
     if (outcome.committed) store.recordCommit(nodeId, outcome.branch!, outcome.commit!);

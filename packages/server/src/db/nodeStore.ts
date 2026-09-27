@@ -28,6 +28,8 @@ export class NodeStore {
    * resolveBaseCommit() and is never recomputed afterwards.
    */
   create(input: {
+    /** Chosen by the caller when something recorded at insert names the node. */
+    id?: string;
     projectId: string;
     parentId: string | null;
     displayName: string;
@@ -36,14 +38,15 @@ export class NodeStore {
     permissionMode?: PermissionMode | null;
     /** Master only. Every other node derives its base from its parent. */
     rootCommit?: string;
+    /** What master's commit is on: its branch, or its ref when it is detached. */
     rootBranchName?: string;
-    /** Master of an adopted project: its worktree IS the user's directory. */
+    /** A created project's master in a folder the user chose. */
     worktreePath?: string;
     /** Optional, and nothing depends on them being set. See the schema. */
     successCriteria?: string | null;
     verificationHint?: string | null;
   }): NodeRow {
-    const id = randomUUID();
+    const id = input.id ?? randomUUID();
 
     let baseCommit: string | null = null;
     let headCommit: string | null = null;

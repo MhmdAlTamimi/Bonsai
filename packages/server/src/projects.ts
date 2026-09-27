@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, lstat, rm, rmdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
@@ -5,7 +6,13 @@ import type { PermissionMode } from '@bonsai/shared';
 
 import type { NodeRow, ProjectRow, Store } from './db/store.js';
 import { workDirIn } from './db/rows.js';
-import { DEFAULT_BRANCH, branchExists, branchNameFor, createRepo } from './git/repo.js';
+import {
+  DEFAULT_BRANCH,
+  branchExists,
+  branchNameFor,
+  commitExists,
+  createRepo,
+} from './git/repo.js';
 import {
   addBranchWorktree,
   addDetachedWorktree,
@@ -17,6 +24,17 @@ import { toLineage } from './db/store.js';
 import { adoptDirectory, snapshotUncommitted, suggestProjectName } from './git/adopt.js';
 import { assertGitState, expectedGitState } from './git/ownership.js';
 import { gitLine } from './git/exec.js';
+import {
+  branchOf,
+  deleteProjectRefs,
+  deleteRef,
+  nodeRef,
+  pinNode,
+  projectRefs,
+  readRef,
+  tipOf,
+} from './git/refs.js';
+import type { Logger } from './log.js';
 import { OperationConflict } from './domain/errors.js';
 import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
 
@@ -31,9 +49,14 @@ import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
  *   folder. It may delete all of it.
  *
  *   ADOPTED - the user points Bonsai at a directory they already have. Bonsai
- *   uses it in place: that folder IS the repository, master is that folder on
- *   its existing branch, and nodes are `node/<uuid>` branches inside THEIR
- *   repository. Bonsai may delete only what it created.
+ *   uses it in place: that folder IS the repository, master is a read-only
+ *   checkout of the commit it was at (projects adopted before that: the folder
+ *   itself, on its branch), and nodes are commits inside THEIR repository.
+ *   Bonsai may delete only what it created.
+ *
+ * Either way every node has a hidden ref, `refs/bonsai/<project>/<node>`, at
+ * its latest commit, which is what keeps its code in git (see git/refs.ts).
+ * Experiments get no branches; older ones may still have a `node/<uuid>`.
  */
 
 export async function createProject(
@@ -84,6 +107,7 @@ export async function createProject(
       rootBranchName: DEFAULT_BRANCH,
       ...(chosen === null ? {} : { worktreePath: chosen }),
     });
+    await pinNode(project.repo_path, master);
 
     await addBranchWorktree(project.repo_path, master.worktree_path, DEFAULT_BRANCH);
     checkout = master.worktree_path;
@@ -165,15 +189,22 @@ function slugify(name: string): string {
 /**
  * Adopts a directory the user already has.
  *
- * Nothing is copied and nothing is moved. Master's worktree IS the user's
- * folder; child nodes get worktrees under Bonsai's own directory, on branches
- * inside the user's repository -- so work done in a node is reachable with
- * their ordinary git tools, and Bonsai needs no export feature to hand it back.
+ * Nothing is copied and nothing is moved. Every node, master included, gets a
+ * detached worktree under Bonsai's own directory, its commits kept by a hidden
+ * ref inside the user's repository -- never a branch, which would crowd their
+ * `git branch` and go out with a `push --all`. Work goes back to them as a
+ * patch (Apply, api/applyPatch.ts). Their folder is only read: here, and for
+ * copy-in files.
  *
- * MASTER ENDS UP FROZEN, on purpose. Its worktree is the user's working
- * directory, so a run there would have Bonsai committing onto the branch they
- * are actually working on. Requiring a child before anything can change is D5
- * anyway; here it also guarantees Bonsai never writes to their checkout.
+ * MASTER IS A SNAPSHOT: the commit their folder was at (or a snapshot of its
+ * uncommitted work), which is where every experiment starts. It never follows
+ * the folder afterwards; code that moved on comes in through a new project.
+ * Its own checkout is what makes master, its Review and its notes agree with
+ * the experiments started from it -- when master was the folder itself, its
+ * agent read whatever the folder held that day.
+ *
+ * MASTER IS READ-ONLY, on purpose (views.ts): it is what the experiments are
+ * measured against, and changing it is what a child is for (D5).
  *
  * Existing branches are deliberately not turned into nodes -- see git/adopt.ts
  * for why that is a dead end rather than a shortcut not taken.
@@ -189,6 +220,8 @@ export async function adoptProject(
     effort?: string | null;
     /** Let nodes branch from uncommitted work, without committing it anywhere. */
     includeUncommitted?: boolean;
+    /** A branch, remote branch or tag to start from (`refs/...`). The checked-out one by default. */
+    startFrom?: string;
   },
 ): Promise<{
   projectId: string;
@@ -200,11 +233,17 @@ export async function adoptProject(
   /** The chosen folder relative to it. '' when the repository root was chosen. */
   workDir: string;
 }> {
-  const adopted = await adoptDirectory(input.path);
+  const adopted = await adoptDirectory(input.path, input.startFrom);
 
   let base = adopted.headCommit;
   let snapshot = false;
   if (input.includeUncommitted === true) {
+    // Unsaved changes sit on top of what the folder has checked out, and mean
+    // nothing on top of any other version.
+    if (!adopted.current)
+      throw new OperationConflict(
+        `Your unsaved changes belong to the version your folder has checked out, not to ${adopted.label}.`,
+      );
     const sha = await snapshotUncommitted(adopted.repoPath);
     if (sha !== null) {
       base = sha;
@@ -231,23 +270,31 @@ export async function adoptProject(
       // that is what git owns and what deletion must leave alone. Where the
       // agent stands inside it is `workDir` (D37).
       sourcePath: adopted.repoPath,
-      protectedBranch: adopted.branch,
+      protectedBranch: adopted.label,
       workDir: adopted.workDir,
     },
   });
 
   let master: NodeRow;
   try {
+    const masterId = randomUUID();
     master = store.createNode({
+      id: masterId,
       projectId: project.id,
       parentId: null,
-      displayName: adopted.branch,
+      displayName: adopted.label,
       description: input.description,
       rootCommit: base,
-      rootBranchName: adopted.branch,
-      // The user's own directory, not a worktree Bonsai created.
-      worktreePath: adopted.repoPath,
+      // Detached at the snapshot rather than on their branch, which is checked
+      // out in their folder: its ref is what the snapshot is on.
+      rootBranchName: nodeRef(project.id, masterId),
     });
+    // Its checkout, in Bonsai's folder like any experiment's, is made the
+    // first time something needs it.
+    store.markAllocated(master.id, false);
+    // The commit every experiment here starts from. Their branch may move on,
+    // and a snapshot of uncommitted work was never on it: this ref keeps it.
+    await pinNode(adopted.repoPath, master);
   } catch (error) {
     store.deleteProject(project.id);
     throw error;
@@ -270,7 +317,7 @@ export async function adoptProject(
  * and none is named in git until the node's first commit, which is what makes
  * `creates_branch` an outcome rather than a creation-time choice.
  */
-export function createChildNode(
+export async function createChildNode(
   store: Store,
   input: {
     projectId: string;
@@ -291,10 +338,22 @@ export function createChildNode(
   // Computed here as well as inside createNode so the value that reaches git is
   // provably the same one that reaches the database.
   const baseCommit = resolveBaseCommit(toLineage(parent));
+  // Refused before anything is made: nothing can start from code git has lost.
+  if (!(await commitExists(project.repo_path, baseCommit)))
+    throw new OperationConflict(
+      `The code this experiment would start from (commit ${baseCommit.slice(0, 7)}) is no longer in the repository.`,
+    );
 
   const node = store.createNode(input);
   store.markAllocated(node.id, false);
-  return Promise.resolve({ nodeId: node.id, baseCommit, seeded: [] });
+  // From now on its code is kept whether or not it ever gets a folder.
+  try {
+    await pinNode(project.repo_path, node);
+  } catch (error) {
+    store.deleteNode(node.id);
+    throw error;
+  }
+  return { nodeId: node.id, baseCommit, seeded: [] };
 }
 
 /** Folders being created right now, so a run and Open folder asking at once share one checkout. */
@@ -328,11 +387,16 @@ async function createFolder(store: Store, stale: NodeRow): Promise<SeedFileOutco
     throw new Error(
       'An unexpected folder occupies this experiment location. Work preserved; inspect it before retrying.',
     );
+  // Also where a node from before refs existed gets one, and where code git
+  // no longer has is reported as that rather than as git's own error.
+  await pinNode(project.repo_path, node);
   if (node.archived_at !== null) {
     // Back on its own branch when it has one, at the same path: the agent's
     // session is keyed by that path, so anywhere else would start it afresh.
-    if (node.branch_name !== null && (await branchExists(project.repo_path, node.branch_name)))
-      await addBranchWorktree(project.repo_path, node.worktree_path, node.branch_name);
+    // Detached at its tip otherwise, which its ref keeps.
+    const branch = branchOf(node);
+    if (branch !== null && (await branchExists(project.repo_path, branch)))
+      await addBranchWorktree(project.repo_path, node.worktree_path, branch);
     else {
       const commit = node.head_commit ?? node.base_commit;
       if (commit === null) throw new Error('This experiment has no recorded code snapshot.');
@@ -340,8 +404,10 @@ async function createFolder(store: Store, stale: NodeRow): Promise<SeedFileOutco
     }
     store.markRestored(node.id);
   } else {
-    if (!node.base_commit) throw new Error('No project or pinned code snapshot.');
-    await addDetachedWorktree(project.repo_path, node.worktree_path, node.base_commit);
+    // A child's base, or an adopted master's snapshot: the one commit it has.
+    const commit = tipOf(node);
+    if (commit === null) throw new Error('No project or pinned code snapshot.');
+    await addDetachedWorktree(project.repo_path, node.worktree_path, commit);
     // Mark immediately: later failures must preserve this checkout, never replace it.
     store.markAllocated(node.id, true);
   }
@@ -424,6 +490,7 @@ export async function deleteNodeTree(store: Store, nodeId: string): Promise<numb
     if (ownsBranch(project, row)) {
       await deleteBranch(project.repo_path, row.branch_name!);
     }
+    await deleteNodeRef(project, row);
   }
 
   for (const row of doomed)
@@ -470,6 +537,9 @@ export async function deleteProjectTree(
   }
 
   if (project.source_kind === 'adopted') {
+    // Every ref of this project, including any no node names any more. Only
+    // `refs/bonsai/<project>/`, which nothing but Bonsai writes.
+    if (await pathExists(project.repo_path)) await deleteProjectRefs(project.repo_path, project.id);
     // Their repository stays. Bonsai's own folder for this project -- which
     // held the node worktrees and nothing else -- does not; leaving it behind
     // was a slow disk leak and, worse, made "deleted" mean two different
@@ -557,15 +627,20 @@ export function projectDeletionImpact(
 
 /** Check the whole deletion set before changing anything. External drift is preserved. */
 async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void> {
+  // Every node's, the user's own folder included: the ref is Bonsai's either way.
+  if (await pathExists(project.repo_path)) {
+    const pinned = await readRef(project.repo_path, nodeRef(project.id, node.id));
+    if (pinned !== null && pinned !== tipOf(node))
+      throw new OperationConflict(
+        'An experiment’s saved code changed outside Bonsai. Nothing was deleted.',
+      );
+  }
   if (!ownsWorktree(project, node)) return;
+  const branch = branchOf(node);
   if (
-    node.branch_name !== null &&
-    node.branch_name !== branchNameFor(node.id) &&
-    !(
-      project.source_kind === 'created' &&
-      node.parent_id === null &&
-      node.branch_name === DEFAULT_BRANCH
-    )
+    branch !== null &&
+    branch !== branchNameFor(node.id) &&
+    !(project.source_kind === 'created' && node.parent_id === null && branch === DEFAULT_BRANCH)
   ) {
     throw new OperationConflict(
       'This branch is not owned by this Bonsai node. Nothing was deleted.',
@@ -573,9 +648,9 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
   }
   const expected = await expectedGitState(project.repo_path, node);
   if (await pathExists(node.worktree_path)) await assertGitState(node.worktree_path, expected);
-  if (node.branch_name !== null) {
+  if (branch !== null) {
     const head = await gitLine(
-      ['rev-parse', '--verify', `refs/heads/${node.branch_name}`],
+      ['rev-parse', '--verify', `refs/heads/${branch}`],
       project.repo_path,
     );
     if (head !== expected.head)
@@ -583,4 +658,49 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
         'The recorded branch changed outside Bonsai. Nothing was deleted.',
       );
   }
+}
+
+/** Removes a node's ref, which verifyDeletion found at its tip or missing. */
+async function deleteNodeRef(project: ProjectRow, node: NodeRow): Promise<void> {
+  const tip = tipOf(node);
+  if (tip === null || !(await pathExists(project.repo_path))) return;
+  await deleteRef(project.repo_path, nodeRef(project.id, node.id), tip);
+}
+
+/**
+ * Gives every node that has none a ref: nodes made before refs existed.
+ *
+ * Run at startup, and cheap after the first time -- one listing per project.
+ * The nodes this matters most for are exactly the ones nothing else would
+ * reach: saved for later or archived, with no folder and no run coming.
+ * Failures are logged and skipped; a run or an archive of that node pins it
+ * again, and reports what is wrong there.
+ */
+export async function pinExistingNodes(store: Store, log: Logger): Promise<number> {
+  let pinned = 0;
+  for (const project of store.listProjects()) {
+    try {
+      if (!(await pathExists(project.repo_path))) continue;
+      const refs = await projectRefs(project.repo_path, project.id);
+      for (const node of store.listNodes(project.id)) {
+        if (tipOf(node) === null || refs.has(nodeRef(project.id, node.id))) continue;
+        try {
+          await pinNode(project.repo_path, node);
+          pinned += 1;
+        } catch (error) {
+          log.warn('node.pin_failed', {
+            projectId: project.id,
+            nodeId: node.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    } catch (error) {
+      log.warn('project.pin_failed', {
+        projectId: project.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return pinned;
 }

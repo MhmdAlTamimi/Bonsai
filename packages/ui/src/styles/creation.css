@@ -65,3 +65,23 @@
 .creation-actions .creation-cancel:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 /* Empty folders should not push the next decision below the fold. */
 .new-project .picker-list:not(:has(.picker-entry)) { height: auto; min-height: 52px; }
+
+/* The start page opens on the name, large and in the brand's own colour: the
+   one screen a newcomer sees before anything else exists. Same mark, colour
+   and weight as the menu bar's, only bigger. */
+.new-project .start-brand { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; color: var(--accent); }
+.new-project .start-brand h1 { display: block; margin: 8px 0 0; font-size: 2rem; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; color: var(--accent); }
+.new-project .start-brand p { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.new-project > .source-line { margin: -8px 0 0; text-align: center; font-size: var(--fs-xs); }
+
+/* Which version to start from: the one decision a folder asks for. */
+.start-from { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.start-from > span { color: var(--text-dim); }
+.start-from select { min-width: 0; width: 100%; }
+.start-from small { color: var(--muted); font: var(--t-meta) / 1.4 var(--mono); white-space: nowrap; }
+.include-unsaved { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text); }
+.include-unsaved input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); flex: none; }
+.note.inspected .hint { margin: 0; }
+@media (max-width: 560px) {
+  .start-from { grid-template-columns: minmax(0, 1fr); }
+}

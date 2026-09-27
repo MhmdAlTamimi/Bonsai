@@ -72,10 +72,13 @@ CREATE TABLE IF NOT EXISTS node (
   -- exchange that was still going or was stopped half way.
   session_position TEXT,
 
-  -- Emergent model: the branch is just a ref, so it is deferred. A node's
-  -- worktree starts detached at base_commit and a branch is created only if
-  -- the run actually changed files. Both stay null for a node that changed
-  -- nothing -- which is exactly the case the lineage walk passes through.
+  -- What a node's commits landed on. Emergent model: a node's worktree starts
+  -- detached at base_commit and this is set only once a run actually changed
+  -- files. Both stay null for a node that changed nothing -- which is exactly
+  -- the case the lineage walk passes through. For an experiment it is its
+  -- hidden ref, refs/bonsai/<project>/<node> (git/refs.ts): Bonsai creates no
+  -- branches. Master's is its branch, and experiments from before this may
+  -- still name the node/<uuid> branch their checkout is on.
   branch_name   TEXT,
   -- Pinned at creation by resolveBaseCommit(). Immutable. Null for master
   -- alone, which is never a child. See the termination invariant in lineage.ts.
@@ -118,7 +121,7 @@ CREATE TABLE IF NOT EXISTS node (
   -- The termination invariant, enforced in SQL: every non-root node carries a
   -- pinned base.
   CHECK (parent_id IS NULL OR base_commit IS NOT NULL),
-  -- A node with a commit must have the branch that commit landed on.
+  -- A node with a commit must have the branch or ref that commit landed on.
   CHECK (head_commit IS NULL OR branch_name IS NOT NULL)
 );
 

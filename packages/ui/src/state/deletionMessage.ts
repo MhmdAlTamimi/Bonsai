@@ -24,11 +24,15 @@ export function deletionMessage(impact: DeletionImpactView): string[] {
   ];
 
   if (impact.keepsDirectory !== null) {
+    // Branches only from experiments made before Bonsai stopped creating them.
+    const branches =
+      impact.branches > 0
+        ? `, and ${plural(impact.branches, 'branch', 'branches')} older experiments left there`
+        : '';
     paragraphs.push(
       `Your folder is left alone: ${impact.keepsDirectory}`,
-      `Its files, its history and its branch are untouched. Only the ` +
-        `${plural(impact.branches, 'branch', 'branches')} Bonsai created there, and the experiment ` +
-        'folders for them, are removed.',
+      'Its files, its history and its branch are untouched. Only what Bonsai added is removed: ' +
+        `the experiment folders, the hidden Git refs that kept their code${branches}.`,
     );
   }
   for (const path of impact.removesDirectories) {

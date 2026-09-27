@@ -11,9 +11,9 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { createProject, deleteNodeTree } from '../projects.js';
 import { commitMessageFor, commitRunOutput, currentBranch } from './commit.js';
-import { branchNameFor } from './repo.js';
 import { nodeDiff, runDiff, parentSnapshot } from './diff.js';
 import { gitLine } from './exec.js';
+import { branchOf, nodeRef, readRef } from './refs.js';
 
 /**
  * Integration tests against real git in temp directories. No mocks: the point
@@ -48,7 +48,8 @@ describe('git layer', () => {
     const outcome = await commitRunOutput({
       repoPath: project.repo_path,
       worktreePath: node.worktree_path,
-      branchName: node.branch_name ?? branchNameFor(nodeId),
+      branchName: branchOf(node),
+      ref: nodeRef(node.project_id, nodeId),
       message: commitMessageFor(node.display_name, node.description),
     });
     if (outcome.committed) store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
@@ -122,13 +123,13 @@ describe('git layer', () => {
     });
     const node = store.getNode(nodeId)!;
 
-    assert.equal(node.branch_name, null, 'the ref is deferred until a commit');
+    assert.equal(node.branch_name, null, 'nothing is recorded until a commit');
     assert.equal(node.head_commit, null);
     assert.equal(node.base_commit, master.head_commit);
     assert.equal(await currentBranch(node.worktree_path), null, 'must be detached');
   });
 
-  test('a run that changes files creates the branch and commits', async () => {
+  test('a run that changes files commits, kept by the node’s ref and no branch', async () => {
     const { projectId, masterNodeId } = await newProject();
     const { nodeId } = await createChildNode(store, {
       projectId,
@@ -139,9 +140,12 @@ describe('git layer', () => {
 
     assert.equal(await run(nodeId, { 'cli.py': 'print("a")\n' }), true);
     const node = store.getNode(nodeId)!;
-    assert.equal(node.branch_name, `node/${nodeId}`);
+    const repo = store.getProject(projectId)!.repo_path;
+    assert.equal(node.branch_name, nodeRef(projectId, nodeId), 'what the commit landed on');
     assert.notEqual(node.head_commit, null);
-    assert.equal(await currentBranch(node.worktree_path), `node/${nodeId}`);
+    assert.equal(await currentBranch(node.worktree_path), null, 'still detached');
+    assert.equal(await readRef(repo, node.branch_name), node.head_commit);
+    assert.equal(await gitLine(['branch', '--format=%(refname:short)'], repo), 'master');
   });
 
   test('a run that changes nothing leaves no branch and no commit', async () => {
@@ -220,7 +224,10 @@ describe('git layer', () => {
 
     assert.notEqual(first, second);
     const project = store.getProject(projectId)!;
-    assert.equal(await gitLine(['rev-list', '--count', `node/${nodeId}`], project.repo_path), '3');
+    assert.equal(
+      await gitLine(['rev-list', '--count', nodeRef(projectId, nodeId)], project.repo_path),
+      '3',
+    );
   });
 
   /**
@@ -393,6 +400,11 @@ describe('git layer', () => {
 
     const branches = await gitLine(['branch', '--format=%(refname:short)'], project.repo_path);
     assert.equal(branches, 'master', 'only master should remain');
+    const refs = await gitLine(
+      ['for-each-ref', '--format=%(refname)', 'refs/bonsai/'],
+      project.repo_path,
+    );
+    assert.equal(refs, nodeRef(projectId, masterNodeId), 'and only master’s ref');
   });
 });
 
@@ -443,7 +455,8 @@ describe('diff stats (2.3)', () => {
       return commitRunOutput({
         repoPath,
         worktreePath: node.worktree_path,
-        branchName: branchNameFor(nodeId),
+        branchName: branchOf(node),
+        ref: nodeRef(node.project_id, nodeId),
         message: 'work',
         baseCommit: node.base_commit,
       });
@@ -474,7 +487,8 @@ describe('diff stats (2.3)', () => {
       return commitRunOutput({
         repoPath,
         worktreePath: master.worktree_path,
-        branchName: master.branch_name ?? branchNameFor(master.id),
+        branchName: branchOf(master),
+        ref: nodeRef(master.project_id, master.id),
         message: 'work',
         baseCommit,
       });
@@ -510,7 +524,8 @@ describe('diff stats (2.3)', () => {
     const outcome = await commitRunOutput({
       repoPath: store.getProject(project.projectId)!.repo_path,
       worktreePath: node.worktree_path,
-      branchName: branchNameFor(nodeId),
+      branchName: branchOf(node),
+      ref: nodeRef(node.project_id, nodeId),
       message: 'nothing',
       baseCommit: node.base_commit,
     });
@@ -539,6 +554,7 @@ describe('diff stats (2.3)', () => {
       repoPath,
       worktreePath: master.worktree_path,
       branchName: 'master',
+      ref: nodeRef(master.project_id, master.id),
       message: 'seed',
     });
     store.recordCommit(project.masterNodeId, seeded.branch!, seeded.commit!);
@@ -555,7 +571,8 @@ describe('diff stats (2.3)', () => {
     const outcome = await commitRunOutput({
       repoPath,
       worktreePath: node.worktree_path,
-      branchName: branchNameFor(nodeId),
+      branchName: branchOf(node),
+      ref: nodeRef(node.project_id, nodeId),
       message: 'trim',
       baseCommit: node.base_commit,
     });

@@ -8,6 +8,7 @@ import type {
 import { isUsersOwnCheckout } from '../../db/store.js';
 import { attachedReferences, referredExperiments } from '../references.js';
 import { assertGitState, expectedGitState } from '../../git/ownership.js';
+import { pinNode } from '../../git/refs.js';
 import { runDiff, parentSnapshot } from '../../git/diff.js';
 import { discardWorktreeChanges } from '../../git/recovery.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
@@ -145,7 +146,7 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
       sendJson(res, 202, await jobs.startResume(row.id));
       return;
 
-    case 'discard':
+    case 'discard': {
       // Never against the user's own checkout. `git reset --hard` plus
       // `git clean -fd` there would destroy work Bonsai did not create and
       // cannot restore -- an adopted project's master is theirs, not ours.
@@ -155,15 +156,15 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
           'This node is your own folder. Bonsai will not discard changes there — use git yourself if you want them gone.',
         );
       }
-      await assertGitState(
-        row.worktree_path,
-        await expectedGitState(store.getProject(row.project_id)!.repo_path, row),
-      );
+      const repoPath = store.getProject(row.project_id)!.repo_path;
+      await pinNode(repoPath, row);
+      await assertGitState(row.worktree_path, await expectedGitState(repoPath, row));
       await discardWorktreeChanges(row.worktree_path);
       store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
       bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
       sendJson(res, 200, { ok: true });
       return;
+    }
 
     case 'keep':
       // Leaves the worktree dirty and resumable (§6.6). The node stops being

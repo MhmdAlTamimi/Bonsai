@@ -133,7 +133,7 @@ export function MenuBar({
                 onStart('existing');
               }}
             >
-              Open a folder
+              New project from a folder
             </button>
 
             <div className="menu-sep" />
@@ -240,8 +240,8 @@ export function MenuBar({
 
       {/*
        * The repository's own branch, when there is one to name. A project
-       * Bonsai created has only `node/<uuid>` branches, which D33 keeps out of
-       * sight -- so it shows nothing rather than something meaningless.
+       * Bonsai created has only its master's, which names nothing the user
+       * chose -- so it shows nothing rather than something meaningless.
        */}
       {project?.branchLabel != null && (
         <span className="branch-pill" title="The branch this project's folder is on">

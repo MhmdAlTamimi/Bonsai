@@ -1,11 +1,14 @@
 import { resolve } from 'node:path';
 import { OperationConflict } from '../domain/errors.js';
 import { gitLine } from './exec.js';
+import { branchOf, nodeRef, readRef, tipOf } from './refs.js';
 
 export interface GitState {
   head: string;
   branch: string | null;
   commonDir: string;
+  /** The node's own ref, which must point at `head`. What readGitState reads has none. */
+  ref?: string;
 }
 
 export async function readGitState(path: string): Promise<GitState> {
@@ -24,7 +27,10 @@ export async function assertGitState(path: string, expected: GitState): Promise<
   if (
     actual.head !== expected.head ||
     actual.branch !== expected.branch ||
-    actual.commonDir !== expected.commonDir
+    actual.commonDir !== expected.commonDir ||
+    // Refs are shared by every worktree of a repository, so the node's own
+    // folder reads the same ref the repository does.
+    (expected.ref !== undefined && (await readRef(path, expected.ref)) !== expected.head)
   ) {
     throw new OperationConflict(
       'This experiment’s Git state changed outside Bonsai. Work is preserved. Inspect and preserve unexpected work with your Git tools before restoring the recorded state; Bonsai will not rewrite it.',
@@ -34,15 +40,23 @@ export async function assertGitState(path: string, expected: GitState): Promise<
 
 export async function expectedGitState(
   repoPath: string,
-  node: { head_commit: string | null; base_commit: string | null; branch_name: string | null },
+  node: {
+    id: string;
+    project_id: string;
+    head_commit: string | null;
+    base_commit: string | null;
+    branch_name: string | null;
+  },
 ): Promise<GitState> {
-  const head = node.head_commit ?? node.base_commit;
+  const head = tipOf(node);
   if (head === null) throw new OperationConflict('This experiment has no recorded code snapshot.');
   return {
     head,
-    branch: node.branch_name,
+    // Detached, unless this node's checkout is on a branch of its own.
+    branch: branchOf(node),
     commonDir: resolve(
       await gitLine(['rev-parse', '--path-format=absolute', '--git-common-dir'], repoPath),
     ),
+    ref: nodeRef(node.project_id, node.id),
   };
 }
