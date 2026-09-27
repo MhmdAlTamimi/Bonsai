@@ -57,7 +57,7 @@ export function useCardActions({
         const ok = await ask({
           title: `Archive ${node.displayName}?`,
           body: [
-            'Archiving removes the folder to save space. Its branch, conversation and runs stay, and the next run brings the folder back.',
+            'Archiving removes the folder to save space. Its code, conversation and runs stay, and the next run brings the folder back.',
             `These ignored files would be deleted, and the next run cannot bring them back: ${shown}${more}.`,
           ],
           confirmLabel: 'Archive and delete them',

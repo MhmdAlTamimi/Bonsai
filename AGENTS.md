@@ -62,7 +62,10 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   `archive.ts`.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.
 - Children do not freeze parents (approved Phase 3). Existing children never move to newer
-  parent code automatically. An adopted original checkout remains read-only.
+  parent code automatically. An adopted project's master is read-only (`isAdoptedRoot`): a
+  detached checkout of the adoption snapshot in Bonsai's folder, created on first use, which
+  never follows the user's folder. Projects adopted earlier keep the user's own folder as
+  master (`isUsersOwnCheckout`): never written, archived, discarded or deleted.
 - Git state checks detect unexpected HEAD/ref/common-repository changes before execution,
   commit and deletion. Preserve drifted work; never silently reset it to match the database.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain

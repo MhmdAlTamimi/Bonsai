@@ -9,7 +9,10 @@ ancestors when the parent changed no files.
 ## Current behavior
 
 - Create a new project or adopt an existing repository. New projects use a Bonsai-owned
-  bare repository plus a checkout; adopted projects keep the original checkout in place.
+  bare repository plus a checkout. Adopting uses the repository in place: master becomes a
+  read-only checkout, in Bonsai's folder, of the commit your folder was at (or a snapshot of
+  its uncommitted work), and every experiment starts from it. It does not follow later changes
+  in your folder; start a new project to work from those. Your folder is only read.
 - Selecting a repository subdirectory sets the agent's working directory. Git still
   operates on the whole repository. Bonsai does not initialize a nested repository.
 - A child's checkout is allocated when it first runs, detached at its pinned base. A modifying
@@ -17,7 +20,7 @@ ancestors when the parent changed no files.
   safety); Bonsai creates no branches. Further modifying runs append commits; no-change
   conversations are valid.
 - Children do not freeze their parent, and existing children never move to newer parent code.
-  An adopted project's original checkout remains read-only.
+  An adopted project's master is read-only.
 - Runs stream conversation, tool output, questions and background activity. Stop cancels
   a run and preserves partial work; Resume, Keep and Discard are recovery actions.
   Finish now ends background waiting and saves remaining changes under the existing
@@ -51,8 +54,9 @@ ancestors when the parent changed no files.
   removes the checkout and keeps the code, conversation, runs and Claude session; the card is
   dimmed. The next run, or Open folder, checks it out again at the same path and setup runs
   again. A running experiment, one with uncommitted work, one whose Git state changed outside
-  Bonsai, and your own folder are never archived. Ignored files other than dependencies and build output (a local `.env`, a scratch
-  database) are listed and confirmed first, and the idle sweep leaves those folders alone.
+  Bonsai, and your own folder are never archived. Ignored files other than dependencies and
+  build output (a local `.env`, a scratch database) are listed and confirmed first, and the
+  idle sweep leaves those folders alone.
   Settings > Storage also shows what experiment folders take up.
 - Review compares the experiment's inherited base with committed and unfinished work.
   Per-run diffs remain commit-specific. Oversized patches explicitly report truncation.
@@ -97,7 +101,8 @@ SDK version's actual behavior requires the opt-in live probes under `scripts/`.
 
 Adoption refuses detached HEAD: select the intended branch with your own Git tools first.
 Including uncommitted work snapshots tracked and eligible untracked files without changing
-your index, checkout or refs; ignored files are excluded. A folder with no repository or
+your index, checkout or branches; ignored files are excluded. Projects adopted before master
+had a checkout of its own keep using your folder as master, read-only. A folder with no repository or
 no commits is initialized/committed during adoption, which changes that folder.
 
 Per-project copy-in files must be untracked in source and destination, ignored by the

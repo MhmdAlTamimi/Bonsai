@@ -6,6 +6,7 @@ import { describeError } from '../api/describeError.ts';
 import { ErrorNote } from '../ErrorNote.tsx';
 import { Icon, IconButton } from '../Icon.tsx';
 import { plural } from '../words.ts';
+import { relativeTime } from './chat/time.ts';
 import { Recovery } from './node/Recovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
 import { nodeStatusTitle } from '../nodeStatus.tsx';
@@ -181,9 +182,11 @@ function NodePanel({
   );
 
   /**
-   * Master of an adopted project: its worktree is the user's own folder, on the
-   * branch they work on. Bonsai will not write there, which is why the node is
-   * read-only from the start rather than after a child commits.
+   * Master of a project adopted before master had a checkout of its own: its
+   * worktree is the user's own folder, on the branch they work on. Bonsai will
+   * not write there, which is why the node is read-only from the start rather
+   * than after a child commits. Newer adopted projects' master is a snapshot
+   * (`frozenReason: 'snapshot'`), read-only for the same reason as any base.
    */
   const isYourFolder = node.frozenReason === 'your_folder';
 
@@ -247,6 +250,13 @@ function NodePanel({
       {isYourFolder && (
         <p className="note" title={project?.sourcePath ?? undefined}>
           Your own folder — read only. Branch an experiment to make changes.
+        </p>
+      )}
+      {node.frozenReason === 'snapshot' && (
+        <p className="note" title={project?.sourcePath ?? undefined}>
+          Read only: the code this project started from, taken from your folder{' '}
+          {relativeTime(node.createdAt)}. Experiments start from here, and it does not follow later
+          changes in your folder.
         </p>
       )}
       {node.behind !== null && (

@@ -10,8 +10,11 @@ import type { DatabaseSync } from 'node:sqlite';
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { workDirIn } from '../db/rows.js';
+import { archiveCheck } from '../archive.js';
+import { reviewOf } from '../api/review.js';
 import {
   adoptProject,
+  allocateNodeWorktree,
   createProject,
   deleteNodeTree,
   deleteProjectTree,
@@ -100,9 +103,12 @@ describe('adopting a directory', () => {
     assert.equal(project.source_kind, 'adopted');
     assert.equal(project.source_path, path);
     assert.equal(project.repo_path, path);
-    // Master's worktree IS the user's directory. That single fact is what makes
-    // export unnecessary and deletion dangerous.
-    assert.equal(store.getNode(masterNodeId)!.worktree_path, path);
+    // Master is not their folder: it gets a checkout of its own, in Bonsai's
+    // directory, the first time something needs one.
+    const master = store.getNode(masterNodeId)!;
+    assert.ok(!master.worktree_path.startsWith(path));
+    assert.equal(master.worktree_allocated, 0);
+    assert.equal(existsSync(master.worktree_path), false);
     assert.equal(await readFile(join(path, 'README.md'), 'utf8'), '# mine\n');
   });
 
@@ -127,9 +133,74 @@ describe('adopting a directory', () => {
     // here would mean Bonsai committing to the branch the user works on.
     assert.equal(master.writable, false);
     assert.equal(master.isLeaf, true);
-    // The two reasons a node can be unwritable lead to different advice, so
-    // they are distinguished rather than both rendering as "frozen".
+    // The reasons a node can be unwritable lead to different advice, so they
+    // are distinguished rather than all rendering as "frozen".
+    assert.equal(master.frozenReason, 'snapshot');
+  });
+
+  test('master reads the snapshot every experiment starts from, never the live folder', async () => {
+    const path = await userRepo();
+    const { projectId, masterNodeId } = await adopt(path);
+    const adoptedAt = await gitLine(['rev-parse', 'HEAD'], path);
+    // The user carries on: a commit, and an edit they have not saved.
+    await writeFile(join(path, 'README.md'), '# mine, later\n', 'utf8');
+    await git(['commit', '-am', 'later work'], path);
+    await writeFile(join(path, 'README.md'), '# mine, unsaved\n', 'utf8');
+
+    await allocateNodeWorktree(store, store.getNode(masterNodeId)!);
+    const master = store.getNode(masterNodeId)!;
+    assert.equal(await gitLine(['rev-parse', 'HEAD'], master.worktree_path), adoptedAt);
+    assert.equal(await gitLine(['branch', '--show-current'], master.worktree_path), '');
+    assert.equal(await readFile(join(master.worktree_path, 'README.md'), 'utf8'), '# mine\n');
+    // What master's agent and Review see is that checkout: nothing changed.
+    assert.equal((await reviewOf(store, master)).files.length, 0);
+
+    // And a child starts from the same code master shows.
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'child',
+      description: '',
+    });
+    const child = store.getNode(nodeId)!;
+    assert.equal(child.base_commit, adoptedAt);
+
+    // Their folder was only read: same branch, same commit, same unsaved edit.
+    assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
+    assert.equal(await readFile(join(path, 'README.md'), 'utf8'), '# mine, unsaved\n');
+
+    // Deleting the project removes master's checkout along with the rest.
+    await deleteProjectTree(store, projectId);
+    assert.equal(existsSync(master.worktree_path), false);
+    assert.equal(await readFile(join(path, 'README.md'), 'utf8'), '# mine, unsaved\n');
+  });
+
+  test('a project adopted before master had a checkout keeps using the folder, read-only', async () => {
+    const path = await userRepo();
+    const { projectId, masterNodeId } = await adopt(path);
+    // As older versions recorded it: master's folder IS theirs, on their branch.
+    db.prepare(
+      'UPDATE node SET worktree_path = ?, worktree_allocated = 1, branch_name = ? WHERE id = ?',
+    ).run(path, 'main', masterNodeId);
+    const master = store.treeView(projectId).find((n) => n.id === masterNodeId)!;
+    assert.equal(master.writable, false);
     assert.equal(master.frozenReason, 'your_folder');
+    assert.match(
+      (await archiveCheck(store, store.getNode(masterNodeId)!, false)).blocked ?? '',
+      /your own folder/,
+    );
+
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'child',
+      description: '',
+    });
+    await run(nodeId, { 'feature.txt': 'new\n' });
+    await deleteProjectTree(store, projectId);
+    assert.equal(existsSync(path), true);
+    assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
+    assert.equal(await gitLine(['for-each-ref', 'refs/bonsai/'], path), '');
   });
 
   test("a created project's master is writable, and says nothing is frozen", async () => {
@@ -349,8 +420,12 @@ describe('adopting a directory', () => {
     assert.equal(found?.node?.id, nodeId);
     assert.equal(found?.project.id, projectId);
 
-    // The adopted folder itself is master's worktree, so it names master.
-    assert.equal(store.findFolderOwner(path)?.node?.id, masterNodeId);
+    // The adopted folder itself belongs to the project and to no node: master
+    // has a checkout of its own, which names master.
+    assert.equal(store.findFolderOwner(path)?.project.id, projectId);
+    assert.equal(store.findFolderOwner(path)?.node, null);
+    const master = store.getNode(masterNodeId)!;
+    assert.equal(store.findFolderOwner(master.worktree_path)?.node?.id, masterNodeId);
 
     // Scaffolding around the worktrees belongs to the project but to no node.
     const scratch = store.projectScratchDir(projectId);

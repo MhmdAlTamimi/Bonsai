@@ -103,9 +103,25 @@ export interface RunTotals {
 
 export const now = (): string => new Date().toISOString();
 
-/** True for the one node whose worktree the user owns: an adopted master. */
-export function isUsersOwnCheckout(project: ProjectRow | undefined, row: NodeRow): boolean {
+/**
+ * An adopted project's master: the code the project started from. Read-only
+ * whatever its folder, because experiments are what change code (D5).
+ */
+export function isAdoptedRoot(project: ProjectRow | undefined, row: NodeRow): boolean {
   return project?.source_kind === 'adopted' && row.parent_id === null;
+}
+
+/**
+ * True for the one node whose worktree the user owns: an adopted master whose
+ * folder IS their folder. Projects adopted since master got a checkout of its
+ * own have none; this is for the ones adopted before.
+ */
+export function isUsersOwnCheckout(project: ProjectRow | undefined, row: NodeRow): boolean {
+  return (
+    isAdoptedRoot(project, row) &&
+    project?.source_path != null &&
+    resolve(row.worktree_path) === resolve(project.source_path)
+  );
 }
 
 export function toLineage(row: NodeRow): LineageNode {

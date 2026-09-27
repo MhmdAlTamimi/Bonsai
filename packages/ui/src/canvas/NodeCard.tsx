@@ -41,13 +41,15 @@ function lodFor(zoom: number): Lod {
 
 /** Why the padlock is there. The two reasons lead to different next steps. */
 const ARCHIVED_TOOLTIP =
-  'Archived: its folder was removed to save space. The branch, conversation and runs are kept, ' +
+  'Archived: its folder was removed to save space. The code, conversation and runs are kept, ' +
   'and the next run (or Open folder) brings the folder back and runs setup again.';
 
 const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
   child_committed: "Frozen — a child has committed, so this experiment's code cannot change.",
   your_folder:
     'Your own folder. Bonsai reads it but never writes or commits there; branch an experiment to make changes.',
+  snapshot:
+    'The code this project started from, taken from your folder when you adopted it. It stays as it was; branch an experiment to make changes.',
 };
 
 export function NodeCard({ data, selected }: { data: NodeView; selected: boolean }): JSX.Element {
@@ -333,7 +335,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                 <button
                   role="menuitem"
                   disabled={data.status === 'running' || data.status === 'needs_you'}
-                  title="Remove the folder to save space. The branch, conversation and runs stay, and the next run brings it back."
+                  title="Remove the folder to save space. The code, conversation and runs stay, and the next run brings it back."
                   onClick={() => {
                     setMenu(false);
                     actions.archive(data);

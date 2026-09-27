@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir, lstat, rm, rmdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
@@ -48,9 +49,10 @@ import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
  *   folder. It may delete all of it.
  *
  *   ADOPTED - the user points Bonsai at a directory they already have. Bonsai
- *   uses it in place: that folder IS the repository, master is that folder on
- *   its existing branch, and nodes are commits inside THEIR repository. Bonsai
- *   may delete only what it created.
+ *   uses it in place: that folder IS the repository, master is a read-only
+ *   checkout of the commit it was at (projects adopted before that: the folder
+ *   itself, on its branch), and nodes are commits inside THEIR repository.
+ *   Bonsai may delete only what it created.
  *
  * Either way every node has a hidden ref, `refs/bonsai/<project>/<node>`, at
  * its latest commit, which is what keeps its code in git (see git/refs.ts).
@@ -187,16 +189,22 @@ function slugify(name: string): string {
 /**
  * Adopts a directory the user already has.
  *
- * Nothing is copied and nothing is moved. Master's worktree IS the user's
- * folder; child nodes get detached worktrees under Bonsai's own directory,
- * their commits kept by hidden refs inside the user's repository -- never
- * branches, which would crowd their `git branch` and go out with a
- * `push --all`. Work goes back to them as a patch (Apply, api/applyPatch.ts).
+ * Nothing is copied and nothing is moved. Every node, master included, gets a
+ * detached worktree under Bonsai's own directory, its commits kept by a hidden
+ * ref inside the user's repository -- never a branch, which would crowd their
+ * `git branch` and go out with a `push --all`. Work goes back to them as a
+ * patch (Apply, api/applyPatch.ts). Their folder is only read: here, and for
+ * copy-in files.
  *
- * MASTER ENDS UP FROZEN, on purpose. Its worktree is the user's working
- * directory, so a run there would have Bonsai committing onto the branch they
- * are actually working on. Requiring a child before anything can change is D5
- * anyway; here it also guarantees Bonsai never writes to their checkout.
+ * MASTER IS A SNAPSHOT: the commit their folder was at (or a snapshot of its
+ * uncommitted work), which is where every experiment starts. It never follows
+ * the folder afterwards; code that moved on comes in through a new project.
+ * Its own checkout is what makes master, its Review and its notes agree with
+ * the experiments started from it -- when master was the folder itself, its
+ * agent read whatever the folder held that day.
+ *
+ * MASTER IS READ-ONLY, on purpose (views.ts): it is what the experiments are
+ * measured against, and changing it is what a child is for (D5).
  *
  * Existing branches are deliberately not turned into nodes -- see git/adopt.ts
  * for why that is a dead end rather than a shortcut not taken.
@@ -261,19 +269,23 @@ export async function adoptProject(
 
   let master: NodeRow;
   try {
+    const masterId = randomUUID();
     master = store.createNode({
+      id: masterId,
       projectId: project.id,
       parentId: null,
       displayName: adopted.branch,
       description: input.description,
       rootCommit: base,
-      rootBranchName: adopted.branch,
-      // The user's own directory, not a worktree Bonsai created.
-      worktreePath: adopted.repoPath,
+      // Detached at the snapshot rather than on their branch, which is checked
+      // out in their folder: its ref is what the snapshot is on.
+      rootBranchName: nodeRef(project.id, masterId),
     });
+    // Its checkout, in Bonsai's folder like any experiment's, is made the
+    // first time something needs it.
+    store.markAllocated(master.id, false);
     // The commit every experiment here starts from. Their branch may move on,
-    // and a snapshot of uncommitted work was never on it: no folder is ever
-    // checked out at it either, so this ref is all that keeps it.
+    // and a snapshot of uncommitted work was never on it: this ref keeps it.
     await pinNode(adopted.repoPath, master);
   } catch (error) {
     store.deleteProject(project.id);
@@ -384,8 +396,10 @@ async function createFolder(store: Store, stale: NodeRow): Promise<SeedFileOutco
     }
     store.markRestored(node.id);
   } else {
-    if (!node.base_commit) throw new Error('No project or pinned code snapshot.');
-    await addDetachedWorktree(project.repo_path, node.worktree_path, node.base_commit);
+    // A child's base, or an adopted master's snapshot: the one commit it has.
+    const commit = tipOf(node);
+    if (commit === null) throw new Error('No project or pinned code snapshot.');
+    await addDetachedWorktree(project.repo_path, node.worktree_path, commit);
     // Mark immediately: later failures must preserve this checkout, never replace it.
     store.markAllocated(node.id, true);
   }

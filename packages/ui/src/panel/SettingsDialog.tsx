@@ -269,7 +269,7 @@ function Storage({
         </span>
       </label>
       <p className="hint">
-        Archiving removes an experiment&rsquo;s folder and keeps its branch, conversation and runs.
+        Archiving removes an experiment&rsquo;s folder and keeps its code, conversation and runs.
         The next run brings the folder back and runs setup again. A folder with uncommitted work, or
         with ignored files other than dependencies and build output, is never archived on its own;
         archive it from its ⋯ menu instead.

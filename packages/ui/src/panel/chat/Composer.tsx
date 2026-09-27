@@ -76,7 +76,9 @@ export function Composer({
         <span className="hint">
           {node.frozenReason === 'your_folder'
             ? 'Read only — your own folder'
-            : 'Frozen — a child committed'}
+            : node.frozenReason === 'snapshot'
+              ? 'Read only — the starting code'
+              : 'Frozen — a child committed'}
         </span>
       </div>
     );
@@ -109,7 +111,7 @@ export function Composer({
       <div className="composer-row">
         <span className="hint">
           {frozen
-            ? node.frozenReason === 'your_folder'
+            ? node.frozenReason === 'your_folder' || node.frozenReason === 'snapshot'
               ? 'Read only — questions only'
               : 'Frozen — questions only'
             : canRun
@@ -219,7 +221,9 @@ function placeholder(node: NodeView, busy: boolean): string {
   if (node.status === 'needs_you') return 'Answer the question above to let the agent continue';
   if (busy) return 'Write your next message — send it when the agent finishes';
   if (node.writable) return 'Reply, ask a question, or describe a change';
-  return node.frozenReason === 'your_folder'
-    ? 'Ask about your folder — branch an experiment to change it'
-    : 'Ask a question — branch an experiment to change the code';
+  if (node.frozenReason === 'your_folder')
+    return 'Ask about your folder — branch an experiment to change it';
+  if (node.frozenReason === 'snapshot')
+    return 'Ask about this code — branch an experiment to change it';
+  return 'Ask a question — branch an experiment to change the code';
 }

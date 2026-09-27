@@ -317,11 +317,13 @@ export interface ProjectSetupView {
  * Why a node is not writable. Null when it is.
  *
  * Not a node type — `writable` remains the flag everything gates on, and this
- * only says which of the two reasons produced it. There are two because they
- * lead to different advice: a frozen node is finished and you branch off it,
- * whereas your own folder was never going to be written to at all.
+ * only says which reason produced it. They lead to different advice: a frozen
+ * node is finished and you branch off it, whereas an adopted project's master
+ * was never going to be written to at all -- either because it is your own
+ * folder (projects adopted before master had a checkout of its own), or
+ * because it is the snapshot of it every experiment starts from.
  */
-export type FrozenReason = 'child_committed' | 'your_folder';
+export type FrozenReason = 'child_committed' | 'your_folder' | 'snapshot';
 
 export interface NodeView {
   id: string;
