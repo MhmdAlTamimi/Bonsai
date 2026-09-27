@@ -173,17 +173,31 @@ class Session {
    * `new MouseEvent('click')` with no coordinates behaves differently from a
    * click -- which is precisely the kind of difference an end-to-end test
    * exists to catch rather than to paper over.
+   *
+   * It waits, as a person would, until a click at the element's centre would
+   * reach it: something is drawn there (React Flow keeps a card it has not
+   * measured yet hidden, and a click passes straight through it), nothing
+   * covers it, and it has held still for a moment, so it is not missed by
+   * moving between being found and being clicked.
    */
   async click(selector) {
-    const at = await this.waitFor(
-      `(() => { const el = document.querySelector(${JSON.stringify(selector)});
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0; })()`,
+    const point = await this.waitFor(
+      `new Promise((resolve) => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return resolve(null);
+        const before = el.getBoundingClientRect();
+        setTimeout(() => {
+          const r = el.getBoundingClientRect();
+          const still = r.width > 0 && r.height > 0 && r.left === before.left &&
+            r.top === before.top && r.width === before.width && r.height === before.height;
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          const hit = still ? document.elementFromPoint(x, y) : null;
+          resolve(hit !== null && el.contains(hit) ? { x, y } : null);
+        }, 50);
+      })`,
       { label: `${selector} to be clickable` },
     );
-    if (!at) throw new Error(`no element matching ${selector}`);
-    const point = await this.centreOf(selector);
     await this.mouse('mousePressed', point.x, point.y);
     await this.mouse('mouseReleased', point.x, point.y);
   }

@@ -2270,6 +2270,22 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // Picking: the Compare tool, then the cards themselves.
     await session.goto(`${BASE}/?project=${created.projectId}`);
     await session.waitFor(`!!document.querySelector('[data-id="${lru}"] .card')`);
+    // The map opens at the zoom it keeps. React Flow fits once by itself and
+    // Bonsai once more a moment later; when the two disagreed, the cards
+    // opened at up to 1.8× and shrank back, and a card clicked in between had
+    // moved out from under the pointer.
+    const widest = (await session.eval(`new Promise((resolve) => {
+      const end = performance.now() + 400;
+      let widest = 0;
+      const frame = () => {
+        const card = document.querySelector('[data-id="${lru}"] .card');
+        if (card !== null) widest = Math.max(widest, card.getBoundingClientRect().width);
+        if (performance.now() < end) requestAnimationFrame(frame);
+        else resolve(widest);
+      };
+      frame();
+    })`)) as number;
+    assert.ok(widest <= 248.5, `a card opened ${Math.round(widest)}px wide, zoomed past 1`);
     await session.eval(`${button('Compare')}.click()`);
     await session.waitFor(
       "document.querySelector('.compare-bar')?.textContent.includes('Click 2 to 4 experiments')",

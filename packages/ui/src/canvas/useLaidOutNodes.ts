@@ -3,6 +3,7 @@ import { type Edge, type Node, useNodesState, useReactFlow } from 'reactflow';
 import type { NodeView } from '@bonsai/shared';
 
 import { layoutTree } from './layout.ts';
+import { FIT } from './zoom.ts';
 
 /**
  * Server state, turned into nodes React Flow will actually draw.
@@ -111,7 +112,7 @@ export function useLaidOutNodes(
   useEffect(() => {
     if (count === 0 || fitted.current) return;
     const timer = setTimeout(() => {
-      flowRef.current.fitView({ padding: 0.2, maxZoom: 1, duration: 0 });
+      flowRef.current.fitView(FIT);
       fitted.current = true;
     }, 120);
     return () => clearTimeout(timer);
