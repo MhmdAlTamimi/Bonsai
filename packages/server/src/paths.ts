@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises';
 import path, { type PlatformPath } from 'node:path';
 
 /**
@@ -23,4 +24,21 @@ export function isInside(parent: string, child: string, p: PlatformPath = path):
 /** Whether two paths name the same folder. */
 export function samePath(a: string, b: string, p: PlatformPath = path): boolean {
   return p.relative(p.resolve(a), p.resolve(b)) === '';
+}
+
+/**
+ * The one spelling of an existing folder, the one git reports: symlinks
+ * followed, and on Windows the long name for a short one -- the temp folder
+ * is `C:\\Users\\RUNNER~1\\…` to Windows and `C:/Users/runneradmin/…` to
+ * git. Compared as written, a folder picked by one name and found by the
+ * other was outside its own repository, and the subfolder the agent should
+ * work in was dropped. A path that does not exist is resolved as written.
+ */
+export async function canonicalPath(p: string): Promise<string> {
+  const full = path.resolve(p);
+  try {
+    return await realpath(full);
+  } catch {
+    return full;
+  }
 }

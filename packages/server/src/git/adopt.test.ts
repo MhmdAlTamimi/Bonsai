@@ -1,7 +1,7 @@
 import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,7 +42,9 @@ describe('adopting a directory', () => {
   let store: Store;
 
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'bonsai-adopt-'));
+    // As git spells it, which on Windows is not how the temp folder is spelt.
+    // The test below picks a folder by another name on purpose.
+    root = await realpath(await mkdtemp(join(tmpdir(), 'bonsai-adopt-')));
     db = openInMemory();
     store = new Store(db, join(root, 'repos'));
   });
@@ -383,6 +385,29 @@ describe('adopting a directory', () => {
   });
 
   // -- repository identity and working scope (D37) ---------------------------
+
+  test('a folder picked by another of its names still works in its subfolder', async () => {
+    const path = await userRepo();
+    const inner = join(path, 'services', 'api');
+    await mkdir(inner, { recursive: true });
+    await writeFile(join(inner, 'app.txt'), 'x\n', 'utf8');
+    await git(['add', '-A'], path);
+    await git(['commit', '-m', 'api'], path);
+    // A symlink on Linux and macOS, a junction on Windows (which needs no
+    // administrator). Git names the repository by its real path, so compared
+    // as written the subfolder was outside it and quietly dropped: the agent
+    // worked in the repository root. Windows' short names (RUNNER~1) did the
+    // same without any link.
+    const alias = join(root, 'alias');
+    await symlink(path, alias, 'junction');
+    const picked = join(alias, 'services', 'api');
+
+    assert.equal((await inspectDirectory(picked)).workDir, 'services/api');
+    const { projectId, workDir, repoPath } = await adopt(picked);
+    assert.equal(workDir, 'services/api');
+    assert.equal(repoPath, path);
+    assert.equal(store.getProject(projectId)!.work_dir, 'services/api');
+  });
 
   test('a folder inside a repository adopts the repository and works in the folder', async () => {
     const path = await userRepo();

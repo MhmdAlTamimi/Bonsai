@@ -10,7 +10,7 @@ import { FileLogger } from '../../log.js';
 import { storageUse } from '../../archive.js';
 import { bundledClaudeCodeVersion } from '../../agent/claudeCode.js';
 import { route } from '../routing.js';
-import { samePath } from '../../paths.js';
+import { canonicalPath, samePath } from '../../paths.js';
 
 /** Connection, settings, diagnostics and the local filesystem. */
 
@@ -50,7 +50,9 @@ route('GET', '/api/browse', async (req, res) => {
  */
 route('POST', '/api/inspect', async (req, res, _p, { store }) => {
   const body = await readJson<{ path?: string }>(req);
-  const path = requireString(body.path, 'path');
+  // Spelt as git and the database spell it, so a folder is recognised by
+  // any of its names.
+  const path = await canonicalPath(requireString(body.path, 'path'));
 
   const owner = store.findFolderOwner(path);
   if (

@@ -131,9 +131,10 @@ describe('the agent working directory', () => {
       permissionMode: 'default',
     });
     // Writes a gitignored file naming the directory it ran in, so where it ran
-    // is provable rather than inferred.
+    // is provable rather than inferred. Node rather than `pwd`, which
+    // Windows' shell does not have.
     store.saveProjectConfiguration(projectId, {
-      setupCommand: 'pwd > .where-setup-ran',
+      setupCommand: `node -e "require('fs').writeFileSync('.where-setup-ran', process.cwd())"`,
     });
     const { nodeId } = await createChildNode(store, {
       projectId,

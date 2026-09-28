@@ -1,7 +1,7 @@
 import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -29,7 +29,8 @@ describe('the apply command', () => {
   let patches: string;
 
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'bonsai-apply-'));
+    // As git spells it, which on Windows is not how the temp folder is spelt.
+    root = await realpath(await mkdtemp(join(tmpdir(), 'bonsai-apply-')));
     db = openInMemory();
     store = new Store(db, join(root, 'repos'));
     patches = join(root, 'data', 'patches');
@@ -69,6 +70,13 @@ describe('the apply command', () => {
 
   const run = (command: string, cwd: string) => runCommand({ command, cwd, timeoutMs: 30_000 });
 
+  /**
+   * A file the command wrote, with LF line endings. It runs your git, with
+   * your settings: on Windows those usually check files out with CRLF.
+   */
+  const text = async (path: string): Promise<string> =>
+    (await readFile(path, 'utf8')).replace(/\r\n/g, '\n');
+
   test('applies to your folder uncommitted, without Bonsai’s notes, after your code moved on', async () => {
     const folder = await mine();
     const adopted = await adoptProject(store, {
@@ -100,8 +108,8 @@ describe('the apply command', () => {
 
     const result = await run(patch.command, folder);
     assert.equal(result.ok, true, `${patch.command}\n${result.stderr}`);
-    assert.equal(await readFile(join(folder, 'app.txt'), 'utf8'), 'ONE\ntwo\nthree\nfour\nFIVE\n');
-    assert.equal(await readFile(join(folder, 'cache.txt'), 'utf8'), 'redis\n');
+    assert.equal(await text(join(folder, 'app.txt')), 'ONE\ntwo\nthree\nfour\nFIVE\n');
+    assert.equal(await text(join(folder, 'cache.txt')), 'redis\n');
     await assert.rejects(readFile(join(folder, 'CONTEXT.md')), { code: 'ENOENT' });
     // Nothing committed: that is yours to do.
     assert.equal(await gitLine(['rev-parse', 'HEAD'], folder), head);
@@ -131,7 +139,7 @@ describe('the apply command', () => {
     const patch = await writeApplyPatch(store, store.getNode(nodeId)!, patches);
     const result = await run(patch.command, root);
     assert.equal(result.ok, true, `${patch.command}\n${result.stderr}`);
-    assert.match(await readFile(join(folder, 'app.txt'), 'utf8'), /^ONE\r?\ntwo/);
+    assert.match(await text(join(folder, 'app.txt')), /^ONE\ntwo/);
   });
 
   test('applies to a checkout with Windows line endings, changing only what changed', async () => {
@@ -219,11 +227,8 @@ describe('the apply command', () => {
     assert.ok(line.command.startsWith(`git -C ${shellPath(folder)} apply --3way `), line.command);
     const result = await run(line.command, root);
     assert.equal(result.ok, true, `${line.command}\n${result.stderr}`);
-    assert.equal(
-      await readFile(join(folder, 'login.py'), 'utf8'),
-      'def login(user):\n    return user\n',
-    );
-    assert.equal(await readFile(join(folder, 'util.py'), 'utf8'), 'x = 1\n');
+    assert.equal(await text(join(folder, 'login.py')), 'def login(user):\n    return user\n');
+    assert.equal(await text(join(folder, 'util.py')), 'x = 1\n');
 
     // Master's direct child has one step: nothing to choose between.
     assert.equal((await writeApplyPatch(store, store.getNode(a.nodeId)!, patches)).scopes, null);
@@ -318,6 +323,6 @@ describe('the apply command', () => {
     await git(['clone', store.getProject(created.projectId)!.repo_path, clone], root);
     const result = await run(patch.command, clone);
     assert.equal(result.ok, true, result.stderr);
-    assert.equal(await readFile(join(clone, 'feature.txt'), 'utf8'), 'feature\n');
+    assert.equal(await text(join(clone, 'feature.txt')), 'feature\n');
   });
 });
