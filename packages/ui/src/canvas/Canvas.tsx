@@ -6,7 +6,7 @@ import type { NodeView } from '@bonsai/shared';
 import { Icon } from '../Icon.tsx';
 
 import { CanvasHints } from './CanvasHints.tsx';
-import { MAX_ZOOM, MIN_ZOOM } from './zoom.ts';
+import { FIT, MAX_ZOOM, MIN_ZOOM } from './zoom.ts';
 
 /** The canvas grid, in step with `--canvas-dot` in styles/tokens.css. */
 const CANVAS_DOT = 'rgba(255, 255, 255, 0.075)';
@@ -163,6 +163,7 @@ export function Canvas({
             }}
             maxZoom={MAX_ZOOM}
             fitView
+            fitViewOptions={FIT}
             proOptions={{ hideAttribution: true }}
           >
             {/* The dot grid: what tells you this is a surface you move on rather
@@ -220,7 +221,7 @@ export function Canvas({
               <button
                 className="canvas-tool"
                 title="Fit the whole tree on screen"
-                onClick={() => fitView({ padding: 0.2, maxZoom: 1, duration: 0 })}
+                onClick={() => fitView(FIT)}
               >
                 <Icon name="fit" />
                 <span>Fit canvas</span>

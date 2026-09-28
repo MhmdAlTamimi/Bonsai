@@ -205,13 +205,20 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                  * measured at commit time, and a run from before that
                  * measurement existed has none. The way in still opens.
                  */}
-                {data.hasCommits ? (
+                {/*
+                 * One that has not changed anything itself but started from
+                 * an experiment's commit still has changes to read: the ones
+                 * it inherited, shown as its whole line.
+                 */}
+                {data.hasCommits || data.inherits ? (
                   <button
                     className="review-control nodrag nopan"
                     title={
-                      changes === null
-                        ? 'Review this experiment’s changes'
-                        : `Review ${plural(changes.files, 'changed file')}`
+                      !data.hasCommits
+                        ? 'Review: no changes of its own yet, and the ones it started with'
+                        : changes === null
+                          ? 'Review this experiment’s changes'
+                          : `Review ${plural(changes.files, 'changed file')}`
                     }
                     onClick={(event) => {
                       event.stopPropagation();

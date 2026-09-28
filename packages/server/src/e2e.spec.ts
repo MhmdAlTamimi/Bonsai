@@ -2270,6 +2270,22 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     // Picking: the Compare tool, then the cards themselves.
     await session.goto(`${BASE}/?project=${created.projectId}`);
     await session.waitFor(`!!document.querySelector('[data-id="${lru}"] .card')`);
+    // The map opens at the zoom it keeps. React Flow fits once by itself and
+    // Bonsai once more a moment later; when the two disagreed, the cards
+    // opened at up to 1.8× and shrank back, and a card clicked in between had
+    // moved out from under the pointer.
+    const widest = (await session.eval(`new Promise((resolve) => {
+      const end = performance.now() + 400;
+      let widest = 0;
+      const frame = () => {
+        const card = document.querySelector('[data-id="${lru}"] .card');
+        if (card !== null) widest = Math.max(widest, card.getBoundingClientRect().width);
+        if (performance.now() < end) requestAnimationFrame(frame);
+        else resolve(widest);
+      };
+      frame();
+    })`)) as number;
+    assert.ok(widest <= 248.5, `a card opened ${Math.round(widest)}px wide, zoomed past 1`);
     await session.eval(`${button('Compare')}.click()`);
     await session.waitFor(
       "document.querySelector('.compare-bar')?.textContent.includes('Click 2 to 4 experiments')",
@@ -2453,6 +2469,57 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("!document.querySelector('dialog')");
   });
 
+  test("review opens on the experiment's own changes, and its whole line is one click away", async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'line review', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const child = async (parentId: string, displayName: string): Promise<string> =>
+      (
+        (await (
+          await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ parentId, displayName, description: '' }),
+          })
+        ).json()) as { node: { id: string } }
+      ).node.id;
+    const first = await child(created.masterNodeId, 'first step');
+    await fetch(`${BASE}/api/nodes/${first}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'make the first step' }),
+    });
+    await session.waitFor(
+      `(async () => (await (await fetch(${JSON.stringify(`${BASE}/api/nodes/${first}`)})).json()).node.status === 'ready')()`,
+    );
+    // Started from the first step's commit, and has changed nothing itself.
+    const next = await child(first, 'next step');
+
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${next}`);
+    await session.click(`[data-id="${next}"] .review-control`);
+    const pressed = 'document.querySelector(\'.review-scope [aria-pressed="true"]\')?.textContent';
+    await session.waitFor(
+      "document.querySelector('.review .diff-note')?.textContent.includes('has not changed any files itself yet')",
+      { label: 'the empty own step' },
+    );
+    assert.match(String(await session.eval(pressed)), /^This experiment/);
+    assert.equal(await session.eval("document.querySelectorAll('.tree-row.file').length"), 0);
+
+    // The parents' changes are one click away, from the note or the switch.
+    await session.click('.review .diff-note .linkish');
+    await session.waitFor("document.querySelectorAll('.tree-row.file').length > 0", {
+      label: 'the whole line',
+    });
+    assert.match(String(await session.eval(pressed)), /^Whole line/);
+    await session.click('.review-scope button:first-child');
+    await session.waitFor("!!document.querySelector('.review .diff-note')");
+    assert.match(String(await session.eval(pressed)), /^This experiment/);
+  });
+
   test('an archived folder is dimmed on the map and comes back with the next message', async () => {
     const post = async (path: string, body: unknown): Promise<Response> =>
       fetch(`${BASE}${path}`, {
@@ -2498,6 +2565,18 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "/^git apply --3way \".+\\.patch\"$/.test(document.querySelector('dialog[open] .apply-command')?.textContent ?? '')",
     );
+    // The same patch, downloaded as a file for a Git app.
+    const href = String(
+      await session.eval(
+        "document.querySelector('dialog[open] .apply-download a')?.getAttribute('href') ?? ''",
+      ),
+    );
+    const download = await fetch(`${BASE}${href}`);
+    assert.match(
+      download.headers.get('content-disposition') ?? '',
+      /^attachment; filename="archive-me-[0-9a-f]{7}\.patch"$/,
+    );
+    assert.match(await download.text(), /^diff --git /);
     await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
     await session.waitFor("!document.querySelector('dialog[open]')");
 

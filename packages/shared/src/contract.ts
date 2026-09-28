@@ -127,8 +127,19 @@ export interface ArchiveCheck {
 export interface ApplyPatchView {
   /** Where the patch was written, in Bonsai's data folder. */
   path: string;
-  /** Ready to paste: `git apply --3way "<path>"`. */
+  /**
+   * Ready to paste, from any folder: `git -C "<your folder>" apply --3way
+   * "<path>"` for a project made from a folder, `git apply --3way "<path>"`
+   * (run where the changes should go) for one Bonsai created.
+   */
   command: string;
+  /** The folder the command changes: yours, for a project made from a folder. */
+  folder: string | null;
+  scope: ChangeScope;
+  /** Files in each scope's patch. Null when they are the same patch. */
+  scopes: { own: number; line: number } | null;
+  /** What the project started from, when your folder is now on a different branch. */
+  branchMismatch: { startedFrom: string; folderOn: string } | null;
   files: number;
   added: number;
   removed: number;
@@ -339,6 +350,12 @@ export interface NodeView {
   createsBranch: boolean;
   writable: boolean;
   frozenReason: FrozenReason | null;
+  /**
+   * It started from an experiment's commit, so its code already holds changes
+   * its parents made -- what Review's "Whole line" shows, even before it has
+   * changed anything itself.
+   */
+  inherits: boolean;
   /** Rendering hint only. Deliberately not part of the `writable` derivation. */
   isLeaf: boolean;
   hasCommits: boolean;
@@ -695,11 +712,30 @@ export interface ReviewFile {
   uncommitted?: boolean;
 }
 
+/**
+ * Which changes Review and Apply cover.
+ *
+ *   own  -- what this experiment changed since it started. Review's default:
+ *           the step you are looking at, without its parents' noise.
+ *   line -- everything its line of experiments changed since the line left
+ *           master: what its code has that master's does not. Apply's
+ *           default, because your folder is at master's code, and a patch of
+ *           the last step alone would miss what its parents did.
+ *
+ * The same for master's direct children, whose line is one step long.
+ */
+export type ChangeScope = 'own' | 'line';
+
 export interface ReviewView {
   nodeId: string;
   displayName: string;
   /** What the files are compared with, in words. */
   baseLabel: string;
+  scope: ChangeScope;
+  /** How many files each scope covers. Null when they cannot differ: nothing to switch between. */
+  scopes: { own: number; line: number } | null;
+  /** The line's experiments, master first, when `scopes` is not null. */
+  line: string[] | null;
   totals: { files: number; added: number; removed: number };
   files: ReviewFile[];
 }

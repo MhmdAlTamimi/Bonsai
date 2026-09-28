@@ -1,6 +1,9 @@
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import type { IncomingMessage } from 'node:http';
+import { basename, join } from 'node:path';
 import { resolveRunSettings } from '../../jobs/runSettings.js';
 import type {
+  ChangeScope,
   NodeDeletionImpactView,
   CreateNodeRequest,
   NodeDetail,
@@ -264,14 +267,48 @@ route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus })
   sendJson(res, 200, { ok: true });
 });
 
+/** `?scope=own` or `?scope=line`; anything else is the endpoint's default. */
+function scopeOf(req: IncomingMessage): ChangeScope | undefined {
+  const scope = new URL(req.url ?? '/', 'http://localhost').searchParams.get('scope');
+  return scope === 'own' || scope === 'line' ? scope : undefined;
+}
+
 /**
  * Write the experiment's committed changes to a patch in Bonsai's data folder
  * and return the command that applies it. A POST because it writes a file.
+ * The whole line unless `?scope=own`.
  */
-route('POST', '/api/nodes/:id/patch', async (_req, res, params, { store, settings }) => {
+route('POST', '/api/nodes/:id/patch', async (req, res, params, { store, settings }) => {
   const node = store.getNode(params['id']!);
   if (!node) throw new HttpError(404, 'No such experiment.');
-  sendJson(res, 200, await writeApplyPatch(store, node, join(settings.view().dataDir, 'patches')));
+  sendJson(
+    res,
+    200,
+    await writeApplyPatch(store, node, join(settings.view().dataDir, 'patches'), scopeOf(req)),
+  );
+});
+
+/**
+ * The same patch, as a file the browser saves: for a Git app with "Apply
+ * patch", or to send to someone. Written fresh, like the command's.
+ */
+route('GET', '/api/nodes/:id/patch/file', async (req, res, params, { store, settings }) => {
+  const node = store.getNode(params['id']!);
+  if (!node) throw new HttpError(404, 'No such experiment.');
+  const { path } = await writeApplyPatch(
+    store,
+    node,
+    join(settings.view().dataDir, 'patches'),
+    scopeOf(req),
+  );
+  const body = await readFile(path);
+  res.writeHead(200, {
+    'content-type': 'text/x-diff; charset=utf-8',
+    'content-length': body.length,
+    // The name is Bonsai's own: the experiment's slug and a short commit.
+    'content-disposition': `attachment; filename="${basename(path)}"`,
+  });
+  res.end(body);
 });
 
 /** Whether the folder can be archived now, and which ignored files would go with it. */
@@ -298,10 +335,10 @@ route('POST', '/api/nodes/:id/archive', async (req, res, params, { store, bus, j
   sendJson(res, 200, { ok: true });
 });
 
-route('GET', '/api/nodes/:id/review', async (_req, res, params, { store }) => {
+route('GET', '/api/nodes/:id/review', async (req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  sendJson(res, 200, await reviewOf(store, row));
+  sendJson(res, 200, await reviewOf(store, row, scopeOf(req)));
 });
 
 /** One file's patch, for the pane reading it. */
@@ -318,6 +355,7 @@ route('GET', '/api/nodes/:id/review/file', async (req, res, params, { store }) =
       row,
       path,
       new URL(req.url ?? '/', 'http://localhost').searchParams.get('view') === 'file',
+      scopeOf(req),
     ),
   );
 });

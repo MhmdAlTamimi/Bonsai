@@ -1,8 +1,9 @@
-import type { ReviewFilePatchView, ReviewView } from '@bonsai/shared';
+import type { ChangeScope, ReviewFilePatchView, ReviewView } from '@bonsai/shared';
 
 import type { NodeRow, Store } from '../db/store.js';
 import { contextFileAt, readContextFile } from '../git/context.js';
 import { parentSnapshot } from '../git/diff.js';
+import { gitLine } from '../git/exec.js';
 import {
   reviewFileContent,
   reviewFilePatch,
@@ -21,6 +22,43 @@ export function reviewSource(store: Store, row: NodeRow): ReviewSource | null {
   if (row.archived_at === null) return null;
   const project = store.getProject(row.project_id);
   return project === undefined ? null : { cwd: project.repo_path, committedOnly: true };
+}
+
+/**
+ * Where a scope's changes are read. The whole line is committed work, so an
+ * experiment that has no folder yet -- created, never run -- still shows what
+ * it inherited, read from the repository.
+ */
+function sourceFor(store: Store, row: NodeRow, scope: ChangeScope): ReviewSource | null {
+  const source = reviewSource(store, row);
+  if (source !== null || scope === 'own') return source;
+  const project = store.getProject(row.project_id);
+  return project === undefined ? null : { cwd: project.repo_path, committedOnly: true };
+}
+
+/**
+ * Where an experiment's line left master: the last commit of master's that
+ * its code contains. Everything after it, up to the experiment, is what the
+ * line's experiments did.
+ *
+ * Asked of git rather than walked through the tree. Master of a project made
+ * from a folder never moves, so this is the snapshot; master of a project
+ * Bonsai created may have committed since, and merge-base finds the commit
+ * the line actually branched from rather than master's latest. Null for
+ * master itself, which has no line.
+ */
+export async function lineBase(store: Store, row: NodeRow): Promise<string | null> {
+  if (row.parent_id === null) return null;
+  let root = row;
+  while (root.parent_id !== null) {
+    const parent = store.getNode(root.parent_id);
+    if (parent === undefined) return null;
+    root = parent;
+  }
+  const tip = row.head_commit ?? row.base_commit;
+  const project = store.getProject(row.project_id);
+  if (tip === null || root.head_commit === null || project === undefined) return null;
+  return gitLine(['merge-base', root.head_commit, tip], project.repo_path);
 }
 
 /**
@@ -52,7 +90,13 @@ export async function experimentNotes(
 export async function reviewRange(
   store: Store,
   row: NodeRow,
+  scope: ChangeScope = 'own',
 ): Promise<{ base: string; head: string } | null> {
+  if (scope === 'line') {
+    const base = await lineBase(store, row);
+    const tip = row.head_commit ?? row.base_commit;
+    if (base !== null && tip !== null && base !== tip) return { base, head: tip };
+  }
   const first = store.listRuns(row.id).find((run) => run.commitSha !== null);
   const base =
     row.base_commit ??
@@ -64,22 +108,72 @@ export async function reviewRange(
   return hasCommits ? { base, head: row.head_commit ?? base } : null;
 }
 
-export function baseLabel(store: Store, row: NodeRow): string {
-  return row.parent_id === null
-    ? 'the code before this experiment’s first modifying run'
-    : `the inherited code snapshot from ${store.lineageOf(row).codeFrom?.displayName ?? 'its source experiment'}`;
+export function baseLabel(store: Store, row: NodeRow, scope: ChangeScope = 'own'): string {
+  if (row.parent_id === null) return 'the code before this experiment’s first modifying run';
+  if (scope === 'line')
+    return `the code ${rootOf(store, row).display_name} had when this line began`;
+  return `the inherited code snapshot from ${store.lineageOf(row).codeFrom?.displayName ?? 'its source experiment'}`;
 }
 
-export async function reviewOf(store: Store, row: NodeRow): Promise<ReviewView> {
-  const source = reviewSource(store, row);
-  const files = source === null ? [] : await reviewFiles(source, await reviewRange(store, row));
+function rootOf(store: Store, row: NodeRow): NodeRow {
+  let root = row;
+  while (root.parent_id !== null) {
+    const parent = store.getNode(root.parent_id);
+    if (parent === undefined) break;
+    root = parent;
+  }
+  return root;
+}
+
+/** The files a scope covers, uncommitted work included where there is a folder. */
+async function filesOf(store: Store, row: NodeRow, scope: ChangeScope) {
+  const source = sourceFor(store, row, scope);
+  return source === null ? [] : reviewFiles(source, await reviewRange(store, row, scope));
+}
+
+/**
+ * Whether the two scopes can differ: only below master's direct children,
+ * and only when something between them committed. Null when they are one.
+ */
+export async function scopesDiffer(store: Store, row: NodeRow): Promise<boolean> {
+  if (row.parent_id === null) return false;
+  const base = await lineBase(store, row);
+  return base !== null && base !== row.base_commit;
+}
+
+export async function reviewOf(
+  store: Store,
+  row: NodeRow,
+  scope: ChangeScope = 'own',
+): Promise<ReviewView> {
+  const files = await filesOf(store, row, scope);
+  const differ = await scopesDiffer(store, row);
+  const other = differ ? await filesOf(store, row, scope === 'own' ? 'line' : 'own') : files;
   return {
     nodeId: row.id,
     displayName: row.display_name,
-    baseLabel: baseLabel(store, row),
+    baseLabel: baseLabel(store, row, scope),
+    scope,
+    scopes: differ
+      ? scope === 'own'
+        ? { own: files.length, line: other.length }
+        : { own: other.length, line: files.length }
+      : null,
+    line: differ ? lineNames(store, row) : null,
     totals: totalsOf(files),
     files,
   };
+}
+
+/** The experiments a line runs through, master first: what "whole line" means here. */
+function lineNames(store: Store, row: NodeRow): string[] {
+  const names: string[] = [];
+  let node: NodeRow | undefined = row;
+  while (node !== undefined) {
+    names.unshift(node.display_name);
+    node = node.parent_id === null ? undefined : store.getNode(node.parent_id);
+  }
+  return names;
 }
 
 /**
@@ -95,10 +189,11 @@ export async function reviewPatchOf(
   row: NodeRow,
   path: string,
   fullFile = false,
+  scope: ChangeScope = 'own',
 ): Promise<ReviewFilePatchView> {
-  const source = reviewSource(store, row);
+  const source = sourceFor(store, row, scope);
   if (source === null) throw new HttpError(404, 'This experiment has not created a checkout yet.');
-  const range = await reviewRange(store, row);
+  const range = await reviewRange(store, row, scope);
   const file = (await reviewFiles(source, range)).find((f) => f.path === path);
   if (file === undefined) throw new HttpError(404, 'This experiment did not change that file.');
   if (fullFile)

@@ -72,8 +72,11 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   host access. The Git command hook is a cooperative guard, not arbitrary-code containment.
   Scoped external approval is future work, not an existing guarantee.
 - Apply to your repo only writes a patch into Bonsai's data folder and shows the
-  `git apply --3way` command (`api/applyPatch.ts`). Bonsai never writes to, commits in or
-  merges into the user's repository; running the command is the user's.
+  `git apply --3way` command (`api/applyPatch.ts`), or serves the same file as a download.
+  Bonsai never writes to, commits in or merges into the user's repository; running the
+  command is the user's. Review and Apply take a scope (`ChangeScope`): `own` since the
+  experiment's base, or `line` since the line left master (`git merge-base`). Review defaults
+  to `own`, Apply to `line`: the user's folder is at master's code.
 - `CONTEXT.md` currently has special commit behavior at the **worktree root**, independently
   of the selected working subdirectory. Keep that path consistent until notes migration
   is explicitly approved. Preserve existing repository documentation.

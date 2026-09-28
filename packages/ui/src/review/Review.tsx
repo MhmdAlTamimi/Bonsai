@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
-import type { NodeView, ReviewFile } from '@bonsai/shared';
+import type { ChangeScope, NodeView, ReviewFile, ReviewView } from '@bonsai/shared';
 
 import { BackToMap } from '../BackToMap.tsx';
 import { ErrorNote } from '../ErrorNote.tsx';
@@ -49,7 +49,17 @@ export function Review({
       .then((s) => setWrap(s.wrapLines))
       .catch((e) => setError(describeError(e)));
   }, []);
-  const review = useReview(node?.id ?? null, revision);
+  // Its own step by default: the parents' changes are one click away, not in the way.
+  const [scope, setScope] = useState<ChangeScope>('own');
+  const review = useReview(node?.id ?? null, revision, scope);
+  // Kept across a switch, so the switch does not vanish while the other loads.
+  const [known, setKnown] = useState<Pick<ReviewView, 'scopes' | 'line'> | null>(null);
+  // Always its own step first, even when that is empty: the empty page says
+  // what its parents changed and offers the whole line.
+  useEffect(() => {
+    const data = review.data;
+    if (data !== null) setKnown({ scopes: data.scopes, line: data.line });
+  }, [review.data]);
   const [selected, setSelected] = useState<[string | null, string | null]>([null, null]);
   const [focusedPane, setFocusedPane] = useState<0 | 1>(0);
   const [split, setSplit] = useState(false);
@@ -66,7 +76,16 @@ export function Review({
     setSplit(false);
     setFilter('');
     setCollapsed(new Set());
+    setScope('own');
+    setKnown(null);
   }, [node?.id]);
+
+  // The other scope lists other files: start from its first one.
+  const switchScope = (next: ChangeScope): void => {
+    setScope(next);
+    setSelected([null, null]);
+    setSplit(false);
+  };
 
   // Its own memo: a fresh [] every render would rebuild the tree every render.
   const files = useMemo(() => review.data?.files ?? [], [review.data]);
@@ -130,8 +149,9 @@ export function Review({
     return () => window.removeEventListener('keydown', onKey);
   }, [onBack]);
 
-  const first = useFilePatch(node?.id ?? null, selected[0], revision, mode);
-  const second = useFilePatch(node?.id ?? null, split ? selected[1] : null, revision, mode);
+  const first = useFilePatch(node?.id ?? null, selected[0], revision, mode, scope);
+  const second = useFilePatch(node?.id ?? null, split ? selected[1] : null, revision, mode, scope);
+  const scopes = known?.scopes ?? null;
   const openFile = (path: string | null): ReviewFile | null =>
     path === null ? null : (byPath.get(path) ?? null);
 
@@ -146,6 +166,24 @@ export function Review({
             <span className={`status-dot st-${node.status}`} aria-hidden="true" />
             {STATUS_LABEL[node.status]}
           </span>
+        )}
+        {scopes !== null && (
+          <div className="segmented-control review-scope" role="group" aria-label="Changes shown">
+            <button
+              aria-pressed={scope === 'own'}
+              title="Only what this experiment changed"
+              onClick={() => switchScope('own')}
+            >
+              This experiment <span className="scope-count">{scopes.own}</span>
+            </button>
+            <button
+              aria-pressed={scope === 'line'}
+              title={`Everything along ${known?.line?.join(' → ') ?? 'its line'}: what Apply takes`}
+              onClick={() => switchScope('line')}
+            >
+              Whole line <span className="scope-count">{scopes.line}</span>
+            </button>
+          </div>
         )}
         <div className="spacer" />
         <div className="review-tools" role="group" aria-label="File viewing controls">
@@ -277,7 +315,17 @@ export function Review({
             split ? (
               <PaneHeader file={openFile(selected[0])} />
             ) : review.data !== null && files.length === 0 ? (
-              <p className="diff-note">This experiment has not changed any files.</p>
+              scope === 'own' && scopes !== null && scopes.line > 0 ? (
+                <p className="diff-note">
+                  This experiment has not changed any files itself yet. It started with{' '}
+                  {scopes.line === 1 ? 'one file' : `${scopes.line} files`} its parents changed.{' '}
+                  <button className="linkish" onClick={() => switchScope('line')}>
+                    Show the whole line
+                  </button>
+                </p>
+              ) : (
+                <p className="diff-note">This experiment has not changed any files.</p>
+              )
             ) : undefined
           }
         />

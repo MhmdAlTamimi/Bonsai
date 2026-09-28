@@ -120,6 +120,12 @@
 /* Related review actions share one compact, keyboard-accessible control family. */
 .review-tools { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .segmented-control { display: inline-flex; gap: 2px; padding: 3px; background: var(--void); border: 1px solid var(--line); border-radius: var(--r-10); }
+/* This experiment | Whole line: words rather than icons, so each sizes to its label. */
+.review-scope { flex: none; margin-left: 12px; }
+.segmented-control.review-scope button { width: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 10px; border: 1px solid transparent; border-radius: var(--r-7); background: transparent; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+.segmented-control.review-scope button:hover { background: var(--control-hover); color: var(--text); }
+.segmented-control.review-scope button[aria-pressed='true'] { color: var(--accent-text-dim); background: var(--accent-soft); border-color: var(--line-strong); }
+.scope-count { font: var(--t-meta) / 1 var(--mono); opacity: 0.75; }
 .review-tools button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border: 1px solid transparent; border-radius: var(--r-7); background: transparent; color: var(--muted); }
 .segmented-control button, .review-tools .toolbar-icon { width: 34px; padding: 6px; }
 .review-tools button:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
