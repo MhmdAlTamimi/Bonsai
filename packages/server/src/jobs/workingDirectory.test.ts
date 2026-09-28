@@ -2,7 +2,7 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
@@ -28,7 +28,7 @@ class RecordingRunner implements AgentRunner {
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     this.specs.push({ ...spec });
     if (!spec.readOnly && spec.contextPath) await writeFile(spec.contextPath, '# Root run notes\n');
-    assert.ok(spec.contextPath?.endsWith('/CONTEXT.md'));
+    assert.equal(basename(spec.contextPath ?? ''), 'CONTEXT.md');
     yield { type: 'session', sessionId: `session-${this.specs.length}` };
     // Writes where it stands, which is the point: the path this lands at is
     // decided entirely by the cwd the pipeline handed it.

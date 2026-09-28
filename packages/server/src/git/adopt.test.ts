@@ -25,6 +25,7 @@ import { branchNameFor } from './repo.js';
 import { inspectDirectory } from './adopt.js';
 import { git, gitLine } from './exec.js';
 import { branchOf, nodeRef } from './refs.js';
+import { samePath } from '../paths.js';
 
 /**
  * Adopting a directory the user already has, against real git.
@@ -444,7 +445,8 @@ describe('adopting a directory', () => {
 
     // No second repository was made inside the folder that was chosen.
     assert.equal(existsSync(join(inner, '.git')), false);
-    assert.equal(await gitLine(['rev-parse', '--show-toplevel'], inner), path);
+    // Git writes C:/… on Windows: the same folder, spelt its way.
+    assert.ok(samePath(await gitLine(['rev-parse', '--show-toplevel'], inner), path));
     assert.equal(await gitLine(['branch', '--show-current'], path), 'main');
   });
 
