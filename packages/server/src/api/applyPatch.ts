@@ -89,7 +89,9 @@ export async function writeApplyPatch(
   return {
     path,
     command:
-      yours === null ? `git apply --3way "${path}"` : `git -C "${yours}" apply --3way "${path}"`,
+      yours === null
+        ? `git apply --3way ${shellPath(path)}`
+        : `git -C ${shellPath(yours)} apply --3way ${shellPath(path)}`,
     folder: yours,
     scope,
     scopes: differ
@@ -103,6 +105,26 @@ export async function writeApplyPatch(
     removed: counts.reduce((n, c) => n + c.deletions, 0),
     behind: await behindBy(store, row, project.repo_path),
   };
+}
+
+/**
+ * A path as the terminal it is pasted into reads it.
+ *
+ * Linux and macOS: bare when nothing in it is special, so it reads easily;
+ * otherwise in single quotes, where a space, `$` or `!` stays itself. In
+ * double quotes a shell expands `$` and, typed into bash, `!`.
+ *
+ * Windows: double quotes and forward slashes, which git accepts. The same text
+ * then works in PowerShell, Command Prompt and Git Bash. Single quotes mean
+ * nothing to Command Prompt, and backslashes are read as escapes somewhere:
+ * `"D:\"` escapes its own closing quote, Git Bash halves `\\server\share`.
+ * (A `$` in a Windows folder name is the one thing PowerShell would still read
+ * as its own.)
+ */
+export function shellPath(path: string, platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'win32') return `"${path.replace(/\\/g, '/')}"`;
+  if (/^[\w@%+=:,./-]+$/.test(path)) return path;
+  return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
 /** The files a range changes, and by how much, without Bonsai's notes. */

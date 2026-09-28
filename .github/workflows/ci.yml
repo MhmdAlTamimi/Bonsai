@@ -57,3 +57,32 @@ jobs:
           name: browser-test-screenshots
           path: test-results/
           if-no-files-found: ignore
+
+  # The same checks on Windows, which Bonsai also runs on: its paths (`\`,
+  # drive letters, names in any case), its shell (cmd.exe runs the commands
+  # the tests paste) and Git for Windows, none of which Linux exercises.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:ui
+
+      # windows-latest ships Chrome, at a path the harness already knows.
+      - run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-test-screenshots-windows
+          path: test-results/
+          if-no-files-found: ignore

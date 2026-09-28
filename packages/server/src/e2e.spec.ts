@@ -2563,7 +2563,8 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Apply to your repo')).click()",
     );
     await session.waitFor(
-      "/^git apply --3way \".+\\.patch\"$/.test(document.querySelector('dialog[open] .apply-command')?.textContent ?? '')",
+      // Quoted only where the platform's terminal needs it.
+      "/^git apply --3way [\"']?.+\\.patch[\"']?$/.test(document.querySelector('dialog[open] .apply-command')?.textContent ?? '')",
     );
     // The same patch, downloaded as a file for a Git app.
     const href = String(

@@ -15,10 +15,10 @@ import type { ComparisonRow, ComparisonStore } from './comparisonStore.js';
 import type { MessageStore } from './messageStore.js';
 import type { NodeStore } from './nodeStore.js';
 import type { ProjectStore } from './projectStore.js';
+import { isInside, samePath } from '../paths.js';
 import { revisionOf, type ReferenceRow } from './referenceStore.js';
 import type { RunStore } from './runStore.js';
 import {
-  isInside,
   isAdoptedRoot,
   isUsersOwnCheckout,
   parseStringArray,
@@ -180,15 +180,15 @@ export class Views {
     // One query for every worktree in the database rather than one list per
     // project: this runs on every folder inspection, including while typing.
     for (const row of this.nodes.allWorktrees()) {
-      if (resolve(row.worktree_path) !== target) continue;
+      if (!samePath(row.worktree_path, target)) continue;
       const project = projects.find((p) => p.id === row.project_id);
       const node = this.nodes.get(row.id);
       if (project !== undefined && node !== undefined) return { project, node };
     }
 
     for (const project of projects) {
-      if (resolve(project.repo_path) === target) return { project, node: null };
-      if (project.source_path !== null && resolve(project.source_path) === target) {
+      if (samePath(project.repo_path, target)) return { project, node: null };
+      if (project.source_path !== null && samePath(project.source_path, target)) {
         return { project, node: null };
       }
     }

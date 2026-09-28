@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
+import { samePath } from '../paths.js';
 
 /**
  * Adopting a directory the user already has.
@@ -157,7 +158,7 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
       ['rev-parse', '--path-format=absolute', '--git-common-dir'],
       repoRoot,
     );
-    if (resolve(gitDir) !== resolve(common)) {
+    if (!samePath(gitDir, common)) {
       return {
         ...result,
         isGitRepo: true,

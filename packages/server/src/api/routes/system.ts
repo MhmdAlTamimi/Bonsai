@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import { diagnosticReport } from '../diagnosticPrivacy.js';
 import type { UpdateSettingsRequest } from '@bonsai/shared';
 import { TEXT_SCALES } from '@bonsai/shared';
@@ -11,6 +10,7 @@ import { FileLogger } from '../../log.js';
 import { storageUse } from '../../archive.js';
 import { bundledClaudeCodeVersion } from '../../agent/claudeCode.js';
 import { route } from '../routing.js';
+import { samePath } from '../../paths.js';
 
 /** Connection, settings, diagnostics and the local filesystem. */
 
@@ -57,7 +57,7 @@ route('POST', '/api/inspect', async (req, res, _p, { store }) => {
     owner !== null &&
     owner.project.source_kind === 'adopted' &&
     owner.node?.parent_id == null &&
-    resolve(path) === resolve(owner.project.source_path ?? owner.project.repo_path)
+    samePath(path, owner.project.source_path ?? owner.project.repo_path)
   ) {
     // The shared original checkout can host several independently named projects.
     sendJson(res, 200, { ...(await inspectDirectory(path)), knownTo: null });

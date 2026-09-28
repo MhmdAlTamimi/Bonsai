@@ -1,0 +1,4 @@
+# LF in every checkout, Windows included. Git for Windows usually converts
+# text to CRLF on checkout, and Prettier's check wants LF: `npm test` failed on
+# every file of a Windows clone.
+* text=auto eol=lf

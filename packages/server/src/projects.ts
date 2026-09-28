@@ -36,6 +36,7 @@ import {
 } from './git/refs.js';
 import type { Logger } from './log.js';
 import { OperationConflict } from './domain/errors.js';
+import { isInside, samePath } from './paths.js';
 import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
 
 /**
@@ -446,7 +447,7 @@ function bonsaiDirectoryFor(store: Store, project: ProjectRow): string | null {
  */
 export function ownsWorktree(project: ProjectRow, node: NodeRow): boolean {
   if (project.source_kind !== 'adopted') return true;
-  return resolve(node.worktree_path) !== resolve(project.source_path ?? ' ');
+  return project.source_path === null || !samePath(node.worktree_path, project.source_path);
 }
 
 /**
@@ -570,12 +571,6 @@ export async function deleteProjectTree(
     removedDirectory: checkout ?? internal,
     keptDirectory: null,
   };
-}
-
-function isInside(parent: string, child: string): boolean {
-  const p = resolve(parent);
-  const c = resolve(child);
-  return c === p || c.startsWith(p + '/');
 }
 
 /**

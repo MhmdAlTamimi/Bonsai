@@ -12,7 +12,7 @@ import { adoptProject, createProject } from '../projects.js';
 import { commitRunOutput } from '../git/commit.js';
 import { git, gitLine } from '../git/exec.js';
 import { runCommand } from '../exec/command.js';
-import { writeApplyPatch } from './applyPatch.js';
+import { shellPath, writeApplyPatch } from './applyPatch.js';
 import { branchOf, nodeRef } from '../git/refs.js';
 
 /**
@@ -56,8 +56,8 @@ describe('the apply command', () => {
     store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
   }
 
-  async function mine(): Promise<string> {
-    const folder = join(root, 'mine');
+  async function mine(name = 'mine'): Promise<string> {
+    const folder = join(root, name);
     await git(['init', '--initial-branch=main', folder], root);
     await git(['config', 'user.email', 'a@b.c'], folder);
     await git(['config', 'user.name', 'A'], folder);
@@ -107,6 +107,84 @@ describe('the apply command', () => {
     assert.equal(await gitLine(['rev-parse', 'HEAD'], folder), head);
   });
 
+  test('works for a folder whose name a shell would otherwise read', async () => {
+    // Legal on Linux, macOS and Windows alike, and each character means
+    // something to some shell: a space, a quote, a variable, a command
+    // separator and bash's history expansion.
+    const folder = await mine("my repo's $HOME & !x");
+    const adopted = await adoptProject(store, {
+      path: folder,
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const { nodeId } = await createChildNode(store, {
+      projectId: adopted.projectId,
+      parentId: adopted.masterNodeId,
+      displayName: 'rename',
+      description: '',
+    });
+    await commit(nodeId, { 'app.txt': 'ONE\ntwo\nthree\nfour\nfive\n' });
+
+    // Run through this platform's shell (sh, or cmd.exe on Windows), from
+    // elsewhere, as it would be pasted.
+    const patch = await writeApplyPatch(store, store.getNode(nodeId)!, patches);
+    const result = await run(patch.command, root);
+    assert.equal(result.ok, true, `${patch.command}\n${result.stderr}`);
+    assert.match(await readFile(join(folder, 'app.txt'), 'utf8'), /^ONE\r?\ntwo/);
+  });
+
+  test('applies to a checkout with Windows line endings, changing only what changed', async () => {
+    // core.autocrlf=true, as Git for Windows usually sets it: the files in
+    // your folder end their lines in CRLF, and the repository stores LF.
+    const folder = await mine();
+    await git(['config', 'core.autocrlf', 'true'], folder);
+    await rm(join(folder, 'app.txt'));
+    await git(['checkout', '--', 'app.txt'], folder);
+    assert.equal(
+      await readFile(join(folder, 'app.txt'), 'utf8'),
+      'one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n',
+    );
+
+    const adopted = await adoptProject(store, {
+      path: folder,
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const { nodeId } = await createChildNode(store, {
+      projectId: adopted.projectId,
+      parentId: adopted.masterNodeId,
+      displayName: 'shout',
+      description: '',
+    });
+    await commit(nodeId, { 'app.txt': 'one\r\nTWO\r\nthree\r\nfour\r\nfive\r\n' });
+
+    const patch = await writeApplyPatch(store, store.getNode(nodeId)!, patches);
+    assert.deepEqual([patch.files, patch.added, patch.removed], [1, 1, 1]);
+    const result = await run(patch.command, folder);
+    assert.equal(result.ok, true, `${patch.command}\n${result.stderr}`);
+    assert.equal(
+      await readFile(join(folder, 'app.txt'), 'utf8'),
+      'one\r\nTWO\r\nthree\r\nfour\r\nfive\r\n',
+    );
+    // One line changed, not every line's ending.
+    assert.equal((await git(['diff', '--staged', '--numstat'], folder)).trim(), '1\t1\tapp.txt');
+  });
+
+  test('quotes a path for the terminal it will be pasted into', () => {
+    assert.equal(shellPath('/home/me/repo', 'linux'), '/home/me/repo');
+    assert.equal(
+      shellPath('/Users/me/Library/Application Support/Bonsai/x.patch', 'darwin'),
+      "'/Users/me/Library/Application Support/Bonsai/x.patch'",
+    );
+    assert.equal(shellPath("/home/me/it's $HOME", 'linux'), `'/home/me/it'\\''s $HOME'`);
+    // Windows: forward slashes, which git takes and no shell there escapes.
+    assert.equal(shellPath('C:\\Users\\me\\repo', 'win32'), '"C:/Users/me/repo"');
+    assert.equal(shellPath('D:\\', 'win32'), '"D:/"');
+    assert.equal(shellPath('\\\\server\\share\\repo', 'win32'), '"//server/share/repo"');
+  });
+
   test('a grandchild applies its whole line, from any folder, and its own step only when asked', async () => {
     const folder = await mine();
     const adopted = await adoptProject(store, {
@@ -138,7 +216,7 @@ describe('the apply command', () => {
     // The whole line is the default, names your folder, and works from anywhere.
     const line = await writeApplyPatch(store, store.getNode(b.nodeId)!, patches);
     assert.deepEqual([line.scope, line.files, line.folder], ['line', 2, folder]);
-    assert.ok(line.command.startsWith(`git -C "${folder}" apply --3way `), line.command);
+    assert.ok(line.command.startsWith(`git -C ${shellPath(folder)} apply --3way `), line.command);
     const result = await run(line.command, root);
     assert.equal(result.ok, true, `${line.command}\n${result.stderr}`);
     assert.equal(
