@@ -146,9 +146,10 @@ publish or sync. Patches older than a week are removed from the data folder.
 ## Install and run
 
 Requirements: **Node 22.18+**, npm, Git on PATH, and a supported Claude Agent SDK runtime.
-CI uses current Node 22.x; stabilization is also checked with Node 24. Linux/macOS are
-the supported process-cleanup targets. Detached-process discovery is not implemented on
-Windows, and full process-tree cleanup must not be assumed there.
+CI uses current Node 22.x on Linux and on Windows, where every test runs except the two
+that need detached-process discovery; stabilization is also checked with Node 24.
+Linux/macOS are the supported process-cleanup targets. Detached-process discovery is not
+implemented on Windows, and full process-tree cleanup must not be assumed there.
 
 ```bash
 git clone https://github.com/MhmdAlTamimi/Bonsai.git

@@ -12,10 +12,12 @@ first match wins, so keep specific patterns before general ones. Styles live in
 `packages/ui/src/styles/`, one file per area, imported in cascade order by `index.css`;
 window-size overrides stay last in `responsive.css`.
 
-Use Node 22.18+ (CI uses current 22.x), Git, and `npm ci`. Run `npm test` and
-`npm run build:ui`. Browser changes also require `npm run test:e2e` with Chrome/Chromium;
-set `BONSAI_CHROME` to its executable if discovery fails. Tests use temporary repositories
-and the fake runner, without credentials. Do not use a real user's project as a fixture.
+Use Node 22.18+ (CI uses current 22.x, on Linux and Windows), Git, and `npm ci`. Compare
+folders with `isInside`/`samePath`/`canonicalPath` (`paths.ts`), never as text: Windows
+spells one folder several ways. Run `npm test` and `npm run build:ui`. Browser changes
+also require `npm run test:e2e` with Chrome/Chromium; set `BONSAI_CHROME` to its
+executable if discovery fails. Tests use temporary repositories and the fake runner,
+without credentials. Do not use a real user's project as a fixture.
 `npm run dev` rebuilds the server once; restart it after backend changes. Run
 `npm run dev:ui` separately for Vite. See README for startup and configuration.
 Ask before adding dependencies. Keep changes and commits focused and reviewable.

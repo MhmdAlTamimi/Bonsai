@@ -43,6 +43,10 @@ function reasonToSkip(): string | null {
   return null;
 }
 
+/** Finding processes a run left running is not built for Windows; see the README. */
+const NO_DETACHED =
+  process.platform === 'win32' && 'detached-process discovery is not implemented on Windows';
+
 describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
   let dataDir: string;
   let server: ChildProcess;
@@ -109,8 +113,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
 
   after(async () => {
     session?.close();
-    server?.kill('SIGKILL');
-    await rm(dataDir, { recursive: true, force: true });
+    if (server?.exitCode === null && server.signalCode === null) {
+      const exited = new Promise((resolve) => server.once('exit', resolve));
+      server.kill('SIGKILL');
+      await exited;
+    }
+    // Windows will not delete a file a process still has open, and lets go of
+    // the database a moment after the server has exited.
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
   test('creates a project, adds a child, and both cards stay visible', async (t) => {
@@ -1438,45 +1448,52 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal((await run.detail()).runs.filter((r) => r.status === 'cancelled').length, 0);
   });
 
-  test('a detached process is waited for, and Stop ends it and says so', async () => {
-    const run = await projectWithRun('detached', 'detach: start the server');
-    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
-    await session.waitFor(
-      "document.querySelector('.activity-jobs')?.textContent.includes('detached')",
-      { label: 'the detached process to be found', timeoutMs: 15000 },
-    );
-    assert.equal((await findLeftovers(run.runId)).length > 0, true);
+  test(
+    'a detached process is waited for, and Stop ends it and says so',
+    { skip: NO_DETACHED },
+    async () => {
+      const run = await projectWithRun('detached', 'detach: start the server');
+      await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+      await session.waitFor(
+        "document.querySelector('.activity-jobs')?.textContent.includes('detached')",
+        { label: 'the detached process to be found', timeoutMs: 15000 },
+      );
+      assert.equal((await findLeftovers(run.runId)).length > 0, true);
 
-    await session.click('.panel .stop');
-    await session.waitFor(
-      "document.querySelector('.recover-headline')?.textContent.includes('You stopped this run.')",
-      {
-        label: 'the recovery notice',
-        timeoutMs: 15000,
-      },
-    );
-    await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-stopped.png'));
-    // Nothing the run started outlives it.
-    assert.deepEqual(await findLeftovers(run.runId), []);
-    const last = (await run.detail()).runs.at(-1)!;
-    assert.equal(last.endReason, 'stopped');
-    assert.equal(
-      await session.eval(
-        `document.querySelector('[data-id="${run.masterNodeId}"] .chip').textContent`,
-      ),
-      'Stopped',
-    );
-  });
+      await session.click('.panel .stop');
+      await session.waitFor(
+        "document.querySelector('.recover-headline')?.textContent.includes('You stopped this run.')",
+        {
+          label: 'the recovery notice',
+          timeoutMs: 15000,
+        },
+      );
+      await session.screenshot(join(repoRoot, 'test-results', 'milestone-7-stopped.png'));
+      // Nothing the run started outlives it.
+      assert.deepEqual(await findLeftovers(run.runId), []);
+      const last = (await run.detail()).runs.at(-1)!;
+      assert.equal(last.endReason, 'stopped');
+      assert.equal(
+        await session.eval(
+          `document.querySelector('[data-id="${run.masterNodeId}"] .chip').textContent`,
+        ),
+        'Stopped',
+      );
+    },
+  );
 
-  test('a new run clears an earlier Stop even when the browser missed the idle state', async () => {
-    const run = await projectWithRun('rapid-restart', 'detach: first run');
-    await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
-    await session.waitFor(
-      "document.querySelector('.activity-jobs')?.textContent.includes('detached')",
-    );
-    // Model an intermediary returning stale tree state during the short idle gap.
-    // Node detail stays real, and the next running tree carries a different run ID.
-    await session.eval(`window.__originalFetch = window.fetch;
+  test(
+    'a new run clears an earlier Stop even when the browser missed the idle state',
+    { skip: NO_DETACHED },
+    async () => {
+      const run = await projectWithRun('rapid-restart', 'detach: first run');
+      await session.goto(`${BASE}/?project=${run.projectId}&node=${run.masterNodeId}`);
+      await session.waitFor(
+        "document.querySelector('.activity-jobs')?.textContent.includes('detached')",
+      );
+      // Model an intermediary returning stale tree state during the short idle gap.
+      // Node detail stays real, and the next running tree carries a different run ID.
+      await session.eval(`window.__originalFetch = window.fetch;
       window.fetch = async (url, init) => {
         const response = await window.__originalFetch(url, init);
         if (!String(url).endsWith('/tree')) return response;
@@ -1488,29 +1505,30 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         }
         return new Response(JSON.stringify(data), {status: response.status, headers: response.headers});
       };`);
-    try {
-      await session.click('.panel .stop');
-      await session.waitFor(
-        `(async () => (await (await fetch(${JSON.stringify(run.nodeUrl)})).json()).runs.at(-1)?.status === 'cancelled')()`,
-      );
-      assert.equal(await session.eval("document.querySelector('.panel .stop')?.disabled"), true);
-      const response = await fetch(`${run.nodeUrl}/runs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: 'detach: second run' }),
-      });
-      assert.equal(response.status, 202);
-      await session.waitFor(
-        "document.querySelector('.activity-jobs')?.textContent.includes('detached') && document.querySelector('.panel .stop')?.disabled === false",
-      );
-      await session.click('.panel .stop');
-      await session.waitFor(
-        `(async () => { const d = await (await fetch(${JSON.stringify(run.nodeUrl)})).json(); return d.runs.length === 2 && d.runs.at(-1).status === 'cancelled'; })()`,
-      );
-    } finally {
-      await session.eval('window.fetch = window.__originalFetch');
-    }
-  });
+      try {
+        await session.click('.panel .stop');
+        await session.waitFor(
+          `(async () => (await (await fetch(${JSON.stringify(run.nodeUrl)})).json()).runs.at(-1)?.status === 'cancelled')()`,
+        );
+        assert.equal(await session.eval("document.querySelector('.panel .stop')?.disabled"), true);
+        const response = await fetch(`${run.nodeUrl}/runs`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt: 'detach: second run' }),
+        });
+        assert.equal(response.status, 202);
+        await session.waitFor(
+          "document.querySelector('.activity-jobs')?.textContent.includes('detached') && document.querySelector('.panel .stop')?.disabled === false",
+        );
+        await session.click('.panel .stop');
+        await session.waitFor(
+          `(async () => { const d = await (await fetch(${JSON.stringify(run.nodeUrl)})).json(); return d.runs.length === 2 && d.runs.at(-1).status === 'cancelled'; })()`,
+        );
+      } finally {
+        await session.eval('window.fetch = window.__originalFetch');
+      }
+    },
+  );
 
   test('initial connection and project failures offer retry instead of an empty canvas', async () => {
     const script = (await session.send('Page.addScriptToEvaluateOnNewDocument', {
