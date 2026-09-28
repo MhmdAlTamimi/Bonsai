@@ -215,7 +215,7 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
                     className="review-control nodrag nopan"
                     title={
                       !data.hasCommits
-                        ? 'Review the changes it started with'
+                        ? 'Review: no changes of its own yet, and the ones it started with'
                         : changes === null
                           ? 'Review this experiment’s changes'
                           : `Review ${plural(changes.files, 'changed file')}`

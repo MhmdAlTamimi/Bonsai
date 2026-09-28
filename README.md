@@ -61,8 +61,9 @@ ancestors when the parent changed no files.
   Settings > Storage also shows what experiment folders take up.
 - Review shows what the experiment itself changed, committed and unfinished, compared with
   the code it started from. Below master's direct children, **Whole line** adds what its
-  parents changed since the line left master, which is what Apply takes; an experiment that
-  has changed nothing itself yet opens on it. Per-run diffs remain commit-specific.
+  parents changed since the line left master, which is what Apply takes. Review always opens
+  on the experiment's own changes; one that has none yet says so and offers the whole line.
+  Per-run diffs remain commit-specific.
   Oversized patches explicitly report truncation.
 - Optional success criteria and check instructions go to the agent. Notes currently live
   in `CONTEXT.md` at the worktree root. Notes-only edits retain the existing special

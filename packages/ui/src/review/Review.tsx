@@ -54,17 +54,11 @@ export function Review({
   const review = useReview(node?.id ?? null, revision, scope);
   // Kept across a switch, so the switch does not vanish while the other loads.
   const [known, setKnown] = useState<Pick<ReviewView, 'scopes' | 'line'> | null>(null);
-  // Nothing of its own yet, but inherited changes: open on those instead of
-  // an empty page. Once per experiment; switching back stays switched back.
-  const opened = useRef<string | null>(null);
+  // Always its own step first, even when that is empty: the empty page says
+  // what its parents changed and offers the whole line.
   useEffect(() => {
     const data = review.data;
-    if (data === null) return;
-    setKnown({ scopes: data.scopes, line: data.line });
-    if (opened.current === data.nodeId) return;
-    opened.current = data.nodeId;
-    if (data.scope === 'own' && data.files.length === 0 && (data.scopes?.line ?? 0) > 0)
-      setScope('line');
+    if (data !== null) setKnown({ scopes: data.scopes, line: data.line });
   }, [review.data]);
   const [selected, setSelected] = useState<[string | null, string | null]>([null, null]);
   const [focusedPane, setFocusedPane] = useState<0 | 1>(0);
