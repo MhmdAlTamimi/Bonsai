@@ -119,6 +119,8 @@ export const api = {
 
   reveal: (path: string) =>
     json<{ ok: true }>('/api/reveal', { method: 'POST', body: JSON.stringify({ path }) }),
+  /** The managed repositories folder, made first if no project has needed it yet. */
+  revealStorage: () => json<{ ok: true }>('/api/reveal/storage', { method: 'POST' }),
 
   /**
    * The server picks the folder, because a browser cannot. A file input hands

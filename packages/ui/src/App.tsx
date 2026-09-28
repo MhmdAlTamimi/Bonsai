@@ -242,7 +242,6 @@ export function App(): JSX.Element {
             <MenuBar
               project={tree?.project ?? null}
               projects={projects}
-              settings={settings}
               onError={report}
               onOpenProject={(id) => {
                 selection.clear();

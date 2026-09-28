@@ -5,7 +5,7 @@ import { TEXT_SCALES } from '@bonsai/shared';
 import type { DiagnosticsView, DirectoryInspectionView } from '@bonsai/shared';
 import { inspectDirectory } from '../../git/adopt.js';
 import { listDirectory } from '../browse.js';
-import { revealInFileManager } from '../reveal.js';
+import { revealInFileManager, revealStorage } from '../reveal.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { FileLogger } from '../../log.js';
 import { storageUse } from '../../archive.js';
@@ -217,5 +217,11 @@ route('PATCH', '/api/settings', async (req, res, _p, { settings, connection, sto
 route('POST', '/api/reveal', async (req, res) => {
   const body = await readJson<{ path?: string }>(req);
   await revealInFileManager(requireString(body.path, 'path'));
+  sendJson(res, 200, { ok: true });
+});
+
+/** The managed repositories folder: Bonsai's own, so it is made if missing. */
+route('POST', '/api/reveal/storage', async (_req, res, _p, { settings }) => {
+  await revealStorage(settings.reposRoot());
   sendJson(res, 200, { ok: true });
 });
