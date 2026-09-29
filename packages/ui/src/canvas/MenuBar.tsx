@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useRef, useState } from 'react';
-import type { ProjectView, SettingsView } from '@bonsai/shared';
+import type { ProjectView } from '@bonsai/shared';
 import { Icon, IconButton } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
@@ -18,7 +18,6 @@ import { useDismiss } from '../useDismiss.ts';
 export function MenuBar({
   project,
   projects,
-  settings,
   onError,
   onOpenProject,
   onStart,
@@ -32,7 +31,6 @@ export function MenuBar({
 }: {
   project: ProjectView | null;
   projects: ProjectView[];
-  settings: SettingsView | null;
   onError: (message: string) => void;
   onOpenProject: (id: string) => void;
   /** Opens the start screen on one of its two halves. */
@@ -173,13 +171,9 @@ export function MenuBar({
             )}
             <button
               role="menuitem"
-              disabled={settings === null}
               onClick={() => {
                 setOpen(null);
-                if (settings !== null)
-                  void api
-                    .reveal(settings.reposRoot)
-                    .catch((e: unknown) => onError(describeError(e)));
+                void api.revealStorage().catch((e: unknown) => onError(describeError(e)));
               }}
             >
               Open managed repositories folder

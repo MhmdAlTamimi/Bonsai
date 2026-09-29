@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
+import { canonicalPath, samePath } from '../paths.js';
 
 /**
  * Adopting a directory the user already has.
@@ -98,7 +99,7 @@ export interface StartPoint {
 
 /** Looks at a directory without changing anything. */
 export async function inspectDirectory(path: string): Promise<DirectoryInspection> {
-  const full = resolve(path);
+  const full = await canonicalPath(path);
   const base: DirectoryInspection = {
     path: full,
     exists: false,
@@ -138,7 +139,7 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
    */
   let repoRoot: string;
   try {
-    repoRoot = resolve(await gitLine(['rev-parse', '--show-toplevel'], full));
+    repoRoot = await canonicalPath(await gitLine(['rev-parse', '--show-toplevel'], full));
   } catch {
     // Genuinely not in a repository. Adopting makes one here, in this folder,
     // and the working directory is that folder's root.
@@ -157,7 +158,7 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
       ['rev-parse', '--path-format=absolute', '--git-common-dir'],
       repoRoot,
     );
-    if (resolve(gitDir) !== resolve(common)) {
+    if (!samePath(gitDir, common)) {
       return {
         ...result,
         isGitRepo: true,
@@ -264,7 +265,7 @@ export interface AdoptedRepo {
  * repository, and will not invent a branch because a subfolder was chosen.
  */
 export async function adoptDirectory(path: string, startFrom?: string): Promise<AdoptedRepo> {
-  const full = resolve(path);
+  const full = await canonicalPath(path);
   const inspection = await inspectDirectory(full);
   if (inspection.blockedReason !== null) throw new Error(inspection.blockedReason);
   if (!inspection.isDirectory) throw new Error('That folder cannot be used.');

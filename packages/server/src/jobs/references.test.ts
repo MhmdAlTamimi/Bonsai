@@ -56,6 +56,9 @@ class ReadingRunner implements AgentRunner {
   }
 }
 
+/** 0o400 as written; Windows has one read-only flag, which reads as 0o444. */
+const READ_ONLY = process.platform === 'win32' ? 0o444 : 0o400;
+
 describe('attaching references to a message', () => {
   let root: string;
   let db: DatabaseSync;
@@ -114,7 +117,7 @@ describe('attaching references to a message', () => {
     // Read-only on disk, so what a run was given is what it is shown later. (The
     // mode rather than a failed write: root, which CI and containers often are,
     // can write through it.)
-    assert.equal((await stat(given[0]!.path)).mode & 0o777, 0o400);
+    assert.equal((await stat(given[0]!.path)).mode & 0o777, READ_ONLY);
   });
 
   test('a run keeps the version it was given after the reference is edited', async () => {
@@ -231,7 +234,7 @@ describe('attaching references to a message', () => {
     assert.match(files['CONTEXT.md']!, /## What was asked\n\nwrite cache\.ts/);
     assert.equal(
       (await stat(join(given.experiments?.[0]?.path ?? '', 'changes.diff'))).mode & 0o777,
-      0o400,
+      READ_ONLY,
     );
 
     // Recorded as it was, so a later run on try-redis reads as "changed since".

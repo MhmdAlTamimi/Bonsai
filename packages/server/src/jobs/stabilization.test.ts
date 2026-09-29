@@ -212,7 +212,8 @@ test('failed project creation removes its new directory and rows', async () => {
 test('an archived folder comes back at the same path on the next run, and setup runs again', async () => {
   const p = await create();
   store.updateProjectSetup(p.projectId, {
-    setupCommand: 'mkdir -p node_modules && echo x > node_modules/installed',
+    // Node rather than mkdir -p and echo, which mean other things to cmd.exe.
+    setupCommand: `node -e "require('fs').mkdirSync('node_modules', { recursive: true }); require('fs').writeFileSync('node_modules/installed', 'x\\n')"`,
   });
   action = async (spec) => {
     await writeFile(join(spec.cwd, '.gitignore'), 'node_modules/\n');

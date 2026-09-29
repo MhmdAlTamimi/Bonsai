@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
+import { HttpError } from './http.js';
 
 /**
  * Opening a folder in the platform's file manager.
@@ -114,9 +117,12 @@ export async function revealInFileManager(path: string): Promise<void> {
    * been moved or deleted outside Bonsai is a different problem with a
    * different answer, and "could not open this folder" for a folder that is
    * not there sent people looking at their file manager.
+   *
+   * 410, not a server error: nothing in Bonsai went wrong, and a 500 had the
+   * interface suggest diagnostics for a folder someone moved.
    */
   if (!existsSync(target)) {
-    throw new Error(`That folder is not on disk any more: ${target}`);
+    throw new HttpError(410, `That folder is not on disk any more: ${target}`);
   }
 
   const command = folderOpener(process.platform);
@@ -133,4 +139,18 @@ export async function revealInFileManager(path: string): Promise<void> {
         `Copy the path and open it yourself: ${target}`,
     );
   }
+}
+
+/**
+ * Opens the managed repositories folder. Bonsai makes it when a project first
+ * needs it, so until then there was nothing to open and the menu said it was
+ * gone. It is Bonsai's own folder: asked to open it, Bonsai makes it now.
+ */
+export async function revealStorage(
+  root: string,
+  open: (path: string) => Promise<void> = revealInFileManager,
+): Promise<void> {
+  const target = resolve(root);
+  await mkdir(target, { recursive: true });
+  await open(target);
 }

@@ -1,7 +1,8 @@
-import { join, resolve, sep } from 'node:path';
+import { join } from 'node:path';
 import type { NodeStatus, PermissionMode, RunEndReason } from '@bonsai/shared';
 
 import type { LineageNode } from '../domain/lineage.js';
+import { samePath } from '../paths.js';
 
 /**
  * The row shapes, and the handful of pure functions that read them.
@@ -120,7 +121,7 @@ export function isUsersOwnCheckout(project: ProjectRow | undefined, row: NodeRow
   return (
     isAdoptedRoot(project, row) &&
     project?.source_path != null &&
-    resolve(row.worktree_path) === resolve(project.source_path)
+    samePath(row.worktree_path, project.source_path)
   );
 }
 
@@ -162,9 +163,4 @@ export function parseStringArray(value: unknown): string[] | null {
 export function workDirIn(worktreePath: string, workDir: string | null): string {
   const relative = (workDir ?? '').replace(/^[/\\]+|[/\\]+$/g, '');
   return relative === '' ? worktreePath : join(worktreePath, ...relative.split('/'));
-}
-
-export function isInside(parent: string, child: string): boolean {
-  const p = resolve(parent);
-  return child === p || child.startsWith(p + sep);
 }

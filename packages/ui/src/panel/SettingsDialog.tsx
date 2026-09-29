@@ -335,7 +335,7 @@ function Locations({
         <button
           onClick={() =>
             void reveal.run(async () => {
-              await api.reveal(settings.reposRoot);
+              await api.revealStorage();
             })
           }
         >

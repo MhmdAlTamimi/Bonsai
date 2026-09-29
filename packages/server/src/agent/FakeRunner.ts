@@ -14,6 +14,7 @@ import type {
   TextDrafter,
 } from './AgentRunner.js';
 import { RUN_MARKER } from '../jobs/leftovers.js';
+import { isInside } from '../paths.js';
 
 /**
  * The question the stand-in asks, shaped like a real one: a short header, two
@@ -436,7 +437,7 @@ function slug(prompt: string): string {
 async function writeInside(cwd: string, relative: string, content: string): Promise<void> {
   const root = resolve(cwd);
   const target = resolve(join(root, normalize(relative)));
-  if (target !== root && !target.startsWith(root + '/')) {
+  if (!isInside(root, target)) {
     throw new Error(`refusing to write outside the worktree: ${relative}`);
   }
   await mkdir(dirname(target), { recursive: true });

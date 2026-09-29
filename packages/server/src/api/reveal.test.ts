@@ -1,13 +1,17 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { HttpError } from './http.js';
 
 import {
   folderOpener,
   launchDetached,
   OPENER_SPAWN_OPTIONS,
   revealInFileManager,
+  revealStorage,
 } from './reveal.js';
 
 /**
@@ -71,8 +75,32 @@ describe('opening a folder in the file manager', () => {
       (error: Error) => {
         assert.match(error.message, /not on disk/);
         assert.ok(error.message.includes(missing), 'the path is in the message');
+        // Not a server error, so the interface does not point at diagnostics.
+        assert.ok(error instanceof HttpError && error.status === 410);
         return true;
       },
     );
+  });
+
+  test('the managed repositories folder opens before any project has made it', async () => {
+    const data = mkdtempSync(join(tmpdir(), 'bonsai-storage-'));
+    try {
+      const root = join(data, 'repos');
+      const opened: string[] = [];
+      await revealStorage(root, (path) => {
+        assert.equal(existsSync(path), true, 'made before it is opened');
+        opened.push(path);
+        return Promise.resolve();
+      });
+      assert.deepEqual(opened, [root]);
+      // Again, now that it exists: opened as it is.
+      await revealStorage(root, (path) => {
+        opened.push(path);
+        return Promise.resolve();
+      });
+      assert.deepEqual(opened, [root, root]);
+    } finally {
+      rmSync(data, { recursive: true, force: true });
+    }
   });
 });

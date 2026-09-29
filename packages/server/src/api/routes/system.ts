@@ -1,16 +1,16 @@
-import { resolve } from 'node:path';
 import { diagnosticReport } from '../diagnosticPrivacy.js';
 import type { UpdateSettingsRequest } from '@bonsai/shared';
 import { TEXT_SCALES } from '@bonsai/shared';
 import type { DiagnosticsView, DirectoryInspectionView } from '@bonsai/shared';
 import { inspectDirectory } from '../../git/adopt.js';
 import { listDirectory } from '../browse.js';
-import { revealInFileManager } from '../reveal.js';
+import { revealInFileManager, revealStorage } from '../reveal.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { FileLogger } from '../../log.js';
 import { storageUse } from '../../archive.js';
 import { bundledClaudeCodeVersion } from '../../agent/claudeCode.js';
 import { route } from '../routing.js';
+import { canonicalPath, samePath } from '../../paths.js';
 
 /** Connection, settings, diagnostics and the local filesystem. */
 
@@ -50,14 +50,16 @@ route('GET', '/api/browse', async (req, res) => {
  */
 route('POST', '/api/inspect', async (req, res, _p, { store }) => {
   const body = await readJson<{ path?: string }>(req);
-  const path = requireString(body.path, 'path');
+  // Spelt as git and the database spell it, so a folder is recognised by
+  // any of its names.
+  const path = await canonicalPath(requireString(body.path, 'path'));
 
   const owner = store.findFolderOwner(path);
   if (
     owner !== null &&
     owner.project.source_kind === 'adopted' &&
     owner.node?.parent_id == null &&
-    resolve(path) === resolve(owner.project.source_path ?? owner.project.repo_path)
+    samePath(path, owner.project.source_path ?? owner.project.repo_path)
   ) {
     // The shared original checkout can host several independently named projects.
     sendJson(res, 200, { ...(await inspectDirectory(path)), knownTo: null });
@@ -217,5 +219,11 @@ route('PATCH', '/api/settings', async (req, res, _p, { settings, connection, sto
 route('POST', '/api/reveal', async (req, res) => {
   const body = await readJson<{ path?: string }>(req);
   await revealInFileManager(requireString(body.path, 'path'));
+  sendJson(res, 200, { ok: true });
+});
+
+/** The managed repositories folder: Bonsai's own, so it is made if missing. */
+route('POST', '/api/reveal/storage', async (_req, res, _p, { settings }) => {
+  await revealStorage(settings.reposRoot());
   sendJson(res, 200, { ok: true });
 });
