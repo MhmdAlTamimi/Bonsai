@@ -95,6 +95,7 @@ function reply(model, blocks, stopReason) {
 
 export async function startFakeApi() {
   const script = [];
+  let fallback = 'text';
   const requests = [];
   let tool = 0;
   const hanging = new Set();
@@ -110,7 +111,7 @@ export async function startFakeApi() {
         // Not JSON.
       }
       const mainLoop = Array.isArray(body.tools) && body.tools.length > 0;
-      const step = mainLoop ? (script.shift() ?? 'text') : 'text';
+      const step = mainLoop ? (script.shift() ?? fallback) : fallback;
       // The result of the tool call this request answers, if any: what the
       // agent's command printed, as Claude Code sends it back.
       const last = Array.isArray(body.messages) ? body.messages.at(-1) : undefined;
@@ -189,6 +190,10 @@ export async function startFakeApi() {
     script: (...steps) => {
       script.length = 0;
       script.push(...steps);
+    },
+    /** What every request not covered by the script gets, main loop or not. */
+    otherwise: (step) => {
+      fallback = step;
     },
     requests,
     stop: async () => {
