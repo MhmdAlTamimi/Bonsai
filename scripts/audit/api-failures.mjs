@@ -1,0 +1,171 @@
+/**
+ * Audit phase 7: a run with the real Claude Code when the API fails.
+ *
+ *   npm run build:server && node scripts/audit/api-failures.mjs [case ...]
+ *
+ * Bonsai runs with the real agent (the Claude Code its SDK bundles), pointed
+ * at fake-api.mjs, so nothing is spent and every failure is on cue. Each case
+ * is a fresh experiment whose agent first writes a file with Bash, then meets
+ * the failure on its next request. Reported: how the run ended, what the
+ * conversation says, whether the half-done work was committed as a finished
+ * run, and what Bonsai thinks of its connection afterwards.
+ *
+ * Cases: ok, key (401: a revoked or wrong key), billing (no credit), rate
+ * (429 on every retry), overloaded (529 on every retry), hang (no answer;
+ * Stop pressed after 5 s), cost (three plain runs of one experiment).
+ */
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
+import { startFakeApi } from './fake-api.mjs';
+import { delay, startBonsai } from './lib.mjs';
+
+const ALL = ['ok', 'key', 'billing', 'rate', 'overloaded', 'hang', 'cost'];
+const cases = process.argv.length > 2 ? process.argv.slice(2) : ALL;
+const fake = await startFakeApi();
+const root = await mkdtemp(join(tmpdir(), 'bonsai-apifail-'));
+const home = join(root, 'home');
+await mkdir(home);
+const bonsai = await startBonsai(
+  join(root, 'data'),
+  { HOME: home, ANTHROPIC_BASE_URL: fake.url },
+  { realAgent: true },
+);
+
+const writeThen = (failure, retries = 1) => [
+  'bash:echo partial > partial.txt',
+  ...Array(retries).fill(failure),
+];
+
+try {
+  await bonsai.api('PATCH', '/api/settings', {
+    authMode: 'api_key',
+    apiKey: 'sk-ant-api03-audit-not-a-real-key',
+  });
+  const check = await bonsai.api('POST', '/api/connection/check');
+  console.log(`connection check against the fake API: ${check.body?.state}`);
+  const project = (await bonsai.api('POST', '/api/projects', { name: 'api', description: '' }))
+    .body;
+  const db = new DatabaseSync(join(root, 'data', 'bonsai.db'), { readOnly: true });
+  const repo = db
+    .prepare('SELECT repo_path FROM project WHERE id = ?')
+    .get(project.projectId).repo_path;
+  db.close();
+
+  const experiment = async (name) =>
+    (
+      await bonsai.api('POST', `/api/projects/${project.projectId}/nodes`, {
+        parentId: project.masterNodeId,
+        displayName: name,
+        description: '',
+      })
+    ).body.node.id;
+
+  const report = async (name, id, started) => {
+    const detail = (await bonsai.api('GET', `/api/nodes/${id}`)).body;
+    const run = detail.runs.at(-1);
+    const said = (await bonsai.api('GET', `/api/nodes/${id}/messages`)).body;
+    const lastText = (Array.isArray(said) ? said : (said?.messages ?? []))
+      .filter((m) => m.role === 'assistant' && m.kind === 'text')
+      .at(-1);
+    const text =
+      typeof lastText?.content === 'string'
+        ? lastText.content
+        : JSON.stringify(lastText?.content ?? '');
+    let committed = 'no commit';
+    if (run.commitSha !== null) {
+      const files = execFileSync('git', ['show', '--name-only', '--format=', run.commitSha], {
+        cwd: repo,
+      })
+        .toString()
+        .trim()
+        .split('\n');
+      committed = `committed: ${files.join(', ')}`;
+    }
+    const connection = (await bonsai.api('GET', '/api/connection')).body;
+    console.log(`\n[${name}] ${Math.round((Date.now() - started) / 1000)} s`);
+    console.log(
+      `  experiment: ${detail.node.status}; run: ${run.status}/${run.endReason}; ${committed}`,
+    );
+    if (run.error) console.log(`  run error: ${run.error.split('\n')[0].slice(0, 160)}`);
+    console.log(`  last thing the agent "said": ${text.split('\n')[0].slice(0, 160)}`);
+    console.log(
+      `  connection afterwards: ${connection.state}${connection.message ? ` (${connection.message.slice(0, 100)})` : ''}`,
+    );
+    return { detail, run };
+  };
+
+  const scenario = async (name, steps, { stopAfterMs } = {}) => {
+    const id = await experiment(name);
+    fake.script(...steps);
+    const before = fake.requests.length;
+    const started = Date.now();
+    const start = await bonsai.api('POST', `/api/nodes/${id}/runs`, { prompt: name });
+    if (start.status >= 400) {
+      console.log(
+        `\n[${name}] could not start: HTTP ${start.status} ${JSON.stringify(start.body)}`,
+      );
+      return;
+    }
+    if (stopAfterMs !== undefined) {
+      await delay(stopAfterMs);
+      const pressed = Date.now();
+      await bonsai.api('POST', `/api/nodes/${id}/cancel`);
+      await bonsai.settle(id);
+      console.log(`\n[${name}] Stop took ${Date.now() - pressed} ms to take effect`);
+    } else {
+      // What the card and panel can show while the agent waits on the API.
+      const seen = new Set();
+      for (;;) {
+        const now = (await bonsai.api('GET', `/api/nodes/${id}`)).body;
+        if (!['running', 'needs_you'].includes(now.node.status)) break;
+        const a = now.node.activity;
+        seen.add(a === null ? 'no activity' : `${a.state}${a.tool ? ` (${a.tool.name})` : ''}`);
+        await delay(1000);
+      }
+      if (seen.size > 0)
+        console.log(
+          `\n[${name}] while running, the interface could show: ${[...seen].join(' / ')}`,
+        );
+    }
+    fake.script();
+    const main = fake.requests.slice(before).filter((r) => r.mainLoop);
+    await report(name, id, started);
+    console.log(
+      `  requests from the agent's loop: ${main.length} (${main.map((r) => r.step).join(', ')})`,
+    );
+    await bonsai.api('POST', '/api/connection/check');
+  };
+
+  for (const name of cases) {
+    if (name === 'ok') await scenario('ok', ['bash:echo one > one.txt', 'text']);
+    if (name === 'key') await scenario('key', writeThen(401, 15));
+    if (name === 'billing') await scenario('billing', writeThen('billing', 15));
+    if (name === 'rate') await scenario('rate', writeThen(429, 15));
+    if (name === 'overloaded') await scenario('overloaded', writeThen(529, 15));
+    if (name === 'hang') await scenario('hang', ['hang'], { stopAfterMs: 5000 });
+    if (name === 'cost') {
+      const id = await experiment('cost');
+      for (let i = 0; i < 3; i++) {
+        fake.script('text');
+        await bonsai.api('POST', `/api/nodes/${id}/runs`, { prompt: `run ${i + 1}` });
+        await bonsai.settle(id);
+      }
+      const runs = (await bonsai.api('GET', `/api/nodes/${id}`)).body.runs;
+      console.log('\n[cost] three identical runs of one experiment (each one API call):');
+      for (const run of runs)
+        console.log(
+          `  run: $${run.costUsd.toFixed(4)}, input tokens ${run.inputTokens}, output tokens ${run.outputTokens}`,
+        );
+      const usage = (await bonsai.api('GET', `/api/projects/${project.projectId}/usage`)).body;
+      console.log(`  project usage reports: ${JSON.stringify(usage).slice(0, 200)}`);
+    }
+  }
+} finally {
+  await bonsai.stop();
+  await fake.stop();
+  await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+}

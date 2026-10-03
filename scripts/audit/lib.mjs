@@ -9,7 +9,12 @@ import { fileURLToPath } from 'node:url';
 export const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../..');
 export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function startBonsai(dataDir, env = {}) {
+/**
+ * `realAgent` runs the real Claude Code instead of the stand-in, with an
+ * environment holding only PATH plus `env`: nothing of this shell's own
+ * credentials or Claude Code settings reaches it (see fake-api.mjs).
+ */
+export async function startBonsai(dataDir, env = {}, { realAgent = false } = {}) {
   const port = 9100 + Math.floor(Math.random() * 800);
   const base = `http://127.0.0.1:${port}`;
   const child = spawn(
@@ -17,11 +22,11 @@ export async function startBonsai(dataDir, env = {}) {
     ['--no-warnings', join(repoRoot, 'packages/server/dist/index.js')],
     {
       env: {
-        ...process.env,
+        ...(realAgent
+          ? { PATH: process.env.PATH }
+          : { ...process.env, BONSAI_FAKE_AGENT: '1', BONSAI_FAKE_DELAY_MS: '50' }),
         BONSAI_DATA_DIR: dataDir,
         BONSAI_PORT: String(port),
-        BONSAI_FAKE_AGENT: '1',
-        BONSAI_FAKE_DELAY_MS: '50',
         ...env,
       },
       stdio: 'ignore',
@@ -59,10 +64,11 @@ export async function startBonsai(dataDir, env = {}) {
       await delay(100);
     }
   };
-  const stop = async () => {
+  /** SIGKILL by default: a crash. SIGTERM is the app being closed properly. */
+  const stop = async (signal = 'SIGKILL') => {
     if (child.exitCode !== null || child.signalCode !== null) return;
     const exited = new Promise((r) => child.once('exit', r));
-    child.kill('SIGKILL');
+    child.kill(signal);
     await exited;
   };
   return { base, api, settle, stop };
