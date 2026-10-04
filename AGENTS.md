@@ -128,6 +128,11 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   overrides inherited credentials while retaining an explicitly configured API base URL.
 - Use real Git regression tests for ownership, commits, snapshots, recovery and deletion.
   Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
+- Settings forms keep their own last-saved baseline; closing unsaved forms requires an
+  explicit discard choice. A save clears only its own form. Switching settings tabs does
+  not unmount drafts, and authentication edits never go into browser draft storage.
+  Waiting questions own the panel's available space and scroll their content independently
+  of their visible answer controls. Comparison URLs must survive initial project loading.
 
 Later phases (standing references, running procedures across compared experiments, notes
 migration, scoped external actions, applying changes on the user's behalf and additional SDK

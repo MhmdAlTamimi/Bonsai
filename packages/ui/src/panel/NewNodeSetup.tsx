@@ -3,6 +3,7 @@ import type { ProjectView } from '@bonsai/shared';
 import { api } from '../api/client.ts';
 import { useSave } from './useSave.ts';
 import { SaveFeedback } from './SaveFeedback.tsx';
+import { useSettingsDraft } from './settingsDrafts.ts';
 
 /**
  * What a new node's folder needs before the agent arrives.
@@ -20,6 +21,7 @@ export function NewNodeSetup({
 }): JSX.Element {
   const [files, setFiles] = useState(project.setup.copyFiles.join('\n'));
   const [command, setCommand] = useState(project.setup.setupCommand ?? '');
+  const draft = useSettingsDraft({ files, command });
   const feedback = useSave();
   const save = (): void => {
     void feedback.run(async () => {
@@ -30,6 +32,7 @@ export function NewNodeSetup({
           .filter(Boolean),
         setupCommand: command.trim() || null,
       });
+      draft.saved();
       onChanged();
     });
   };

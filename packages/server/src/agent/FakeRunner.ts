@@ -203,12 +203,19 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter,
      * one, is said back in the transcript the way a real agent would.
      */
     if (spec.prompt.trimStart().toLowerCase().startsWith('choose:') && spec.askChoices !== null) {
-      const decision = await spec.askChoices({ questions: [FAKE_QUESTION] });
+      const questions = /^choose:\s*four questions\b/i.test(spec.prompt.trimStart())
+        ? Array.from({ length: 4 }, (_, index) => ({
+            ...FAKE_QUESTION,
+            question: `Question ${index + 1}: ${FAKE_QUESTION.question}`,
+            header: `Choice ${index + 1}`,
+          }))
+        : [FAKE_QUESTION];
+      const decision = await spec.askChoices({ questions });
       if (spec.signal.aborted) return;
       yield {
         type: 'text',
         text: decision.answered
-          ? `You chose: ${decision.answers[FAKE_QUESTION.question] ?? ''}.`
+          ? `You chose: ${Object.values(decision.answers).join('; ')}.`
           : `Nobody chose, so I decided: Keep it simple. (${decision.reason})`,
       };
     }

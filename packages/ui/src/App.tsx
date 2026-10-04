@@ -343,6 +343,7 @@ export function App(): JSX.Element {
               selectedNodeId={selection.primary}
               onClose={() => setShowSettings(false)}
               onChanged={settingsChanged}
+              confirm={confirm.ask}
             />
           )}
 

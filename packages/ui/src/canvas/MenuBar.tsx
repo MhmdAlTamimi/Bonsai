@@ -72,7 +72,11 @@ export function MenuBar({
           aria-label="Project"
           aria-haspopup="menu"
           aria-expanded={open === 'project'}
-          title={project?.workPath ?? project?.sourcePath ?? project?.name}
+          title={
+            project?.sourceKind === 'adopted'
+              ? (project.workPath ?? project.sourcePath ?? project.name)
+              : project?.name
+          }
           onKeyDown={(e) => {
             if (e.key === 'ArrowDown') {
               e.preventDefault();
@@ -88,7 +92,7 @@ export function MenuBar({
         >
           <span className="project-picker-name">{project?.name ?? 'Choose project'}</span>
           <small className="project-location">
-            {project?.sourcePath ?? ''}
+            {project?.sourceKind === 'adopted' ? (project.sourcePath ?? '') : ''}
             {project?.workDir ? ` · ${project.workDir}` : ''}
           </small>
           <Icon name="chevronDown" />

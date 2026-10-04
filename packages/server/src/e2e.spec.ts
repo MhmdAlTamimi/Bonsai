@@ -981,7 +981,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         { length: 45 },
         (_, i) => `Paragraph ${i}: Keep this reading position while new output arrives.`,
       ).join('\n\n') +
-      '\n\n| Check | Result |\n| --- | --- |\n| Example | Passed |\n\n- [x] first\n  - nested\n\n```python\nprint("test")\n```';
+      '\n\n| Configuration | Latency | Memory | Architecture | Consistency | Compatibility |\n| --- | --- | --- | --- | --- | --- |\n| Example | Passed | Efficient | Distributed | Reliable | Supported |\n\n- [x] first\n  - nested\n\n```python\nprint("test")\n```';
     const started = await fetch(`${nodeUrl}/runs`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -993,6 +993,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "!!document.querySelector('.run-foot') && !!document.querySelector('.markdown-table')",
     );
     await session.waitFor("document.querySelector('.panel-body').scrollTop > 100");
+    assert.equal(
+      await session.eval(
+        "(() => { const wrap = document.querySelector('.markdown-table'); const cell = wrap.querySelector('th'); return wrap.scrollWidth > wrap.clientWidth && getComputedStyle(cell).overflowWrap === 'normal'; })()",
+      ),
+      true,
+      'wide result tables scroll horizontally without splitting words',
+    );
     await session.eval(
       "const region = document.querySelector('.panel-body'); region.scrollTop = 240; region.dispatchEvent(new Event('scroll'));",
     );
@@ -2436,6 +2443,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       /compare=/,
       'a reload comes back to the comparison',
     );
+    const comparisonAddress = String(await session.eval('window.location.href'));
+    await session.goto(comparisonAddress);
+    await session.waitFor("document.querySelectorAll('.compare-card').length === 2");
+    assert.deepEqual(
+      [...new URL(String(await session.eval('window.location.href'))).searchParams].sort(),
+      [...new URL(comparisonAddress).searchParams].sort(),
+      'initial project loading must preserve the requested comparison',
+    );
     await session.screenshot(join(repoRoot, 'test-results', 'compare-page.png'));
     await session.eval(`${button('Compare their results')}.click()`);
     await session.waitFor(
@@ -3459,6 +3474,121 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       `(async () => (await (await fetch('/api/nodes/${project.masterNodeId}')).json()).runs.at(-1)?.status === 'cancelled')()`,
     );
+  });
+  test('four waiting questions keep their answer controls visible in a short window', async () => {
+    const response = await fetch(`${BASE}/api/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Four questions', description: '' }),
+    });
+    const project = (await response.json()) as { projectId: string; masterNodeId: string };
+    try {
+      await session.send('Emulation.setDeviceMetricsOverride', {
+        width: 1280,
+        height: 720,
+        deviceScaleFactor: 1,
+        mobile: false,
+      });
+      await fetch(`${BASE}/api/nodes/${project.masterNodeId}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'choose: four questions about the next step' }),
+      });
+      await session.goto(`${BASE}/?project=${project.projectId}&node=${project.masterNodeId}`);
+      await session.waitFor("document.querySelectorAll('.choice-question').length === 4");
+      assert.equal(
+        await session.eval("document.querySelector('.project-location').textContent.trim()"),
+        '',
+        'created projects do not show private storage UUID paths in the top bar',
+      );
+      assert.equal(
+        await session.eval(
+          "(() => { const content = document.querySelector('.ask-content'); const actions = document.querySelector('.ask-actions'); const r = actions.getBoundingClientRect(); return content.scrollHeight > content.clientHeight && r.top > 0 && r.bottom <= innerHeight && actions.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)); })()",
+        ),
+        true,
+      );
+      await session.eval("document.querySelector('.ask-content').scrollTop = 10000");
+      assert.equal(
+        await session.eval(
+          "document.querySelector('.ask-actions').getBoundingClientRect().bottom <= innerHeight",
+        ),
+        true,
+      );
+      await session.eval(
+        "Array.from(document.querySelectorAll('.ask-actions button')).find(b => b.textContent === 'Let the agent decide').click()",
+      );
+      await session.waitFor(
+        `(async () => (await (await fetch('/api/nodes/${project.masterNodeId}')).json()).runs.at(-1)?.status === 'done')()`,
+      );
+    } finally {
+      await session.send('Emulation.clearDeviceMetricsOverride', {});
+      await fetch(`${BASE}/api/nodes/${project.masterNodeId}/cancel`, { method: 'POST' });
+    }
+  });
+
+  test('unsaved settings survive tab switches and require an explicit discard before closing', async () => {
+    const projects = (await (await fetch(`${BASE}/api/projects`)).json()) as Array<{
+      id: string;
+      setup: { setupCommand: string | null };
+    }>;
+    const project = projects[0]!;
+    const settings = (await (await fetch(`${BASE}/api/settings`)).json()) as { textScale: number };
+    const desired = settings.textScale === 100 ? 115 : 100;
+    await session.goto(`${BASE}/?project=${project.id}`);
+    await session.waitFor("!!document.querySelector('.settings-button')");
+    await session.click('.settings-button');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.settings-tabs button')).find(b => b.textContent === 'Project settings').click()",
+    );
+    await session.type('[aria-label="setup command"]', 'echo unsaved-settings-fixture');
+    assert.equal(
+      await session.eval("!window.dispatchEvent(new Event('beforeunload', { cancelable: true }))"),
+      true,
+      'page navigation warns while forms have unsaved edits',
+    );
+    await session.click('.settings-dialog .dialog-close');
+    await session.waitFor("!!document.querySelector('dialog.confirm[open]')");
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog.confirm button')).find(b => b.textContent === 'Cancel').click()",
+    );
+    await session.waitFor("!document.querySelector('dialog.confirm')");
+    assert.equal(
+      await session.eval('document.querySelector(\'[aria-label="setup command"]\').value'),
+      'echo unsaved-settings-fixture',
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.settings-tabs button')).find(b => b.textContent === 'App settings').click()",
+    );
+    await session.eval(
+      `const scale = document.querySelector('[aria-label="Text size"]'); scale.value = '${desired}'; scale.dispatchEvent(new Event('change', { bubbles: true }));`,
+    );
+    await session.click('.appearance-settings button');
+    await session.waitFor(
+      "document.querySelector('.appearance-settings .save-feedback')?.textContent === 'Saved'",
+    );
+    await session.click('.settings-dialog .dialog-close');
+    await session.waitFor("!!document.querySelector('dialog.confirm[open]')");
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog.confirm button')).find(b => b.textContent === 'Discard edits').click()",
+    );
+    await session.waitFor("!document.querySelector('dialog[open]')");
+    const after = (await (await fetch(`${BASE}/api/projects`)).json()) as typeof projects;
+    assert.equal(
+      after.find((p) => p.id === project.id)!.setup.setupCommand,
+      project.setup.setupCommand,
+    );
+    assert.equal(
+      ((await (await fetch(`${BASE}/api/settings`)).json()) as typeof settings).textScale,
+      desired,
+    );
+    await session.click('.settings-button');
+    await session.click('.settings-dialog .dialog-close');
+    await session.waitFor("!document.querySelector('dialog[open]')");
+    await fetch(`${BASE}/api/settings`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ textScale: settings.textScale }),
+    });
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react';
+import { useEffect, useRef, useState, type JSX } from 'react';
 import {
   ARCHIVE_AFTER_DAYS,
   CONCURRENCY,
@@ -19,6 +19,8 @@ import { AgentFields, type AgentValues } from './AgentFields.tsx';
 import { useSave } from './useSave.ts';
 import { SaveFeedback } from './SaveFeedback.tsx';
 import { LostExperiments } from './LostExperiments.tsx';
+import { SettingsDrafts, useSettingsDraft } from './settingsDrafts.ts';
+import type { ConfirmRequest } from '../ConfirmDialog.tsx';
 
 export function SettingsDialog({
   settings,
@@ -27,6 +29,7 @@ export function SettingsDialog({
   selectedNodeId,
   onClose,
   onChanged,
+  confirm,
   initialTab = 'app',
 }: {
   settings: SettingsView;
@@ -35,55 +38,90 @@ export function SettingsDialog({
   selectedNodeId: string | null;
   onClose: () => void;
   onChanged: () => void;
+  confirm: (request: ConfirmRequest) => Promise<boolean>;
   initialTab?: 'app' | 'project';
 }): JSX.Element {
   const [tab, setTab] = useState<'app' | 'project' | 'diagnostics'>(initialTab);
+  const drafts = useRef(new Set<symbol>()).current;
+  const closing = useRef(false);
+  const close = (): void => {
+    if (closing.current) return;
+    if (drafts.size === 0) {
+      onClose();
+      return;
+    }
+    closing.current = true;
+    void confirm({
+      title: 'Discard unsaved settings?',
+      body: [
+        'Your edits have not been saved. Cancel to keep editing, or discard them to close Settings.',
+      ],
+      confirmLabel: 'Discard edits',
+    })
+      .then((discard) => {
+        if (discard) onClose();
+      })
+      .finally(() => {
+        closing.current = false;
+      });
+  };
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent): void => {
+      if (drafts.size === 0) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [drafts]);
   return (
-    <Dialog title="Settings" className="wide settings-dialog" onClose={onClose}>
-      <DialogHeader title="Settings" onClose={onClose} />
-      <nav className="settings-tabs" aria-label="Settings scope">
-        {(['app', 'project', 'diagnostics'] as const).map((scope) => (
-          <button key={scope} aria-pressed={tab === scope} onClick={() => setTab(scope)}>
-            {scope === 'app'
-              ? 'App settings'
-              : scope === 'project'
-                ? 'Project settings'
-                : 'Diagnostics'}
-          </button>
-        ))}
-      </nav>
-      <div hidden={tab !== 'app'} className="settings-sections">
-        <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
-        <Appearance settings={settings} onChanged={onChanged} />
-        <AppDefaults settings={settings} models={connection.models} onChanged={onChanged} />
-        <Storage settings={settings} onChanged={onChanged} />
-        <Locations settings={settings} onChanged={onChanged} />
-      </div>
-      <div hidden={tab !== 'project'} className="settings-sections">
-        {project ? (
-          <>
-            <h4>Project settings — {project.name}</h4>
-            <ProjectAgent
-              key={`agent-${project.id}`}
-              project={project}
-              models={connection.models}
-              onChanged={onChanged}
-            />
-            <NewNodeSetup key={`setup-${project.id}`} project={project} onChanged={onChanged} />
-            <LostExperiments
-              key={`lost-${project.id}`}
-              projectId={project.id}
-              onChanged={onChanged}
-            />
-          </>
-        ) : (
-          <p className="muted">Open a project to change its settings.</p>
-        )}
-      </div>
-      <div hidden={tab !== 'diagnostics'}>
-        <Diagnostics key={selectedNodeId} nodeId={selectedNodeId} />
-      </div>
-    </Dialog>
+    <SettingsDrafts.Provider value={drafts}>
+      <Dialog title="Settings" className="wide settings-dialog" onClose={close}>
+        <DialogHeader title="Settings" onClose={close} />
+        <nav className="settings-tabs" aria-label="Settings scope">
+          {(['app', 'project', 'diagnostics'] as const).map((scope) => (
+            <button key={scope} aria-pressed={tab === scope} onClick={() => setTab(scope)}>
+              {scope === 'app'
+                ? 'App settings'
+                : scope === 'project'
+                  ? 'Project settings'
+                  : 'Diagnostics'}
+            </button>
+          ))}
+        </nav>
+        <div hidden={tab !== 'app'} className="settings-sections">
+          <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
+          <Appearance settings={settings} onChanged={onChanged} />
+          <AppDefaults settings={settings} models={connection.models} onChanged={onChanged} />
+          <Storage settings={settings} onChanged={onChanged} />
+          <Locations settings={settings} onChanged={onChanged} />
+        </div>
+        <div hidden={tab !== 'project'} className="settings-sections">
+          {project ? (
+            <>
+              <h4>Project settings — {project.name}</h4>
+              <ProjectAgent
+                key={`agent-${project.id}`}
+                project={project}
+                models={connection.models}
+                onChanged={onChanged}
+              />
+              <NewNodeSetup key={`setup-${project.id}`} project={project} onChanged={onChanged} />
+              <LostExperiments
+                key={`lost-${project.id}`}
+                projectId={project.id}
+                onChanged={onChanged}
+              />
+            </>
+          ) : (
+            <p className="muted">Open a project to change its settings.</p>
+          )}
+        </div>
+        <div hidden={tab !== 'diagnostics'}>
+          <Diagnostics key={selectedNodeId} nodeId={selectedNodeId} />
+        </div>
+      </Dialog>
+    </SettingsDrafts.Provider>
   );
 }
 
@@ -102,6 +140,7 @@ function AppDefaults({
     permissionMode: settings.permissionMode,
   });
   const [limit, setLimit] = useState(settings.maxConcurrentRuns);
+  const draft = useSettingsDraft({ value, limit });
   const save = useSave();
   return (
     <section className="app-defaults">
@@ -146,6 +185,7 @@ function AppDefaults({
           onClick={() =>
             void save.run(async () => {
               await api.updateSettings({ ...value, maxConcurrentRuns: limit });
+              draft.saved();
               onChanged();
             })
           }
@@ -172,6 +212,7 @@ function ProjectAgent({
     permissionMode: project.defaultPermissionMode,
   });
   const save = useSave();
+  const draft = useSettingsDraft(value);
   return (
     <section className="project-agent">
       <h4>Agent for this project</h4>
@@ -195,6 +236,7 @@ function ProjectAgent({
           onClick={() =>
             void save.run(async () => {
               await api.updateProject(project.id, value);
+              draft.saved();
               onChanged();
             })
           }
@@ -219,6 +261,7 @@ function Storage({
 }): JSX.Element {
   const [enabled, setEnabled] = useState(settings.archiveAfterDays !== null);
   const [days, setDays] = useState(settings.archiveAfterDays ?? ARCHIVE_AFTER_DAYS.default);
+  const draft = useSettingsDraft({ enabled, days });
   const [use, setUse] = useState<StorageView | null>(null);
   const [useError, setUseError] = useState<string | null>(null);
   const [backupPath, setBackupPath] = useState<string | null>(null);
@@ -323,6 +366,7 @@ function Storage({
           onClick={() =>
             void save.run(async () => {
               await api.updateSettings({ archiveAfterDays: enabled ? days : null });
+              draft.saved();
               onChanged();
             })
           }
@@ -343,6 +387,7 @@ function Locations({
   onChanged: () => void;
 }): JSX.Element {
   const [root, setRoot] = useState(settings.reposRoot);
+  const draft = useSettingsDraft(root);
   const save = useSave();
   const reveal = useSave();
   return (
@@ -369,6 +414,7 @@ function Locations({
           onClick={() =>
             void save.run(async () => {
               await api.updateSettings({ reposRoot: root });
+              draft.saved();
               onChanged();
             })
           }
@@ -417,6 +463,7 @@ function ConnectionSettings({
 }): JSX.Element {
   const [mode, setMode] = useState(settings.authMode);
   const [key, setKey] = useState('');
+  const draft = useSettingsDraft({ mode, key });
   const [output, setOutput] = useState<string | null>(null);
   const save = useSave();
   const action = useSave();
@@ -470,6 +517,7 @@ function ConnectionSettings({
                 ...(key.trim() ? { apiKey: key.trim() } : {}),
               });
               setKey('');
+              draft.saved({ mode, key: '' });
               onChanged();
             })
           }
@@ -543,6 +591,7 @@ function Appearance({
   onChanged: () => void;
 }): JSX.Element {
   const [scale, setScale] = useState(settings.textScale);
+  const draft = useSettingsDraft(scale);
   const save = useSave();
   return (
     <section className="appearance-settings">
@@ -571,6 +620,7 @@ function Appearance({
           onClick={() =>
             void save.run(async () => {
               await api.updateSettings({ textScale: scale });
+              draft.saved();
               onChanged();
             })
           }

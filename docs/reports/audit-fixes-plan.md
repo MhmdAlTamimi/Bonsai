@@ -94,15 +94,15 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [ ] M2: The map opens too far out to read, and there is no way to find an experiment by name
 - [ ] M3: Every update re-lays out and redraws the whole map
 - [ ] M4: With a keyboard, the map is a long flat list
-- [ ] M5: For a project Bonsai created, the top bar spends its width on Bonsai's storage path
+- [x] M5: For a project Bonsai created, the top bar spends its width on Bonsai's storage path
 
 ### audit-11-conversation-panel
 
 - [x] C1: An unsent message is lost when the page reloads
 - [ ] C2: A long conversation slows the whole page, whatever else is happening
-- [ ] C3: When the agent asks you something, the answer buttons are below the fold
+- [x] C3: When the agent asks you something, the answer buttons are below the fold
 - [x] C4: A queued request is not shown in its own panel
-- [ ] C5: Result tables break their words apart at the panel's default width
+- [x] C5: Result tables break their words apart at the panel's default width
 
 ### audit-12-review-and-apply
 
@@ -114,14 +114,14 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [ ] X1: Every comparison keeps a full copy of each compared experiment's repository, and nothing counts or removes them
 - [ ] X2: Spending on comparisons and on drafted references is not in Usage
-- [ ] X3: A comparison's address does not open it
+- [x] X3: A comparison's address does not open it
 - [x] X4: *Start from latest*, saved for later, loses the work it carries
 
 ### audit-14-sign-in-and-settings
 
 - [x] N1: A wrong or revoked API key is reported as a timeout, "or offline"
 - [x] N2: Signing in with a subscription needs a second, separately installed Claude Code
-- [ ] N3: Edits in Settings are dropped without a word when it closes
+- [x] N3: Edits in Settings are dropped without a word when it closes
 
 ## Additional issues from validation
 
@@ -174,3 +174,5 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - Verified backup batch: production build, typecheck/lint/format, all 421 server tests, 120 UI/shared tests and 31 browser tests passed. Settings offers an explicit idle-only backup that snapshots WAL safely, copies working/index/ignored files and comparison/recovery/export data, makes external Git repositories independent, and verifies Git/SQLite integrity. Actual source-byte checks refuse completion after an injected outside edit. Restore tests remove the originals and move the backup: custom storage, two projects sharing a source, staged-only content, archived allocation and initialized submodules all work; a restored backup can itself be backed up. Submodule caches retain the Git objects needed for later checkouts after the original module repository is gone. The stand-in end-to-end reproduction resumes all four experiments after deleting both original data and external sources. Browser coverage refuses active work and completes after Stop; its temporary project is removed so later fixtures remain independent. Credentials and Git credential/remote configuration are excluded. A live OS-level copy remains unsafe; incomplete or externally dependent copies are explicitly refused. SDK session ownership/retention is addressed separately by B4.
 
 - Durable conversation batch: production build, typecheck/lint/format, all 428 server tests, 120 UI/shared tests and 31 browser tests passed. The real bundled SDK reproduction uses the verified fake API, removes global Claude transcript files, resumes the same session, forks a child, and resumes both experiments and comparisons after moving an independent backup and deleting the originals. Verified backup imports available legacy sessions before its SQL snapshot; missing originals are counted in the manifest and shown as text, with saved Bonsai messages retained for explicit recovery. SQLite reopen/backup tests prove append batches are atomic and duplicate UUID replay cannot rewrite completed checkpoints. The official SDK fork utility excludes unfinished root/subagent turns without a message cut point; completed boundaries commit with the run's final state. Missing sessions and failed native forks rebuild bounded own/inherited history, fixed at creation, and initialization failure before a new UUID does not discard it on retry. Legacy sessions without a verified compacted boundary use the explicit saved-history fallback. Compact refuses a missing session before enqueueing a run. No authentication directory is moved or rewritten.
+
+- Usability batch: production build, typecheck/lint/format, all 428 server tests, 120 UI/shared tests and 33 browser tests passed. Four real stand-in questions at 1280×720 keep their answer controls visible while the options scroll; the composer still gives way to the question. Six-column result tables scroll sideways with normal word boundaries. A comparison survives an actual full reload through initial project loading, with the same project/experiment/comparison parameters; URL parameter order is not treated as identity. Created projects hide internal UUID storage paths in the top bar and keep their Open folder action. Settings tracks each live form against its last saved value, preserves edits across tabs, confirms discarding on Close/Escape and warns on browser navigation. Saving one form does not clear another form's edits; credentials stay in memory until explicitly saved to the backend. Browser checks exercise cancel, partial save, explicit discard and clean reopening.

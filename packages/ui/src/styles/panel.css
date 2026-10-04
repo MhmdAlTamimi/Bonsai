@@ -327,6 +327,7 @@
 }
 .ask-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--s2);
 }
@@ -345,6 +346,13 @@
    only in the exceptional states -- a question with many options, a recovery
    notice -- because the composer must never leave the window. */
 .panel-foot { max-height: 48%; overflow-y: auto; }
+.panel.awaiting-answer .panel-scroll { flex: 0 1 20%; min-height: 3rem; }
+.panel.awaiting-answer .panel-foot { flex: 1; max-height: none; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.panel.awaiting-answer .panel-foot > :not(.ask) { flex: none; }
+.panel.awaiting-answer .ask { flex: 1; min-height: 0; overflow: hidden; }
+.ask > h3, .ask-actions { flex: none; }
+.ask-content { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--s2); }
+.ask-content > * { flex: none; }
 
 /* Behind: the fact, then the one way forward, on one line when there is room. */
 .behind-note { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }

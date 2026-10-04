@@ -199,7 +199,7 @@ function NodePanel({
     detail !== null && detail.lineage.codeFrom !== null && detail.lineage.conversationFrom === null;
 
   return (
-    <aside className="panel">
+    <aside className={`panel${node.pendingQuestion === null ? '' : ' awaiting-answer'}`}>
       {/*
        * Identity on the right, controls on the left: the name is what you
        * read, and it sits against the edge the panel is docked to, so the eye

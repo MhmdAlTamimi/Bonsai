@@ -68,8 +68,8 @@
 }
 
 .markdown-table { overflow-x: auto; overflow-y: hidden; margin: 12px 0; border-radius: var(--r-8); background: var(--surface-2); }
-.markdown-table table { border-collapse: collapse; width: 100%; font-size: inherit; }
-.markdown-table th, .markdown-table td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; }
+.markdown-table table { border-collapse: collapse; width: max-content; min-width: 100%; font-size: inherit; }
+.markdown-table th, .markdown-table td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; overflow-wrap: normal; word-break: normal; }
 .markdown-table th { background: var(--surface-3); }
 .markdown-table .disclosure-row { box-shadow: inset 0 1px 0 var(--line); }
 .markdown-task { list-style: none; }

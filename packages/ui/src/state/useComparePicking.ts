@@ -38,7 +38,9 @@ export function useComparePicking(
   const shownProject = useRef(projectId);
   useEffect(() => {
     if (shownProject.current === projectId) return;
+    const initializing = shownProject.current === null;
     shownProject.current = projectId;
+    if (initializing) return;
     setPicks(null);
     setComparing(null);
   }, [projectId]);

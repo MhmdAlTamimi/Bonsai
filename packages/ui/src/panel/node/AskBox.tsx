@@ -120,38 +120,40 @@ function PermissionBox({
   return (
     <div className="ask">
       <h3>Permission requested · {node.displayName}</h3>
-      {question.request ? (
-        <>
-          <p className="permission-action">
-            <strong>{question.request.action}</strong>{' '}
-            <code>{question.request.target || 'Target not supplied'}</code>
-          </p>
-          <details className="permission-details">
-            <summary>Action details</summary>
-            <pre>{question.request.details}</pre>
-          </details>
-        </>
-      ) : (
-        <p className="ask-question">{question.text}</p>
-      )}
-      <label className="stacked">
-        Reason or alternative instruction (sent when refusing)
-        <input
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="What should it do instead?"
-          aria-label="Reason or alternative instruction (sent when refusing)"
-          disabled={sending.busy}
-          onKeyDown={(e) => {
-            // Enter refuses rather than allows, because this box exists to say
-            // no. Allowing is the one-click path next to it.
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              void answer(false);
-            }
-          }}
-        />
-      </label>
+      <div className="ask-content">
+        {question.request ? (
+          <>
+            <p className="permission-action">
+              <strong>{question.request.action}</strong>{' '}
+              <code>{question.request.target || 'Target not supplied'}</code>
+            </p>
+            <details className="permission-details">
+              <summary>Action details</summary>
+              <pre>{question.request.details}</pre>
+            </details>
+          </>
+        ) : (
+          <p className="ask-question">{question.text}</p>
+        )}
+        <label className="stacked">
+          Reason or alternative instruction (sent when refusing)
+          <input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="What should it do instead?"
+            aria-label="Reason or alternative instruction (sent when refusing)"
+            disabled={sending.busy}
+            onKeyDown={(e) => {
+              // Enter refuses rather than allows, because this box exists to say
+              // no. Allowing is the one-click path next to it.
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                void answer(false);
+              }
+            }}
+          />
+        </label>
+      </div>
       {sending.busy && (
         <p className="loading" role="status">
           {sending.submitted ? 'Answer recorded · updating' : 'Sending answer'}
@@ -202,65 +204,67 @@ function QuestionBox({
   return (
     <div className="ask ask-choice">
       <h3>Question from the agent · {node.displayName}</h3>
-      {questions.map((question, index) => {
-        const picked = picks[index] ?? NOTHING_PICKED;
-        const group = `${questionId}-${index}`;
-        const preview = question.options.find((o) => o.label === picked.focus)?.preview;
-        return (
-          <fieldset key={question.question} className="choice-question" disabled={sending.busy}>
-            <legend>
-              {question.header !== '' && <span className="chip tiny">{question.header}</span>}
-              <span className="choice-text">{question.question}</span>
-            </legend>
-            {question.multiSelect && <p className="hint">Choose any that apply.</p>}
-            <div className="choice-options">
-              {question.options.map((option) => (
-                <label key={option.label} className="choice-option">
+      <div className="ask-content">
+        {questions.map((question, index) => {
+          const picked = picks[index] ?? NOTHING_PICKED;
+          const group = `${questionId}-${index}`;
+          const preview = question.options.find((o) => o.label === picked.focus)?.preview;
+          return (
+            <fieldset key={question.question} className="choice-question" disabled={sending.busy}>
+              <legend>
+                {question.header !== '' && <span className="chip tiny">{question.header}</span>}
+                <span className="choice-text">{question.question}</span>
+              </legend>
+              {question.multiSelect && <p className="hint">Choose any that apply.</p>}
+              <div className="choice-options">
+                {question.options.map((option) => (
+                  <label key={option.label} className="choice-option">
+                    <input
+                      type={question.multiSelect ? 'checkbox' : 'radio'}
+                      name={group}
+                      checked={picked.selected.includes(option.label)}
+                      onChange={() => update(index, (p) => pickOption(question, p, option.label))}
+                    />
+                    <span className="choice-label">{option.label}</span>
+                    {option.description !== '' && (
+                      <span className="choice-description">{option.description}</span>
+                    )}
+                  </label>
+                ))}
+                <label className="choice-option choice-other">
                   <input
                     type={question.multiSelect ? 'checkbox' : 'radio'}
                     name={group}
-                    checked={picked.selected.includes(option.label)}
-                    onChange={() => update(index, (p) => pickOption(question, p, option.label))}
+                    checked={picked.other}
+                    aria-label="Other"
+                    onChange={(e) => update(index, (p) => pickOther(question, p, e.target.checked))}
                   />
-                  <span className="choice-label">{option.label}</span>
-                  {option.description !== '' && (
-                    <span className="choice-description">{option.description}</span>
-                  )}
+                  <span className="choice-label">Other</span>
+                  <input
+                    type="text"
+                    className="choice-other-text"
+                    value={picked.otherText}
+                    placeholder="Type your own answer"
+                    aria-label={`Your own answer to: ${question.question}`}
+                    onChange={(e) => update(index, (p) => typeOther(question, p, e.target.value))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        submit();
+                      }
+                    }}
+                  />
                 </label>
-              ))}
-              <label className="choice-option choice-other">
-                <input
-                  type={question.multiSelect ? 'checkbox' : 'radio'}
-                  name={group}
-                  checked={picked.other}
-                  aria-label="Other"
-                  onChange={(e) => update(index, (p) => pickOther(question, p, e.target.checked))}
-                />
-                <span className="choice-label">Other</span>
-                <input
-                  type="text"
-                  className="choice-other-text"
-                  value={picked.otherText}
-                  placeholder="Type your own answer"
-                  aria-label={`Your own answer to: ${question.question}`}
-                  onChange={(e) => update(index, (p) => typeOther(question, p, e.target.value))}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                      e.preventDefault();
-                      submit();
-                    }
-                  }}
-                />
-              </label>
-            </div>
-            {preview !== undefined && (
-              <pre className="choice-preview" aria-label={`Preview of ${picked.focus ?? ''}`}>
-                {preview}
-              </pre>
-            )}
-          </fieldset>
-        );
-      })}
+              </div>
+              {preview !== undefined && (
+                <pre className="choice-preview" aria-label={`Preview of ${picked.focus ?? ''}`}>
+                  {preview}
+                </pre>
+              )}
+            </fieldset>
+          );
+        })}
+      </div>
       {sending.busy && (
         <p className="loading" role="status">
           {sending.submitted ? 'Answer recorded · updating' : 'Sending answer'}
