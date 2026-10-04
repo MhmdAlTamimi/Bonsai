@@ -50,6 +50,8 @@ const NEVER_COPY = new Set(['node_modules', '.venv', 'venv', '.tox', '.git', 'ta
 export async function seedFiles(opts: {
   /** The project's own folder -- master's checkout. */
   sourceDir: string;
+  /** A plain source folder has a separate, managed snapshot repository. */
+  sourceRepoPath?: string;
   /** The new node's worktree. */
   targetDir: string;
   files: readonly string[];
@@ -75,7 +77,7 @@ export async function seedFiles(opts: {
     try {
       await rejectSymlinks(opts.sourceDir, relative);
       await rejectSymlinks(opts.targetDir, relative);
-      for (const dir of [opts.sourceDir, opts.targetDir]) {
+      for (const dir of [opts.sourceRepoPath ?? opts.sourceDir, opts.targetDir]) {
         if ((await git(['ls-files', '--', relative], dir)).trim() !== '') {
           throw new Error(
             'This file is tracked by git. Ignoring it alone does not untrack it; review its tracking in your repository before copying it.',

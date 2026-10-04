@@ -38,6 +38,7 @@ import type { Logger } from './log.js';
 import { OperationConflict } from './domain/errors.js';
 import { isInside, samePath } from './paths.js';
 import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
+import { fileName } from './fileName.js';
 
 /**
  * The flows that need git and the database to agree. Kept out of the router so
@@ -179,12 +180,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function slugify(name: string): string {
-  const s = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
-  return s === '' ? 'project' : s;
+  return fileName(name, 'project');
 }
 
 /**
@@ -234,11 +230,13 @@ export async function adoptProject(
   /** The chosen folder relative to it. '' when the repository root was chosen. */
   workDir: string;
 }> {
-  const adopted = await adoptDirectory(input.path, input.startFrom);
+  const id = randomUUID();
+  const managedRepo = join(store.projectScratchDir(id), 'repo.git');
+  const adopted = await adoptDirectory(input.path, input.startFrom, managedRepo);
 
   let base = adopted.headCommit;
   let snapshot = false;
-  if (input.includeUncommitted === true) {
+  if (input.includeUncommitted === true && !adopted.initialised) {
     // Unsaved changes sit on top of what the folder has checked out, and mean
     // nothing on top of any other version.
     if (!adopted.current)
@@ -253,6 +251,7 @@ export async function adoptProject(
   }
 
   const project = store.createProject({
+    id,
     name:
       input.name === undefined || input.name.trim() === ''
         ? // The folder they PICKED, which is what an editor would put in its
@@ -270,7 +269,7 @@ export async function adoptProject(
       // The project's folder is the REPOSITORY, whichever folder was picked --
       // that is what git owns and what deletion must leave alone. Where the
       // agent stands inside it is `workDir` (D37).
-      sourcePath: adopted.repoPath,
+      sourcePath: adopted.sourcePath,
       protectedBranch: adopted.label,
       workDir: adopted.workDir,
     },
@@ -418,6 +417,7 @@ async function createFolder(store: Store, stale: NodeRow): Promise<SeedFileOutco
     ? []
     : await seedFiles({
         sourceDir: project.source_path,
+        sourceRepoPath: project.repo_path,
         targetDir: node.worktree_path,
         files: store.projectView(project).setup.copyFiles,
       });

@@ -86,7 +86,7 @@ try {
   const flat = (cwd, tree) =>
     git(cwd, 'ls-tree', '-r', tree)
       .split('\n')
-      .filter((line) => !line.endsWith('\tCONTEXT.md'));
+      .filter((line) => !/\t\.bonsai\/notes-[0-9a-f-]+\.md$/.test(line));
   const got = git(yours, 'write-tree');
   const missing = flat(folder, want).filter((line) => !flat(yours, got).includes(line));
   const extra = flat(yours, got).filter((line) => !flat(folder, want).includes(line));

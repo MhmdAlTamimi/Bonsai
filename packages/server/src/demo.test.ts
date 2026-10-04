@@ -118,9 +118,9 @@ describe('PRD §2 — the demo script', () => {
     assert.equal(store.getNode(e.nodeId)!.branch_name, null);
     // D28: exploration nodes get no CONTEXT.md -- the one it wrote was reverted.
     assert.equal(
-      existsSync(join(store.getNode(e.nodeId)!.worktree_path, 'CONTEXT.md')),
+      existsSync(join(store.getNode(e.nodeId)!.worktree_path, project.notes_path!)),
       true,
-      "argparse's committed CONTEXT.md is inherited and must still be here",
+      "argparse's committed run notes are inherited and must still be here",
     );
 
     // ---- 4. Spawn a child from that exploration node. ----

@@ -83,7 +83,7 @@ export function Details({
       </dl>
       {detail?.contextMd != null && (
         <>
-          <h3>Agent notes — CONTEXT.md</h3>
+          <h3>Agent notes</h3>
           <pre className="stream">{detail.contextMd}</pre>
         </>
       )}

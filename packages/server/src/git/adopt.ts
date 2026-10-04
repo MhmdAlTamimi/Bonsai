@@ -1,7 +1,8 @@
 import { workingTreeSnapshot } from './snapshot.js';
-import { readdir, stat } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { basename, dirname, relative, resolve, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { basename, dirname, join, parse, relative, resolve, sep } from 'node:path';
 
 import { git, gitLine, status } from './exec.js';
 import { canonicalPath, samePath } from '../paths.js';
@@ -128,6 +129,12 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
     entryCount: entries.length,
   };
 
+  if (samePath(full, parse(full).root) || samePath(full, await canonicalPath(homedir())))
+    return {
+      ...result,
+      blockedReason: 'Choose a project folder, rather than your home folder or the whole disk.',
+    };
+
   /**
    * Asked of git rather than of the filesystem, and that distinction matters.
    *
@@ -145,6 +152,17 @@ export async function inspectDirectory(path: string): Promise<DirectoryInspectio
     // and the working directory is that folder's root.
     return result;
   }
+
+  if (
+    samePath(repoRoot, parse(repoRoot).root) ||
+    samePath(repoRoot, await canonicalPath(homedir()))
+  )
+    return {
+      ...result,
+      repoRoot,
+      blockedReason:
+        'This repository contains your home folder or the whole disk. Choose a separate project repository.',
+    };
 
   /**
    * A linked worktree -- `git worktree add` -- reports itself as a toplevel,
@@ -237,6 +255,8 @@ function repoRootOf(gitDir: string): string {
 export interface AdoptedRepo {
   /** The repository root: the project's identity. */
   repoPath: string;
+  /** The user's original folder, also when its snapshot repository is managed by Bonsai. */
+  sourcePath: string;
   /**
    * The agent's working directory inside it, '/'-separated, '' for the root.
    * D37: the repository is what git sees; this is where the agent stands.
@@ -264,45 +284,49 @@ export interface AdoptedRepo {
  * it (D37). Bonsai will not create a nested repository inside someone's
  * repository, and will not invent a branch because a subfolder was chosen.
  */
-export async function adoptDirectory(path: string, startFrom?: string): Promise<AdoptedRepo> {
+export async function adoptDirectory(
+  path: string,
+  startFrom?: string,
+  managedRepoPath?: string,
+): Promise<AdoptedRepo> {
   const full = await canonicalPath(path);
   const inspection = await inspectDirectory(full);
   if (inspection.blockedReason !== null) throw new Error(inspection.blockedReason);
   if (!inspection.isDirectory) throw new Error('That folder cannot be used.');
 
-  let initialised = false;
-  let repoRoot = inspection.repoRoot;
-
-  if (repoRoot === null) {
-    await git(['init', '--initial-branch=main', '.'], full);
-    repoRoot = full;
-    initialised = true;
+  const sourcePath = inspection.repoRoot ?? full;
+  const workDir = relativeWorkDir(sourcePath, full);
+  if (inspection.headCommit === null) {
+    if (startFrom !== undefined && startFrom !== 'HEAD')
+      throw new Error('This folder has no saved versions to select.');
+    if (managedRepoPath === undefined)
+      throw new Error('This folder needs an initial snapshot in Bonsai’s managed storage.');
+    const headCommit = await importFolder(sourcePath, managedRepoPath);
+    return {
+      repoPath: managedRepoPath,
+      sourcePath,
+      workDir,
+      label: 'main',
+      headCommit,
+      current: true,
+      initialised: true,
+    };
   }
 
-  const workDir = relativeWorkDir(repoRoot, full);
+  const repoRoot = inspection.repoRoot!;
   const branch = await gitLine(['branch', '--show-current'], repoRoot);
-
-  let head: string;
-  try {
-    head = await gitLine(['rev-parse', 'HEAD'], repoRoot);
-  } catch {
-    // A repository with no commits at all cannot be branched from, so make the
-    // one commit that unblocks everything -- and only in that case.
-    await git(['add', '-A'], repoRoot);
-    await git(['commit', '-m', 'Initial commit (created by Bonsai)'], repoRoot);
-    head = await gitLine(['rev-parse', 'HEAD'], repoRoot);
-    initialised = true;
-  }
+  const head = inspection.headCommit;
 
   const checkedOut = { label: branch === '' ? head.slice(0, 7) : branch, commit: head };
   if (startFrom === undefined || startFrom === 'HEAD' || startFrom === `refs/heads/${branch}`) {
     return {
       repoPath: repoRoot,
+      sourcePath,
       workDir,
       label: checkedOut.label,
       headCommit: checkedOut.commit,
       current: true,
-      initialised,
+      initialised: false,
     };
   }
   // Only what the page offered: a branch, a remote branch or a tag. Read, never
@@ -318,13 +342,69 @@ export async function adoptDirectory(path: string, startFrom?: string): Promise<
   }
   return {
     repoPath: repoRoot,
+    sourcePath,
     workDir,
     label: startFrom.slice(kind[0].length),
     headCommit: commit,
     current: false,
-    initialised,
+    initialised: false,
   };
 }
+
+/** Read files through an isolated index; never initialise or stage in the source folder. */
+async function importFolder(source: string, repo: string): Promise<string> {
+  await mkdir(repo, { recursive: true });
+  try {
+    await git(['init', '--bare', '--initial-branch=main', '.'], repo);
+    await writeFile(join(repo, 'info', 'exclude'), IMPORT_EXCLUDES);
+    const env = {
+      GIT_DIR: repo,
+      GIT_WORK_TREE: source,
+      GIT_INDEX_FILE: join(repo, 'import.index'),
+    };
+    await git(['read-tree', '--empty'], source, env);
+    await git(['add', '-A', '--', '.'], source, env);
+    const tree = (await git(['write-tree'], source, env)).trim();
+    const commit = await gitLine(
+      ['commit-tree', tree, '-m', 'Initial folder snapshot (Bonsai)'],
+      repo,
+    );
+    await git(['update-ref', 'refs/heads/main', commit], repo);
+    await rm(env.GIT_INDEX_FILE, { force: true });
+    return commit;
+  } catch (error) {
+    await rm(repo, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+// Source .gitignore still applies. These additional rules prevent common local
+// credentials and generated dependencies from entering a brand-new history.
+const IMPORT_EXCLUDES =
+  [
+    'node_modules/',
+    '.venv/',
+    'venv/',
+    '.tox/',
+    'vendor/',
+    'target/',
+    'dist/',
+    'build/',
+    '.next/',
+    '.cache/',
+    '.DS_Store',
+    '.env',
+    '.env.*',
+    '!.env.example',
+    '!.env.sample',
+    '!.env.template',
+    '*.pem',
+    '*.key',
+    '*.p12',
+    '*.pfx',
+    '.aws/',
+    '.ssh/',
+  ].join('\n') + '\n';
 
 const START_POINT_KINDS = [
   ['refs/heads/', 'branch'],

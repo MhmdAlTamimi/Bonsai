@@ -22,6 +22,7 @@
  * One case alone: node scripts/audit/git-environment.mjs hooks
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -92,7 +93,7 @@ const cases = {
     try {
       const { detail } = await adoptAndRun(bonsai, repo.path);
       console.log(`  the run: ${outcome(detail)}`);
-      console.log(`  your post-checkout hook ran in: ${(await readFile(marker, 'utf8')).trim()}`);
+      console.log(`  your post-checkout hook ran: ${existsSync(marker)}`);
     } finally {
       await bonsai.stop();
     }

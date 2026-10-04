@@ -202,6 +202,11 @@ export const MIGRATIONS: readonly Migration[] = [
       addColumn(db, 'node', 'restored_at', 'TEXT');
     },
   },
+  {
+    version: 21,
+    name: 'project: separate new run notes from repository documentation',
+    up: (db) => addColumn(db, 'project', 'notes_path', "TEXT NOT NULL DEFAULT 'CONTEXT.md'"),
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

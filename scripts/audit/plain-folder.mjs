@@ -10,6 +10,8 @@
  * filesystem root, to show nothing refuses them.
  */
 import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
@@ -45,11 +47,20 @@ try {
     description: '',
   });
   console.log(`adopted: HTTP ${adopted.status} in ${Math.round(performance.now() - start)} ms`);
-  const tracked = execFileSync('git', ['ls-files'], { cwd: project }).toString().trim().split('\n');
+  assert.equal(adopted.status, 201);
+  const repo = adopted.body.repoPath;
+  const tracked = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD'], { cwd: repo })
+    .toString()
+    .trim()
+    .split('\n');
+  assert.equal(existsSync(join(project, '.git')), false);
+  assert.equal(tracked.includes('.env'), false);
+  assert.equal(
+    tracked.some((f) => f.startsWith('node_modules/')),
+    false,
+  );
   console.log(
-    `committed into a new repository in your folder: ${tracked.length} files, ` +
-      `${tracked.filter((f) => f.startsWith('node_modules/')).length} of them node_modules, ` +
-      `.env included: ${tracked.includes('.env')}; .git is now ${du(join(project, '.git'))}`,
+    `managed snapshot: ${tracked.length} files; source folder unchanged; credentials and dependencies excluded`,
   );
 
   const child = (
@@ -62,7 +73,7 @@ try {
   start = performance.now();
   await bonsai.api('POST', `/api/nodes/${child.id}/runs`, { prompt: 'go' });
   await bonsai.settle(child.id);
-  const folder = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: project })
+  const folder = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: repo })
     .toString()
     .split('\n')
     .find((line) => line.startsWith('worktree ') && line.includes(child.id))
@@ -73,6 +84,7 @@ try {
 
   for (const path of [homedir(), parse(homedir()).root]) {
     const found = (await bonsai.api('POST', '/api/inspect', { path })).body;
+    assert.ok(found.blockedReason);
     console.log(
       `${path}: blocked: ${found.blockedReason ?? 'no'}; ${found.entryCount} top-level entries, ` +
         `size warning: ${found.entryCount > 400}`,

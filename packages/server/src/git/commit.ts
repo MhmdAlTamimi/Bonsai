@@ -1,5 +1,5 @@
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { assertGitState, type GitState } from './ownership.js';
 import { OperationConflict } from '../domain/errors.js';
 
@@ -116,6 +116,7 @@ export async function commitRunOutput(opts: {
   if (opts.fallbackContext !== undefined && !entries.some((e) => e.path === contextFile)) {
     const tracked = await isTracked(worktreePath, contextFile);
     if (!tracked) {
+      await mkdir(dirname(join(worktreePath, contextFile)), { recursive: true });
       await writeFile(join(worktreePath, contextFile), opts.fallbackContext, 'utf8');
     }
   }

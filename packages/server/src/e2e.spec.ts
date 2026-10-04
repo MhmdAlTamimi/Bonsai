@@ -716,7 +716,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-8-review.png'));
 
     // Filtering, and `/` to reach it without the mouse.
-    await session.type('.tree-filter input', 'CONTEXT');
+    await session.type('.tree-filter input', 'notes-');
     await session.waitFor("document.querySelectorAll('.tree-row.file').length === 1");
     await session.type('.tree-filter input', '');
     await session.waitFor("document.querySelectorAll('.tree-row.file').length === 3");
@@ -2593,7 +2593,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const download = await fetch(`${BASE}${href}`);
     assert.match(
       download.headers.get('content-disposition') ?? '',
-      /^attachment; filename="archive-me-[0-9a-f]{7}\.patch"$/,
+      /^attachment; filename="archive-me-[0-9a-f]{7}-line-[0-9a-f-]+\.patch"$/,
     );
     assert.match(await download.text(), /^diff --git /);
     await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
@@ -2602,6 +2602,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.click('[aria-label="Actions for Archive me"]');
     await session.eval(
       "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Archive folder')).click()",
+    );
+    await session.waitFor("!!document.querySelector('dialog[open]')");
+    assert.match(
+      String(await session.eval("document.querySelector('dialog[open]').textContent")),
+      /local edits to those files will be lost/,
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog[open] button')).find(b => b.textContent === 'Archive folder').click()",
     );
     // Dimmed with its own mark, never dashed; the panel says what the next message does.
     await session.waitFor("!!document.querySelector('.card.archived .archived-glyph')");

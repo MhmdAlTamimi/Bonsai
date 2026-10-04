@@ -1,5 +1,9 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const run = promisify(execFile);
 
@@ -34,10 +38,54 @@ const IDENTITY = {
   GIT_AUTHOR_EMAIL: 'bonsai@localhost',
   GIT_COMMITTER_NAME: 'Bonsai',
   GIT_COMMITTER_EMAIL: 'bonsai@localhost',
-  // Keep the app's git deterministic regardless of the user's environment.
-  GIT_CONFIG_NOSYSTEM: '1',
   GIT_TERMINAL_PROMPT: '0',
 } as const;
+
+// Disable automation only for Bonsai's invocations. System/global filters,
+// line-ending rules and credentials remain available; repository config is unchanged.
+const emptyHooks = join(tmpdir(), `bonsai-no-hooks-${randomUUID()}`);
+function commandArgs(args: readonly string[]): string[] {
+  const policy = [
+    '-c',
+    'commit.gpgsign=false',
+    '-c',
+    `core.hooksPath=${emptyHooks}`,
+    '-c',
+    'diff.noprefix=false',
+    '-c',
+    'diff.mnemonicPrefix=false',
+    '-c',
+    'color.ui=false',
+  ];
+  let command = 0;
+  while (args[command] === '-c') command += 2;
+  return args[command] === 'diff'
+    ? [
+        ...policy,
+        ...args.slice(0, command),
+        'diff',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-color',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        ...args.slice(command + 1),
+      ]
+    : [...policy, ...args];
+}
+
+function gitEnvironment(overrides?: Record<string, string>): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (
+      /^GIT_(?:DIR|WORK_TREE|COMMON_DIR|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|CONFIG_COUNT|CONFIG_KEY_\d+|CONFIG_VALUE_\d+|EXTERNAL_DIFF|DIFF_OPTS)$/.test(
+        key,
+      )
+    )
+      delete env[key];
+  }
+  return { ...env, ...IDENTITY, ...overrides };
+}
 
 export async function git(
   args: readonly string[],
@@ -45,10 +93,10 @@ export async function git(
   env?: Record<string, string>,
 ): Promise<string> {
   try {
-    const { stdout } = await run('git', [...args], options(cwd, env));
+    const { stdout } = await run('git', commandArgs(args), options(cwd, env));
     return stdout;
   } catch (err) {
-    throw gitError(err, args);
+    throw gitError(err, args, cwd);
   }
 }
 
@@ -59,29 +107,35 @@ export async function gitInput(
   input: string,
 ): Promise<string> {
   try {
-    const pending = run('git', [...args], options(cwd));
+    const pending = run('git', commandArgs(args), options(cwd));
     pending.child.stdin?.end(input);
     const { stdout } = await pending;
     return stdout;
   } catch (err) {
-    throw gitError(err, args);
+    throw gitError(err, args, cwd);
   }
 }
 
 function options(cwd: string, env?: Record<string, string>) {
   return {
     cwd,
-    env: { ...process.env, ...IDENTITY, ...env },
+    env: gitEnvironment(env),
     maxBuffer: 32 * 1024 * 1024,
     timeout: 120_000,
     windowsHide: true,
   };
 }
 
-function gitError(err: unknown, args: readonly string[]): GitError {
+function gitError(err: unknown, args: readonly string[], cwd: string): GitError {
   const e = err as { stderr?: string; stdout?: string; message?: string; code?: unknown };
+  const stderr = e.stderr?.trim();
+  const detail = !existsSync(cwd)
+    ? `The repository folder is missing: ${cwd}. Locate it or restore your backup.`
+    : stderr === undefined || stderr === ''
+      ? (e.message ?? 'Unknown Git error')
+      : stderr;
   return new GitError(
-    `git ${args.join(' ')} failed: ${(e.stderr ?? e.message ?? '').trim()}`,
+    `git ${args.join(' ')} failed: ${detail}`,
     args,
     e.stderr ?? '',
     typeof e.code === 'number' ? e.code : null,
@@ -166,9 +220,9 @@ export async function gitPatch(
   limit = 2 * 1024 * 1024,
 ): Promise<{ patch: string; truncated: boolean }> {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', [...args], {
+    const child = spawn('git', commandArgs(args), {
       cwd,
-      env: { ...process.env, ...IDENTITY },
+      env: gitEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const chunks: Buffer[] = [];
@@ -190,7 +244,7 @@ export async function gitPatch(
     });
     child.on('error', (error) => {
       clearTimeout(timer);
-      reject(error);
+      reject(gitError(error, args, cwd));
     });
     child.on('close', (code) => {
       clearTimeout(timer);

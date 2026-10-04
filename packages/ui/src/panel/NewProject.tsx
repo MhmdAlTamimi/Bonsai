@@ -397,16 +397,13 @@ function Inspected({
     return <p className="error">{inspection.blockedReason}</p>;
   }
 
-  // Not a repository yet, or one with nothing committed: Bonsai makes the first
-  // version, which does change the folder, so it is said.
+  // The first snapshot is made in managed storage, without changing this folder.
   if (inspection.repoRoot === null || start === null) {
     return (
       <p className="note">
-        {inspection.repoRoot === null
-          ? 'This folder is not a git repository yet. Bonsai will make it one and save its files as the first version.'
-          : 'This repository has no saved versions yet. Bonsai will save its files as the first one.'}
-        {inspection.entryCount > 400 &&
-          ' That is a lot of files: check there is no build output or node_modules in there first.'}
+        Bonsai will save a copy as its first version, leaving your folder unchanged. Your .gitignore
+        rules apply; common credentials, dependency folders and build output are excluded. Review
+        the copied files before running an experiment.
       </p>
     );
   }

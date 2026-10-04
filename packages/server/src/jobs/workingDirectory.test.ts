@@ -1,6 +1,6 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -12,6 +12,8 @@ import { RunJobs } from './runNode.js';
 import { adoptProject, createChildNode } from '../projects.js';
 import { git } from '../git/exec.js';
 import type { AgentRunner, RunEvent, RunSpec } from '../agent/AgentRunner.js';
+import { experimentNotes } from '../api/review.js';
+import { writeApplyPatch } from '../api/applyPatch.js';
 
 /**
  * D37: the repository is the project, the chosen folder is the working scope.
@@ -28,7 +30,7 @@ class RecordingRunner implements AgentRunner {
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     this.specs.push({ ...spec });
     if (!spec.readOnly && spec.contextPath) await writeFile(spec.contextPath, '# Root run notes\n');
-    assert.equal(basename(spec.contextPath ?? ''), 'CONTEXT.md');
+    assert.match(basename(spec.contextPath ?? ''), /^notes-[0-9a-f-]+\.md$/);
     yield { type: 'session', sessionId: `session-${this.specs.length}` };
     // Writes where it stands, which is the point: the path this lands at is
     // decided entirely by the cwd the pipeline handed it.
@@ -120,6 +122,42 @@ describe('the agent working directory', () => {
 
     // The user's own repository and branch are untouched by the run.
     assert.equal((await git(['branch', '--show-current'], repo)).trim(), 'main');
+  });
+
+  test('an adopted CONTEXT.md stays documentation while run notes have their own path', async () => {
+    const { repo } = await repoWithSubproject();
+    await writeFile(join(repo, 'CONTEXT.md'), '# My architecture documentation\n');
+    await git(['add', 'CONTEXT.md'], repo);
+    await git(['commit', '-m', 'documentation'], repo);
+    const { projectId, masterNodeId } = await adoptProject(store, {
+      path: repo,
+      description: '',
+      model: null,
+      permissionMode: 'default',
+    });
+    const { nodeId } = await createChildNode(store, {
+      projectId,
+      parentId: masterNodeId,
+      displayName: 'work',
+      description: '',
+    });
+    jobs.start(nodeId, 'make a change');
+    await settle(jobs, nodeId);
+    const node = store.getNode(nodeId)!;
+    assert.equal(store.listRuns(nodeId).at(-1)!.status, 'done');
+    assert.equal(
+      await readFile(join(node.worktree_path, 'CONTEXT.md'), 'utf8'),
+      '# My architecture documentation\n',
+    );
+    assert.equal((await experimentNotes(store, node)).contextMd, '# Root run notes\n');
+    const patch = await writeApplyPatch(store, node, join(root, 'patches'));
+    const content = await readFile(patch.path, 'utf8');
+    assert.match(content, /written-here.txt/);
+    assert.doesNotMatch(content, /Root run notes|notes-[0-9a-f-]+\.md/);
+    assert.equal(
+      await readFile(join(repo, 'CONTEXT.md'), 'utf8'),
+      '# My architecture documentation\n',
+    );
   });
 
   test('the setup command runs in the working directory, not the worktree root', async () => {

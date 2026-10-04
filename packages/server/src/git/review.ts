@@ -36,6 +36,15 @@ export const MAX_PATCH_BYTES = 2 * 1024 * 1024;
 export interface ReviewSource {
   cwd: string;
   committedOnly: boolean;
+  /** Request-local snapshot: validation and output read exactly the same files. */
+  snapshot?: { head: string; dirty: StatusEntry[] };
+}
+
+export async function prepareReviewSource(
+  source: ReviewSource,
+  range: { base: string; head: string } | null,
+): Promise<ReviewSource> {
+  return { ...source, snapshot: await current(source, range) };
 }
 
 /** What review reads as "now": the head commit, or a snapshot of uncommitted work. */
@@ -43,6 +52,7 @@ async function current(
   source: ReviewSource,
   range: { base: string; head: string } | null,
 ): Promise<{ head: string; dirty: StatusEntry[] }> {
+  if (source.snapshot !== undefined) return source.snapshot;
   if (source.committedOnly) return { head: range?.head ?? 'HEAD', dirty: [] };
   const dirty = await status(source.cwd);
   return {

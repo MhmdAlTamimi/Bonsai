@@ -30,7 +30,12 @@ import type { Logger } from '../log.js';
 export async function ensureSetup(
   deps: { store: Store; bus: EventBus; log: Logger },
   node: NodeRow,
-  project: { setup_command: string | null; id: string; work_dir: string | null },
+  project: {
+    setup_command: string | null;
+    id: string;
+    work_dir: string | null;
+    notes_path?: string;
+  },
   runId: string,
   controller: AbortController,
   report: (activity: RunActivity) => void,
@@ -115,7 +120,9 @@ export async function ensureSetup(
    * never hit this. When one does, it is said out loud rather than fixed:
    * the fix would be editing the user's .gitignore, which is theirs.
    */
-  const leftBehind = (await status(node.worktree_path)).filter((e) => e.path !== 'CONTEXT.md');
+  const leftBehind = (await status(node.worktree_path)).filter(
+    (e) => e.path !== (project.notes_path ?? 'CONTEXT.md'),
+  );
   if (leftBehind.length > 0) {
     const names = leftBehind
       .slice(0, 8)

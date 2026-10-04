@@ -7,7 +7,7 @@ describe('what a draft was written from', () => {
   test('the whole conversation, and the notes when there were any', () => {
     assert.equal(
       basisLine({ messages: 42, included: 42, toolOutputOmitted: false, notes: true }, 'try-redis'),
-      'Written from all 42 messages of try-redis (with its CONTEXT.md notes).',
+      'Written from all 42 messages of try-redis (with its run notes).',
     );
     assert.equal(
       basisLine({ messages: 3, included: 3, toolOutputOmitted: false, notes: false }, 'master'),

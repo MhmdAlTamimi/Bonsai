@@ -50,6 +50,7 @@ export interface ProjectRow {
   description: string;
   repo_path: string;
   scratch_path: string | null;
+  notes_path?: string;
   /**
    * D37: the agent's working directory, relative to the repository root, with
    * '/' separators and '' meaning the root itself.

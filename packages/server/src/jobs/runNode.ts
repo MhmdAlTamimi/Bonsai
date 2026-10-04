@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
 import { CONCURRENCY, recoveryCause, type NodeStatus, type RunActivity } from '@bonsai/shared';
 
 import type { AgentRunner, ChoiceDecision, PermissionDecision } from '../agent/AgentRunner.js';
@@ -609,6 +610,8 @@ export class RunJobs {
       // Node override, then the project's default, then the app's.
       const effective = resolveRunSettings(node, project, this.settings);
       const permissionMode = effective.permissionMode;
+      const contextPath = join(node.worktree_path, project.notes_path ?? 'CONTEXT.md');
+      if (!readOnly) await mkdir(dirname(contextPath), { recursive: true });
 
       for await (const event of this.runner.run({
         runId,
@@ -620,7 +623,7 @@ export class RunJobs {
          * which is every project that did not choose a subdirectory.
          */
         cwd: workDirIn(node.worktree_path, project.work_dir),
-        contextPath: join(node.worktree_path, 'CONTEXT.md'),
+        contextPath,
         prompt,
         isCommand: command,
         references: resolved.references,
@@ -788,6 +791,7 @@ export class RunJobs {
           ref: nodeRef(node.project_id, nodeId),
           message: commitMessageFor(node.display_name, node.description),
           fallbackContext: contextFallback(node.display_name, run.prompt),
+          contextFile: project.notes_path ?? 'CONTEXT.md',
           expectedState: run.expectedState!,
           baseCommit: await this.baseFor(node),
         });

@@ -40,9 +40,8 @@ export function useCardActions({
   ask: (request: ConfirmRequest) => Promise<boolean>;
 }): { actions: CardActions; dialogs: JSX.Element } {
   /**
-   * Archive a folder. Straight away when nothing would be lost; the server
-   * says what is in the way when something is, and ignored files that the
-   * next run cannot bring back are listed and confirmed first.
+   * Manual archiving always explains what happens to local ignored files,
+   * including edits to files that setup or copy-in normally recreates.
    */
   const archive = async (node: NodeView): Promise<void> => {
     try {
@@ -51,17 +50,20 @@ export function useCardActions({
         report(`Could not archive ${node.displayName}: ${check.blocked}`);
         return;
       }
-      if (check.ignored.length > 0) {
+      {
         const shown = check.ignored.slice(0, 8).join(', ');
         const more = check.ignored.length > 8 ? ` and ${check.ignored.length - 8} more` : '';
         const ok = await ask({
           title: `Archive ${node.displayName}?`,
           body: [
             'Archiving removes the folder to save space. Its code, conversation and runs stay, and the next run brings the folder back.',
-            `These ignored files would be deleted, and the next run cannot bring them back: ${shown}${more}.`,
+            'Ignored files in this folder will be removed. Setup or copy-in may recreate them, but local edits to those files will be lost. Copy anything you need before archiving.',
+            ...(check.ignored.length > 0
+              ? [`These files cannot be recreated: ${shown}${more}.`]
+              : []),
           ],
-          confirmLabel: 'Archive and delete them',
-          danger: true,
+          confirmLabel: check.ignored.length > 0 ? 'Archive and delete them' : 'Archive folder',
+          danger: check.ignored.length > 0,
           returnFocus: cardMenuButton(node.displayName),
         });
         if (!ok) return;

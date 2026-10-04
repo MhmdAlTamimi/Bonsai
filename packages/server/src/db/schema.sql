@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS project (
   repo_path               TEXT NOT NULL,
   -- Pinned per project so changing future storage never relocates existing work.
   scratch_path            TEXT,
+  notes_path              TEXT NOT NULL DEFAULT 'CONTEXT.md',
   default_model           TEXT,
   -- Writable-run default. Explicit default mode uses the pending-question UI.
   default_permission_mode TEXT NOT NULL DEFAULT 'acceptEdits',

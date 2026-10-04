@@ -16,6 +16,7 @@ export async function addDetachedWorktree(
   commit: string,
 ): Promise<void> {
   await git(['worktree', 'add', '--detach', worktreePath, commit], repoPath);
+  await finishNewWorktree(repoPath, worktreePath);
 }
 
 /** Master alone starts attached: D24 makes it a real branch from the outset. */
@@ -25,11 +26,39 @@ export async function addBranchWorktree(
   branch: string,
 ): Promise<void> {
   await git(['worktree', 'add', worktreePath, branch], repoPath);
+  await finishNewWorktree(repoPath, worktreePath);
+}
+
+async function finishNewWorktree(repo: string, path: string): Promise<void> {
+  try {
+    await initialiseSubmodules(path);
+  } catch (error) {
+    try {
+      await removeWorktree(repo, path);
+    } catch (cleanup) {
+      throw new Error(
+        `Checkout setup failed and cleanup was incomplete. Folder preserved at ${path}. ${String(error)}; ${String(cleanup)}`,
+      );
+    }
+    throw error;
+  }
+}
+
+async function initialiseSubmodules(path: string): Promise<void> {
+  const modules = await git(['ls-files', '--stage', '--', '.gitmodules'], path);
+  if (modules.trim() === '') return;
+  try {
+    await git(['submodule', 'update', '--init', '--recursive'], path);
+  } catch (error) {
+    throw new Error(
+      `Could not initialise this experiment’s submodules. Check their repository access and try again. ${String(error)}`,
+    );
+  }
 }
 
 export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
   try {
-    await git(['worktree', 'remove', '--force', worktreePath], repoPath);
+    await git(['worktree', 'remove', '--force', '--force', worktreePath], repoPath);
   } catch (error) {
     // Never replace a failed Git ownership check with recursive deletion.
     try {

@@ -79,9 +79,10 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   command is the user's. Review and Apply take a scope (`ChangeScope`): `own` since the
   experiment's base, or `line` since the line left master (`git merge-base`). Review defaults
   to `own`, Apply to `line`: the user's folder is at master's code.
-- `CONTEXT.md` currently has special commit behavior at the **worktree root**, independently
-  of the selected working subdirectory. Keep that path consistent until notes migration
-  is explicitly approved. Preserve existing repository documentation.
+- New projects put run notes at their recorded `project.notes_path` under `.bonsai/`,
+  independently of the selected working subdirectory. Existing projects retain their
+  recorded `CONTEXT.md` notes path for compatibility. Only that project's notes file has
+  special commit/Apply behavior; preserve ordinary repository documentation.
 - Setup is skipped for read-only runs. Copy-in files must be untracked and ignored in the
   destination; reject unsafe paths and failed inspections. Never copy dependencies.
 - Runs are asynchronous. Every exit must finalize state and release the execution slot.

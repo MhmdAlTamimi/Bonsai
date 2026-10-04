@@ -15,6 +15,18 @@ export const delay = (ms) => new Promise((r) => setTimeout(r, ms));
  * credentials or Claude Code settings reaches it (see fake-api.mjs).
  */
 export async function startBonsai(dataDir, env = {}, { realAgent = false } = {}) {
+  if (realAgent) {
+    const target = new URL(env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com');
+    if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1')
+      throw new Error(
+        'Audit SDK runs require ANTHROPIC_BASE_URL pointing at scripts/audit/fake-api.mjs.',
+      );
+    const identity = await fetch(new URL('/__bonsai_audit__', target), {
+      signal: globalThis.AbortSignal.timeout(2000),
+    }).then((r) => r.json());
+    if (identity.server !== 'scripts/audit/fake-api.mjs')
+      throw new Error('Refusing to run the real SDK against an unverified API server.');
+  }
   const port = 9100 + Math.floor(Math.random() * 800);
   const base = `http://127.0.0.1:${port}`;
   const child = spawn(
@@ -32,7 +44,16 @@ export async function startBonsai(dataDir, env = {}, { realAgent = false } = {})
       stdio: 'ignore',
     },
   );
+  const startupDeadline = Date.now() + 15000;
   for (;;) {
+    if (child.exitCode !== null || child.signalCode !== null)
+      throw new Error(
+        `Audit server exited before readiness (${child.exitCode ?? child.signalCode}).`,
+      );
+    if (Date.now() > startupDeadline) {
+      child.kill('SIGKILL');
+      throw new Error('Audit server did not become ready within 15 seconds.');
+    }
     try {
       if ((await fetch(`${base}/api/settings`)).ok) break;
     } catch {
@@ -57,7 +78,10 @@ export async function startBonsai(dataDir, env = {}, { realAgent = false } = {})
   };
   /** Waits for a node to stop running; returns its detail, or the failed response. */
   const settle = async (nodeId) => {
+    const deadline = Date.now() + 240000;
     for (;;) {
+      if (Date.now() > deadline)
+        throw new Error(`Audit run ${nodeId} did not settle within 4 minutes.`);
       const res = await api('GET', `/api/nodes/${nodeId}`);
       if (res.status !== 200) return res;
       if (!['running', 'needs_you'].includes(res.body.node.status)) return res;

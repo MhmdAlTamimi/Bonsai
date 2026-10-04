@@ -40,20 +40,20 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-03-starting-a-project
 
-- [ ] P1: Starting from a folder that is not in git commits everything in it, dependencies and secrets included
-- [ ] P2: Your home folder, or the whole disk, can be chosen, with no warning
+- [x] P1: Starting from a folder that is not in git commits everything in it, dependencies and secrets included
+- [x] P2: Your home folder, or the whole disk, can be chosen, with no warning
 - [ ] P3: A project whose folder is moved or renamed stops working, and says its code is gone
-- [ ] P4: Commit signing in your git config breaks every run
-- [ ] P5: Names in Arabic, Japanese or with accents become "project", "project-2"
-- [ ] P6: "Include my unsaved changes" re-reads the whole repository
+- [x] P4: Commit signing in your git config breaks every run
+- [x] P5: Names in Arabic, Japanese or with accents become "project", "project-2"
+- [x] P6: "Include my unsaved changes" re-reads the whole repository
 
 ### audit-04-experiments-and-their-code
 
-- [ ] G1: Your git hooks run on Bonsai's commits, and a failing one stops every run
-- [ ] G2: With `diff.noprefix` in your git config, Apply writes files to the wrong place and says it worked
-- [ ] G3: Bonsai ignores the git settings Windows keeps for you, and honours the ones that break it
-- [ ] G4: Submodules are empty in every experiment
-- [ ] G5: Bonsai's run notes collide with a `CONTEXT.md` of your own
+- [x] G1: Your git hooks run on Bonsai's commits, and a failing one stops every run
+- [x] G2: With `diff.noprefix` in your git config, Apply writes files to the wrong place and says it worked
+- [x] G3: Bonsai ignores the git settings Windows keeps for you, and honours the ones that break it
+- [x] G4: Submodules are empty in every experiment
+- [x] G5: Bonsai's run notes collide with a `CONTEXT.md` of your own
 
 ### audit-05-removing-and-recovering
 
@@ -107,7 +107,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 ### audit-12-review-and-apply
 
 - [ ] V1: For a project Bonsai created, there is no safe way to take an experiment's code out
-- [ ] V2: Review is twenty times slower when the experiment has uncommitted work
+- [x] V2: Review is twenty times slower when the experiment has uncommitted work
 - [ ] V3: What Apply's command prints is hard to read, on success and on failure
 
 ### audit-13-sharing-between-experiments
@@ -126,13 +126,17 @@ A checkbox is checked only after implementation and relevant verification. Defer
 ## Additional issues from validation
 
 - [ ] E1: Modified copy-in ignored files can be lost on archive. Manual warning in scope; automatic preservation/blocking deferred.
-- [ ] E2: Apply artifacts collide and can change after their command is displayed.
+- [x] E2: Apply artifacts collide and can change after their command is displayed.
 - [ ] E3: Project deletion and concurrency bounds omit comparison/draft jobs.
 - [ ] E4: Deleting experiments changes historical spending totals.
 - [x] E5: HTTP drain precedes the shutdown cancellation deadline.
+
+- [x] E6: A failed submodule setup must remove the newly created checkout so retry does not hit an unexpected-folder dead end.
 
 ## Verification log
 
 - Baseline review: build, 367 server tests, 120 UI/shared tests and 25 browser tests passed; documented independent validation is in `/workspace/bonsai-review/REVIEW.md`.
 
-- Foundation fixes: full `npm test` passed (368 server tests, 120 UI/shared tests); real-Git integrity test and crash-released instance-lock test passed. WAL-crash reproduction now backs up all 50 experiments. Two-instance reproduction refuses both duplicate servers while the original run completes normally. Deletion benchmark explicitly drops the index for the baseline: whole-project deletion fell from 14.6 s to 0.63 s for 180,000 messages. Fatal errors are logged and shut down; continued serving after an uncaught error is deliberately avoided.
+- Foundation fixes (`a65ba2c`): full `npm test` passed (369 server tests, 120 UI/shared tests) and `npm run build:ui` passed; an additional real-Git integrity test and crash-released instance-lock test passed. WAL-crash reproduction now backs up all 50 experiments. Two-instance reproduction refuses both duplicate servers while the original run completes normally. Deletion benchmark explicitly drops the index for the baseline: whole-project deletion fell from 14.6 s to 0.63 s for 180,000 messages. Fatal errors are logged and shut down; continued serving after an uncaught error is deliberately avoided.
+
+- Git/files batch: 377 server tests, 120 UI/shared tests and all 25 browser tests passed; production build passed. Real Git tests cover hook/signing isolation, system config, stable diff prefixes, unique immutable Apply artifacts, submodule contents and failed-setup cleanup. Adoption reproduction excludes 20,000 dependency files and the credential canary without writing `.git` in the source; home/root are refused. The 40,000-file Review reproduction now opens dirty files in 279–302 ms (previously 4.3–5.2 s). New projects use their own recorded `.bonsai/notes-<project>.md`; old projects retain `CONTEXT.md` compatibility. Manual archive text is browser-tested; automatic ignored-file handling remains deferred. Audit SDK helper now verifies the fake API identity before starting, with bounded readiness/settle waits.

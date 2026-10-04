@@ -3,8 +3,8 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { join, parse } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
@@ -218,16 +218,37 @@ describe('adopting a directory', () => {
     assert.equal(master.frozenReason, null);
   });
 
-  test('a plain folder is turned into a repository, with one commit', async () => {
+  test('a plain folder is snapshotted privately without credentials, dependencies or source changes', async () => {
     const path = join(root, 'plain');
     await mkdir(path, { recursive: true });
     await writeFile(join(path, 'notes.txt'), 'hello\n', 'utf8');
+    await writeFile(join(path, '.env'), 'SECRET=private\n');
+    await writeFile(join(path, '.env.example'), 'SECRET=\n');
+    await mkdir(join(path, 'node_modules'));
+    await writeFile(join(path, 'node_modules', 'large.js'), 'dependency\n');
+    await writeFile(join(path, '.gitignore'), 'scratch.txt\n');
+    await writeFile(join(path, 'scratch.txt'), 'scratch\n');
 
-    const { initialised } = await adopt(path);
+    const { initialised, projectId, masterNodeId } = await adopt(path);
 
     assert.equal(initialised, true);
-    assert.equal(await gitLine(['rev-list', '--count', 'HEAD'], path), '1');
+    const repo = store.getProject(projectId)!.repo_path;
+    assert.equal(await gitLine(['rev-list', '--count', 'HEAD'], repo), '1');
+    assert.deepEqual((await gitLine(['ls-tree', '-r', '--name-only', 'HEAD'], repo)).split('\n'), [
+      '.env.example',
+      '.gitignore',
+      'notes.txt',
+    ]);
+    assert.equal(existsSync(join(path, '.git')), false);
     assert.equal(await readFile(join(path, 'notes.txt'), 'utf8'), 'hello\n');
+    await allocateNodeWorktree(store, store.getNode(masterNodeId)!);
+    assert.equal(
+      await readFile(join(store.getNode(masterNodeId)!.worktree_path, 'notes.txt'), 'utf8'),
+      'hello\n',
+    );
+    await deleteProjectTree(store, projectId);
+    assert.equal(existsSync(repo), false);
+    assert.equal(await readFile(join(path, '.env'), 'utf8'), 'SECRET=private\n');
   });
 
   test('uncommitted work can seed nodes without being committed to the branch', async () => {
@@ -528,7 +549,7 @@ describe('adopting a directory', () => {
     assert.equal(await gitLine(['branch', '--show-current'], outer), 'main');
   });
 
-  test('a folder in no repository at all still becomes one, where it is', async () => {
+  test('a nested plain folder gets a managed snapshot and retains its original path', async () => {
     const plain = join(root, 'plain', 'nested');
     await mkdir(plain, { recursive: true });
     await writeFile(join(plain, 'notes.md'), 'hello\n', 'utf8');
@@ -539,11 +560,20 @@ describe('adopting a directory', () => {
 
     const { projectId, workDir } = await adopt(plain);
     assert.equal(workDir, '', 'a new repository is rooted at the folder that was chosen');
-    assert.equal(store.getProject(projectId)!.repo_path, plain);
-    assert.ok(existsSync(join(plain, '.git')));
+    assert.notEqual(store.getProject(projectId)!.repo_path, plain);
+    assert.equal(store.getProject(projectId)!.source_path, plain);
+    assert.equal(existsSync(join(plain, '.git')), false);
   });
 
   // -- refusing to adopt the wrong thing -------------------------------------
+
+  test('home and filesystem root are refused before adoption', async () => {
+    for (const path of [homedir(), parse(root).root]) {
+      assert.match((await inspectDirectory(path)).blockedReason ?? '', /home folder|whole disk/);
+      await assert.rejects(adopt(path), /home folder|whole disk/);
+    }
+    assert.equal(store.listProjects().length, 0);
+  });
 
   test('recognises its own folders from the database, not from git', async () => {
     const path = await userRepo();

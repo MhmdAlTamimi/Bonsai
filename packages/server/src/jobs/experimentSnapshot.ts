@@ -87,8 +87,8 @@ export async function writeExperimentSnapshot(
   } else {
     const diff = await runDiff(project.repo_path, node.base_commit, head);
     changed = {
-      files: diff.files.filter((file) => file !== NOTES_PATH),
-      ...lineCounts(diff.patch, NOTES_PATH),
+      files: diff.files.filter((file) => file !== (project.notes_path ?? NOTES_PATH)),
+      ...lineCounts(diff.patch, project.notes_path ?? NOTES_PATH),
     };
     changes.push(
       `# ${node.display_name}: everything it committed since it branched, committed work only.`,
@@ -107,7 +107,8 @@ export async function writeExperimentSnapshot(
   }
   await write(EXPERIMENT_FILES.changes, `${changes.join('\n')}\n`);
 
-  const notes = head === null ? null : await fileAt(project.repo_path, head, NOTES_PATH);
+  const notes =
+    head === null ? null : await fileAt(project.repo_path, head, project.notes_path ?? NOTES_PATH);
   await write(
     EXPERIMENT_FILES.notes,
     notes ?? `# ${node.display_name} has no CONTEXT.md notes committed.\n`,

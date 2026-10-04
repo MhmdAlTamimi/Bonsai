@@ -31,6 +31,7 @@ export class ProjectStore {
   }
 
   create(input: {
+    id?: string;
     name: string;
     description: string;
     model: string | null;
@@ -45,7 +46,7 @@ export class ProjectStore {
       workDir?: string;
     };
   }): ProjectRow {
-    const id = randomUUID();
+    const id = input.id ?? randomUUID();
     const scratch = join(this.futureReposRoot?.() ?? this.reposRoot, id);
     const row: ProjectRow = {
       id,
@@ -53,6 +54,7 @@ export class ProjectStore {
       description: input.description,
       repo_path: input.adopt?.repoPath ?? join(scratch, 'repo.git'),
       scratch_path: scratch,
+      notes_path: `.bonsai/notes-${id}.md`,
       work_dir: input.adopt?.workDir ?? '',
       default_model: input.model,
       default_permission_mode: input.permissionMode,
@@ -69,8 +71,8 @@ export class ProjectStore {
         `INSERT INTO project (id, name, description, repo_path, default_model,
                               default_permission_mode, default_effort, source_kind,
                               source_path, protected_branch, copy_files, setup_command,
-                              created_at, scratch_path, work_dir)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                              created_at, scratch_path, work_dir, notes_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -88,6 +90,7 @@ export class ProjectStore {
         row.created_at,
         row.scratch_path,
         row.work_dir,
+        row.notes_path!,
       );
     return row;
   }
@@ -109,7 +112,10 @@ export class ProjectStore {
    * the user's -- which is why deletion can remove it without asking.
    */
   scratchDir(projectId: string): string {
-    return this.get(projectId)?.scratch_path ?? join(this.reposRoot, projectId);
+    return (
+      this.get(projectId)?.scratch_path ??
+      join(this.futureReposRoot?.() ?? this.reposRoot, projectId)
+    );
   }
 
   /**

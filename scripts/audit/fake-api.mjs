@@ -100,6 +100,11 @@ export async function startFakeApi() {
   let tool = 0;
   const hanging = new Set();
   const server = createServer((req, res) => {
+    if (req.url === '/__bonsai_audit__') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ server: 'scripts/audit/fake-api.mjs' }));
+      return;
+    }
     let raw = '';
     req.on('data', (chunk) => (raw += chunk));
     req.on('end', () => {

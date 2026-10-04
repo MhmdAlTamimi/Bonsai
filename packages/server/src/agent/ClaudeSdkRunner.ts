@@ -800,7 +800,7 @@ function promptWithCriteria(spec: RunSpec): string {
   parts.push(
     '',
     'Before you finish, actually run the check and put the result in a `## Testing`',
-    'section of CONTEXT.md. Name the command you ran and quote what it printed --',
+    'section at the supplied notes path. Name the command you ran and quote what it printed --',
     '"Ran pytest tests/ -- 12 passed, 0 failed" is useful; "verified, works" is not.',
     'If you could not run it, say exactly what stopped you.',
   );
@@ -825,10 +825,10 @@ runs you may use read-only git (status, diff, log). Read-only runs have no shell
 When you have changed files, write short notes at the notes path supplied in the run context
 as your final action: what you were asked for, what you did, and anything a
 later node continuing from here should know. If you only answered a question and
-changed no files, do not create CONTEXT.md.
+changed no files, do not create run notes. Preserve repository documentation, including CONTEXT.md.
 
 If this is a writable run and the message gives you a definition of done, run the check and add a
-\`## Testing\` section to CONTEXT.md recording the command you ran and what it
+\`## Testing\` section to the supplied notes file recording the command you ran and what it
 actually printed. Report a failure as a failure — a node that honestly says the
 tests fail is far more useful than one that says it verified something it did
 not. Never claim to have run something you did not run.

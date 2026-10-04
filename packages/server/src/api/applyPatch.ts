@@ -1,4 +1,5 @@
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { ApplyPatchView, ChangeScope } from '@bonsai/shared';
 
@@ -9,6 +10,7 @@ import { parseNumstat } from '../git/review.js';
 import { behindBy } from './behind.js';
 import { HttpError } from './http.js';
 import { reviewRange, scopesDiffer } from './review.js';
+import { fileName } from '../fileName.js';
 
 /**
  * Taking an experiment's changes to your own repository: a patch file and the
@@ -38,7 +40,7 @@ import { reviewRange, scopesDiffer } from './review.js';
 const KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Everything except Bonsai's notes, wherever the experiment's working folder is. */
-const WITHOUT_NOTES = `:(top,exclude)${CONTEXT_FILE}`;
+const withoutNotes = (notesPath: string) => `:(top,exclude)${notesPath}`;
 
 export async function writeApplyPatch(
   store: Store,
@@ -58,34 +60,47 @@ export async function writeApplyPatch(
         : 'This experiment has committed nothing to apply yet.',
     );
 
-  const numbers = await changedFiles(project.repo_path, range);
+  const notesPath = project.notes_path ?? CONTEXT_FILE;
+  const numbers = await changedFiles(project.repo_path, range, notesPath);
   if (numbers.size === 0)
     throw new HttpError(409, 'Only Bonsai’s notes changed, so there is nothing to apply.');
   const other = differ
     ? await reviewRange(store, row, scope === 'own' ? 'line' : 'own').then((r) =>
-        r === null ? 0 : changedFiles(project.repo_path, r).then((n) => n.size),
+        r === null ? 0 : changedFiles(project.repo_path, r, notesPath).then((n) => n.size),
       )
     : numbers.size;
 
   await mkdir(folder, { recursive: true });
   await prune(folder);
-  const path = join(folder, `${slug(row.display_name)}-${range.head.slice(0, 7)}.patch`);
-  await git(
-    [
-      'diff',
-      '--binary',
-      '--full-index',
-      `--output=${path}`,
-      range.base,
-      range.head,
-      '--',
-      WITHOUT_NOTES,
-    ],
-    project.repo_path,
+  const path = join(
+    folder,
+    `${slug(row.display_name)}-${range.head.slice(0, 7)}-${scope}-${randomUUID()}.patch`,
   );
+  const temporary = `${path}.tmp`;
+  try {
+    await git(
+      [
+        'diff',
+        '--binary',
+        '--full-index',
+        `--output=${temporary}`,
+        range.base,
+        range.head,
+        '--',
+        withoutNotes(notesPath),
+      ],
+      project.repo_path,
+    );
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 
   const counts = [...numbers.values()];
-  const yours = project.source_kind === 'adopted' ? project.repo_path : null;
+  const yours =
+    project.source_kind === 'adopted' && project.source_path === project.repo_path
+      ? project.source_path
+      : null;
   return {
     path,
     command:
@@ -131,9 +146,13 @@ export function shellPath(path: string, platform: NodeJS.Platform = process.plat
 async function changedFiles(
   repoPath: string,
   range: { base: string; head: string },
+  notesPath: string,
 ): Promise<ReturnType<typeof parseNumstat>> {
   return parseNumstat(
-    await git(['diff', '--numstat', '-z', range.base, range.head, '--', WITHOUT_NOTES], repoPath),
+    await git(
+      ['diff', '--numstat', '-z', range.base, range.head, '--', withoutNotes(notesPath)],
+      repoPath,
+    ),
   );
 }
 
@@ -158,12 +177,7 @@ async function mismatch(
 
 /** A file name from a display name: plain letters, digits and dashes. */
 function slug(name: string): string {
-  const out = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  return out === '' ? 'experiment' : out;
+  return fileName(name, 'experiment', 80);
 }
 
 async function prune(folder: string): Promise<void> {

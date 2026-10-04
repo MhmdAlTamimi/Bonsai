@@ -10,7 +10,7 @@ export function basisLine(basis: DraftBasis, from: string): string {
         : `Written from ${basis.included} of ${basis.messages} messages of ${from} — the rest were left out to fit`;
   const extras = [
     basis.toolOutputOmitted ? 'tool output left out' : null,
-    basis.notes && basis.messages > 0 ? 'with its CONTEXT.md notes' : null,
+    basis.notes && basis.messages > 0 ? 'with its run notes' : null,
   ].filter((part) => part !== null);
   return `${read}${extras.length === 0 ? '' : ` (${extras.join(', ')})`}.`;
 }

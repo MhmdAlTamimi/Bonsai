@@ -4,18 +4,25 @@ import { git } from './exec.js';
 import { CONTEXT_FILE } from './commit.js';
 
 /** D22: CONTEXT.md is a human-readable record shown in the panel, not memory. */
-export async function readContextFile(worktreePath: string): Promise<string | null> {
+export async function readContextFile(
+  worktreePath: string,
+  notesPath = CONTEXT_FILE,
+): Promise<string | null> {
   try {
-    return await readFile(join(worktreePath, CONTEXT_FILE), 'utf8');
+    return await readFile(join(worktreePath, notesPath), 'utf8');
   } catch {
     return null;
   }
 }
 
 /** CONTEXT.md as a commit has it: how an archived experiment's notes are read. */
-export async function contextFileAt(repoPath: string, commit: string): Promise<string | null> {
+export async function contextFileAt(
+  repoPath: string,
+  commit: string,
+  notesPath = CONTEXT_FILE,
+): Promise<string | null> {
   try {
-    return await git(['show', `${commit}:${CONTEXT_FILE}`], repoPath);
+    return await git(['show', `${commit}:${notesPath}`], repoPath);
   } catch {
     return null;
   }
@@ -65,9 +72,10 @@ export async function testingNotesCommit(
   path: string,
   notes: string | null,
   from = 'HEAD',
+  notesPath = CONTEXT_FILE,
 ): Promise<string | null> {
   if (notes === null) return null;
-  const commits = (await git(['log', '--format=%H', from, '--', CONTEXT_FILE], path))
+  const commits = (await git(['log', '--format=%H', from, '--', notesPath], path))
     .trim()
     .split('\n')
     .filter(Boolean);
@@ -75,7 +83,7 @@ export async function testingNotesCommit(
   for (const sha of commits) {
     let previous: string | null;
     try {
-      previous = testingSection(await git(['show', `${sha}:${CONTEXT_FILE}`], path));
+      previous = testingSection(await git(['show', `${sha}:${notesPath}`], path));
     } catch {
       break;
     }

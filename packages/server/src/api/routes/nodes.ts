@@ -120,7 +120,12 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
   const { contextMd, cwd, head } = await experimentNotes(store, row);
   const project = store.getProject(row.project_id);
   const notes = testingSection(contextMd);
-  const sourceCommit = await testingNotesCommit(cwd, notes, head);
+  const sourceCommit = await testingNotesCommit(
+    cwd,
+    notes,
+    head,
+    project?.notes_path ?? 'CONTEXT.md',
+  );
   const source = sourceCommit === null ? null : store.testingSource(sourceCommit);
   const runs = store.listRuns(row.id);
   const ownFolder = isUsersOwnCheckout(project, row);

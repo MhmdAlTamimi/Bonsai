@@ -6,6 +6,7 @@ import { parentSnapshot } from '../git/diff.js';
 import { gitLine } from '../git/exec.js';
 import {
   reviewFileContent,
+  prepareReviewSource,
   reviewFilePatch,
   reviewFiles,
   totalsOf,
@@ -70,14 +71,15 @@ export async function experimentNotes(
   row: NodeRow,
 ): Promise<{ contextMd: string | null; cwd: string; head: string }> {
   const source = reviewSource(store, row);
+  const notesPath = store.getProject(row.project_id)?.notes_path ?? 'CONTEXT.md';
   const head = row.head_commit ?? row.base_commit;
   if (source?.committedOnly !== true || head === null)
     return {
-      contextMd: await readContextFile(row.worktree_path),
+      contextMd: await readContextFile(row.worktree_path, notesPath),
       cwd: row.worktree_path,
       head: 'HEAD',
     };
-  return { contextMd: await contextFileAt(source.cwd, head), cwd: source.cwd, head };
+  return { contextMd: await contextFileAt(source.cwd, head, notesPath), cwd: source.cwd, head };
 }
 
 /**
@@ -191,9 +193,11 @@ export async function reviewPatchOf(
   fullFile = false,
   scope: ChangeScope = 'own',
 ): Promise<ReviewFilePatchView> {
-  const source = sourceFor(store, row, scope);
-  if (source === null) throw new HttpError(404, 'This experiment has not created a checkout yet.');
+  const initialSource = sourceFor(store, row, scope);
+  if (initialSource === null)
+    throw new HttpError(404, 'This experiment has not created a checkout yet.');
   const range = await reviewRange(store, row, scope);
+  const source = await prepareReviewSource(initialSource, range);
   const file = (await reviewFiles(source, range)).find((f) => f.path === path);
   if (file === undefined) throw new HttpError(404, 'This experiment did not change that file.');
   if (fullFile)

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
-import { dirname, join, normalize, resolve } from 'node:path';
+import { basename, dirname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { AgentQuestion, ToolResultContent } from '@bonsai/shared';
 import type {
@@ -399,11 +399,12 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter,
       }\n` + testing;
     await writeInside(
       spec.contextPath === undefined ? spec.cwd : dirname(spec.contextPath),
-      'CONTEXT.md',
+      spec.contextPath === undefined ? 'CONTEXT.md' : basename(spec.contextPath),
       context,
     );
-    yield { type: 'tool', name: 'Write', detail: 'CONTEXT.md', id: 'fake-context' };
-    yield { type: 'tool_result', result: wroteFile('fake-context', 'CONTEXT.md', context) };
+    const notesPath = spec.contextPath ?? 'CONTEXT.md';
+    yield { type: 'tool', name: 'Write', detail: notesPath, id: 'fake-context' };
+    yield { type: 'tool_result', result: wroteFile('fake-context', notesPath, context) };
 
     // D20: cost is captured per run from day one, even when it is fake.
     yield { type: 'done', inputTokens: 0, outputTokens: 0, costUsd: 0 };

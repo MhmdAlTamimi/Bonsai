@@ -1,9 +1,9 @@
 import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
@@ -44,8 +44,15 @@ describe('the apply command', () => {
   /** Commits files in a node the way a run does, notes included. */
   async function commit(nodeId: string, files: Record<string, string>): Promise<void> {
     const node = store.getNode(nodeId)!;
-    for (const [path, content] of Object.entries(files))
-      await writeFile(join(node.worktree_path, path), content, 'utf8');
+    const project = store.getProject(node.project_id)!;
+    for (const [path, content] of Object.entries(files)) {
+      const destination = join(
+        node.worktree_path,
+        path === 'CONTEXT.md' ? project.notes_path! : path,
+      );
+      await mkdir(dirname(destination), { recursive: true });
+      await writeFile(destination, content, 'utf8');
+    }
     const outcome = await commitRunOutput({
       repoPath: store.getProject(node.project_id)!.repo_path,
       worktreePath: node.worktree_path,
@@ -53,6 +60,7 @@ describe('the apply command', () => {
       ref: nodeRef(node.project_id, nodeId),
       message: 'work',
       baseCommit: node.base_commit,
+      contextFile: project.notes_path,
     });
     store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
   }
@@ -101,9 +109,13 @@ describe('the apply command', () => {
     await git(['commit', '-am', 'mine'], folder);
     const head = await gitLine(['rev-parse', 'HEAD'], folder);
 
+    // User display preferences must never alter the machine-generated patch.
+    await git(['config', 'diff.noprefix', 'true'], folder);
+    await git(['config', 'diff.mnemonicPrefix', 'true'], folder);
+
     const patch = await writeApplyPatch(store, store.getNode(nodeId)!, patches);
     assert.deepEqual([patch.files, patch.added, patch.removed], [2, 2, 1]);
-    assert.match(patch.path, /try-redis-[0-9a-f]{7}\.patch$/);
+    assert.match(patch.path, /try-redis-[0-9a-f]{7}-line-[0-9a-f-]+\.patch$/);
     assert.equal(patch.behind, null);
 
     const result = await run(patch.command, folder);
@@ -219,11 +231,14 @@ describe('the apply command', () => {
     // B's own step modifies a file only A added: alone, it cannot apply.
     const own = await writeApplyPatch(store, store.getNode(b.nodeId)!, patches, 'own');
     assert.deepEqual([own.scope, own.files, own.scopes], ['own', 1, { own: 1, line: 2 }]);
+    const savedOwn = await readFile(own.path, 'utf8');
     assert.equal((await run(own.command, root)).ok, false);
 
     // The whole line is the default, names your folder, and works from anywhere.
     const line = await writeApplyPatch(store, store.getNode(b.nodeId)!, patches);
     assert.deepEqual([line.scope, line.files, line.folder], ['line', 2, folder]);
+    assert.notEqual(own.path, line.path);
+    assert.equal(await readFile(own.path, 'utf8'), savedOwn);
     assert.ok(line.command.startsWith(`git -C ${shellPath(folder)} apply --3way `), line.command);
     const result = await run(line.command, root);
     assert.equal(result.ok, true, `${line.command}\n${result.stderr}`);
