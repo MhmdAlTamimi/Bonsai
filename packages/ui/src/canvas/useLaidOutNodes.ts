@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { type Edge, type Node, useNodesState, useReactFlow, useNodesInitialized } from 'reactflow';
+import {
+  type Edge,
+  type Node,
+  useNodesState,
+  useReactFlow,
+  useNodesInitialized,
+  useStore,
+} from 'reactflow';
 import type { NodeView } from '@bonsai/shared';
 
 import { layoutPositions, type LayoutNode } from './layout.ts';
@@ -144,27 +151,65 @@ export function useLaidOutNodes(
   const flowRef = useRef(flow);
   flowRef.current = flow;
   const fitted = useRef(false);
+  const revealedSelection = useRef<string | null>(null);
   const initialized = useNodesInitialized();
+  const viewportWidth = useStore((state) => state.width);
+  const viewportHeight = useStore((state) => state.height);
+  const canvas = useStore((state) => state.domNode);
   const count = flowNodes.length;
-  useLayoutEffect(() => {
-    if (!initialized || count === 0 || fitted.current) return;
+  useEffect(() => {
+    // Run after React Flow attaches its zoom handlers, so the center updates
+    // both the D3 transform and React Flow's rendered viewport.
+    // setCenter is a no-op before the viewport initializes. A hidden canvas
+    // also gets React Flow's 500px fallback size; neither is a completed fit.
+    if (
+      !initialized ||
+      !flow.viewportInitialized ||
+      count === 0 ||
+      fitted.current ||
+      !canvas ||
+      canvas.clientWidth === 0 ||
+      canvas.clientHeight === 0 ||
+      canvas.clientWidth !== viewportWidth ||
+      canvas.clientHeight !== viewportHeight ||
+      sizes.size !== count
+    )
+      return;
     const chosen =
       flowNodes.find((node) => node.id === selectedId) ??
       flowNodes.find((node) => node.data.parentId === null);
     if (!chosen) return;
     const point = positions.get(chosen.id) ?? chosen.position;
+    // Wait for the measured layout to reach the rendered node array too.
+    if (chosen.position.x !== point.x || chosen.position.y !== point.y) return;
     void flowRef.current.setCenter(
       point.x + (chosen.width ?? 248) / 2,
       point.y + (chosen.height ?? 122) / 2,
       { zoom: 1, duration: 0 },
     );
     fitted.current = true;
-  }, [count, initialized, flowNodes, positions, selectedId]);
+    // setCenter schedules a D3 transition, even with duration 0. Do not let
+    // selection reveal replace it using the previous viewport.
+    revealedSelection.current = selectedId;
+  }, [
+    count,
+    initialized,
+    flow.viewportInitialized,
+    canvas,
+    viewportWidth,
+    viewportHeight,
+    sizes,
+    flowNodes,
+    positions,
+    selectedId,
+  ]);
   useEffect(() => {
-    if (!selectedId || !fitted.current || !initialized) return;
+    if (!selectedId || !fitted.current || !initialized || revealedSelection.current === selectedId)
+      return;
     const node = flowRef.current.getNode(selectedId);
     const element = document.querySelector<HTMLElement>('.react-flow');
     if (!node || !element || element.clientWidth === 0) return;
+    revealedSelection.current = selectedId;
     const viewport = flowRef.current.getViewport();
     const left = node.position.x * viewport.zoom + viewport.x;
     const top = node.position.y * viewport.zoom + viewport.y;

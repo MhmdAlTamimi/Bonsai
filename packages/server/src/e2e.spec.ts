@@ -1017,6 +1017,74 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-review.png'));
   });
+  test('initial canvas centers the chosen experiment after measurement, including a hidden narrow canvas', async () => {
+    const post = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
+      const response = await fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.ok, true, await response.clone().text());
+      return response.json() as Promise<Record<string, unknown>>;
+    };
+    const project = await post('/api/projects', { name: 'Initial centering', description: '' });
+    const projectId = String(project['projectId']);
+    const root = String(project['masterNodeId']);
+    let child = root;
+    for (let n = 0; n < 5; n++) {
+      const created = await post(`/api/projects/${projectId}/nodes`, {
+        parentId: root,
+        displayName: `Measured approach ${n}`,
+        description: 'A longer description to measure the card',
+      });
+      child = (created['node'] as { id: string }).id;
+    }
+    const centered = (id: string): string =>
+      `(() => { const c=document.querySelector('.react-flow')?.getBoundingClientRect(), n=document.querySelector('.react-flow__node[data-id="${id}"]')?.getBoundingClientRect(); return !!c && !!n && c.width>0 && n.width>0 && Math.abs(n.left+n.width/2-c.left-c.width/2)<2 && Math.abs(n.top+n.height/2-c.top-c.height/2)<2; })()`;
+    for (const node of [root, child]) {
+      await session.goto(`${BASE}/?project=${projectId}&node=${node}`);
+      await session.waitFor(centered(node), {
+        label: 'initial selected experiment centered',
+      });
+      assert.equal(await session.eval("document.querySelector('.zoom-level').textContent"), '100%');
+    }
+    // Once opened, background tree growth must preserve the user's pan.
+    const transform = "document.querySelector('.react-flow__viewport').style.transform";
+    const beforePan = await session.eval(transform);
+    await session.mouse('mousePressed', 100, 300);
+    await session.mouse('mouseMoved', 20, 300);
+    await session.mouse('mouseReleased', 20, 300);
+    await session.waitFor(`${transform} !== ${JSON.stringify(beforePan)}`);
+    const afterPan = await session.eval(transform);
+    await post(`/api/projects/${projectId}/nodes`, {
+      parentId: root,
+      displayName: 'Background addition',
+    });
+    await session.waitFor("document.querySelectorAll('.react-flow__node').length === 7");
+    await session.eval(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
+    assert.equal(await session.eval(transform), afterPan, 'tree growth preserves manual panning');
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 640,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    try {
+      await session.goto(`${BASE}/?project=${projectId}&node=${root}`);
+      await session.waitFor("document.querySelectorAll('.view-switch button').length === 2");
+      assert.equal(
+        await session.eval("getComputedStyle(document.querySelector('.canvas')).display"),
+        'none',
+      );
+      await session.click('.view-switch button:first-child');
+      await session.waitFor(centered(root), { label: 'first visible narrow canvas centered' });
+    } finally {
+      await session.send('Emulation.clearDeviceMetricsOverride', {});
+    }
+  });
+
   test('map opens readably, finds experiments and supports tree navigation and cross-project questions', async () => {
     const request = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
       const response = await fetch(`${BASE}${path}`, {
@@ -3996,6 +4064,28 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.goto(`${BASE}/?project=${project.id}`);
     await session.waitFor("!!document.querySelector('.settings-button')");
     await session.click('.settings-button');
+    const navigationPosition =
+      "(() => { const r=document.querySelector('.settings-tabs').getBoundingClientRect(); return {left:r.left,top:r.top}; })()";
+    const initialNavigation = await session.eval(navigationPosition);
+    const initialHeight = await session.eval(
+      "document.querySelector('.settings-dialog').getBoundingClientRect().height",
+    );
+    for (const label of ['Project settings', 'Diagnostics', 'App settings']) {
+      await session.click(`[aria-label="${label}"]`);
+      assert.deepEqual(
+        await session.eval(navigationPosition),
+        initialNavigation,
+        'settings tabs stay under the pointer as content changes height',
+      );
+      if (label === 'Diagnostics')
+        assert.notEqual(
+          await session.eval(
+            "document.querySelector('.settings-dialog').getBoundingClientRect().height",
+          ),
+          initialHeight,
+          'the shorter page actually resizes the dialog',
+        );
+    }
     await session.eval(
       "Array.from(document.querySelectorAll('.settings-tabs button')).find(b => b.getAttribute('aria-label') === 'Project settings').click()",
     );

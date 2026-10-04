@@ -96,7 +96,11 @@ export function SettingsDialog({
                     : 'Diagnostics'
               }
               aria-pressed={tab === scope}
-              onClick={() => setTab(scope)}
+              onClick={(event) => {
+                const dialog = event.currentTarget.closest('dialog');
+                if (dialog) dialog.scrollTop = 0;
+                setTab(scope);
+              }}
             >
               {scope === 'app' ? 'App' : scope === 'project' ? 'Project' : 'Diagnostics'}
             </button>

@@ -319,6 +319,8 @@ dialog.dialog { color: var(--text); margin: auto; }
 dialog.dialog:not([open]) { display: none; }
 dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px); }
 .dialog.settings-dialog, .dialog.usage-dialog { width: min(47.5rem, 94vw); }
+/* Tab content can change height without moving its navigation targets. */
+dialog.settings-dialog { margin-block: 5dvh auto; scrollbar-gutter: stable; }
 .settings-tabs { display: inline-flex; align-self: flex-start; gap: 3px; padding: 3px; background: var(--void); border: 1px solid var(--line); border-radius: var(--r-10); max-width: 100%; }
 .settings-tabs button { background: transparent; border-color: transparent; }
 .settings-dialog form { display: flex; flex-direction: column; gap: 16px; }
