@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useState } from 'react';
 import type { DirectoryInspectionView, ProjectView, StartPointView } from '@bonsai/shared';
+import { SegmentedControl } from '../SegmentedControl.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { ErrorNote } from '../ErrorNote.tsx';
@@ -161,13 +162,11 @@ export function NewProject({
         <p>Try ideas with Claude side by side, then keep the best one.</p>
       </header>
 
-      <div
+      <SegmentedControl
         className="tabs project-source-switch"
-        role="group"
-        aria-label="Project source"
-        data-mode={mode}
+        label="Project source"
+        selectedIndex={mode === 'new' ? 0 : 1}
       >
-        <span className="project-source-fill" aria-hidden="true" />
         <button
           aria-pressed={mode === 'new'}
           className={mode === 'new' ? 'on' : ''}
@@ -182,7 +181,7 @@ export function NewProject({
         >
           <Icon name="folderOpen" /> Start from a folder
         </button>
-      </div>
+      </SegmentedControl>
       <p className="muted source-line">
         {mode === 'new'
           ? 'Bonsai makes a new folder, and Claude builds from scratch.'

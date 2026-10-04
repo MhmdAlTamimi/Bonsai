@@ -4,6 +4,7 @@ import type { ChangeScope, NodeView, ReviewFile, ReviewView } from '@bonsai/shar
 import { BackToMap } from '../BackToMap.tsx';
 import { ErrorNote } from '../ErrorNote.tsx';
 import { Icon, IconButton } from '../Icon.tsx';
+import { SegmentedControl } from '../SegmentedControl.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { STATUS_LABEL, nodeStatusTitle } from '../nodeStatus.tsx';
@@ -149,6 +150,19 @@ export function Review({
     return () => window.removeEventListener('keydown', onKey);
   }, [onBack]);
 
+  const saveWrap = async (next: boolean): Promise<void> => {
+    if (savingWrap || next === wrap) return;
+    setSavingWrap(true);
+    try {
+      const settings = await api.updateSettings({ wrapLines: next });
+      setWrap(settings.wrapLines);
+    } catch (e) {
+      setError(describeError(e));
+    } finally {
+      setSavingWrap(false);
+    }
+  };
+
   const first = useFilePatch(node?.id ?? null, selected[0], revision, mode, scope);
   const second = useFilePatch(node?.id ?? null, split ? selected[1] : null, revision, mode, scope);
   const scopes = known?.scopes ?? null;
@@ -168,7 +182,11 @@ export function Review({
           </span>
         )}
         {scopes !== null && (
-          <div className="segmented-control review-scope" role="group" aria-label="Changes shown">
+          <SegmentedControl
+            className="segmented-control review-scope"
+            label="Changes shown"
+            selectedIndex={scope === 'own' ? 0 : 1}
+          >
             <button
               aria-pressed={scope === 'own'}
               title="Only what this experiment changed"
@@ -183,11 +201,15 @@ export function Review({
             >
               Whole line <span className="scope-count">{scopes.line}</span>
             </button>
-          </div>
+          </SegmentedControl>
         )}
         <div className="spacer" />
         <div className="review-tools" role="group" aria-label="File viewing controls">
-          <div className="segmented-control" role="group" aria-label="View mode">
+          <SegmentedControl
+            className="segmented-control"
+            label="View mode"
+            selectedIndex={mode === 'diff' ? 0 : 1}
+          >
             <button
               title="Show changes (Diff)"
               aria-label="Diff"
@@ -204,27 +226,31 @@ export function Review({
             >
               <Icon name="file" />
             </button>
-          </div>
-          <button
-            className="toolbar-icon"
-            title="Wrap lines"
-            aria-label="Wrap lines"
-            aria-pressed={wrap}
-            disabled={savingWrap}
-            onClick={async () => {
-              setSavingWrap(true);
-              try {
-                const settings = await api.updateSettings({ wrapLines: !wrap });
-                setWrap(settings.wrapLines);
-              } catch (e) {
-                setError(describeError(e));
-              } finally {
-                setSavingWrap(false);
-              }
-            }}
+          </SegmentedControl>
+          <SegmentedControl
+            className="segmented-control"
+            label="Line wrapping"
+            selectedIndex={wrap ? 1 : 0}
           >
-            <Icon name="wrap" />
-          </button>
+            <button
+              title="Do not wrap lines"
+              aria-label="No wrap"
+              aria-pressed={!wrap}
+              disabled={savingWrap}
+              onClick={() => void saveWrap(false)}
+            >
+              <Icon name="nowrap" />
+            </button>
+            <button
+              title="Wrap lines"
+              aria-label="Wrap lines"
+              aria-pressed={wrap}
+              disabled={savingWrap}
+              onClick={() => void saveWrap(true)}
+            >
+              <Icon name="wrap" />
+            </button>
+          </SegmentedControl>
           <IconButton
             icon="folderOpen"
             className="toolbar-icon"
@@ -387,7 +413,11 @@ function PaneHeader({ file }: { file: ReviewFile | null }): JSX.Element {
 /** One file, or two side by side. Drawn as bars, because that is what it does. */
 function ViewToggle({ split, onChange }: { split: boolean; onChange: () => void }): JSX.Element {
   return (
-    <div className="view-toggle" role="group" aria-label="How many files to show">
+    <SegmentedControl
+      className="view-toggle"
+      label="How many files to show"
+      selectedIndex={split ? 1 : 0}
+    >
       <button
         aria-pressed={!split}
         title="One file"
@@ -409,6 +439,6 @@ function ViewToggle({ split, onChange }: { split: boolean; onChange: () => void 
         <span className="bar half" aria-hidden="true" />
         <span className="visually-hidden">Two files side by side</span>
       </button>
-    </div>
+    </SegmentedControl>
   );
 }

@@ -5,6 +5,7 @@ import { ErrorNote } from '../ErrorNote.tsx';
 import type { ChildPreviewView } from '@bonsai/shared';
 import { NextRunInfo } from '../panel/NextRunInfo.tsx';
 import { Icon } from '../Icon.tsx';
+import { SegmentedControl } from '../SegmentedControl.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import type { NewChild } from '../state/useChildCreation.ts';
@@ -193,18 +194,29 @@ export function NewChildDialog({
               />
             </div>
             {preview.lineage.conversationFrom !== null && (
-              <label className="check start-fresh">
-                <input
-                  type="checkbox"
-                  checked={startFresh}
-                  onChange={(e) => setStartFresh(e.target.checked)}
-                  disabled={busy}
-                />
-                <span>
-                  <strong>Start fresh</strong> — leaves out the parent&rsquo;s conversation. Code
-                  changes are still inherited.
-                </span>
-              </label>
+              <div className="start-fresh">
+                <SegmentedControl
+                  className="conversation-switch"
+                  label="Conversation source"
+                  selectedIndex={startFresh ? 1 : 0}
+                >
+                  <button
+                    aria-pressed={!startFresh}
+                    disabled={busy}
+                    onClick={() => setStartFresh(false)}
+                  >
+                    Copy conversation
+                  </button>
+                  <button
+                    aria-pressed={startFresh}
+                    disabled={busy}
+                    onClick={() => setStartFresh(true)}
+                  >
+                    Start fresh
+                  </button>
+                </SegmentedControl>
+                <p className="hint">Code changes are inherited in either case.</p>
+              </div>
             )}
             {preview.parentActive && <p className="note">Source still running · may change</p>}
             <details className="source-details">

@@ -33,7 +33,6 @@
 
 .view-toggle { flex: none; display: flex; gap: 0; padding: 3px; border-radius: var(--r-8); background: var(--surface-3); }
 .view-toggle button { display: inline-flex; align-items: center; justify-content: center; gap: 2px; width: 26px; height: var(--h-plus); padding: 0; border: 0; border-radius: var(--r-6); background: transparent; }
-.view-toggle button[aria-pressed="true"] { background: var(--control-strong); }
 .view-toggle .bar { display: block; height: 11px; border-radius: 2px; background: var(--muted); }
 .view-toggle .bar.single { width: 12px; }
 .view-toggle .bar.half { width: 5px; }
@@ -123,12 +122,10 @@
 /* This experiment | Whole line: words rather than icons, so each sizes to its label. */
 .review-scope { flex: none; margin-left: 12px; }
 .segmented-control.review-scope button { width: auto; display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 3px 10px; border: 1px solid transparent; border-radius: var(--r-7); background: transparent; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
-.segmented-control.review-scope button:hover { background: var(--control-hover); color: var(--text); }
-.segmented-control.review-scope button[aria-pressed='true'] { color: var(--accent-text-dim); background: var(--accent-soft); border-color: var(--line-strong); }
 .scope-count { font: var(--t-meta) / 1 var(--mono); opacity: 0.75; }
 .review-tools button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border: 1px solid transparent; border-radius: var(--r-7); background: transparent; color: var(--muted); }
 .segmented-control button, .review-tools .toolbar-icon { width: 34px; padding: 6px; }
 .review-tools button:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
-.review-tools button[aria-pressed='true'] { color: var(--accent-text-dim); background: var(--accent-soft); border-color: var(--line-strong); box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
+.review-tools .toolbar-icon[aria-pressed='true'] { color: var(--accent-text-dim); background: var(--accent-soft); border-color: var(--line-strong); box-shadow: 0 1px 3px rgb(0 0 0 / .25); }
 .review-tools .toolbar-icon { margin-left: 2px; }
 .review-tools button:active:not(:disabled), .creation-actions button:active:not(:disabled), .project-actions button:active:not(:disabled) { transform: translateY(1px); }

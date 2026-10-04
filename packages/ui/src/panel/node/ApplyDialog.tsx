@@ -5,6 +5,7 @@ import { CopyButton } from '../../CopyButton.tsx';
 import { Dialog, DialogHeader } from '../../Dialog.tsx';
 import { ErrorNote } from '../../ErrorNote.tsx';
 import { Icon } from '../../Icon.tsx';
+import { SegmentedControl } from '../../SegmentedControl.tsx';
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
 
@@ -71,10 +72,10 @@ export function ApplyDialog({
     <Dialog title="Apply to your repo" onClose={onClose} returnFocus={returnFocus}>
       <DialogHeader title="Apply to your repo" onClose={onClose} />
       {scopes !== null && (
-        <div
+        <SegmentedControl
           className="segmented-control review-scope apply-scope"
-          role="group"
-          aria-label="Changes to apply"
+          label="Changes to apply"
+          selectedIndex={scope === 'line' ? 0 : 1}
         >
           <button
             aria-pressed={scope === 'line'}
@@ -91,7 +92,7 @@ export function ApplyDialog({
           >
             This experiment <span className="scope-count">{scopes.own}</span>
           </button>
-        </div>
+        </SegmentedControl>
       )}
       {error !== null ? (
         <ErrorNote>{error}</ErrorNote>

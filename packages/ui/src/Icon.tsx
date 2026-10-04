@@ -2,6 +2,7 @@ import type { ComponentProps, JSX, ReactNode } from 'react';
 const paths = {
   diff: 'M8 3h7l5 5v13H4V3ZM14 3v6h6M8 13h6M11 10v6M8 18h6',
   file: 'M8 3h7l5 5v13H4V3ZM14 3v6h6M8 13h8M8 17h8',
+  nowrap: 'M3 6h18M3 12h18M3 18h18',
   wrap: 'M3 6h18M3 11h13a4 4 0 0 1 0 8h-4m3-3-3 3 3 3M3 16h4',
   folderOpen: 'M3 8V5h6l2 3h9v3M3 8v12h16l3-9H7l-4 9',
   play: 'm8 4 12 8-12 8Z',

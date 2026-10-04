@@ -2,12 +2,8 @@
    Kept in step with NARROW_MAX in state/useWorkspaceView.ts. */
 @media (max-width: 900px) {
   .app:not(.single) { display: flex; flex-direction: column; }
-  .app > .view-switch { display: flex; position: static; padding: 10px 12px; gap: 0; background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; }
-  .view-switch .segment { flex: 1; justify-content: center; border-radius: 0; border-right-width: 0; }
-  .view-switch .segment:first-child { border-radius: var(--r-md) 0 0 var(--r-md); }
-  .view-switch .segment:last-child { border-radius: 0 var(--r-md) var(--r-md) 0; border-right-width: 1px; }
-  /* The joined edge has to stay visible over its neighbour's border. */
-  .view-switch .segment[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--focus); color: var(--text); position: relative; z-index: 1; border-right-width: 1px; }
+  .app > .view-switch { --fill-inset: 10px; --fill-radius: var(--r-md); display: flex; padding: 10px 12px; gap: 4px; background: var(--surface); border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .view-switch .segment { flex: 1; justify-content: center; background: transparent; border-color: transparent; }
   .view-switch .segment:disabled { color: var(--muted); }
   .app > .panel-resizer { display: none; }
   .app > .canvas, .app > .panel { flex: 1; min-height: 0; width: 100%; }

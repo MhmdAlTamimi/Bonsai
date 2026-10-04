@@ -7,6 +7,7 @@ import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
 
 import { useConfirm } from './ConfirmDialog.tsx';
 import { PanelResizer } from './PanelResizer.tsx';
+import { SegmentedControl } from './SegmentedControl.tsx';
 import { api } from './api/client.ts';
 import { describeError } from './api/describeError.ts';
 import { Canvas } from './canvas/Canvas.tsx';
@@ -236,7 +237,12 @@ export function App(): JSX.Element {
            * collapsed conversation keeps its own rail (see ConversationRail)
            * rather than a floating button over the map.
            */}
-          <nav className="view-switch" aria-label="Workspace view">
+          <SegmentedControl
+            as="nav"
+            className="view-switch"
+            label="Workspace view"
+            selectedIndex={view.experimentOpen ? 1 : 0}
+          >
             {view.narrow && (
               <>
                 <button
@@ -257,7 +263,7 @@ export function App(): JSX.Element {
                 </button>
               </>
             )}
-          </nav>
+          </SegmentedControl>
           {reviewing && selected !== null && (
             <Review
               node={selected}

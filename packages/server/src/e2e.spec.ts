@@ -2370,8 +2370,8 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         "Array.from(document.querySelectorAll('dialog button')).some(b=>b.textContent.trim()==='Save for later' && !b.disabled)",
       );
       // The parent has talked, so there is a conversation to leave behind.
-      await session.waitFor("!!document.querySelector('dialog .start-fresh input')");
-      if (fresh) await session.click('dialog .start-fresh input');
+      await session.waitFor("!!document.querySelector('dialog .start-fresh button')");
+      if (fresh) await session.click('dialog .start-fresh button:last-child');
       await session.eval(
         "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent.trim()==='Save for later').click()",
       );

@@ -11,6 +11,7 @@ import {
 } from '@bonsai/shared';
 import { IconButton } from '../Icon.tsx';
 import { CopyButton } from '../CopyButton.tsx';
+import { SegmentedControl } from '../SegmentedControl.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { bytes, plural } from '../words.ts';
@@ -78,7 +79,12 @@ export function SettingsDialog({
     <SettingsDrafts.Provider value={drafts}>
       <Dialog title="Settings" className="wide settings-dialog" onClose={close}>
         <DialogHeader title="Settings" onClose={close} />
-        <nav className="settings-tabs" aria-label="Settings scope">
+        <SegmentedControl
+          as="nav"
+          className="settings-tabs"
+          label="Settings scope"
+          selectedIndex={['app', 'project', 'diagnostics'].indexOf(tab)}
+        >
           {(['app', 'project', 'diagnostics'] as const).map((scope) => (
             <button
               key={scope}
@@ -95,7 +101,7 @@ export function SettingsDialog({
               {scope === 'app' ? 'App' : scope === 'project' ? 'Project' : 'Diagnostics'}
             </button>
           ))}
-        </nav>
+        </SegmentedControl>
         <div hidden={tab !== 'app'} className="settings-sections">
           <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
           <Appearance settings={settings} onChanged={onChanged} />
