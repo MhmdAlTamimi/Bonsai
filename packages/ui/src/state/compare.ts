@@ -113,6 +113,7 @@ export function useComparison(
     api
       .comparison(comparisonId, controller.signal)
       .then((view) => {
+        if (controller.signal.aborted) return;
         setData(view);
         setError(null);
       })

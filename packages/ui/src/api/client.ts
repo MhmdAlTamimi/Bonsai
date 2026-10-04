@@ -79,7 +79,12 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
     throw e;
   });
   observeBuild(res.headers.get('x-bonsai-build'));
-  const body: unknown = await res.json().catch(() => ({ error: res.statusText }));
+  const body: unknown = await res.json().catch((error: unknown) => {
+    // Cancellation can happen after headers arrive. Never return an error-shaped
+    // object as successful application data when reading the body fails.
+    if (res.ok || signal?.aborted) throw error;
+    return { error: res.statusText };
+  });
   if (!res.ok) {
     const err = body as { error?: string; milestone?: string };
     throw new ApiCallError(err.error ?? res.statusText, res.status, err.milestone);
