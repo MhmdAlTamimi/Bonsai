@@ -1,6 +1,28 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+
+/** The same installed executable that the SDK uses; never require a global CLI. */
+export function bundledClaudeCodeCommand(): { file: string; args: string[] } {
+  const entry = fileURLToPath(import.meta.resolve('@anthropic-ai/claude-agent-sdk'));
+  const legacy = join(dirname(entry), 'cli.js');
+  if (existsSync(legacy)) return { file: process.execPath, args: [legacy] };
+  const header =
+    process.platform === 'linux'
+      ? (process.report.getReport() as { header: { glibcVersionRuntime?: string } }).header
+      : null;
+  const libc = header !== null && !header.glibcVersionRuntime ? '-musl' : '';
+  const pkg = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${libc}`;
+  const manifest = createRequire(import.meta.url).resolve(`${pkg}/package.json`);
+  const file = join(dirname(manifest), process.platform === 'win32' ? 'claude.exe' : 'claude');
+  if (!existsSync(file))
+    throw new Error(
+      'The bundled Claude Code executable is missing. Reinstall Bonsai’s dependencies.',
+    );
+  return { file, args: [] };
+}
 
 /**
  * The Claude Code Bonsai actually runs.

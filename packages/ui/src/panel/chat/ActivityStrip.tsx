@@ -77,6 +77,15 @@ export function ActivityStrip({
     );
   }
 
+  if (activity?.state === 'retrying')
+    return (
+      <div className="activity activity-line">
+        <span role="status">{activity.retry?.text ?? 'Retrying Claude connection'}</span>
+        <div className="spacer" />
+        <StopButton node={node} />
+      </div>
+    );
+
   if (activity?.state === 'waiting') {
     const finish = (): void => {
       setFinishing(true);

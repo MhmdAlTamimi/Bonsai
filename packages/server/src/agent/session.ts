@@ -127,6 +127,7 @@ export function detachedExited(jobs: readonly BackgroundJob[]): string {
  */
 export class SessionActivity {
   private state: RunActivity['state'] = 'working';
+  private retry: RunActivity['retry'];
   private readonly jobs = new Map<string, BackgroundJob>();
   private detached: BackgroundJob[] = [];
   /** Main-thread tool calls in progress, oldest first. */
@@ -151,6 +152,7 @@ export class SessionActivity {
 
   /** The agent is taking a turn: something it said, or a tool it called, arrived. */
   turnStarted(): void {
+    this.retry = undefined;
     this.idle = false;
     this.clearWake();
     this.state = 'working';
@@ -175,6 +177,12 @@ export class SessionActivity {
     if (active) this.state = 'compacting';
     else if (this.state === 'compacting') this.state = 'working';
     else return;
+    this.publish();
+  }
+
+  retrying(retry: NonNullable<RunActivity['retry']>): void {
+    this.state = 'retrying';
+    this.retry = retry;
     this.publish();
   }
 
@@ -317,6 +325,7 @@ export class SessionActivity {
     const tools = [...this.tools.values()];
     const activity: RunActivity = {
       state: this.state,
+      ...(this.state === 'retrying' && this.retry ? { retry: this.retry } : {}),
       tool: this.state === 'working' ? (tools.at(-1) ?? null) : null,
       background: [...this.jobs.values(), ...this.detached],
     };

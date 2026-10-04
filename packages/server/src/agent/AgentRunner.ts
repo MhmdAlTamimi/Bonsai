@@ -184,7 +184,10 @@ export type RunEvent =
     }
   /** Something the harness said about the run rather than the agent saying it. */
   | { type: 'notice'; text: string }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; apiFailure?: boolean };
+
+/** Identified by the SDK adapter, never inferred from Git or setup failures. */
+export class AgentApiFailure extends Error {}
 
 export interface AgentRunner {
   run(spec: RunSpec): AsyncIterable<RunEvent>;

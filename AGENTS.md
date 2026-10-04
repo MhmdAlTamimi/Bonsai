@@ -104,6 +104,11 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   destination; reject unsafe paths and failed inspections. Never copy dependencies.
 - Runs are asynchronous. Every exit must finalize state and release the execution slot.
   Use bounded process cleanup, preserve partial work and report incomplete cleanup.
+  Temporary API retries are visible and bounded. Authentication/billing failures stop promptly;
+  a transient rate limit does not permanently close the global connection gate. Only an API
+  failure identified by the SDK adapter may change that gate, never a Git/setup/task error.
+  Subscription sign-in uses the installed SDK's own executable. The selected auth mode
+  overrides inherited credentials while retaining an explicitly configured API base URL.
 - Use real Git regression tests for ownership, commits, snapshots, recovery and deletion.
   Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
 

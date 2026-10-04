@@ -28,6 +28,8 @@ import { Inbox, SessionActivity } from './session.js';
 import { toolResultFrom } from './toolResults.js';
 import { RUN_MARKER } from '../jobs/leftovers.js';
 import { EXPERIMENT_FILES } from '../jobs/experimentSnapshot.js';
+import { ApiRetryGuard, terminalApiFailure, resultFailure } from './apiFailures.js';
+import { AgentApiFailure } from './AgentRunner.js';
 
 /**
  * D15: the Claude Agent SDK, not the raw API -- the same harness as Claude Code,
@@ -49,6 +51,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
   /** A single tool-less turn; see `draftOptions` for why it cannot act. */
   async draft(request: DraftRequest): Promise<string> {
     const controller = new AbortController();
+    const retries = new ApiRetryGuard(controller);
     const abort = (): void => controller.abort();
     request.signal.addEventListener('abort', abort, { once: true });
     try {
@@ -57,14 +60,29 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
         prompt: request.input,
         options: draftOptions(request, controller),
       })) {
+        if (message.type === 'system' && message.subtype === 'api_retry') {
+          retries.retry(message);
+          if (retries.error !== null) throw new Error(retries.error);
+        }
+        if (message.type === 'assistant' && message.error) {
+          const failure = terminalApiFailure(message.error);
+          if (failure !== null) {
+            controller.abort();
+            throw new Error(failure);
+          }
+        }
         if (message.type !== 'result') continue;
-        if (message.subtype !== 'success') {
-          throw new Error(message.errors?.join('; ') || `the draft ended: ${message.subtype}`);
+        if (message.subtype !== 'success' || message.is_error) {
+          throw new Error(resultFailure(message));
         }
         text = message.result;
       }
       return text.trim();
+    } catch (error) {
+      if (retries.error !== null) throw new Error(retries.error);
+      throw error;
     } finally {
+      retries.dispose();
       request.signal.removeEventListener('abort', abort);
     }
   }
@@ -93,6 +111,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
   async *compare(spec: ComparisonSpec): AsyncIterable<RunEvent> {
     if (spec.signal.aborted) return;
     const controller = new AbortController();
+    const retries = new ApiRetryGuard(controller);
     const stop = (): void => controller.abort();
     spec.signal.addEventListener('abort', stop, { once: true });
     const calledTools = new Map<string, string>();
@@ -102,6 +121,22 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
         prompt: questionWithReferences(spec),
         options: compareOptions(spec, controller),
       })) {
+        if (message.type === 'system' && message.subtype === 'api_retry') {
+          const retry = retries.retry(message);
+          yield { type: 'notice', text: retry.text };
+          if (retries.error !== null) {
+            yield { type: 'error', apiFailure: true, error: retries.error };
+            return;
+          }
+        }
+        if (message.type === 'assistant' && message.error) {
+          const failure = terminalApiFailure(message.error);
+          if (failure !== null) {
+            controller.abort();
+            yield { type: 'error', apiFailure: true, error: failure };
+            return;
+          }
+        }
         if (!sessionAnnounced && 'session_id' in message && message.session_id) {
           sessionAnnounced = true;
           yield { type: 'session', sessionId: message.session_id };
@@ -119,19 +154,26 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
           yield* toolResultEvents(message, calledTools, spec.cwd);
         } else if (message.type === 'result') {
           yield usageEvent(message);
-          if (message.subtype !== 'success') {
+          if (message.subtype !== 'success' || message.is_error) {
             yield {
               type: 'error',
-              error: message.errors?.join('; ') || `the answer ended: ${message.subtype}`,
+              apiFailure: true,
+              error: resultFailure(message),
             };
           }
           return;
         }
       }
     } catch (err) {
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) {
+        if (retries.error !== null) yield { type: 'error', apiFailure: true, error: retries.error };
+        return;
+      }
+      const failure = terminalApiFailure(err instanceof Error ? err.message : String(err));
+      if (failure !== null) throw new AgentApiFailure(failure);
       throw err;
     } finally {
+      retries.dispose();
       spec.signal.removeEventListener('abort', stop);
     }
   }
@@ -139,6 +181,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     if (spec.signal.aborted) return;
     const controller = new AbortController();
+    const retries = new ApiRetryGuard(controller);
     const inbox = new Inbox();
     const session = new SessionActivity({
       report: spec.onActivity,
@@ -261,6 +304,14 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
             };
           } else if (message.subtype === 'background_tasks_changed') {
             session.jobsChanged(message.tasks);
+          } else if (message.subtype === 'api_retry') {
+            const retry = retries.retry(message);
+            session.retrying(retry);
+            yield { type: 'notice', text: retry.text };
+            if (retries.error !== null) {
+              yield { type: 'error', apiFailure: true, error: retries.error };
+              return;
+            }
           } else if (message.subtype === 'thinking_tokens') {
             session.thinking();
           } else if (message.subtype === 'status') {
@@ -287,6 +338,15 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
             };
           }
         } else if (message.type === 'assistant') {
+          if (message.error) {
+            const failure = terminalApiFailure(message.error);
+            if (failure !== null) {
+              controller.abort();
+              yield { type: 'error', apiFailure: true, error: failure };
+              return;
+            }
+          }
+          if (!message.error) retries.recovered();
           // A subagent's messages carry the tool call that started it. They
           // are shown, but they are not the agent taking a turn.
           if (message.parent_tool_use_id === null) session.turnStarted();
@@ -302,12 +362,13 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
           }
           yield* toolResultEvents(message, calledTools, spec.cwd);
         } else if (message.type === 'result') {
-          if (message.subtype !== 'success') {
+          if (message.subtype !== 'success' || message.is_error) {
             // An error result still carries cost, so report it before failing.
             yield usageEvent(message);
             yield {
               type: 'error',
-              error: message.errors?.join('; ') || `the run ended: ${message.subtype}`,
+              apiFailure: true,
+              error: resultFailure(message),
             };
             return;
           }
@@ -326,9 +387,15 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
         }
       }
     } catch (err) {
-      if (controller.signal.aborted) return; // cancellation is not a failure
+      if (controller.signal.aborted) {
+        if (retries.error !== null) yield { type: 'error', apiFailure: true, error: retries.error };
+        return;
+      }
+      const failure = terminalApiFailure(err instanceof Error ? err.message : String(err));
+      if (failure !== null) throw new AgentApiFailure(failure);
       throw err;
     } finally {
+      retries.dispose();
       spec.signal.removeEventListener('abort', stop);
       spec.finishNow.removeEventListener('abort', finish);
       session.dispose();

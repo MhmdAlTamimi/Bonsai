@@ -1,6 +1,7 @@
 import type { CompactionNote } from '@bonsai/shared';
 
 import type { RunEvent } from '../agent/AgentRunner.js';
+import { AgentApiFailure } from '../agent/AgentRunner.js';
 import type { EventBus } from '../api/events.js';
 import type { RunTotals, Store } from '../db/store.js';
 
@@ -161,6 +162,7 @@ export class RunTranscript {
         this.model = event.model ?? this.model;
         break;
       case 'error':
+        if (event.apiFailure) throw new AgentApiFailure(event.error);
         throw new Error(event.error);
     }
   }

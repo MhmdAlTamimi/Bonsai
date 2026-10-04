@@ -21,7 +21,7 @@ import type { RunEvent, RunSpec } from './AgentRunner.js';
  * with a scripted session standing in for the harness.
  */
 
-const ids = { uuid: '00000000-0000-4000-8000-000000000000', session_id: 'session-1' };
+const ids = { uuid: '00000000-0000-4000-8000-000000000000', session_id: 'session-1' } as const;
 
 const say = (text: string, parent: string | null = null): SDKMessage =>
   ({
@@ -210,6 +210,57 @@ async function until(condition: () => boolean, what: string): Promise<void> {
 const drained = (): Promise<void> => new Promise((r) => setTimeout(r, 20));
 
 describe('a run and its background work', () => {
+  test('a success-shaped SDK result with is_error never becomes a finished run', async () => {
+    const run = start();
+    const session = await run.session;
+    session.emit({
+      ...turnOver(0.01),
+      is_error: true,
+      result: 'API Error: invalid request',
+    } as SDKMessage);
+    await run.done;
+    assert.ok(run.events.some((event) => event.type === 'done' && event.costUsd === 0.01));
+    assert.ok(
+      run.events.some((event) => event.type === 'error' && event.error.includes('invalid request')),
+    );
+  });
+  test('retries are visible, authentication stops immediately and temporary failures are bounded', async () => {
+    const retry = (status: number, attempt: number): SDKMessage => ({
+      type: 'system',
+      subtype: 'api_retry',
+      attempt,
+      max_retries: 10,
+      retry_delay_ms: 100,
+      error_status: status,
+      error: status === 401 ? 'authentication_failed' : 'overloaded',
+      ...ids,
+    });
+    const revoked = start();
+    const authSession = await revoked.session;
+    authSession.emit(retry(401, 1));
+    await revoked.done;
+    assert.equal(authSession.options.abortController?.signal.aborted, true);
+    assert.ok(
+      revoked.events.some(
+        (event) => event.type === 'error' && /rejected the credential/i.test(event.error),
+      ),
+    );
+    const outage = start();
+    const session = await outage.session;
+    session.emit(retry(529, 1), retry(529, 2), retry(529, 3), retry(529, 4));
+    await outage.done;
+    assert.ok(outage.activity.some((activity) => activity.state === 'retrying'));
+    assert.ok(outage.events.some((event) => event.type === 'notice' && event.text.includes('529')));
+    assert.ok(
+      outage.events.some((event) => event.type === 'error' && event.error.includes('Retry limit')),
+    );
+    const recovered = start();
+    const retrySession = await recovered.session;
+    retrySession.emit(retry(500, 1), say('connection recovered'), turnOver(0.01));
+    await recovered.done;
+    assert.equal(recovered.events.filter((event) => event.type === 'error').length, 0);
+    assert.equal(recovered.activity.at(-1)?.state, 'working');
+  });
   test('the SDK error-only tool result retains command output in the transcript', async () => {
     const run = start();
     const session = await run.session;

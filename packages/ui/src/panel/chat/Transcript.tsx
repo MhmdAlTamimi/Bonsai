@@ -579,6 +579,7 @@ const LIVE_WORDS: Record<RunActivity['state'], string> = {
   working: 'Working',
   waiting: 'Waiting for background work',
   compacting: 'Compacting conversation',
+  retrying: 'Retrying Claude connection',
 };
 
 /** Anything said without a box: the agent's prose, or a note from Bonsai. */

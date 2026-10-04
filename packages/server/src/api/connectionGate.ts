@@ -4,8 +4,20 @@ import type { ConnectionStatus } from '@bonsai/shared';
 
 import { probeConnection } from '../agent/connection.js';
 import type { Settings } from '../settings.js';
+import { bundledClaudeCodeCommand } from '../agent/claudeCode.js';
+import { credentialEnvironment } from '../agent/credentials.js';
 
 const run = promisify(execFile);
+export const executeBundledCli = async (
+  args: string[],
+  options: { timeout: number; maxBuffer?: number },
+) => {
+  const command = bundledClaudeCodeCommand();
+  return await run(command.file, [...command.args, ...args], {
+    ...options,
+    env: { ...process.env, ...credentialEnvironment(null) },
+  });
+};
 
 /**
  * Holds the last known connection result, so the gate can answer instantly and
@@ -30,6 +42,8 @@ export class Connection {
     private readonly settings: Settings,
     /** True when the runner is the stand-in, which has nothing to authenticate. */
     private readonly standIn = false,
+    private readonly runCli = executeBundledCli,
+    private readonly probe = probeConnection,
   ) {}
 
   current(): ConnectionStatus {
@@ -43,9 +57,9 @@ export class Connection {
   /** Confirmed authentication/rate failures stop subsequent starts without hiding history. */
   recordFailure(message: string): void {
     if (this.standIn) return;
-    const state = /\b429\b|rate.?limit|usage limit|quota/i.test(message)
-      ? 'rate_limited'
-      : /\b401\b|unauthorized|authentication failed|invalid api key|credential.*expired|not logged in/i.test(
+    const state = /billing|credit balance|account.*hold|verification/i.test(message)
+      ? 'error'
+      : /\b401\b|unauthorized|authentication failed|authentication or access denied|credential.*rejected|rejected the credential|invalid api key|credential.*expired|not logged in/i.test(
             message,
           )
         ? 'no_credential'
@@ -95,6 +109,14 @@ export class Connection {
     }
 
     const key = this.settings.apiKey();
+    if (key === null && this.settings.view().authMode === 'api_key')
+      return {
+        state: 'no_credential',
+        apiKeySource: null,
+        model: null,
+        message:
+          'API key mode is selected, but no API key is saved. Add a key or choose subscription sign-in in Settings.',
+      };
     if (key === null) {
       const cli = await this.cliAuthStatus();
       if (!cli.available) {
@@ -103,21 +125,21 @@ export class Connection {
           apiKeySource: null,
           model: null,
           message:
-            'The Claude Code CLI is not installed, and no API key is stored. Install it and sign ' +
-            'in, or add an API key.',
+            'Bonsai’s bundled Claude Code is unavailable. Reinstall Bonsai’s dependencies, then sign in or add an API key.',
         };
       }
-      if (!cli.loggedIn) {
+      if (!cli.loggedIn || cli.authMethod === 'api_key') {
         return {
           state: 'no_credential',
           apiKeySource: null,
           model: null,
-          message: 'Not signed in to Claude, and no API key is stored.',
+          message:
+            'Not signed in with a Claude subscription. Sign in, or select API key mode in Settings.',
         };
       }
     }
 
-    return probeConnection({ model: this.settings.model(), apiKey: key });
+    return this.probe({ model: this.settings.model(), apiKey: key });
   }
 
   /**
@@ -130,9 +152,8 @@ export class Connection {
    */
   async cliAuthStatus(): Promise<CliAuthStatus> {
     try {
-      const { stdout } = await run('claude', ['auth', 'status'], {
+      const { stdout } = await this.runCli(['auth', 'status'], {
         timeout: 20_000,
-        env: { ...process.env },
       });
       const parsed = JSON.parse(stdout) as {
         loggedIn?: boolean;
@@ -147,7 +168,7 @@ export class Connection {
     } catch (err) {
       const e = err as { code?: string };
       return {
-        available: e.code !== 'ENOENT',
+        available: !['ENOENT', 'MODULE_NOT_FOUND'].includes(e.code ?? ''),
         loggedIn: false,
         authMethod: null,
       };
@@ -173,16 +194,14 @@ export class Connection {
       return {
         ok: false,
         output:
-          'The `claude` command is not on PATH. Install the Claude Code CLI, or use an API key ' +
-          'instead.',
+          'Bonsai’s bundled Claude Code is unavailable. Reinstall Bonsai’s dependencies, or use an API key.',
       };
     }
 
     try {
-      const { stdout, stderr } = await run('claude', ['auth', 'login', '--claudeai'], {
+      const { stdout, stderr } = await this.runCli(['auth', 'login', '--claudeai'], {
         timeout: 180_000,
         maxBuffer: 1024 * 1024,
-        env: { ...process.env },
       });
       return { ok: true, output: `${stdout}${stderr}`.trim() };
     } catch (err) {
@@ -193,7 +212,7 @@ export class Connection {
         output:
           output === ''
             ? `Sign-in could not be completed from inside Bonsai — it needs an interactive ` +
-              `terminal. Run this, then press Recheck:\n\n    claude auth login --claudeai\n\n` +
+              `terminal. Open a terminal and run Bonsai’s bundled Claude Code with auth login --claudeai, then press Recheck.\n\n` +
               `(${e.message ?? 'no output'})`
             : output,
       };

@@ -161,6 +161,18 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter,
       return;
     }
 
+    if (spec.prompt.trimStart().toLowerCase().startsWith('retry:')) {
+      const retry = {
+        text: 'Claude connection retry 1/3 (429); next attempt in 3 s.',
+        retryAt: new Date(Date.now() + 3000).toISOString(),
+      };
+      spec.onActivity({ state: 'retrying', tool: null, background: [], retry });
+      yield { type: 'notice', text: retry.text };
+      await abortableDelay(3000, spec.signal);
+      if (spec.signal.aborted) return;
+      spec.onActivity({ state: 'working', tool: null, background: [] });
+    }
+
     const question = spec.prompt.trimStart().startsWith('?');
     yield {
       type: 'text',

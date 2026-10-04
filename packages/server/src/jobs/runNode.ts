@@ -4,6 +4,7 @@ import { mkdir } from 'node:fs/promises';
 import { CONCURRENCY, recoveryCause, type NodeStatus, type RunActivity } from '@bonsai/shared';
 
 import type { AgentRunner, ChoiceDecision, PermissionDecision } from '../agent/AgentRunner.js';
+import { AgentApiFailure } from '../agent/AgentRunner.js';
 import { explainAgentError } from '../agent/claudeCode.js';
 import type { EventBus } from '../api/events.js';
 import { workDirIn } from '../db/rows.js';
@@ -755,7 +756,7 @@ export class RunJobs {
       }
 
       const message = explainAgentError(err instanceof Error ? err.message : String(err));
-      this.connection?.recordFailure(message);
+      if (err instanceof AgentApiFailure) this.connection?.recordFailure(message);
       this.log.error('run.failed', {
         runId,
         nodeId,

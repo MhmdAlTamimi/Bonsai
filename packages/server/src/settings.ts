@@ -20,6 +20,7 @@ import {
 } from '@bonsai/shared';
 
 import type { Config } from './config.js';
+import { credentialEnvironment } from './agent/credentials.js';
 
 interface StoredSettings {
   authMode: 'cli' | 'api_key';
@@ -106,8 +107,9 @@ export class Settings {
 
   /** Environment variables that make a stored key visible to the Agent SDK. */
   agentEnv(): Record<string, string> | null {
-    if (this.current.authMode !== 'api_key' || this.current.apiKey === null) return null;
-    return { ANTHROPIC_API_KEY: this.current.apiKey };
+    return credentialEnvironment(
+      this.current.authMode === 'api_key' ? (this.current.apiKey ?? '') : null,
+    );
   }
 
   apiKey(): string | null {

@@ -15,6 +15,7 @@
  * Stop pressed after 5 s), cost (three plain runs of one experiment).
  */
 import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -133,7 +134,25 @@ try {
     }
     fake.script();
     const main = fake.requests.slice(before).filter((r) => r.mainLoop);
-    await report(name, id, started);
+    const { detail, run } = await report(name, id, started);
+    if (['key', 'billing', 'rate', 'overloaded'].includes(name)) {
+      assert.equal(run.status, 'failed');
+      assert.equal(
+        run.commitSha,
+        null,
+        'failed API calls must not commit partial work as finished',
+      );
+      assert.ok(
+        JSON.stringify(detail.partialWork).includes('partial.txt'),
+        'partial file stays recoverable',
+      );
+      assert.ok(Date.now() - started < 45000, 'retrying must be bounded');
+      const connection = (await bonsai.api('GET', '/api/connection')).body;
+      assert.equal(
+        connection.state,
+        name === 'key' ? 'no_credential' : name === 'billing' ? 'error' : 'connected',
+      );
+    }
     console.log(
       `  requests from the agent's loop: ${main.length} (${main.map((r) => r.step).join(', ')})`,
     );

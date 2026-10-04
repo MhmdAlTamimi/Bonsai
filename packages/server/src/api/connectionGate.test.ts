@@ -52,28 +52,70 @@ describe('the connection gate', () => {
     assert.equal(status.model, 'stand-in');
   });
 
-  test('authentication and rate failures block further runs without confusing task errors with auth', () => {
+  test('authentication failures block further runs; transient rate limits never overwrite authentication state', () => {
     const connection = new Connection(settings, false);
     connection.recordFailure('401 unauthorized');
     assert.equal(connection.current().state, 'no_credential');
     assert.equal(connection.isConnected(), false);
     connection.recordFailure('429 rate limit exceeded');
-    assert.equal(connection.current().state, 'rate_limited');
+    assert.equal(connection.current().state, 'no_credential');
     connection.recordFailure('test assertion failed');
-    assert.equal(connection.current().state, 'rate_limited');
+    assert.equal(connection.current().state, 'no_credential');
   });
 
-  test('without the stand-in, a machine with no CLI and no key is not connected', async () => {
-    // The behaviour the gate exists for, asserted next to the exception so the
-    // exception cannot quietly widen into a bypass. PATH is emptied so the
-    // Claude CLI cannot be found even if it is installed on this machine.
-    const path = process.env['PATH'];
-    process.env['PATH'] = dir;
-    try {
-      const status = await new Connection(settings, false).check();
-      assert.equal(status.state, 'no_credential');
-    } finally {
-      process.env['PATH'] = path;
+  test('subscription authentication uses the bundled CLI and a rate limit does not close a working gate', async () => {
+    const commands: string[][] = [];
+    const connection = new Connection(
+      settings,
+      false,
+      (args) => {
+        commands.push(args);
+        return Promise.resolve({ stdout: JSON.stringify({ loggedIn: true }), stderr: '' });
+      },
+      () =>
+        Promise.resolve({
+          state: 'connected',
+          apiKeySource: 'none',
+          model: 'fixture',
+          message: null,
+        }),
+    );
+    assert.equal((await connection.check()).state, 'connected');
+    assert.deepEqual(commands, [['auth', 'status']]);
+    connection.recordFailure('429 rate limit exceeded');
+    assert.equal(connection.isConnected(), true);
+    connection.recordFailure('billing_error: credit balance exhausted');
+    assert.equal(connection.current().state, 'error');
+    assert.equal(connection.isConnected(), false);
+  });
+  test('an unavailable bundled CLI or a logged-out subscription never probes the real API', async () => {
+    for (const unavailable of [false, true]) {
+      const connection = new Connection(
+        settings,
+        false,
+        () =>
+          unavailable
+            ? Promise.reject(Object.assign(new Error('fixture absent'), { code: 'ENOENT' }))
+            : Promise.resolve({ stdout: JSON.stringify({ loggedIn: false }), stderr: '' }),
+        () => {
+          throw new Error('must not probe');
+        },
+      );
+      assert.equal((await connection.check()).state, 'no_credential');
     }
+  });
+  test('an empty selected API key never falls back to subscription credentials', async () => {
+    settings.update({ authMode: 'api_key', apiKey: '' });
+    const connection = new Connection(
+      settings,
+      false,
+      () => {
+        throw new Error('must not check subscription');
+      },
+      () => {
+        throw new Error('must not probe');
+      },
+    );
+    assert.equal((await connection.check()).state, 'no_credential');
   });
 });

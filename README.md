@@ -26,6 +26,12 @@ ancestors when the parent changed no files.
   a run and preserves partial work; Resume, Keep and Discard are recovery actions.
   Finish now ends background waiting and saves remaining changes under the existing
   completion semantics. It is not proof that interrupted tests or jobs succeeded.
+  Temporary connection retries show their reason and delay, with bounded retries. Rejected
+  credentials and billing/access problems end the run and preserve partial work. A rate limit
+  on one request does not permanently block every experiment.
+- Subscription sign-in uses Claude Code bundled with Bonsai's Agent SDK; a separate global
+  installation is unnecessary. The auth mode in Settings takes precedence over inherited
+  API keys or subscription tokens.
 - Compact a conversation with `/compact [focus]` in the composer or Compact conversation in a
   card's ⋯ menu. The conversation shows "Compacting conversation" while it runs and a divider
   afterwards, for automatic compaction too. Children branched later copy the compacted version.

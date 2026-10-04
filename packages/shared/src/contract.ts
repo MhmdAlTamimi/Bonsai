@@ -472,7 +472,8 @@ export interface RunActivity {
    * compacting -- the harness is summarising older turns to free context,
    *               because it was asked to (/compact) or the window filled.
    */
-  state: 'working' | 'waiting' | 'compacting';
+  state: 'working' | 'waiting' | 'compacting' | 'retrying';
+  retry?: { text: string; retryAt: string };
   /** The tool call in progress, so a long command reads as running rather than stuck. */
   tool: { name: string; detail: string; startedAt: string } | null;
   background: BackgroundJob[];

@@ -3375,6 +3375,31 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.equal(detail.gitRecovery, null);
     await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
   });
+  test('connection retry status is visible and Stop remains available', async () => {
+    const response = await fetch(`${BASE}/api/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Retry browser', description: '' }),
+    });
+    const project = (await response.json()) as { projectId: string; masterNodeId: string };
+    await session.goto(`${BASE}/?project=${project.projectId}&node=${project.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.composer textarea')");
+    await fetch(`${BASE}/api/nodes/${project.masterNodeId}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'retry: temporary connection' }),
+    });
+    await session.waitFor(
+      "document.querySelector('.activity [role=status]')?.textContent.includes('retry 1/3 (429)')",
+    );
+    await session.waitFor(
+      "!!document.querySelector('.activity button') && !document.querySelector('.activity button').disabled",
+    );
+    await session.click('.activity button');
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${project.masterNodeId}')).json()).runs.at(-1)?.status === 'cancelled')()`,
+    );
+  });
 });
 
 /**

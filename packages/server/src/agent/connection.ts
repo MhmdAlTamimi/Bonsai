@@ -1,7 +1,9 @@
-import { query, type ModelInfo } from '@anthropic-ai/claude-agent-sdk';
+import { query, type ModelInfo, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentModel, ConnectionState, ConnectionStatus } from '@bonsai/shared';
 
 import { Inbox } from './session.js';
+import { terminalApiFailure } from './apiFailures.js';
+import { credentialEnvironment } from './credentials.js';
 
 /**
  * Whether Bonsai can actually reach Claude, established by asking it.
@@ -24,11 +26,14 @@ import { Inbox } from './session.js';
  * request, which the SDK only answers when the prompt is streamed in -- hence
  * the Inbox rather than a plain string.
  */
-export async function probeConnection(options: {
-  model: string | null;
-  apiKey: string | null;
-  timeoutMs?: number;
-}): Promise<ConnectionStatus> {
+export async function probeConnection(
+  options: {
+    model: string | null;
+    apiKey: string | null;
+    timeoutMs?: number;
+  },
+  startQuery: typeof query = query,
+): Promise<ConnectionStatus> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 45_000);
 
@@ -39,7 +44,7 @@ export async function probeConnection(options: {
   inbox.send('Reply with the single word: ok');
 
   try {
-    const session = query({
+    const session = startQuery({
       prompt: inbox,
       options: {
         abortController: controller,
@@ -51,12 +56,15 @@ export async function probeConnection(options: {
         systemPrompt: 'You are a connection check. Reply with exactly: ok',
         settingSources: [],
         ...(options.model === null ? {} : { model: options.model }),
-        ...(options.apiKey === null
-          ? {}
-          : { env: { ...process.env, ANTHROPIC_API_KEY: options.apiKey } }),
+        env: { ...process.env, ...credentialEnvironment(options.apiKey) },
       },
     });
     for await (const message of session) {
+      const failure = connectionFailure(message);
+      if (failure !== null) {
+        controller.abort();
+        return failure;
+      }
       if (message.type === 'system' && message.subtype === 'init') {
         apiKeySource = message.apiKeySource;
         model = message.model;
@@ -157,6 +165,8 @@ export function agentModels(rows: readonly ModelInfo[]): AgentModel[] {
 function classify(raw: string): ConnectionStatus {
   const text = raw.toLowerCase();
   const base = { apiKeySource: null, model: null };
+  if (/billing|credit balance|account.*hold|verification required/i.test(raw))
+    return { ...base, state: 'error', message: terminalApiFailure(raw) ?? raw };
 
   const missingCredential =
     /\b(401|403)\b/.test(text) ||
@@ -192,6 +202,24 @@ function classify(raw: string): ConnectionStatus {
     };
   }
   return { ...base, state: 'error', message: raw };
+}
+
+function connectionFailure(message: SDKMessage): ConnectionStatus | null {
+  const error =
+    message.type === 'assistant'
+      ? message.error
+      : message.type === 'system' && message.subtype === 'api_retry'
+        ? message.error
+        : undefined;
+  const status =
+    message.type === 'system' && message.subtype === 'api_retry' ? message.error_status : null;
+  if (!error) return null;
+  const terminal = terminalApiFailure(error, status);
+  if (terminal !== null) return classify(terminal);
+  // A probe confirms availability, so a retry is already an actionable failure.
+  if (message.type === 'system' && message.subtype === 'api_retry')
+    return classify(`Claude is temporarily unavailable (${status ?? error}). Try again shortly.`);
+  return null;
 }
 
 /** `claude-opus-5-5` → "Opus 5.5", `claude-haiku-4-5` → "Haiku 4.5"; anything else as given. */

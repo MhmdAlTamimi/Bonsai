@@ -72,7 +72,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 ### audit-07-a-run-start-to-finish
 
 - [ ] A1: Each run's cost includes every earlier run of its experiment, so Usage is overstated, and more so the more you use it
-- [ ] A2: While Claude Code retries a failing API, Bonsai just shows "working"; a rejected key takes three minutes to fail, and one rate limit stops every experiment until you re-check
+- [x] A2: While Claude Code retries a failing API, Bonsai just shows "working"; a rejected key takes three minutes to fail, and one rate limit stops every experiment until you re-check
 - [x] A3: A request waiting in the queue is lost when Bonsai closes, and after a crash Resume sends the previous request instead
 - [ ] A4: No spending limit, and a run's cost is unknown until it ends — budget limits deferred; missing/incorrect accounting remains in scope
 
@@ -119,8 +119,8 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-14-sign-in-and-settings
 
-- [ ] N1: A wrong or revoked API key is reported as a timeout, "or offline"
-- [ ] N2: Signing in with a subscription needs a second, separately installed Claude Code
+- [x] N1: A wrong or revoked API key is reported as a timeout, "or offline"
+- [x] N2: Signing in with a subscription needs a second, separately installed Claude Code
 - [ ] N3: Edits in Settings are dropped without a word when it closes
 
 ## Additional issues from validation
@@ -143,6 +143,9 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] E14: The second force needed for submodule cleanup must respect Git worktree locks.
 - [x] E15: Removing one missing checkout must not globally prune unrelated missing worktrees.
 - [x] E16: Deleting a project restored from an older database must preserve experiments omitted from that database until explicitly recovered.
+- [x] E17: Subscription mode must not silently inherit an API key from the environment; an empty selected API key must not fall back to subscription credentials.
+- [x] E18: An SDK result with `subtype: success` and `is_error: true` must not finish a run or commit partial work as successful.
+- [x] E19: Git/setup/task errors that mention authentication must not invalidate the Claude connection.
 
 ## Verification log
 
@@ -160,3 +163,5 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - Storage relocation/discovery batch: production build, typecheck/lint/format, all 404 server tests, 120 UI/shared tests and 29 browser tests passed. Tests move and copy managed storage, retain dirty/ignored/index content, restore archived checkouts, refuse an unrelated source repository and resume a durable path move after an injected database failure. The moved-data audit script now asserts successful continuation and uses the explicit Locate repository workflow for the moved external source. Browser coverage exercises that fallback and recovery of missing experiment metadata through Project settings. Git saves from an older database remain explicit import/restore choices; unrecorded experiments are discoverable and recoverable with independent copies. Copying data that shares an external repository while its original checkouts still exist is deliberately refused to avoid displacing the original instance. Stored managed location preferences move with data; external preferences stay explicit.
   Follow-up: all 13 relocation/discovery/deletion regressions pass with a guard against project deletion while unrecorded Git experiments exist. This avoids deleting work that an older database cannot include in its deletion preview.
+
+- Connection/retry batch: production build, typecheck/lint/format, all 413 server tests, 120 UI/shared tests and 30 browser tests passed. Scripted SDK frames verify visible retries, bounded retry count and deadline, immediate terminal classification and `is_error` results. Real SDK reproductions used the verified fake API: credential/account failures finish in seconds, all partial files remain recoverable without a finished commit, and rate/overload failures leave the gate usable. Real connection probes classify 401, billing and 429 in 6.6–7.8 seconds instead of the previous timeout. Browser coverage keeps Stop available during retries. Subscription authentication resolves the installed SDK executable without global CLI discovery; actual account sign-in requires the user's credential. Environment canaries verify auth-mode precedence and preservation of the fake API URL. A real job-pipeline regression proves ordinary failures cannot change the Claude gate.
