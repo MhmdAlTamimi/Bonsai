@@ -80,6 +80,15 @@ describe('hidden refs', () => {
   const child = (projectId: string, parentId: string) =>
     createAllocatedChild(store, { projectId, parentId, displayName: 'child', description: '' });
 
+  test('a new project has a stored empty tree and survives Git integrity checks', async () => {
+    const project = await created();
+    const repo = store.getProject(project.projectId)!.repo_path;
+    await git(['fsck', '--full', '--no-dangling'], repo);
+    await cleanUp(repo);
+    await git(['fsck', '--full', '--no-dangling'], repo);
+    await child(project.projectId, project.masterNodeId);
+  });
+
   /** Everything git would remove on its own, removed now. */
   async function cleanUp(repo: string): Promise<void> {
     await git(['reflog', 'expire', '--expire-unreachable=now', '--all'], repo);

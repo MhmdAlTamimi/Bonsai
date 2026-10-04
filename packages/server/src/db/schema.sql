@@ -242,6 +242,8 @@ CREATE TABLE IF NOT EXISTS question (
 );
 
 CREATE INDEX IF NOT EXISTS question_node_idx ON question(node_id);
+CREATE INDEX IF NOT EXISTS question_run_idx ON question(run_id);
+CREATE INDEX IF NOT EXISTS message_run_idx ON message(run_id);
 
 -- References: text written on purpose for a project -- a test procedure, a
 -- result another experiment should start from -- that any experiment can be
@@ -263,6 +265,7 @@ CREATE TABLE IF NOT EXISTS reference (
 -- `@name` has to mean one thing.
 CREATE UNIQUE INDEX IF NOT EXISTS reference_name_idx
   ON reference(project_id, name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS reference_source_node_idx ON reference(source_node_id);
 
 -- A comparison: 2-4 experiments read side by side by an agent that can only
 -- read. Kept per project so it can be reopened; never on the tree.
@@ -316,3 +319,5 @@ CREATE TABLE IF NOT EXISTS comparison_message (
   created_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS comparison_message_idx ON comparison_message(comparison_id, seq);
+CREATE INDEX IF NOT EXISTS comparison_message_turn_idx ON comparison_message(turn_id);
+CREATE INDEX IF NOT EXISTS comparison_experiment_node_idx ON comparison_experiment(node_id);

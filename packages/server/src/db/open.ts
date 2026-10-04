@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,36 +23,54 @@ export function openDatabase(dataDir: string): DatabaseSync {
 
   const db = new DatabaseSync(file);
 
-  // schema.sql is CREATE TABLE IF NOT EXISTS throughout, so it is safe on an
-  // existing database and creates a complete one from nothing.
-  db.exec(readFileSync(join(HERE, 'schema.sql'), 'utf8'));
-
-  const from = currentVersion(db);
-
-  if (!existed || from === 0) {
-    // A database created from the current schema.sql already has every column,
-    // so it starts at the latest version rather than replaying migrations.
-    db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
-      String(LATEST_VERSION),
-    );
-    return db;
-  }
-
-  if (from < LATEST_VERSION) {
-    const backup = `${file}.v${from}.backup`;
-    try {
-      copyFileSync(file, backup);
-      process.stdout.write(`[bonsai] backed up the database to ${backup}\n`);
-    } catch (err) {
-      throw new Error(
-        `refusing to migrate without a backup: ${err instanceof Error ? err.message : String(err)}`,
-      );
+  try {
+    // Inspect and back up the original database before even adding current tables.
+    const hasMeta = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
+      .get();
+    const originalVersion = hasMeta ? currentVersion(db) : 0;
+    if (originalVersion > LATEST_VERSION) {
+      runMigrations(db); // Raises DatabaseTooNewError without writing anything.
     }
-  }
+    if (existed && originalVersion > 0 && originalVersion < LATEST_VERSION) {
+      const preferred = `${file}.v${originalVersion}.backup`;
+      const backup = existsSync(preferred) ? `${preferred}.${randomUUID()}.backup` : preferred;
+      const temporary = `${backup}.tmp`;
+      try {
+        db.prepare('VACUUM INTO ?').run(temporary);
+        renameSync(temporary, backup);
+        process.stdout.write(`[bonsai] backed up the database to ${backup}\n`);
+      } catch (err) {
+        throw new Error(
+          `refusing to migrate without a backup: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        rmSync(temporary, { force: true });
+      }
+    }
 
-  const result = runMigrations(db);
-  for (const step of result.applied) process.stdout.write(`[bonsai] migrated — ${step}\n`);
-  return db;
+    // schema.sql is CREATE TABLE IF NOT EXISTS throughout, so it is safe on an
+    // existing database and creates a complete one from nothing.
+    db.exec(readFileSync(join(HERE, 'schema.sql'), 'utf8'));
+
+    const from = currentVersion(db);
+
+    if (!existed || from === 0) {
+      // A database created from the current schema.sql already has every column,
+      // so it starts at the latest version rather than replaying migrations.
+      db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
+        String(LATEST_VERSION),
+      );
+      return db;
+    }
+
+    const result = runMigrations(db);
+    for (const step of result.applied) process.stdout.write(`[bonsai] migrated — ${step}\n`);
+    return db;
+  } catch (error) {
+    db.close();
+    throw error;
+  }
 }
 
 export function openInMemory(): DatabaseSync {

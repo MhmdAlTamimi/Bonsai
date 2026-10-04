@@ -1,7 +1,8 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -91,6 +92,44 @@ describe('schema migrations', () => {
     assert.equal(row.cost, 0.5);
     assert.ok(existsSync(`${file}.v1.backup`), 'a backup must be written before migrating');
     db.close();
+  });
+
+  test('pre-upgrade backup includes uncheckpointed WAL and never overwrites an earlier backup', () => {
+    const openUrl = new URL('./open.js', import.meta.url).href;
+    const script = `import { openDatabase } from ${JSON.stringify(openUrl)};
+      const db = openDatabase(${JSON.stringify(dir)});
+      db.exec("PRAGMA wal_autocheckpoint = 0; CREATE TABLE canary (value TEXT); INSERT INTO canary VALUES ('must survive');");
+      db.prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'").run(${JSON.stringify(String(LATEST_VERSION - 1))});
+      process.exit(0);`;
+    assert.equal(
+      spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', script]).status,
+      0,
+    );
+    const db = openDatabase(dir);
+    db.close();
+    const original = join(dir, `bonsai.db.v${LATEST_VERSION - 1}.backup`);
+    const backup = new DatabaseSync(original, { readOnly: true });
+    assert.deepEqual(
+      backup
+        .prepare('SELECT value FROM canary')
+        .all()
+        .map((row) => row['value']),
+      ['must survive'],
+    );
+    assert.equal(currentVersion(backup), LATEST_VERSION - 1);
+    backup.close();
+    // Another upgrade attempt leaves the earlier recovery point intact.
+    const retry = new DatabaseSync(join(dir, 'bonsai.db'));
+    retry
+      .prepare("UPDATE meta SET value = ? WHERE key = 'schema_version'")
+      .run(String(LATEST_VERSION - 1));
+    retry.exec("INSERT INTO canary VALUES ('later')");
+    retry.close();
+    openDatabase(dir).close();
+    assert.equal(readdirSync(dir).filter((name) => name.endsWith('.backup')).length, 2);
+    const retained = new DatabaseSync(original, { readOnly: true });
+    assert.equal(retained.prepare('SELECT COUNT(*) AS n FROM canary').get()?.['n'], 1);
+    retained.close();
   });
 
   test('runs that ended before end reasons existed are given one', () => {

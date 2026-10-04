@@ -7,6 +7,7 @@
  * (what `npm start` twice does), then C on the same folder and another port,
  * and prints what each did to A's run. Uses a temporary data folder.
  */
+import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -89,20 +90,24 @@ try {
   console.log(`2. B, same folder and port: ${crash}`);
   console.log("   A's run is now recorded as:", JSON.stringify(recorded(nodeId)));
 
+  assert.equal(B.child.exitCode, 0, 'duplicate instance exits cleanly');
+  assert.match(B.output.join(''), /already running/);
+  assert.equal(recorded(nodeId).runs[0].status, 'running');
   const C = start(Q);
   others.push(C);
-  await ready(`http://127.0.0.1:${Q}`);
-  const second = await api(`http://127.0.0.1:${Q}`, 'POST', `/api/nodes/${nodeId}/runs`, {
-    prompt: 'a second run on the same experiment',
-  });
-  console.log(
-    `3. C, same folder, another port, starts a run on it while A still runs it: HTTP ${second.status}`,
-  );
+  const deadline = Date.now() + 10000;
+  while (C.child.exitCode === null && Date.now() < deadline) await delay(50);
+  assert.equal(C.child.exitCode, 0, 'another port cannot bypass the data-folder lock');
+  assert.match(C.output.join(''), /already running/);
+  assert.equal(recorded(nodeId).runs.length, 1);
+  assert.equal(recorded(nodeId).runs[0].status, 'running');
+  console.log('3. Same-port and different-port duplicates refused; the original run is untouched.');
 
   for (let i = 0; i < 60 && recorded(nodeId).runs.some((r) => r.status === 'running'); i++)
     await delay(1000);
   await delay(1500);
-  console.log('4. When both have finished:', JSON.stringify(recorded(nodeId), null, 2));
+  assert.equal(recorded(nodeId).runs[0].status, 'done');
+  console.log('4. The original run finished:', JSON.stringify(recorded(nodeId), null, 2));
 } finally {
   for (const copy of [A, ...others]) copy.child.kill('SIGKILL');
   await delay(500);

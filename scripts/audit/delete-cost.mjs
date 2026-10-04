@@ -24,6 +24,7 @@ function build(withIndex) {
   const dir = mkdtempSync(join(tmpdir(), 'bonsai-delete-'));
   const db = openDatabase(dir);
   if (withIndex) db.exec('CREATE INDEX IF NOT EXISTS message_run_idx ON message(run_id)');
+  else db.exec('DROP INDEX IF EXISTS message_run_idx');
   const now = new Date().toISOString();
   const project = randomUUID();
   const root = randomUUID();

@@ -18,8 +18,20 @@ import { ClaudeSdkRunner } from './agent/ClaudeSdkRunner.js';
 import { Settings } from './settings.js';
 import { Connection } from './api/connectionGate.js';
 import { FileLogger } from './log.js';
+import { acquireInstanceLock, AlreadyRunningError } from './instanceLock.js';
 
 const config = loadConfig();
+let releaseInstance: () => void;
+try {
+  releaseInstance = acquireInstanceLock(config.dataDir, config.port);
+} catch (error) {
+  if (error instanceof AlreadyRunningError) {
+    process.stdout.write(`[bonsai] ${error.message}\n`);
+    if (error.url !== null && process.argv.includes('--open')) openInBrowser(error.url);
+    process.exit(0);
+  }
+  throw error;
+}
 const log = new FileLogger(config.dataDir);
 const db = openDatabase(config.dataDir);
 const settings = new Settings(config);
@@ -163,6 +175,14 @@ server.listen(config.port, '127.0.0.1', () => {
   process.stdout.write(`[bonsai] ${url}  (data: ${config.dataDir})\n`);
   if (process.argv.includes('--open')) openInBrowser(url);
 });
+server.on('error', (error: NodeJS.ErrnoException) => {
+  process.stderr.write(
+    error.code === 'EADDRINUSE'
+      ? `[bonsai] Port ${config.port} is in use. Set BONSAI_PORT to another port.\n`
+      : `[bonsai] Could not start: ${error.message}\n`,
+  );
+  shutdown(1);
+});
 
 /** `npm start` should end with Bonsai on screen, not with a URL to copy. */
 function openInBrowser(url: string): void {
@@ -181,18 +201,30 @@ function openInBrowser(url: string): void {
   }
 }
 
-const shutdown = (): void => {
+let closing = false;
+const shutdown = (exitCode = 0): void => {
+  if (closing) process.exit(exitCode);
+  closing = true;
   archiver.stop();
   bus.closeAll();
-  server.close(() => {
-    // Let cancelled runs unwind before the database goes away, or their final
-    // writes throw into a promise nobody is awaiting. D31 then picks up
-    // anything still marked `running` on the next start.
-    void Promise.all([jobs.drain(3000), comparisons.drain(3000)]).finally(() => {
-      db.close();
-      process.exit(0);
-    });
+  // Cancellation starts now, not after a slow/incomplete HTTP request drains.
+  const deadline = setTimeout(() => process.exit(exitCode), 4000);
+  deadline.unref();
+  server.close();
+  server.closeAllConnections();
+  void Promise.all([jobs.drain(3000), comparisons.drain(3000)]).finally(() => {
+    db.close();
+    releaseInstance();
+    process.exit(exitCode);
   });
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => shutdown());
+process.on('SIGTERM', () => shutdown());
+const fatal = (error: unknown): void => {
+  log.error('app.fatal', {
+    error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+  });
+  shutdown(1);
+};
+process.on('uncaughtException', fatal);
+process.on('unhandledRejection', fatal);

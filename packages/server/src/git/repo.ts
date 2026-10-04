@@ -1,5 +1,5 @@
 import { mkdir } from 'node:fs/promises';
-import { git, gitLine } from './exec.js';
+import { git, gitInput, gitLine } from './exec.js';
 
 export const DEFAULT_BRANCH = 'master';
 
@@ -31,10 +31,9 @@ export async function createRepo(repoPath: string): Promise<{ rootCommit: string
 
   // The empty tree, via plumbing -- there is no working copy to commit from.
   //
-  // Its hash is a constant of git's object format, not something to compute:
-  // the previous `hash-object -t tree /dev/null` needed a path that does not
-  // exist on Windows, so project creation failed there outright.
-  const emptyTree = EMPTY_TREE_SHA;
+  // Store the object as well as computing its id. Empty stdin is portable,
+  // unlike /dev/null, and supports the repository's configured object format.
+  const emptyTree = (await gitInput(['mktree'], repoPath, '')).trim();
   const rootCommit = await gitLine(
     ['commit-tree', emptyTree, '-m', 'Initialise project'],
     repoPath,
