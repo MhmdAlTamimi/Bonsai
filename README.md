@@ -217,6 +217,22 @@ Existing projects retain their recorded repository/worktree paths when defaults 
 | `BONSAI_CHROME` | Browser executable for the browser test harness |
 
 The server prints its data location on startup. Use Settings to change preferences.
+Settings → Storage → **Make backup** creates a verified, independent data folder under
+`<data dir>/backups/`. Finish or stop active jobs first; mutations pause while copying.
+The backup includes the database, Git objects/history, working and staged files, ignored
+files, comparison snapshots and preserved recovery/export folders. External source folders
+are copied privately; the originals are untouched. Authentication credentials and Git
+remote/credential configuration are excluded. Copy the completed folder to another disk.
+
+To restore, close Bonsai, preserve the current data folder, then copy the **whole completed
+backup folder** into the chosen data location (or set `BONSAI_DATA_DIR` to it). Start Bonsai
+and sign in again. Owned checkout paths are repaired on startup. A backup whose
+`backup.json` has `complete: false` is incomplete; retry the backup. Do not use a live
+filesystem copy of the database and repositories as a consistent backup. If Git or an
+outside editor changes files during the verified copy, Bonsai refuses to mark it complete.
+Repositories borrowing objects through Git alternates require an independent repository
+first; unavailable local submodule code must be initialized before backup.
+
 To reset only app preferences, stop Bonsai and back up/rename `settings.json` in that
 location; this also removes the saved API key/default locations from the active settings.
 It does not reset project settings stored in SQLite. Preserve the database, repositories

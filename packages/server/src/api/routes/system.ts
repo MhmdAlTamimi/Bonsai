@@ -11,6 +11,7 @@ import { storageUse } from '../../archive.js';
 import { bundledClaudeCodeVersion } from '../../agent/claudeCode.js';
 import { route } from '../routing.js';
 import { canonicalPath, samePath } from '../../paths.js';
+import { makeBackup } from '../../storage/backup.js';
 
 /** Connection, settings, diagnostics and the local filesystem. */
 
@@ -162,6 +163,11 @@ route('GET', '/api/diagnostics', (req, res, _p, { store, settings, connection, j
 /** What experiment folders take up on disk. Walks them, so it is asked for, not pushed. */
 route('GET', '/api/storage', async (_req, res, _p, { store }) => {
   sendJson(res, 200, await storageUse(store));
+});
+
+route('POST', '/api/backup', async (_req, res, _p, { store, settings, jobs }) => {
+  const backup = await jobs.pool.exclusivelyWhenIdle(() => makeBackup(store, settings));
+  sendJson(res, 201, backup);
 });
 
 route('GET', '/api/settings', (_req, res, _p, { settings }) => {

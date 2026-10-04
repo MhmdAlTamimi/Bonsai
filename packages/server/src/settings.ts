@@ -173,6 +173,11 @@ export class Settings {
     };
   }
 
+  /** Backups contain preferences, never Claude authentication credentials. */
+  backupPreferences(reposRoot: string): string {
+    return JSON.stringify({ ...this.current, apiKey: null, reposRoot }, null, 2) + '\n';
+  }
+
   update(patch: UpdateSettingsRequest): SettingsView {
     const next = { ...this.current };
     if (patch.authMode !== undefined) next.authMode = patch.authMode;

@@ -221,6 +221,8 @@ function Storage({
   const [days, setDays] = useState(settings.archiveAfterDays ?? ARCHIVE_AFTER_DAYS.default);
   const [use, setUse] = useState<StorageView | null>(null);
   const [useError, setUseError] = useState<string | null>(null);
+  const [backupPath, setBackupPath] = useState<string | null>(null);
+  const backup = useSave();
   const save = useSave();
   useEffect(() => {
     let alive = true;
@@ -244,6 +246,31 @@ function Storage({
           ? (useError ?? 'Measuring experiment folders')
           : `${plural(use.folders, 'experiment folder')} on disk, ${bytes(use.bytes)} in all. ${plural(use.archived, 'experiment')} archived.`}
       </p>
+      <p className="hint">
+        Make a verified backup of conversations, Git history, experiment files and comparisons.
+        Finish or stop active jobs first. Bonsai pauses changes while copying. Claude sign-in and
+        API keys are excluded; project files, including ignored files, are included.
+      </p>
+      <div className="save-row">
+        <button
+          disabled={backup.busy}
+          onClick={() =>
+            void backup.run(async () => {
+              setBackupPath(null);
+              setBackupPath((await api.backup()).path);
+            })
+          }
+        >
+          {backup.busy ? 'Making backup…' : 'Make backup'}
+        </button>
+        <SaveFeedback {...backup} />
+      </div>
+      {backupPath !== null && (
+        <p className="hint" role="status">
+          Backup verified: <code>{backupPath}</code>. Close Bonsai before restoring it as your data
+          folder, then sign in again. Copy it to another drive for protection against disk failure.
+        </p>
+      )}
       <label className="check">
         <input
           type="checkbox"

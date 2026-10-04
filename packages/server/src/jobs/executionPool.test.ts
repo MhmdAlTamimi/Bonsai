@@ -200,6 +200,7 @@ test('runs, comparisons and drafts share a single FIFO bound through the HTTP AP
     pool.exclusivelyWhenIdle(() => Promise.resolve()),
     /must be idle/,
   );
+  assert.equal((await post('/api/backup', {})).status, 409);
   runner.release('run');
   await until(() => runner.started.length === 2);
   assert.deepEqual(runner.started, ['run', 'comparison']);

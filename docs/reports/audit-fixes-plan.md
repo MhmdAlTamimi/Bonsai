@@ -64,7 +64,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 ### audit-06-backups-export-moving
 
 - [x] B1: Moving the data folder breaks every project, and says your code is gone
-- [ ] B2: A backup taken while Bonsai runs gives back broken experiments, and Bonsai offers no safe one
+- [x] B2: A backup taken while Bonsai runs gives back broken experiments, and Bonsai offers no safe one
 - [x] B3: Putting back an older database leaves stuck experiments and leftovers nobody can see
 - [ ] B4: An experiment's conversation lives in Claude Code's folder, where it is not backed up, not moved, and deleted after 30 days
 - [x] B5: A missing folder is reported as an empty git error
@@ -147,6 +147,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] E18: An SDK result with `subtype: success` and `is_error: true` must not finish a run or commit partial work as successful.
 - [x] E19: Git/setup/task errors that mention authentication must not invalidate the Claude connection.
 - [x] E20: Deleting a comparison removes its files and rows before its active answer has unwound.
+- [x] E21: Moving storage repairs top-level worktrees but leaves initialized submodules pointing at the old Git data.
 
 ## Verification log
 
@@ -168,3 +169,5 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - Connection/retry batch: production build, typecheck/lint/format, all 413 server tests, 120 UI/shared tests and 30 browser tests passed. Scripted SDK frames verify visible retries, bounded retry count and deadline, immediate terminal classification and `is_error` results. Real SDK reproductions used the verified fake API: credential/account failures finish in seconds, all partial files remain recoverable without a finished commit, and rate/overload failures leave the gate usable. Real connection probes classify 401, billing and 429 in 6.6–7.8 seconds instead of the previous timeout. Browser coverage keeps Stop available during retries. Subscription authentication resolves the installed SDK executable without global CLI discovery; actual account sign-in requires the user's credential. Environment canaries verify auth-mode precedence and preservation of the fake API URL. A real job-pipeline regression proves ordinary failures cannot change the Claude gate.
 
 - Shared scheduler batch: production build, typecheck/lint/format, all 417 server tests, 120 UI/shared tests and 30 browser tests passed. Real HTTP/Git/SQLite tests interleave runs, comparisons and drafts at a limit of one, verify FIFO ordering and a peak of one process, and cancel queued work during project deletion. Delayed comparison cleanup writes successfully before either project or comparison deletion removes its rows/files. An idle maintenance gate refuses API/filesystem mutations and releases after an injected failure. Browser coverage verifies a queued experiment explains that another job needs an answer. Question/background jobs intentionally retain slots while their processes remain live; Stop or answering the question is the explicit way to free capacity. Shutdown drains the same shared pool.
+
+- Verified backup batch: production build, typecheck/lint/format, all 421 server tests, 120 UI/shared tests and 31 browser tests passed. Settings offers an explicit idle-only backup that snapshots WAL safely, copies working/index/ignored files and comparison/recovery/export data, makes external Git repositories independent, and verifies Git/SQLite integrity. Actual source-byte checks refuse completion after an injected outside edit. Restore tests remove the originals and move the backup: custom storage, two projects sharing a source, staged-only content, archived allocation and initialized submodules all work; a restored backup can itself be backed up. Submodule caches retain the Git objects needed for later checkouts after the original module repository is gone. The stand-in end-to-end reproduction resumes all four experiments after deleting both original data and external sources. Browser coverage refuses active work and completes after Stop; its temporary project is removed so later fixtures remain independent. Credentials and Git credential/remote configuration are excluded. A live OS-level copy remains unsafe; incomplete or externally dependent copies are explicitly refused. SDK session ownership/retention is addressed separately by B4.

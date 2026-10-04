@@ -118,6 +118,7 @@ export const api = {
       body: JSON.stringify({ removeIgnored }),
     }),
   storage: () => json<StorageView>('/api/storage'),
+  backup: () => json<{ path: string; createdAt: string }>('/api/backup', { method: 'POST' }),
 
   reveal: (path: string) =>
     json<{ ok: true }>('/api/reveal', { method: 'POST', body: JSON.stringify({ path }) }),

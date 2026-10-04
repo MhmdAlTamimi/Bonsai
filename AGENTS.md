@@ -87,6 +87,12 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   action verifies saved project refs and recorded commits. Do not displace a still-existing
   checkout from another copy of Bonsai. Project settings can recover experiments omitted from
   an older database; project deletion refuses unrecorded Git work until it is recovered.
+  Nested initialized submodules need their Git pointers repaired too. Verified backups run
+  inside the execution pool's idle gate and produce an independent data folder, including
+  external Git objects, staged/working/ignored files and comparison/recovery copies. Snapshot
+  WAL through SQLite; verify Git/SQLite and refuse completion if source bytes changed. Never
+  copy authentication settings or arbitrary Git credential/remote/hook configuration. Backup
+  submodule caches use relative owned paths and survive archiving their original checkout.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain
   host access. The Git command hook is a cooperative guard, not arbitrary-code containment.
   Scoped external approval is future work, not an existing guarantee.

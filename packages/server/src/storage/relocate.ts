@@ -9,6 +9,7 @@ import { OperationConflict } from '../domain/errors.js';
 import { git, gitLine } from '../git/exec.js';
 import { commitExists } from '../git/repo.js';
 import { nodeRef, projectRefs, tipOf } from '../git/refs.js';
+import { relocateSubmodules } from '../git/submodules.js';
 
 interface Move {
   projectId: string;
@@ -84,9 +85,25 @@ async function applyMove(store: Store, move: Move): Promise<void> {
       );
     repair.push(path);
   }
+  // A backup's private copy-in source is owned; the user's original source never is.
+  if (store.metadata(`backup_source:${project.id}`) === 'true' && project.source_path !== null) {
+    const path = map(project.source_path);
+    if (existsSync(path) && !repair.includes(path)) {
+      const marker = await readFile(join(path, '.git'), 'utf8').catch(() => '');
+      if (marker.startsWith('gitdir: ')) {
+        const admin = resolve(path, marker.slice(8).trim());
+        if (![oldCommon, common].some((root) => isInside(join(root, 'worktrees'), admin)))
+          throw new OperationConflict(
+            'The backup source belongs to another repository. Its files were preserved.',
+          );
+        repair.push(path);
+      }
+    }
+  }
   // This explicit/verified choice survives a crash during Git's repair operation.
   store.setMetadata(`relocation:${project.id}`, JSON.stringify(move));
   if (repair.length > 0) await git(['worktree', 'repair', ...repair], repo);
+  for (const path of repair) await relocateSubmodules(path, map, oldCommon, common);
   store.remapProjectPaths(project.id, map);
 }
 

@@ -117,13 +117,12 @@ await recoverDeletions(store, log);
 
 // Experiments made before hidden refs existed get theirs now, so git keeps
 // their code even while they have no folder (see git/refs.ts).
-void pinExistingNodes(store, log)
-  .then((pinned) => {
-    if (pinned > 0) log.info('node.pinned', { pinned });
-  })
-  .catch((error: unknown) => {
-    log.warn('node.pin_failed', { error: error instanceof Error ? error.message : String(error) });
-  });
+try {
+  const pinned = await pinExistingNodes(store, log);
+  if (pinned > 0) log.info('node.pinned', { pinned });
+} catch (error) {
+  log.warn('node.pin_failed', { error: error instanceof Error ? error.message : String(error) });
+}
 
 const UI_DIST = resolve(fileURLToPath(new URL('../../ui/dist', import.meta.url)));
 

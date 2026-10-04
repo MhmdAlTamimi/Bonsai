@@ -2,7 +2,7 @@ import { git } from './git/exec.js';
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, rename, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -256,6 +256,61 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       throw err;
     }
   });
+  test('a backup clearly refuses active work and succeeds after Stop', async () => {
+    const previousUrl = (await session.eval('location.href')) as string;
+    const project = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'backup controls',
+          description: '',
+          permissionMode: 'default',
+        }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    try {
+      await fetch(`${BASE}/api/nodes/${project.masterNodeId}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: 'permission fixture' }),
+      });
+      await session.goto(`${BASE}/?project=${project.projectId}&node=${project.masterNodeId}`);
+      await session.waitFor("!!document.querySelector('.ask input')");
+      await session.click('.settings-button');
+      await session.eval(
+        "Array.from(document.querySelectorAll('.settings-storage button')).find(b => b.textContent === 'Make backup').click()",
+      );
+      await session.waitFor(
+        "document.querySelector('.settings-storage .save-feedback.error')?.textContent.includes('must be idle')",
+      );
+      await fetch(`${BASE}/api/nodes/${project.masterNodeId}/cancel`, { method: 'POST' });
+      await session.waitFor(
+        `(async () => !['running', 'needs_you'].includes((await (await fetch('/api/nodes/${project.masterNodeId}')).json()).node.status))()`,
+      );
+      await session.eval(
+        "Array.from(document.querySelectorAll('.settings-storage button')).find(b => b.textContent === 'Make backup').click()",
+      );
+      await session.waitFor(
+        "document.querySelector('.settings-storage')?.textContent.includes('Backup verified:')",
+      );
+      const path = (await session.eval(
+        "document.querySelector('.settings-storage code').textContent",
+      )) as string;
+      const manifest = JSON.parse(await readFile(join(path, 'backup.json'), 'utf8')) as {
+        complete: boolean;
+      };
+      assert.equal(manifest.complete, true);
+      await session.click('dialog.settings-dialog .dialog-close');
+    } finally {
+      const deleted = await fetch(`${BASE}/api/projects/${project.projectId}`, {
+        method: 'DELETE',
+      });
+      assert.equal(deleted.status, 200);
+      await session.goto(previousUrl);
+    }
+  });
+
   test('draft ownership and failed node loads survive selection and delayed acknowledgments', async () => {
     await session.eval(`(async () => {
       const p = (await (await fetch('/api/projects')).json())[0];

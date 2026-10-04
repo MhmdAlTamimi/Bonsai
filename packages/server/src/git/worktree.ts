@@ -2,6 +2,7 @@ import { lstat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { OperationConflict } from '../domain/errors.js';
 import { git, gitLine, GitError } from './exec.js';
+import { initialiseSubmodules } from './submodules.js';
 
 /**
  * Worktrees separate checkouts, not host permissions. One shared object store, one
@@ -43,18 +44,6 @@ async function finishNewWorktree(repo: string, path: string): Promise<void> {
       );
     }
     throw error;
-  }
-}
-
-async function initialiseSubmodules(path: string): Promise<void> {
-  const modules = await git(['ls-files', '--stage', '--', '.gitmodules'], path);
-  if (modules.trim() === '') return;
-  try {
-    await git(['submodule', 'update', '--init', '--recursive'], path);
-  } catch (error) {
-    throw new Error(
-      `Could not initialise this experiment’s submodules. Check their repository access and try again. ${String(error)}`,
-    );
   }
 }
 

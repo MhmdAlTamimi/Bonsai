@@ -106,6 +106,11 @@ export class Store {
     else this.db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, value);
   }
 
+  /** Includes committed WAL pages; callers must exclude concurrent filesystem writers. */
+  snapshotDatabase(file: string): void {
+    this.db.prepare('VACUUM INTO ?').run(file);
+  }
+
   /** One relocation updates owned paths and durable recovery records together. */
   remapProjectPaths(projectId: string, map: (path: string) => string): void {
     const project = this.getProject(projectId)!;
