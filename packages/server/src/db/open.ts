@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { LATEST_VERSION, currentVersion, runMigrations } from './migrations.js';
+import { installUsageTriggers } from './usageStore.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -61,10 +62,12 @@ export function openDatabase(dataDir: string): DatabaseSync {
       db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
         String(LATEST_VERSION),
       );
+      installUsageTriggers(db);
       return db;
     }
 
     const result = runMigrations(db);
+    installUsageTriggers(db);
     for (const step of result.applied) process.stdout.write(`[bonsai] migrated — ${step}\n`);
     return db;
   } catch (error) {
@@ -79,5 +82,6 @@ export function openInMemory(): DatabaseSync {
   db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)`).run(
     String(LATEST_VERSION),
   );
+  installUsageTriggers(db);
   return db;
 }

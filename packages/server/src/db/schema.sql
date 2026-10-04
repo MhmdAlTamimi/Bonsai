@@ -153,6 +153,7 @@ CREATE TABLE IF NOT EXISTS run (
   -- billing statement. On a subscription login nothing is billed per token at
   -- all, so this says what the tokens would have cost through the API.
   cost          REAL NOT NULL DEFAULT 0,
+  usage_status  TEXT NOT NULL DEFAULT 'unknown',
   -- Which model actually ran. Not knowing this made "why did that cost so
   -- much?" unanswerable, since Bonsai sets no model and inherits the SDK's
   -- default unless a project or node overrides it (D32).
@@ -318,6 +319,7 @@ CREATE TABLE IF NOT EXISTS comparison_turn (
   started_at     TEXT NOT NULL,
   ended_at       TEXT,
   cost_usd       REAL NOT NULL DEFAULT 0,
+  usage_json     TEXT,
   model          TEXT,
   error          TEXT,
   -- The references attached to the question, as it received them (RunReferenceView[]).
@@ -398,3 +400,18 @@ CREATE TRIGGER IF NOT EXISTS node_conversation_metadata_delete AFTER DELETE ON n
 BEGIN
   DELETE FROM meta WHERE key IN ('conversation_seed:' || OLD.id, 'session_boundary:' || OLD.id);
 END;
+
+-- Financial summaries outlive deleted experiments/comparisons. No conversation,
+-- credentials or prompts belong here; deleting the project removes its ledger.
+CREATE TABLE IF NOT EXISTS usage_entry (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN ('experiment', 'comparison', 'draft')),
+  owner_id TEXT NOT NULL,
+  owner_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  cost REAL,
+  metrics_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_project_idx ON usage_entry(project_id, kind, owner_id);

@@ -172,6 +172,11 @@ Connect through the app using a Claude subscription or an API key. Subscription 
 uses Claude's local authentication; API keys are stored in the local settings file with
 restricted permissions and are not returned to the browser. Connection checks make a real
 request. Real runs may incur usage charges; review the usage view and your provider's billing.
+Usage records per-request API-equivalent estimates for experiments, comparisons and reference
+drafts. Subscription estimates represent token value, not additional subscription charges.
+Reported turns survive restarts, and deleting an experiment or comparison retains its usage
+summary. Missing reports stay unrecorded; older estimates that may count earlier turns again
+stay marked unverified and are excluded from corrected totals. Spending caps are deferred.
 Saved projects and conversations remain reviewable without an active connection; actions
 that require the agent are gated. Fake-agent mode is explicit and intended for development.
 

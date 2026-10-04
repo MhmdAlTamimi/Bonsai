@@ -122,6 +122,11 @@ class ScriptedSession implements SessionQuery {
     this.notify();
   }
 
+  closeOutput(): void {
+    this.ended = true;
+    this.notify();
+  }
+
   stopTask(taskId: string): Promise<void> {
     this.stopped.push(taskId);
     return Promise.resolve();
@@ -366,6 +371,18 @@ describe('a run and its background work', () => {
       run.events.some((e) => e.type === 'error'),
       false,
     );
+  });
+
+  test('a transport EOF without a completed turn is a failure, including a queued follow-up after a reported turn', async () => {
+    for (const reported of [false, true]) {
+      const run = start();
+      const session = await run.session;
+      if (reported) session.emit(turnOver(0.01, 1));
+      session.emit(say('Unfinished partial output.'));
+      session.closeOutput();
+      await assert.rejects(run.done, /ended before completing this run/);
+      assert.equal(run.events.filter((event) => event.type === 'done').length, reported ? 1 : 0);
+    }
   });
 
   test('Stop stops the jobs first, then ends the session', async () => {

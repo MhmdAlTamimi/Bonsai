@@ -18,6 +18,7 @@ import { MessageStore } from './messageStore.js';
 import { SaveStore } from './saveStore.js';
 import { DeletionStore } from './deletionStore.js';
 import { SdkSessionStore } from './sdkSessionStore.js';
+import { UsageStore } from './usageStore.js';
 import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
 import { ReferenceStore } from './referenceStore.js';
@@ -67,6 +68,7 @@ export class Store {
   readonly saves: SaveStore;
   readonly deletions: DeletionStore;
   readonly sdkSessions: SdkSessionStore;
+  readonly usage: UsageStore;
   readonly checks: CheckStore;
   readonly references: ReferenceStore;
   readonly comparisons: ComparisonStore;
@@ -84,6 +86,7 @@ export class Store {
     this.saves = new SaveStore(db);
     this.deletions = new DeletionStore(db);
     this.sdkSessions = new SdkSessionStore(db);
+    this.usage = new UsageStore(db);
     this.checks = new CheckStore(db);
     this.references = new ReferenceStore(db);
     this.comparisons = new ComparisonStore(db);

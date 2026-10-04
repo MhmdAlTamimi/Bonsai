@@ -90,6 +90,7 @@ export interface RunRequest {
 
 export interface RunTotals {
   cost: number;
+  usageStatus?: 'recorded' | 'unknown' | 'legacy';
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens?: number;

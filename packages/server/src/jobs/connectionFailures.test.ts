@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../db/open.js';
@@ -11,6 +11,8 @@ import { FakeRunner } from '../agent/FakeRunner.js';
 import type { RunEvent, RunSpec } from '../agent/AgentRunner.js';
 import { RunJobs } from './runNode.js';
 import { silentLogger } from '../log.js';
+import { ClaudeSdkRunner } from '../agent/ClaudeSdkRunner.js';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 
 class FailureRunner extends FakeRunner {
   override async *run(spec: RunSpec): AsyncIterable<RunEvent> {
@@ -48,6 +50,63 @@ test('only identified agent API failures change the Claude connection gate', asy
       assert.equal(store.listRuns(child.nodeId).at(-1)?.status, 'failed');
       assert.equal(failures.length, prompt === 'api' ? 1 : 0);
     }
+  } finally {
+    db.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('SDK EOF preserves partial files and fails the actual job without a successful commit or a connection-gate error', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'bonsai-incomplete-sdk-'));
+  const db = openDatabase(dir);
+  try {
+    const store = new Store(db, join(dir, 'repos'));
+    const project = await createProject(store, {
+      name: 'EOF',
+      description: '',
+      model: null,
+      permissionMode: 'acceptEdits',
+    });
+    const child = await createChildNode(store, {
+      projectId: project.projectId,
+      parentId: project.masterNodeId,
+      displayName: 'Partial',
+      description: '',
+    });
+    const runner = new ClaudeSdkRunner(({ options }) => ({
+      stopTask: () => Promise.resolve(),
+      async *[Symbol.asyncIterator]() {
+        await writeFile(join(options.cwd!, 'unfinished.txt'), 'preserve this partial work');
+        yield {
+          type: 'assistant',
+          parent_tool_use_id: null,
+          session_id: 'fixture',
+          uuid: 'fixture',
+          message: { id: 'fixture', content: [{ type: 'text', text: 'Unfinished.' }] },
+        } as unknown as SDKMessage;
+        // Unexpected clean EOF, without an SDK result.
+      },
+    }));
+    const failures: string[] = [];
+    const jobs = new RunJobs(store, new EventBus(), runner, undefined, silentLogger, {
+      recordFailure: (error) => failures.push(error),
+    });
+    jobs.start(child.nodeId, 'write a file');
+    const deadline = Date.now() + 5000;
+    while (jobs.isRunning(child.nodeId) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(jobs.isRunning(child.nodeId), false);
+    const run = store.listRuns(child.nodeId).at(-1)!;
+    assert.equal(run.status, 'failed');
+    assert.match(run.error!, /ended before completing/);
+    assert.equal(run.commitSha, null);
+    assert.equal(run.usageStatus, 'unknown');
+    assert.equal(store.getNode(child.nodeId)!.head_commit, null);
+    assert.equal(
+      await readFile(join(store.getNode(child.nodeId)!.worktree_path, 'unfinished.txt'), 'utf8'),
+      'preserve this partial work',
+    );
+    assert.deepEqual(failures, []);
   } finally {
     db.close();
     await rm(dir, { recursive: true, force: true });

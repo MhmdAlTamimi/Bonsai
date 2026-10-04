@@ -10,7 +10,7 @@ type UsageRun = ProjectUsageView['experiments'][number]['runs'][number];
 const sum = (
   runs: readonly UsageRun[],
   field: 'costUsd' | 'inputTokens' | 'outputTokens' | 'cacheReadTokens' | 'cacheCreationTokens',
-): number => runs.reduce((n, run) => n + run[field], 0);
+): number => runs.reduce((n, run) => n + (run.usageStatus === 'recorded' ? run[field] : 0), 0);
 const money = (value: number): string => `$${value.toFixed(3)}`;
 export function UsageDialog({
   projectId,
@@ -51,7 +51,26 @@ export function UsageDialog({
       alive = false;
     };
   }, [projectId, revision, retry]);
-  const runs = data?.experiments.flatMap((experiment) => experiment.runs) ?? [];
+  const groups = data
+    ? [
+        ...data.experiments.map((group) => ({ ...group, kind: 'Experiment' })),
+        ...data.comparisons.map((group) => ({ ...group, kind: 'Comparison' })),
+        ...(data.drafts.length
+          ? [
+              {
+                id: 'drafts',
+                name: 'Reference drafts',
+                kind: 'Draft',
+                deleted: false,
+                runs: data.drafts,
+              },
+            ]
+          : []),
+      ]
+    : [];
+  const runs = groups.flatMap((group) => group.runs);
+  const unknown = runs.filter((run) => run.usageStatus === 'unknown').length;
+  const legacy = runs.filter((run) => run.usageStatus === 'legacy').length;
   return (
     <Dialog title="Agent usage" className="wide usage-dialog" onClose={onClose}>
       <DialogHeader
@@ -78,11 +97,11 @@ export function UsageDialog({
         <>
           <div className="usage-totals">
             <div>
-              <span>Estimated value</span>
+              <span>Recorded estimates</span>
               <strong>{money(sum(runs, 'costUsd'))}</strong>
             </div>
             <div>
-              <span>Runs recorded</span>
+              <span>Requests recorded</span>
               <strong>{runs.length}</strong>
             </div>
             <div>
@@ -102,24 +121,41 @@ export function UsageDialog({
               <strong>{sum(runs, 'cacheCreationTokens').toLocaleString()}</strong>
             </div>
           </div>
-          {runs.length === 0 && <p>No runs recorded yet.</p>}
-          {data.experiments.map((experiment) => (
+          {unknown > 0 && (
+            <p className="hint">
+              {plural(unknown, 'request')} without a usage report; totals are incomplete.
+            </p>
+          )}
+          {legacy > 0 && (
+            <p className="hint">
+              {plural(legacy, 'older estimate')} may include earlier turns. Shown as unverified and
+              excluded from totals.
+            </p>
+          )}
+          {runs.length === 0 && <p>No requests recorded yet.</p>}
+          {groups.map((experiment) => (
             <details className="usage-experiment" key={experiment.id}>
               <summary>
-                <span>{experiment.name}</span>
                 <span>
-                  {plural(experiment.runs.length, 'run')} · {money(sum(experiment.runs, 'costUsd'))}
+                  {experiment.kind} · {experiment.name}
+                  {experiment.deleted ? ' · Deleted' : ''}
+                </span>
+                <span>
+                  {plural(experiment.runs.length, 'request')} ·{' '}
+                  {money(sum(experiment.runs, 'costUsd'))}
                 </span>
               </summary>
-              <button
-                className="linkish"
-                onClick={() => {
-                  onSelect(experiment.id);
-                  onClose();
-                }}
-              >
-                View experiment
-              </button>
+              {experiment.kind === 'Experiment' && !experiment.deleted && (
+                <button
+                  className="linkish"
+                  onClick={() => {
+                    onSelect(experiment.id);
+                    onClose();
+                  }}
+                >
+                  View experiment
+                </button>
+              )}
               {experiment.runs.length === 0 ? (
                 <p className="hint">No runs yet.</p>
               ) : (
@@ -151,9 +187,17 @@ export function UsageDialog({
                             </small>
                           </td>
                           <td>
-                            {run.inputTokens.toLocaleString()} / {run.outputTokens.toLocaleString()}
+                            {run.usageStatus === 'unknown'
+                              ? 'Not recorded'
+                              : `${run.inputTokens.toLocaleString()} / ${run.outputTokens.toLocaleString()}`}
                           </td>
-                          <td>{run.status === 'running' ? 'Pending' : money(run.costUsd)}</td>
+                          <td>
+                            {run.usageStatus === 'unknown'
+                              ? run.status === 'running'
+                                ? 'Pending'
+                                : 'Not recorded'
+                              : `${money(run.costUsd)}${run.usageStatus === 'legacy' ? ' · Unverified' : run.status === 'running' ? ' · So far' : run.status === 'done' ? '' : ' · Partial'}`}{' '}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -165,8 +209,9 @@ export function UsageDialog({
         </>
       )}
       <p className="hint">
-        Active run usage appears when recorded. Missing older model/source information stays marked
-        as unrecorded.
+        Totals include experiments, comparisons and reference drafts, including deleted experiments
+        and comparisons. Interrupted requests may have unreported usage; a missing report does not
+        mean zero.
       </p>
     </Dialog>
   );

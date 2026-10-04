@@ -16,6 +16,7 @@ import type { RunTotals, Store } from '../db/store.js';
 export class RunTranscript {
   private seq = 0;
   cost = 0;
+  usageStatus: 'recorded' | 'unknown' = 'unknown';
   inputTokens = 0;
   outputTokens = 0;
   cacheReadTokens = 0;
@@ -151,15 +152,17 @@ export class RunTranscript {
         this.toolsOffered = event.tools ?? this.toolsOffered;
         break;
       case 'done':
-        // Assigned, never accumulated: total_cost_usd is documented as the
-        // running total for the whole query() call, so summing results
-        // across turns would count the same tokens repeatedly.
+        // The runner subtracts the frozen resumed-session baseline. Repeated
+        // results replace this request's totals rather than counting it again.
         this.cost = event.costUsd;
         this.inputTokens = event.inputTokens;
         this.outputTokens = event.outputTokens;
         this.cacheReadTokens = event.cacheReadTokens ?? 0;
         this.cacheCreationTokens = event.cacheCreationTokens ?? 0;
         this.model = event.model ?? this.model;
+        this.usageStatus = event.usageStatus ?? 'recorded';
+        this.store.runs.recordUsage(runId, { ...event, model: this.model }, this.apiKeySource);
+        this.bus.publish(projectId, { type: 'tree.updated', projectId });
         break;
       case 'error':
         if (event.apiFailure) throw new AgentApiFailure(event.error);
@@ -175,6 +178,7 @@ export class RunTranscript {
   totals(extra: Partial<RunTotals> = {}): RunTotals {
     return {
       cost: this.cost,
+      usageStatus: this.usageStatus,
       inputTokens: this.inputTokens,
       outputTokens: this.outputTokens,
       cacheReadTokens: this.cacheReadTokens,

@@ -173,6 +173,8 @@ export type RunEvent =
       outputTokens: number;
       /** An ESTIMATE at list price (D20). Not a bill, and not what a subscription charges. */
       costUsd: number;
+      /** Unknown means no trustworthy per-request estimate; never display it as zero. */
+      usageStatus?: 'recorded' | 'unknown';
       cacheReadTokens?: number;
       cacheCreationTokens?: number;
       model?: string | null;
@@ -263,4 +265,5 @@ export interface DraftRequest {
   model: string | null;
   agentEnv: Record<string, string> | null;
   signal: AbortSignal;
+  onUsage?: (event: Extract<RunEvent, { type: 'done' | 'model' }>) => void;
 }

@@ -3590,6 +3590,99 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       body: JSON.stringify({ textScale: settings.textScale }),
     });
   });
+  test('Usage includes comparisons, drafts and deleted experiments and distinguishes missing or unverified estimates', async () => {
+    const request = async (
+      method: string,
+      path: string,
+      body?: unknown,
+    ): Promise<Record<string, unknown>> => {
+      const response = await fetch(`${BASE}${path}`, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      assert.equal(response.ok, true, path);
+      return response.json() as Promise<Record<string, unknown>>;
+    };
+    const project = await request('POST', '/api/projects', {
+      name: 'Usage evidence',
+      description: '',
+    });
+    const projectId = String(project['projectId']);
+    const masterId = String(project['masterNodeId']);
+    const childResponse = await request('POST', `/api/projects/${projectId}/nodes`, {
+      parentId: masterId,
+      displayName: 'Retained usage',
+      description: '',
+    });
+    const childId = String((childResponse['node'] as { id: string }).id);
+    await request('POST', `/api/nodes/${childId}/runs`, { prompt: '? recorded conversation' });
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${childId}')).json()).runs.at(-1)?.status === 'done')()`,
+    );
+    const comparison = await request('POST', `/api/projects/${projectId}/comparisons`, {
+      nodeIds: [masterId, childId],
+    });
+    const comparisonId = String(comparison['id']);
+    await request('POST', `/api/comparisons/${comparisonId}/messages`, { prompt: 'Which works?' });
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/comparisons/${comparisonId}')).json()).turns.at(-1)?.status === 'done')()`,
+    );
+    await request('POST', '/api/references/draft', {
+      comparisonId,
+      instruction: 'Summarize the answer.',
+    });
+    await request('DELETE', `/api/nodes/${childId}`);
+    await request('DELETE', `/api/comparisons/${comparisonId}`);
+    // Honest historical and missing-report fixtures in the real SQLite-backed API.
+    const fixture = new DatabaseSync(join(dataDir, 'bonsai.db'));
+    try {
+      fixture
+        .prepare(
+          `INSERT INTO run(id, node_id, status, started_at, cost, usage_status) VALUES('usage-legacy', ?, 'done', '2026-01-01', 100, 'legacy')`,
+        )
+        .run(masterId);
+      fixture
+        .prepare(
+          `INSERT INTO run(id, node_id, status, started_at, usage_status) VALUES('usage-unknown', ?, 'failed', '2026-01-02', 'unknown')`,
+        )
+        .run(masterId);
+    } finally {
+      fixture.close();
+    }
+    await session.goto(`${BASE}/?project=${projectId}&node=${masterId}`);
+    await session.waitFor("!!document.querySelector('.composer textarea')");
+    await session.click('.project-picker');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.menu-panel [role=menuitem]')).find(b => b.textContent.includes('Usage')).click()",
+    );
+    await session.waitFor("!!document.querySelector('.usage-totals')");
+    assert.equal(
+      await session.eval("document.querySelector('.usage-totals strong').textContent"),
+      '$0.000',
+      'unverified legacy figures are excluded from the total',
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.usage-totals > div:nth-child(2) strong').textContent",
+      ),
+      '5',
+    );
+    const text = String(
+      await session.eval("document.querySelector('dialog.usage-dialog').textContent"),
+    );
+    assert.match(text, /Retained usage.*Deleted/);
+    assert.match(text, /Comparison.*Deleted/);
+    assert.match(text, /Reference drafts/);
+    assert.match(text, /totals are incomplete/);
+    assert.match(text, /Unverified/);
+    assert.match(text, /Not recorded/);
+    const deletedAction = await session.eval(
+      "Array.from(document.querySelectorAll('.usage-experiment')).filter(group => group.querySelector('summary').textContent.includes('Deleted')).some(group => group.textContent.includes('View experiment'))",
+    );
+    assert.equal(deletedAction, false, 'deleted records cannot open a missing experiment');
+    await session.click('.usage-dialog .dialog-close');
+  });
 });
 
 /**

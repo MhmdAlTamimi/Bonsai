@@ -41,7 +41,8 @@ describe('schema migrations', () => {
         repo_path TEXT NOT NULL, default_model TEXT, default_permission_mode TEXT NOT NULL
         DEFAULT 'acceptEdits', created_at TEXT NOT NULL);
       CREATE TABLE run (id TEXT PRIMARY KEY, node_id TEXT, status TEXT NOT NULL,
-        started_at TEXT NOT NULL, cost REAL NOT NULL DEFAULT 0);`);
+        started_at TEXT NOT NULL, cost REAL NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0);`);
     old.prepare(`INSERT INTO meta VALUES ('schema_version', '1')`).run();
     old
       .prepare(

@@ -116,40 +116,7 @@ route(
 route('GET', '/api/projects/:id/usage', (_req, res, params, { store }) => {
   const project = store.getProject(params['id']!);
   if (!project) throw new HttpError(404, 'no such project');
-  sendJson(res, 200, {
-    projectId: project.id,
-    experiments: store.listNodes(project.id).map((node) => ({
-      id: node.id,
-      name: node.display_name,
-      runs: store
-        .listRuns(node.id)
-        .map(
-          ({
-            id,
-            status,
-            startedAt,
-            model,
-            apiKeySource,
-            costUsd,
-            inputTokens,
-            outputTokens,
-            cacheReadTokens,
-            cacheCreationTokens,
-          }) => ({
-            id,
-            status,
-            startedAt,
-            model,
-            apiKeySource,
-            costUsd,
-            inputTokens,
-            outputTokens,
-            cacheReadTokens,
-            cacheCreationTokens,
-          }),
-        ),
-    })),
-  });
+  sendJson(res, 200, store.usage.view(project.id));
 });
 
 route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => {

@@ -71,10 +71,10 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-07-a-run-start-to-finish
 
-- [ ] A1: Each run's cost includes every earlier run of its experiment, so Usage is overstated, and more so the more you use it
+- [x] A1: Each run's cost includes every earlier run of its experiment, so Usage is overstated, and more so the more you use it
 - [x] A2: While Claude Code retries a failing API, Bonsai just shows "working"; a rejected key takes three minutes to fail, and one rate limit stops every experiment until you re-check
 - [x] A3: A request waiting in the queue is lost when Bonsai closes, and after a crash Resume sends the previous request instead
-- [ ] A4: No spending limit, and a run's cost is unknown until it ends — budget limits deferred; missing/incorrect accounting remains in scope
+- [ ] A4: No spending limit, and a run's cost is unknown until it ends — budget limits deferred; reported turns are now durable and visible, missing reports stay unknown
 
 ### audit-08-inside-a-run
 
@@ -113,7 +113,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 ### audit-13-sharing-between-experiments
 
 - [ ] X1: Every comparison keeps a full copy of each compared experiment's repository, and nothing counts or removes them
-- [ ] X2: Spending on comparisons and on drafted references is not in Usage
+- [x] X2: Spending on comparisons and on drafted references is not in Usage
 - [x] X3: A comparison's address does not open it
 - [x] X4: *Start from latest*, saved for later, loses the work it carries
 
@@ -128,7 +128,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [ ] E1: Modified copy-in ignored files can be lost on archive. Manual warning in scope; automatic preservation/blocking deferred.
 - [x] E2: Apply artifacts collide and can change after their command is displayed.
 - [x] E3: Project deletion and concurrency bounds omit comparison/draft jobs.
-- [ ] E4: Deleting experiments changes historical spending totals.
+- [x] E4: Deleting experiments changes historical spending totals.
 - [x] E5: HTTP drain precedes the shutdown cancellation deadline.
 
 - [x] E6: A failed submodule setup must remove the newly created checkout so retry does not hit an unexpected-folder dead end.
@@ -151,6 +151,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] E22: A missing conversation cut point after compaction can copy an unfinished parent turn into a new child.
 - [x] E23: Deleting an experiment or comparison leaves its mirrored SDK history and inherited-context metadata in the live database.
 - [x] E24: A crash between saving inherited context and adopting the SDK fork can use the shorter history fallback without telling the user.
+- [x] E25: A clean SDK transport EOF without a completed result can mark partial work as successful, including committing an unfinished experiment.
 
 ## Verification log
 
@@ -180,3 +181,5 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - Usability batch: production build, typecheck/lint/format, all 428 server tests, 120 UI/shared tests and 33 browser tests passed. Four real stand-in questions at 1280×720 keep their answer controls visible while the options scroll; the composer still gives way to the question. Six-column result tables scroll sideways with normal word boundaries. A comparison survives an actual full reload through initial project loading, with the same project/experiment/comparison parameters; URL parameter order is not treated as identity. Created projects hide internal UUID storage paths in the top bar and keep their Open folder action. Settings tracks each live form against its last saved value, preserves edits across tabs, confirms discarding on Close/Escape and warns on browser navigation. Saving one form does not clear another form's edits; credentials stay in memory until explicitly saved to the backend. Browser checks exercise cancel, partial save, explicit discard and clean reopening.
 
 - Conversation ownership follow-up: production build, typecheck/lint/format, all 431 server tests, 120 UI/shared tests and 33 browser tests passed; the real SDK fake-API recovery/backup reproduction also passed. A schema-26 upgrade backfills session ownership. Deletion removes root/subagent mirrors and inherited metadata in the same transaction, retains archived experiments and sessions shared with another owner, and rolls back all cleanup after an injected SQL failure. Startup removes only unowned interrupted native forks. The fixed inherited seed and parent cut point are saved together before copying; a crash at that boundary keeps the original lineage, excludes later parent turns and visibly explains saved-history recovery.
+
+- Usage/completion batch: production build, typecheck/lint/format, all 439 server tests, 120 UI/shared tests and 34 browser tests passed. The real bundled SDK reproduction uses the verified fake API: three runs now record $0.0075, $0.006 and $0.006, totaling the native session's $0.0195; resumed token counts exclude previous turns. Native forks count only their new work, comparison questions use the same frozen baseline, reference drafts report their tool-less call, and experiment/comparison deletion leaves totals unchanged. A single ledger saves each reported turn immediately, participates in finalization transactions, and retains summaries without retaining deleted conversations. Reopen/interruption and schema-27 upgrade tests distinguish unknown reports from zero; older cumulative figures, including pending save-journal totals, stay unverified and are excluded from corrected totals. Historical totals deleted before this ledger existed cannot be recovered. The final rollback fixture deliberately fails at the node-status write after the run/ledger updates; both ledger regressions passed again after rebuilding. Browser checks cover all three request types, deleted entries, unknown reports and exclusion of unverified estimates. SDK transport EOF without a completed result now fails; an actual job regression preserves partial files and refuses a successful commit without changing the connection gate. Budgets remain deferred.

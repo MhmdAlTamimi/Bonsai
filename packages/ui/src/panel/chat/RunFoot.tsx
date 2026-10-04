@@ -34,7 +34,11 @@ export function RunFoot({ run, label }: { run: RunView; label?: string }): JSX.E
 
   const parts = [
     run.durationMs === null ? null : duration(run.durationMs),
-    run.costUsd > 0 ? `$${run.costUsd.toFixed(2)}` : null,
+    run.usageStatus === 'unknown'
+      ? 'Usage not recorded'
+      : run.costUsd > 0
+        ? `$${run.costUsd.toFixed(2)}${run.usageStatus === 'legacy' ? ' (unverified)' : ''}`
+        : null,
     run.model,
   ].filter((part): part is string => part !== null && part !== '');
   if (parts.length === 0) return null;

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ResolvedRunContext, RunView } from '@bonsai/shared';
 
 import { now, parseStringArray, type RunEnd, type RunRequest, type RunTotals } from './rows.js';
+import type { RunEvent } from '../agent/AgentRunner.js';
 
 /**
  * Runs: one agent request, from start to whatever ended it.
@@ -45,7 +46,7 @@ export class RunStore {
                         tool_calls = ?, duration_ms = ?, stat_files = ?,
                         stat_insertions = ?, stat_deletions = ?,
                         run_files = ?, run_added = ?, run_removed = ?,
-                        stopped_background = ?
+                        stopped_background = ?, usage_status = ?
          WHERE id = ?`,
       )
       .run(
@@ -73,6 +74,31 @@ export class RunStore {
         totals.change?.insertions ?? null,
         totals.change?.deletions ?? null,
         totals.stoppedBackground ?? 0,
+        totals.usageStatus ?? 'recorded',
+        runId,
+      );
+  }
+
+  /** Every reported turn is durable before another turn can start. */
+  recordUsage(
+    runId: string,
+    event: Extract<RunEvent, { type: 'done' }>,
+    apiKeySource: string | null,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE run SET cost = ?, input_tokens = ?, output_tokens = ?, cache_read_tokens = ?,
+      cache_creation_tokens = ?, model = COALESCE(?, model), api_key_source = ?, usage_status = ? WHERE id = ?`,
+      )
+      .run(
+        event.costUsd,
+        event.inputTokens,
+        event.outputTokens,
+        event.cacheReadTokens ?? 0,
+        event.cacheCreationTokens ?? 0,
+        event.model ?? null,
+        apiKeySource,
+        event.usageStatus ?? 'recorded',
         runId,
       );
   }
@@ -113,6 +139,7 @@ export class RunStore {
       inputTokens: Number(r['input_tokens'] ?? 0),
       outputTokens: Number(r['output_tokens'] ?? 0),
       costUsd: Number(r['cost'] ?? 0),
+      usageStatus: r['usage_status'] as RunView['usageStatus'],
       cacheReadTokens: Number(r['cache_read_tokens'] ?? 0),
       cacheCreationTokens: Number(r['cache_creation_tokens'] ?? 0),
       model: (r['model'] as string | null) ?? null,
@@ -144,7 +171,9 @@ export class RunStore {
    */
   costOf(nodeId: string): number {
     const row = this.db
-      .prepare(`SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id = ?`)
+      .prepare(
+        `SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id = ? AND usage_status = 'recorded'`,
+      )
       .get(nodeId) as unknown as { total: number } | undefined;
     return Number(row?.total ?? 0);
   }
@@ -159,7 +188,9 @@ export class RunStore {
     if (nodeIds.length === 0) return 0;
     const placeholders = nodeIds.map(() => '?').join(', ');
     const row = this.db
-      .prepare(`SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id IN (${placeholders})`)
+      .prepare(
+        `SELECT COALESCE(SUM(cost), 0) AS total FROM run WHERE node_id IN (${placeholders}) AND usage_status = 'recorded'`,
+      )
       .get(...nodeIds) as unknown as { total: number } | undefined;
     return Number(row?.total ?? 0);
   }
@@ -170,7 +201,7 @@ export class RunStore {
       .prepare(
         `SELECT r.node_id, SUM(r.cost) AS total
            FROM run r JOIN node n ON n.id = r.node_id
-          WHERE n.project_id = ?
+          WHERE n.project_id = ? AND r.usage_status = 'recorded'
           GROUP BY r.node_id`,
       )
       .all(projectId) as unknown as Array<{ node_id: string; total: number }>;
@@ -180,10 +211,7 @@ export class RunStore {
   /** Every run in the project, so the cost of the whole tree is visible. */
   projectCost(projectId: string): number {
     const row = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(r.cost), 0) AS total FROM run r
-         JOIN node n ON n.id = r.node_id WHERE n.project_id = ?`,
-      )
+      .prepare(`SELECT COALESCE(SUM(cost), 0) AS total FROM usage_entry WHERE project_id = ?`)
       .get(projectId) as unknown as { total: number } | undefined;
     return Number(row?.total ?? 0);
   }

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { RunEvent } from '../agent/AgentRunner.js';
 import { randomUUID } from 'node:crypto';
 import type {
   ComparisonMessageView,
@@ -187,6 +188,23 @@ export class ComparisonStore {
       .run(end.status, now(), end.costUsd, end.model, end.error, turnId);
   }
 
+  recordUsage(
+    turnId: string,
+    event: Extract<RunEvent, { type: 'done' }>,
+    apiKeySource: string | null,
+  ): void {
+    this.db
+      .prepare(
+        'UPDATE comparison_turn SET cost_usd = ?, model = COALESCE(?, model), usage_json = ? WHERE id = ?',
+      )
+      .run(
+        event.costUsd,
+        event.model ?? null,
+        JSON.stringify({ ...event, usageStatus: event.usageStatus ?? 'recorded', apiKeySource }),
+        turnId,
+      );
+  }
+
   turns(comparisonId: string): ComparisonTurnView[] {
     const rows = this.db
       .prepare(`SELECT * FROM comparison_turn WHERE comparison_id = ? ORDER BY started_at, rowid`)
@@ -197,6 +215,14 @@ export class ComparisonStore {
       startedAt: r['started_at'] as string,
       endedAt: (r['ended_at'] as string | null) ?? null,
       costUsd: Number(r['cost_usd']),
+      usageStatus:
+        r['usage_json'] == null
+          ? 'unknown'
+          : ((
+              JSON.parse(r['usage_json'] as string) as {
+                usageStatus?: ComparisonTurnView['usageStatus'];
+              }
+            ).usageStatus ?? 'unknown'),
       model: (r['model'] as string | null) ?? null,
       error: (r['error'] as string | null) ?? null,
       references: parseReferences((r['references_json'] as string | null) ?? null),

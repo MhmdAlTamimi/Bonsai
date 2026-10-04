@@ -131,6 +131,15 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   failure identified by the SDK adapter may change that gate, never a Git/setup/task error.
   Subscription sign-in uses the installed SDK's own executable. The selected auth mode
   overrides inherited credentials while retaining an explicitly configured API base URL.
+  SDK result totals include earlier resumed turns. Freeze the native cost-state before
+  each query and subtract that baseline for all cost/token counters, without advancing
+  it between results in one request. Native forks start their own accounting at zero.
+  Persist reported turns immediately in the shared usage ledger; deleting an experiment
+  or comparison must retain its financial summary, without retaining its conversation.
+  Unknown reports and unverified legacy totals must not be displayed as known zero spend
+  or counted as corrected estimates. Subscription figures remain API-equivalent estimates;
+  budgets and daily/project caps are deferred. Require a completed SDK result before
+  treating a transport EOF as success or committing partial work.
 - Use real Git regression tests for ownership, commits, snapshots, recovery and deletion.
   Do not add ceremonial lifecycle helpers disconnected from the API/job implementation.
 - Settings forms keep their own last-saved baseline; closing unsaved forms requires an

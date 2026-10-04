@@ -681,6 +681,8 @@ export interface RunView {
    * at all -- there it says what these tokens would have cost through the API.
    */
   costUsd: number;
+  /** Legacy estimates may include earlier turns; unknown estimates are not zero spend. */
+  usageStatus?: 'recorded' | 'unknown' | 'legacy';
   /** Replayed context served from cache, which costs a fraction of fresh input. */
   cacheReadTokens: number;
   cacheCreationTokens: number;
@@ -869,6 +871,7 @@ export interface ProjectUsageView {
   experiments: Array<{
     id: string;
     name: string;
+    deleted: boolean;
     runs: Array<
       Pick<
         RunView,
@@ -878,6 +881,7 @@ export interface ProjectUsageView {
         | 'model'
         | 'apiKeySource'
         | 'costUsd'
+        | 'usageStatus'
         | 'inputTokens'
         | 'outputTokens'
         | 'cacheReadTokens'
@@ -885,6 +889,8 @@ export interface ProjectUsageView {
       >
     >;
   }>;
+  comparisons: ProjectUsageView['experiments'];
+  drafts: ProjectUsageView['experiments'][number]['runs'];
 }
 
 export interface ChildPreviewView {
@@ -1262,6 +1268,7 @@ export interface ComparisonTurnView {
   startedAt: string;
   endedAt: string | null;
   costUsd: number;
+  usageStatus?: RunView['usageStatus'];
   model: string | null;
   error: string | null;
   /** References attached to the question, as it received them. */

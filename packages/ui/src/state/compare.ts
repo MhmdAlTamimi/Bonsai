@@ -65,6 +65,7 @@ function turnAsRun(comparisonId: string, turn: ComparisonTurnView): RunView {
     inputTokens: 0,
     outputTokens: 0,
     costUsd: turn.costUsd,
+    usageStatus: turn.usageStatus,
     cacheReadTokens: 0,
     cacheCreationTokens: 0,
     model: turn.model,

@@ -181,6 +181,105 @@ try {
         );
       const usage = (await bonsai.api('GET', `/api/projects/${project.projectId}/usage`)).body;
       console.log(`  project usage reports: ${JSON.stringify(usage).slice(0, 200)}`);
+      const captured = new DatabaseSync(join(root, 'data', 'bonsai.db'), { readOnly: true });
+      const costs = captured
+        .prepare(
+          "SELECT data_json FROM sdk_session_entry WHERE json_extract(data_json, '$.type') = 'cost-state' ORDER BY id",
+        )
+        .all();
+      const total = JSON.parse(costs.at(-1).data_json).totalCostUSD;
+      captured.close();
+      assert.equal(
+        runs.every((run) => run.usageStatus === 'recorded'),
+        true,
+      );
+      assert.ok(
+        Math.abs(runs[1].costUsd - runs[2].costUsd) < 1e-9,
+        'equal resumed requests have equal cost',
+      );
+      assert.equal(runs[1].inputTokens, 1000);
+      assert.equal(runs[2].outputTokens, 100);
+      assert.ok(
+        Math.abs(runs.reduce((sum, run) => sum + run.costUsd, 0) - total) < 1e-9,
+        'per-run estimates add up to the native session total',
+      );
+
+      const child = (
+        await bonsai.api('POST', `/api/projects/${project.projectId}/nodes`, {
+          parentId: id,
+          displayName: 'native fork usage',
+          description: '',
+        })
+      ).body.node.id;
+      fake.script('text');
+      await bonsai.api('POST', `/api/nodes/${child}/runs`, { prompt: 'continue child' });
+      await bonsai.settle(child);
+      const childRun = (await bonsai.api('GET', `/api/nodes/${child}`)).body.runs.at(-1);
+      assert.equal(childRun.usageStatus, 'recorded');
+      assert.ok(
+        childRun.costUsd > 0 && childRun.costUsd < total,
+        'native fork counts its own new work',
+      );
+      assert.equal(childRun.inputTokens, 1000, 'fork does not count parent tokens');
+
+      const comparison = (
+        await bonsai.api('POST', `/api/projects/${project.projectId}/comparisons`, {
+          nodeIds: [id, child],
+        })
+      ).body;
+      for (let i = 0; i < 3; i++) {
+        fake.script('text');
+        const accepted = await bonsai.api('POST', `/api/comparisons/${comparison.id}/messages`, {
+          prompt: `question ${i}`,
+        });
+        assert.equal(accepted.status, 202);
+        let finished = false;
+        for (let attempt = 0; attempt < 600; attempt++) {
+          const view = (await bonsai.api('GET', `/api/comparisons/${comparison.id}`)).body;
+          if (view.turns.at(-1)?.status !== 'running') {
+            assert.equal(view.turns.at(-1).status, 'done');
+            finished = true;
+            break;
+          }
+          await delay(100);
+        }
+        assert.equal(finished, true, 'comparison completed');
+      }
+      fake.script('text');
+      const draft = await bonsai.api('POST', '/api/references/draft', {
+        comparisonId: comparison.id,
+        instruction: 'Summarize the comparison.',
+      });
+      assert.equal(draft.status, 200);
+      const before = (await bonsai.api('GET', `/api/projects/${project.projectId}/usage`)).body;
+      const questions = before.comparisons.find((row) => row.id === comparison.id).runs;
+      assert.equal(
+        questions.every((turn) => turn.usageStatus === 'recorded'),
+        true,
+      );
+      assert.ok(
+        Math.abs(questions[1].costUsd - questions[2].costUsd) < 1e-9,
+        'comparison resumes subtract earlier questions',
+      );
+      assert.equal(questions[2].inputTokens, 1000);
+      assert.equal(before.drafts[0].usageStatus, 'recorded');
+      assert.ok(before.drafts[0].costUsd > 0, 'tool-less reference call is counted');
+      const entries = (view) =>
+        [...view.experiments, ...view.comparisons].flatMap((row) => row.runs).concat(view.drafts);
+      const sum = (view) => entries(view).reduce((sum, run) => sum + run.costUsd, 0);
+      await bonsai.api('DELETE', `/api/nodes/${id}`);
+      await bonsai.api('DELETE', `/api/comparisons/${comparison.id}`);
+      const after = (await bonsai.api('GET', `/api/projects/${project.projectId}/usage`)).body;
+      assert.equal(
+        sum(after),
+        sum(before),
+        'deleting experiments and comparisons preserves usage totals',
+      );
+      assert.equal(after.experiments.find((row) => row.id === id).deleted, true);
+      assert.equal(after.comparisons.find((row) => row.id === comparison.id).deleted, true);
+      console.log(
+        '  PASS: resumed and forked runs, comparison questions, reference draft and deletion-safe totals',
+      );
     }
   }
 } finally {

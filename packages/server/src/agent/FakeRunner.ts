@@ -86,6 +86,7 @@ export class FakeRunner implements AgentRunner, ConversationCopier, TextDrafter,
    * lines of the conversation. Good enough to see the editor fill in.
    */
   draft(request: DraftRequest): Promise<string> {
+    request.onUsage?.({ type: 'done', costUsd: 0, inputTokens: 0, outputTokens: 0 });
     const asked = /## What to write\n\n([^\n]+)/.exec(request.input)?.[1] ?? 'a reference';
     const said = request.input
       .split('\n')

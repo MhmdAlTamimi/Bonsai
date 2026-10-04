@@ -75,6 +75,33 @@ describe('drafting a reference', () => {
     await assert.rejects(runner.draft(request()), /overloaded/);
   });
 
+  test('EOF without a result fails and usage from an error result is still reported', async () => {
+    const empty = new ClaudeSdkRunner(undefined, undefined, () => stream());
+    await assert.rejects(empty.draft(request()), /without completing/);
+    const reports: number[] = [];
+    const failed = new ClaudeSdkRunner(undefined, undefined, () =>
+      stream(
+        result({
+          subtype: 'error_during_execution',
+          errors: ['fixture error'],
+          total_cost_usd: 0.006,
+          usage: {},
+        }),
+      ),
+    );
+    await assert.rejects(
+      failed.draft(
+        request({
+          onUsage: (event) => {
+            if (event.type === 'done') reports.push(event.costUsd);
+          },
+        }),
+      ),
+      /fixture error/,
+    );
+    assert.deepEqual(reports, [0.006]);
+  });
+
   test('stopping the request stops the model call', async () => {
     const stop = new AbortController();
     let aborted = false;

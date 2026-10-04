@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { installUsageTriggers } from './usageStore.js';
 
 /**
  * Ordered schema migrations.
@@ -238,6 +239,24 @@ export const MIGRATIONS: readonly Migration[] = [
         OR (substr(key, 1, length('session_boundary:')) = 'session_boundary:' AND
           NOT EXISTS (SELECT 1 FROM node WHERE node.id = substr(meta.key, length('session_boundary:') + 1)));
     `),
+  },
+  {
+    version: 28,
+    name: 'durable usage ledger and estimate provenance',
+    up: (db) => {
+      addColumn(db, 'run', 'usage_status', "TEXT NOT NULL DEFAULT 'unknown'");
+      addColumn(db, 'comparison_turn', 'usage_json', 'TEXT');
+      // Existing totals cannot safely be corrected: old runs have no session identity.
+      db.exec("UPDATE run SET usage_status = CASE WHEN cost > 0 THEN 'legacy' ELSE 'unknown' END");
+      db.exec(`UPDATE run_save SET payload_json = json_set(payload_json, '$.totals.usageStatus',
+        CASE WHEN json_extract(payload_json, '$.totals.cost') > 0 THEN 'legacy' ELSE 'unknown' END)
+        WHERE json_extract(payload_json, '$.totals.usageStatus') IS NULL`);
+      db.exec(
+        `UPDATE comparison_turn SET usage_json = json_object('usageStatus', CASE WHEN cost_usd > 0 THEN 'legacy' ELSE 'unknown' END)`,
+      );
+      installUsageTriggers(db);
+      db.exec('UPDATE run SET cost = cost; UPDATE comparison_turn SET cost_usd = cost_usd;');
+    },
   },
 ];
 

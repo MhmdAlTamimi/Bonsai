@@ -290,6 +290,7 @@ export class ComparisonJobs {
     const note = row.pending_note;
     let cost = 0;
     let model: string | null = null;
+    let apiKeySource: string | null = null;
     let error: string | null = null;
     const startedAt = Date.now();
     try {
@@ -336,9 +337,15 @@ export class ComparisonJobs {
         signal: controller.signal,
       })) {
         if (event.type === 'session') this.store.comparisons.setSession(row.id, event.sessionId);
-        else if (event.type === 'model') model = event.model;
-        else if (event.type === 'done') cost = event.costUsd;
-        else if (event.type === 'error') error = event.error;
+        else if (event.type === 'model') {
+          model = event.model;
+          apiKeySource = event.apiKeySource ?? null;
+        } else if (event.type === 'done') {
+          cost = event.costUsd;
+          model = event.model ?? model;
+          this.store.comparisons.recordUsage(turnId, { ...event, model }, apiKeySource);
+          this.publish(row);
+        } else if (event.type === 'error') error = event.error;
         else this.record(row, turnId, event);
       }
     } catch (err) {

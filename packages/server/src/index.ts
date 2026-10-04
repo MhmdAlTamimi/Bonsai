@@ -40,6 +40,7 @@ const db = openDatabase(config.dataDir);
 const settings = new Settings(config);
 const store = new Store(db, config.reposRoot, () => settings.reposRoot());
 store.sdkSessions.removeUnowned();
+store.usage.markOrphanedDrafts();
 await relocateManagedStorage(store, config.dataDir, log, settings);
 const bus = new EventBus();
 

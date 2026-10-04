@@ -3,7 +3,6 @@ import { forkSession, importSessionToStore, query } from '@anthropic-ai/claude-a
 import type {
   CanUseTool,
   EffortLevel,
-  ModelUsage,
   Options,
   PermissionMode,
   PermissionResult,
@@ -32,6 +31,7 @@ import { RUN_MARKER } from '../jobs/leftovers.js';
 import { EXPERIMENT_FILES } from '../jobs/experimentSnapshot.js';
 import { ApiRetryGuard, terminalApiFailure, resultFailure } from './apiFailures.js';
 import { AgentApiFailure } from './AgentRunner.js';
+import { sessionUsage } from './usage.js';
 
 /**
  * D15: the Claude Agent SDK, not the raw API -- the same harness as Claude Code,
@@ -50,6 +50,9 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     private readonly startCompare: StartDraft = query,
     private readonly sessionStore?: SessionStore & {
       at?(sessionId: string, through: number): SessionStore;
+      costState?(
+        sessionId: string,
+      ): import('@anthropic-ai/claude-agent-sdk').SessionStoreEntry | null;
     },
   ) {}
 
@@ -77,6 +80,8 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     request.signal.addEventListener('abort', abort, { once: true });
     try {
       let text = '';
+      let completed = false;
+      const usage = await sessionUsage(undefined, null, tmpdir());
       for await (const message of this.startDraft({
         prompt: request.input,
         options: draftOptions(request, controller),
@@ -92,12 +97,22 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
             throw new Error(failure);
           }
         }
+        if (message.type === 'system' && message.subtype === 'init')
+          request.onUsage?.({
+            type: 'model',
+            model: message.model,
+            apiKeySource: message.apiKeySource,
+          });
         if (message.type !== 'result') continue;
+        request.onUsage?.(usage.result(message));
         if (message.subtype !== 'success' || message.is_error) {
           throw new Error(resultFailure(message));
         }
         text = message.result;
+        completed = true;
       }
+      if (!completed && !request.signal.aborted)
+        throw new Error('Claude ended without completing the reference draft. Retry the request.');
       return text.trim();
     } catch (error) {
       if (retries.error !== null) throw new Error(retries.error);
@@ -154,6 +169,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     const calledTools = new Map<string, string>();
     let sessionAnnounced = false;
     try {
+      const usage = await sessionUsage(this.sessionStore, spec.resumeSessionId, spec.cwd);
       for await (const message of this.startCompare({
         prompt: questionWithReferences(spec),
         options: {
@@ -204,7 +220,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
         } else if (message.type === 'user') {
           yield* toolResultEvents(message, calledTools, spec.cwd);
         } else if (message.type === 'result') {
-          yield usageEvent(message);
+          yield usage.result(message);
           if (message.subtype !== 'success' || message.is_error) {
             yield {
               type: 'error',
@@ -215,6 +231,10 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
           return;
         }
       }
+      if (!spec.signal.aborted)
+        throw new Error(
+          'Claude ended without completing the comparison. Partial messages are preserved; retry the question.',
+        );
     } catch (err) {
       if (controller.signal.aborted) {
         if (retries.error !== null) yield { type: 'error', apiFailure: true, error: retries.error };
@@ -241,6 +261,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
       leftovers: spec.backgroundLeftovers,
     });
     let live: SessionQuery | null = null;
+    let completedTurn = false;
 
     // Stop: the jobs it started are stopped through the harness first, which
     // ends their whole process trees, and only then is the session killed.
@@ -329,6 +350,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     const calledTools = new Map<string, string>();
 
     try {
+      const usage = await sessionUsage(this.sessionStore, spec.resumeSessionId, spec.cwd);
       // D43: a stream, not a string, so the session outlives the first turn.
       // See `Inbox` for what the string version did to background commands.
       inbox.send(spec.isCommand === true ? spec.prompt : promptWithCriteria(spec));
@@ -412,7 +434,10 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
           if (!message.error) retries.recovered();
           // A subagent's messages carry the tool call that started it. They
           // are shown, but they are not the agent taking a turn.
-          if (message.parent_tool_use_id === null) session.turnStarted();
+          if (message.parent_tool_use_id === null) {
+            completedTurn = false;
+            session.turnStarted();
+          }
           for (const event of assistantEvents(message, calledTools)) {
             if (event.type === 'tool' && event.parentToolUseId === undefined) {
               session.toolStarted(event.id ?? '', event.name, event.detail);
@@ -427,7 +452,7 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
         } else if (message.type === 'result') {
           if (message.subtype !== 'success' || message.is_error) {
             // An error result still carries cost, so report it before failing.
-            yield usageEvent(message);
+            yield usage.result(message);
             yield {
               type: 'error',
               apiFailure: true,
@@ -437,7 +462,8 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
           }
           // D20: cost and tokens captured per run from day one. Every turn's
           // result carries the running total, so each one replaces the last.
-          yield usageEvent(message);
+          yield usage.result(message);
+          completedTurn = true;
           // A command that did nothing says why only in its result -- for
           // /compact, "Not enough messages to compact." -- and that is worth
           // keeping rather than a run that silently changed nothing.
@@ -449,6 +475,10 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
           if (await session.turnEnded(message.queued_turn_count ?? 0)) inbox.close();
         }
       }
+      if (!spec.signal.aborted && (!completedTurn || !inbox.isClosed))
+        throw new Error(
+          'Claude ended before completing this run. Partial work is preserved; retry or recover it.',
+        );
     } catch (err) {
       if (controller.signal.aborted) {
         if (retries.error !== null) yield { type: 'error', apiFailure: true, error: retries.error };
@@ -977,52 +1007,6 @@ keeps this run open while your background commands are running and you are
 notified when each one finishes, so end your turn and wait for that notification
 instead of polling. The run is committed only after your background work is done.
 `.trim();
-
-/**
- * Totals for a finished run.
- *
- * Reads `modelUsage`, not `usage`. The SDK is explicit that `usage` is the main
- * agent loop only -- it excludes subagents and sidechains -- and that modelUsage
- * is "the correct field for token/cost accounting". Using `usage` made the token
- * counts quietly disagree with the cost sitting next to them.
- *
- * Cache tokens are reported separately because they are most of the answer to
- * "why did that cost what it did": a forked child replays its whole ancestor
- * chain (PRD §11), and replayed context read from cache costs a fraction of
- * fresh input.
- */
-function usageEvent(message: {
-  total_cost_usd: number;
-  usage: { input_tokens?: number; output_tokens?: number };
-  modelUsage?: Record<string, ModelUsage>;
-}): RunEvent {
-  const entries = Object.entries(message.modelUsage ?? {});
-
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let cacheReadTokens = 0;
-  let cacheCreationTokens = 0;
-  for (const [, usage] of entries) {
-    inputTokens += usage.inputTokens ?? 0;
-    outputTokens += usage.outputTokens ?? 0;
-    cacheReadTokens += usage.cacheReadInputTokens ?? 0;
-    cacheCreationTokens += usage.cacheCreationInputTokens ?? 0;
-  }
-
-  // The model that did the most output is the one worth naming; subagents and
-  // internal calls (compaction, and so on) also appear here.
-  const primary = entries.sort((a, b) => (b[1].outputTokens ?? 0) - (a[1].outputTokens ?? 0))[0];
-
-  return {
-    type: 'done',
-    costUsd: message.total_cost_usd ?? 0,
-    inputTokens: entries.length > 0 ? inputTokens : (message.usage?.input_tokens ?? 0),
-    outputTokens: entries.length > 0 ? outputTokens : (message.usage?.output_tokens ?? 0),
-    cacheReadTokens,
-    cacheCreationTokens,
-    model: primary === undefined ? null : (primary[1].canonicalModel ?? primary[0]),
-  };
-}
 
 /** A one-line summary of a tool call, for the canvas and the transcript. */
 function describeToolInput(input: unknown, truncate = true): string {

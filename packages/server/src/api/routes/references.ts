@@ -62,7 +62,7 @@ route('GET', '/api/runs/:id/references/:referenceId', async (_req, res, params, 
 
 /**
  * A draft of a reference, written from an experiment's own conversation and
- * notes. Nothing is saved: the text goes back to the editor, where the user
+ * notes. Only usage is saved: the text goes back to the editor, where the user
  * reads it, changes it and decides. The conversation the experiment copied
  * from its parent is not included -- it belongs to the parent, and can be
  * drafted from there.
@@ -97,23 +97,35 @@ route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
   });
   const startedAt = Date.now();
   if (res.destroyed) controller.abort();
-  const text = await ctx.jobs.pool.run(
-    {
-      id: randomUUID(),
-      projectId: project.id,
-      kind: 'draft',
-      label: 'Reference draft',
-      controller,
-    },
-    () =>
-      ctx.drafts.draft({
-        instructions: DRAFT_INSTRUCTIONS,
-        input: draftInput(conversation.text, instruction, current),
-        model: source.model ?? project.default_model ?? settings.model(),
-        agentEnv: settings.agentEnv(),
-        signal: controller.signal,
-      }),
-  );
+  const draftId = randomUUID();
+  store.usage.createDraft(draftId, project.id, 'Reference draft');
+  let text: string;
+  try {
+    text = await ctx.jobs.pool.run(
+      {
+        id: draftId,
+        projectId: project.id,
+        kind: 'draft',
+        label: 'Reference draft',
+        controller,
+      },
+      () =>
+        ctx.drafts.draft({
+          instructions: DRAFT_INSTRUCTIONS,
+          input: draftInput(conversation.text, instruction, current),
+          model: source.model ?? project.default_model ?? settings.model(),
+          agentEnv: settings.agentEnv(),
+          signal: controller.signal,
+          onUsage: (event) => store.usage.recordDraft(draftId, event),
+        }),
+    );
+    store.usage.finishDraft(draftId, controller.signal.aborted ? 'cancelled' : 'done');
+  } catch (error) {
+    store.usage.finishDraft(draftId, controller.signal.aborted ? 'cancelled' : 'failed');
+    throw error;
+  } finally {
+    ctx.bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
+  }
   // Sizes, never contents: the conversation is the user's own words.
   log.info('reference.draft', {
     from: source.kind,

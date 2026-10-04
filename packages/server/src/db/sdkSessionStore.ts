@@ -75,6 +75,16 @@ export class SdkSessionStore implements SessionStore {
       .get(sessionId) as { id: number | null };
     return row.id;
   }
+  costState(sessionId: string): SessionStoreEntry | null {
+    const row = this.db
+      .prepare(
+        `SELECT data_json FROM sdk_session_entry
+      WHERE session_id = ? AND subpath = '' AND json_extract(data_json, '$.type') = 'cost-state'
+      ORDER BY id DESC LIMIT 1`,
+      )
+      .get(sessionId) as { data_json: string } | undefined;
+    return row ? (JSON.parse(row.data_json) as SessionStoreEntry) : null;
+  }
   /** Startup only, before jobs/HTTP: interrupted native forks have no owner. */
   removeUnowned(): void {
     this.db.exec(
