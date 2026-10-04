@@ -15,6 +15,24 @@ export class SdkSessionStore implements SessionStore {
         ON CONFLICT(session_id) DO UPDATE SET project_key = excluded.project_key, modified_at = excluded.modified_at`,
         )
         .run(key.sessionId, key.projectKey, Date.now());
+      // Importing a legacy/global transcript can recreate a missing mirror row.
+      // Bind it to its known live owners in this same append transaction.
+      if (
+        !this.db
+          .prepare('SELECT 1 FROM sdk_session_owner WHERE session_id = ? LIMIT 1')
+          .get(key.sessionId)
+      ) {
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO sdk_session_owner(session_id, node_id) SELECT ?, id FROM node WHERE session_id = ?',
+          )
+          .run(key.sessionId, key.sessionId);
+        this.db
+          .prepare(
+            'INSERT OR IGNORE INTO sdk_session_owner(session_id, comparison_id) SELECT ?, id FROM comparison WHERE session_id = ?',
+          )
+          .run(key.sessionId, key.sessionId);
+      }
       const append = this.db
         .prepare(`INSERT INTO sdk_session_entry (session_id, subpath, uuid, data_json)
         VALUES (?, ?, ?, ?) ON CONFLICT(session_id, subpath, uuid) WHERE uuid IS NOT NULL
@@ -56,6 +74,12 @@ export class SdkSessionStore implements SessionStore {
       .prepare('SELECT MAX(id) AS id FROM sdk_session_entry WHERE session_id = ?')
       .get(sessionId) as { id: number | null };
     return row.id;
+  }
+  /** Startup only, before jobs/HTTP: interrupted native forks have no owner. */
+  removeUnowned(): void {
+    this.db.exec(
+      'DELETE FROM sdk_session WHERE NOT EXISTS (SELECT 1 FROM sdk_session_owner WHERE sdk_session_owner.session_id = sdk_session.session_id)',
+    );
   }
   at(sessionId: string, through: number): SessionStore {
     return {

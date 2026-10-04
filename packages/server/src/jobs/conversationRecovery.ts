@@ -42,3 +42,6 @@ export function savedConversation(
 
 export const CONVERSATION_RECOVERY_NOTICE =
   'Claude’s original session is unavailable. Starting a new conversation using Bonsai’s saved history and inherited context. Older messages and tool output may be shortened.';
+
+export const SAVED_CONTEXT_NOTICE =
+  'Starting a new Claude session using Bonsai’s saved conversation and inherited context. Older messages and tool output may be shortened.';

@@ -354,3 +354,47 @@ CREATE TABLE IF NOT EXISTS sdk_session_entry (
 );
 CREATE INDEX IF NOT EXISTS sdk_session_entry_order_idx ON sdk_session_entry(session_id, subpath, id);
 CREATE UNIQUE INDEX IF NOT EXISTS sdk_session_entry_uuid_idx ON sdk_session_entry(session_id, subpath, uuid) WHERE uuid IS NOT NULL;
+
+-- Retain every session used by an owner, including a replaced session, until
+-- that owner is explicitly deleted. A legacy UUID shared by two owners lives
+-- until the last owner disappears; an archived node remains an owner.
+CREATE TABLE IF NOT EXISTS sdk_session_owner (
+  id INTEGER PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sdk_session(session_id) ON DELETE CASCADE,
+  node_id TEXT REFERENCES node(id) ON DELETE CASCADE,
+  comparison_id TEXT REFERENCES comparison(id) ON DELETE CASCADE,
+  CHECK ((node_id IS NOT NULL) <> (comparison_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS sdk_session_owner_unique_idx ON sdk_session_owner(session_id, COALESCE('node:' || node_id, 'comparison:' || comparison_id));
+CREATE INDEX IF NOT EXISTS sdk_session_owner_node_idx ON sdk_session_owner(node_id);
+CREATE INDEX IF NOT EXISTS sdk_session_owner_comparison_idx ON sdk_session_owner(comparison_id);
+
+CREATE TRIGGER IF NOT EXISTS node_sdk_session_insert AFTER INSERT ON node WHEN NEW.session_id IS NOT NULL
+BEGIN
+  INSERT OR IGNORE INTO sdk_session(session_id, project_key, modified_at) VALUES(NEW.session_id, '', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+  INSERT OR IGNORE INTO sdk_session_owner(session_id, node_id) VALUES(NEW.session_id, NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS node_sdk_session_update AFTER UPDATE OF session_id ON node WHEN NEW.session_id IS NOT NULL
+BEGIN
+  INSERT OR IGNORE INTO sdk_session(session_id, project_key, modified_at) VALUES(NEW.session_id, '', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+  INSERT OR IGNORE INTO sdk_session_owner(session_id, node_id) VALUES(NEW.session_id, NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS comparison_sdk_session_insert AFTER INSERT ON comparison WHEN NEW.session_id IS NOT NULL
+BEGIN
+  INSERT OR IGNORE INTO sdk_session(session_id, project_key, modified_at) VALUES(NEW.session_id, '', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+  INSERT OR IGNORE INTO sdk_session_owner(session_id, comparison_id) VALUES(NEW.session_id, NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS comparison_sdk_session_update AFTER UPDATE OF session_id ON comparison WHEN NEW.session_id IS NOT NULL
+BEGIN
+  INSERT OR IGNORE INTO sdk_session(session_id, project_key, modified_at) VALUES(NEW.session_id, '', CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+  INSERT OR IGNORE INTO sdk_session_owner(session_id, comparison_id) VALUES(NEW.session_id, NEW.id);
+END;
+CREATE TRIGGER IF NOT EXISTS sdk_session_owner_delete AFTER DELETE ON sdk_session_owner
+BEGIN
+  DELETE FROM sdk_session WHERE session_id = OLD.session_id
+    AND NOT EXISTS (SELECT 1 FROM sdk_session_owner WHERE session_id = OLD.session_id);
+END;
+CREATE TRIGGER IF NOT EXISTS node_conversation_metadata_delete AFTER DELETE ON node
+BEGIN
+  DELETE FROM meta WHERE key IN ('conversation_seed:' || OLD.id, 'session_boundary:' || OLD.id);
+END;

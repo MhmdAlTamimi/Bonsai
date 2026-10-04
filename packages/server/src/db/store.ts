@@ -256,9 +256,15 @@ export class Store {
   descendantsOf(id: string): NodeRow[] {
     return this.nodes.descendantsOf(id);
   }
-  adoptForkedSession(id: string, sessionId: string | null, parentMessageSeq: number): void {
+  adoptForkedSession(
+    id: string,
+    sessionId: string | null,
+    parentMessageSeq: number,
+    historySeed?: string,
+  ): void {
     this.transaction(() => {
       this.nodes.adoptForkedSession(id, sessionId, parentMessageSeq);
+      if (historySeed !== undefined) this.setMetadata(`conversation_seed:${id}`, historySeed);
       const checkpoint = sessionId === null ? null : this.sdkSessions.checkpoint(sessionId);
       this.setMetadata(`session_boundary:${id}`, checkpoint === null ? null : String(checkpoint));
     });
@@ -274,9 +280,11 @@ export class Store {
   }
 
   setSessionId(id: string, sessionId: string | null): void {
-    if (this.nodes.get(id)?.session_id !== sessionId)
-      this.setMetadata(`session_boundary:${id}`, null);
-    this.nodes.setSessionId(id, sessionId);
+    this.transaction(() => {
+      if (this.nodes.get(id)?.session_id !== sessionId)
+        this.setMetadata(`session_boundary:${id}`, null);
+      this.nodes.setSessionId(id, sessionId);
+    });
   }
   markSetupRan(nodeId: string): void {
     this.nodes.markSetupRan(nodeId);

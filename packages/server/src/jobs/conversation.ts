@@ -2,7 +2,7 @@ import type { ConversationCopier } from '../agent/AgentRunner.js';
 import type { Store } from '../db/store.js';
 import type { Logger } from '../log.js';
 import { workDirIn } from '../db/rows.js';
-import { inheritedConversationKey, savedConversation } from './conversationRecovery.js';
+import { savedConversation } from './conversationRecovery.js';
 
 export type ConversationCopy = 'copied' | 'nothing to copy' | 'failed';
 
@@ -47,7 +47,7 @@ export async function copyParentConversation(
   if (history.trim() === '' && completed === undefined && checkpoint === null)
     return 'nothing to copy';
   // Written before the SDK copy so a crash cannot strand the child's only context.
-  store.setMetadata(inheritedConversationKey(child.id), history);
+  store.adoptForkedSession(child.id, null, endSeq, history);
 
   try {
     if (parent.session_id === null) throw new Error('Claude session is unavailable');

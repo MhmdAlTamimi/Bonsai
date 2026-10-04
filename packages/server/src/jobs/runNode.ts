@@ -23,7 +23,11 @@ import { resolveRunSettings } from './runSettings.js';
 import { RunTranscript } from './runTranscript.js';
 import { prepareRun } from './workspace.js';
 import { ExecutionPool } from './executionPool.js';
-import { savedConversation, CONVERSATION_RECOVERY_NOTICE } from './conversationRecovery.js';
+import {
+  savedConversation,
+  CONVERSATION_RECOVERY_NOTICE,
+  SAVED_CONTEXT_NOTICE,
+} from './conversationRecovery.js';
 
 export { LEFT_TO_AGENT } from './questions.js';
 
@@ -677,7 +681,10 @@ export class RunJobs {
         transcript.record({ type: 'notice', text: CONVERSATION_RECOVERY_NOTICE });
       } else if (resumeSessionId === null && !command) {
         const saved = savedConversation(this.store, nodeId, { excludeRunId: runId });
-        if (saved.trim() !== '') historySeed = saved;
+        if (saved.trim() !== '') {
+          historySeed = saved;
+          transcript.record({ type: 'notice', text: SAVED_CONTEXT_NOTICE });
+        }
       }
 
       for await (const event of this.runner.run({

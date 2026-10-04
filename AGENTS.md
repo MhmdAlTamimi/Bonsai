@@ -38,6 +38,11 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   when compaction clears the message cut point. Import available legacy sessions by known
   UUID. Missing sessions explicitly rebuild from bounded saved Bonsai history and the fixed
   inherited seed; do not silently drop context or retry an unavailable compact command.
+  Keep SDK session ownership for every UUID used by an experiment/comparison until that
+  owner is explicitly deleted. Deletion removes its mirrors and inherited metadata in
+  the same SQL transaction, preserving sessions with another owner and archived nodes.
+  Remove unowned interrupted forks only at startup before jobs can append. Persist the
+  inherited seed and parent cut point together before attempting the native fork.
 - References are project-scoped text rows: not nodes, not in Git, never pasted into a prompt.
   A run gets write-once copies outside the checkout (`run-context/<runId>/references/` in the
   project's scratch directory) and reads them itself; each copy's revision is recorded in the

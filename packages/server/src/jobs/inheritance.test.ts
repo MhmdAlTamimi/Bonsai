@@ -14,6 +14,7 @@ import { createChildNode, createProject } from '../projects.js';
 import type { AgentRunner, ConversationCopier, RunEvent, RunSpec } from '../agent/AgentRunner.js';
 import { copyParentConversation } from './conversation.js';
 import { silentLogger } from '../log.js';
+import { savedConversation } from './conversationRecovery.js';
 
 /**
  * How a node gets its conversation.
@@ -227,6 +228,38 @@ describe('conversation inheritance', () => {
         .some(
           (message) =>
             message.role === 'system' && String(message.content).includes('saved history'),
+        ),
+    );
+  });
+
+  test('a crash after saving inherited context but before adopting its native fork has an explicit fallback', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, '? original context');
+    const nodeId = await child(projectId, masterNodeId);
+    // Exact persisted state between saving the fixed seed and adopting the fork UUID.
+    store.adoptForkedSession(
+      nodeId,
+      null,
+      store.messages.count(masterNodeId),
+      savedConversation(store, masterNodeId),
+    );
+    await store.sdkSessions.append(
+      { projectKey: 'fixture', sessionId: 'interrupted-unowned-fork' },
+      [{ type: 'user', uuid: 'orphaned-copy' }],
+    );
+    store.sdkSessions.removeUnowned();
+    await run(masterNodeId, '? later parent turn');
+    await run(nodeId, '? continue from the saved context');
+    assert.equal(runner.specs.at(-1)!.resumeSessionId, null);
+    assert.match(runner.specs.at(-1)!.historySeed!, /original context/);
+    assert.equal(store.lineageOf(store.getNode(nodeId)!).conversationFrom?.id, masterNodeId);
+    assert.doesNotMatch(runner.specs.at(-1)!.historySeed!, /later parent turn/);
+    assert.ok(
+      store
+        .listMessages(nodeId, 0)
+        .some(
+          (message) =>
+            message.role === 'system' && String(message.content).includes('saved conversation'),
         ),
     );
   });

@@ -11,6 +11,7 @@ import { openDatabase } from './open.js';
 import {
   DatabaseTooNewError,
   LATEST_VERSION,
+  MIGRATIONS,
   currentVersion,
   runMigrations,
 } from './migrations.js';
@@ -147,7 +148,11 @@ describe('schema migrations', () => {
     insert.run('closed', 'failed', 'the app exited while this run was in flight');
     insert.run('live', 'running', null);
 
-    runMigrations(db);
+    // This minimal fixture exercises the historical data transformation.
+    // Full upgrades run through openDatabase with schema.sql, as tested above.
+    const migration = MIGRATIONS.find((step) => step.version === 14);
+    assert.ok(migration);
+    migration.up(db);
     const reasons = Object.fromEntries(
       (
         db.prepare(`SELECT id, end_reason FROM run`).all() as unknown as Array<{

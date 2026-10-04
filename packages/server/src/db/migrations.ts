@@ -220,6 +220,25 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 24, name: 'durable Git save intents', up: () => undefined },
   { version: 25, name: 'retryable deletion intents', up: () => undefined },
   { version: 26, name: 'Bonsai-owned SDK transcripts', up: () => undefined },
+  {
+    version: 27,
+    name: 'SDK session ownership and deletion',
+    up: (db) =>
+      db.exec(`
+      INSERT OR IGNORE INTO sdk_session(session_id, project_key, modified_at)
+        SELECT session_id, '', CAST(strftime('%s', 'now') AS INTEGER) * 1000 FROM node WHERE session_id IS NOT NULL
+        UNION SELECT session_id, '', CAST(strftime('%s', 'now') AS INTEGER) * 1000 FROM comparison WHERE session_id IS NOT NULL;
+      INSERT OR IGNORE INTO sdk_session_owner(session_id, node_id)
+        SELECT session_id, id FROM node WHERE session_id IS NOT NULL;
+      INSERT OR IGNORE INTO sdk_session_owner(session_id, comparison_id)
+        SELECT session_id, id FROM comparison WHERE session_id IS NOT NULL;
+      DELETE FROM meta WHERE
+        (substr(key, 1, length('conversation_seed:')) = 'conversation_seed:' AND
+          NOT EXISTS (SELECT 1 FROM node WHERE node.id = substr(meta.key, length('conversation_seed:') + 1)))
+        OR (substr(key, 1, length('session_boundary:')) = 'session_boundary:' AND
+          NOT EXISTS (SELECT 1 FROM node WHERE node.id = substr(meta.key, length('session_boundary:') + 1)));
+    `),
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
