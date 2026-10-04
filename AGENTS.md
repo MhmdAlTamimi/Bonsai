@@ -153,7 +153,10 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   events by node; queue and usage changes must not invalidate unrelated histories. Comparison
   freshness still depends on its source experiments. Preserve DTO/node identity and run layout
   only when topology, pinned positions or measured sizes change.
-- Initial experiment history is bounded. Earlier pages preserve the reader's anchor, and live
+- Initial experiment history is bounded. Upward scrolling near the top loads one earlier page
+  at a time; restoration must not cascade into loading all history. Failures stop automatic
+  retries and retain a manual retry. Earlier pages preserve the reader's current anchor even
+  when they keep scrolling during the request, and live
   persisted frames use the node-wide message sequence to avoid replay when a page starts inside
   a run. A failed browser draft write must remain visible and warn before unloading; an in-memory
   draft is not a saved draft. Stale frontend builds require an explicit reload before mutations.

@@ -18,9 +18,18 @@ export function useReadingPosition(
   const [away, setAway] = useState(!saved.current.following);
   const [unread, setUnread] = useState(false);
   const selectedText = (): boolean => !(window.getSelection()?.isCollapsed ?? true);
-  const remember = (): void => {
+  // Report upward movement only; restoration and prepend adjustments must not load pages.
+  const remember = (): boolean => {
     const region = scrollRef.current;
-    if (!region || !visible || !restored.current) return;
+    if (!region || !visible || !restored.current) return false;
+    const upward = region.scrollTop < saved.current.top;
+    const anchor = prependAnchor.current;
+    if (anchor) {
+      const element = region.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(anchor.id)}"]`,
+      );
+      if (element) anchor.top = element.getBoundingClientRect().top;
+    }
     saved.current = {
       top: region.scrollTop,
       following:
@@ -29,6 +38,7 @@ export function useReadingPosition(
     positions.set(key, saved.current);
     setAway(!saved.current.following);
     if (saved.current.following) setUnread(false);
+    return upward;
   };
   const jump = (): void => {
     const region = scrollRef.current;
@@ -92,6 +102,8 @@ export function useReadingPosition(
       region.scrollTop += element.getBoundingClientRect().top - anchor.top;
       saved.current.top = region.scrollTop;
       positions.set(key, saved.current);
+      // Older history is not new output; the resize observer should not mark it unread.
+      lastHeight.current = region.scrollHeight;
       prependAnchor.current = null;
     }
   }, [key, historyStart]);

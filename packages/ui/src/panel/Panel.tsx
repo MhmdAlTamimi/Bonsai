@@ -184,6 +184,23 @@ function NodePanel({
     chat.messages[0]?.id,
   );
 
+  const loadEarlier = (): void => {
+    if (chat.loadingEarlier || !chat.hasEarlier) return;
+    reading.preserveEarlier();
+    void chat.loadEarlier();
+  };
+  const onHistoryScroll = (): void => {
+    const upward = reading.onScroll();
+    if (
+      upward &&
+      chat.loaded &&
+      detail !== null &&
+      !chat.earlierError &&
+      (reading.scrollRef.current?.scrollTop ?? Infinity) <= 160
+    )
+      loadEarlier();
+  };
+
   /**
    * Master of a project adopted before master had a checkout of its own: its
    * worktree is the user's own folder, on the branch they work on. Bonsai will
@@ -282,7 +299,7 @@ function NodePanel({
        * top rather than floating above nothing.
        */}
       <div className="panel-scroll">
-        <div className="panel-body" ref={reading.scrollRef} onScroll={reading.onScroll}>
+        <div className="panel-body" ref={reading.scrollRef} onScroll={onHistoryScroll}>
           <div ref={reading.contentRef} className="conversation-content">
             {node.status === 'new' && node.writable && (
               <section className="start">
@@ -328,15 +345,13 @@ function NodePanel({
               )}
             {chat.hasEarlier && (
               <div className="earlier-history">
-                <p className="muted">Showing recent messages. Earlier conversation is saved.</p>
-                <button
-                  disabled={chat.loadingEarlier}
-                  onClick={() => {
-                    reading.preserveEarlier();
-                    void chat.loadEarlier();
-                  }}
-                >
-                  {chat.loadingEarlier ? 'Loading earlier messages…' : 'Load earlier messages'}
+                <p className="muted">Scroll up to load earlier messages.</p>
+                <button disabled={chat.loadingEarlier} onClick={loadEarlier}>
+                  {chat.loadingEarlier
+                    ? 'Loading earlier messages…'
+                    : chat.earlierError
+                      ? 'Retry earlier messages'
+                      : 'Load earlier messages'}
                 </button>
                 {chat.earlierError && <p role="alert">{chat.earlierError}</p>}
               </div>

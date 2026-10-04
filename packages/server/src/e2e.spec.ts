@@ -288,6 +288,10 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.waitFor(
         `(async () => !['running', 'needs_you'].includes((await (await fetch('/api/nodes/${project.masterNodeId}')).json()).node.status))()`,
       );
+      // A finalized run status can precede process/slot cleanup; backup requires the idle gate.
+      await session.waitFor(
+        "(async () => (await (await fetch('/api/diagnostics')).json()).counts.running === 0)()",
+      );
       await session.eval(
         "Array.from(document.querySelectorAll('.settings-storage button')).find(b => b.textContent === 'Make backup').click()",
       );
@@ -1173,7 +1177,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
   });
 
-  test('long history loads in pages, preserves reading position and ignores another experiment’s updates', async () => {
+  test('long history loads on upward scroll, preserves moving readers and offers retry after failure', async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {
         method: 'POST',
@@ -1254,9 +1258,45 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       [],
     );
-    await session.eval(
-      "document.querySelector('.panel-body').scrollTop = 0; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.historyAnchor = document.querySelector('[data-message-id]'); window.historyTop = window.historyAnchor.getBoundingClientRect().top; document.querySelector('.earlier-history button').click();",
+    // Hold the first older page so real scroll input can continue while it is in flight.
+    await session.eval(`(() => {window.pageRequests = []; window.pagingFetch = window.fetch;
+      window.fetch = async (...args) => {
+        if (String(args[0]).includes('/messages?beforeSeq=')) {
+          window.pageRequests.push(String(args[0]));
+          if (window.pageRequests.length === 1)
+            await new Promise(resolve => window.releaseHistoryPage = resolve);
+          if (window.pageRequests.length === 2)
+            return new Response(JSON.stringify({error: 'History temporarily unavailable'}), {status: 503});
+        }
+        return window.pagingFetch(...args);
+      };
+      const region = document.querySelector('.panel-body');
+      region.scrollTop = 240;
+      region.dispatchEvent(new Event('scroll'));
+    })()`);
+    const historyPoint = await session.centreOf('.panel-body');
+    assert.ok(historyPoint);
+    await session.send('Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
+      x: historyPoint.x,
+      y: historyPoint.y,
+      deltaX: 0,
+      deltaY: -160,
+    });
+    await session.waitFor('window.pageRequests.length === 1 && !!window.releaseHistoryPage');
+    await session.eval(`(() => {const region = document.querySelector('.panel-body');
+      region.scrollTop = 140;
+      region.dispatchEvent(new Event('scroll'));
+      window.historyAnchor = document.querySelector('[data-message-id]');
+      window.historyTop = window.historyAnchor.getBoundingClientRect().top;
+      region.dispatchEvent(new Event('scroll'));
+    })()`);
+    assert.equal(
+      await session.eval('window.pageRequests.length'),
+      1,
+      'only one page can be in flight',
     );
+    await session.eval('window.releaseHistoryPage()');
     await session.waitFor("document.querySelectorAll('.turn').length === 200");
     assert.ok(
       Number(
@@ -1264,12 +1304,29 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
           'Math.abs(window.historyAnchor.getBoundingClientRect().top - window.historyTop)',
         ),
       ) < 5,
-      'loading earlier content preserves the previous first message',
+      'the arriving page preserves the reader’s position after scrolling during the request',
     );
-    await session.eval("document.querySelector('.earlier-history button').click()");
+    await session.waitFor(
+      "document.querySelector('.jump-latest')?.textContent === 'Jump to latest'",
+    );
+    // A restored anchor moves down. It must not cascade into downloading all history.
+    assert.equal(await session.eval('window.pageRequests.length'), 1);
+    await session.eval(`(() => {const region = document.querySelector('.panel-body');
+      region.scrollTop = 0; region.dispatchEvent(new Event('scroll'));})()`);
+    await session.waitFor(
+      "document.querySelector('.earlier-history [role=alert]')?.textContent.includes('History temporarily unavailable')",
+    );
+    assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 200);
+    // Scrolling after an error must not create a retry loop.
+    await session.eval(`(() => {const region = document.querySelector('.panel-body');
+      region.scrollTop = 60; region.dispatchEvent(new Event('scroll'));
+      region.scrollTop = 0; region.dispatchEvent(new Event('scroll'));})()`);
+    assert.equal(await session.eval('window.pageRequests.length'), 2);
+    await session.click('.earlier-history button');
     await session.waitFor(
       "document.querySelectorAll('.turn').length === 250 && !document.querySelector('.earlier-history')",
     );
+    assert.equal(await session.eval('window.pageRequests.length'), 3);
     assert.equal(await session.eval("document.querySelectorAll('[data-message-id]').length"), 500);
     await fetch(`${BASE}/api/nodes/${created.masterNodeId}/runs`, {
       method: 'POST',
@@ -4052,6 +4109,7 @@ async function launchBrowser(): Promise<{
     expression: string,
     options?: { timeoutMs?: number; intervalMs?: number; label?: string },
   ): Promise<unknown>;
+  centreOf(selector: string): Promise<{ x: number; y: number } | null>;
   click(selector: string): Promise<void>;
   /** A press or release at a point, with `buttons` set so it is a real one. */
   mouse(type: 'mousePressed' | 'mouseReleased' | 'mouseMoved', x: number, y: number): Promise<void>;
