@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { type Edge, type Node, useNodesState, useReactFlow } from 'reactflow';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { type Edge, type Node, useNodesState, useReactFlow, useNodesInitialized } from 'reactflow';
 import type { NodeView } from '@bonsai/shared';
 
-import { layoutTree } from './layout.ts';
-import { FIT } from './zoom.ts';
+import { layoutPositions, type LayoutNode } from './layout.ts';
+import { codeState } from '../nodeCode.ts';
 
 /**
  * Server state, turned into nodes React Flow will actually draw.
@@ -41,7 +41,11 @@ export function useLaidOutNodes(
    * test asserts a card is never invisible across a refetch, and fails if
    * either half of this goes.
    */
-  const [flowNodes, setFlowNodes, onNodesChange] = useNodesState<NodeView>([]);
+  const [flowNodes, setFlowNodes, applyChanges] = useNodesState<NodeView>([]);
+  const onNodesChange = useCallback<typeof applyChanges>(
+    (changes) => applyChanges(changes.filter((change) => change.type !== 'select')),
+    [applyChanges],
+  );
 
   const geometry = JSON.stringify(
     flowNodes
@@ -58,7 +62,14 @@ export function useLaidOutNodes(
       ),
     [geometry],
   );
-  const laid = useMemo(() => layoutTree(nodes, sizes), [nodes, sizes]);
+  const structure = JSON.stringify(
+    nodes.map(({ id, parentId, positionX, positionY }) => ({ id, parentId, positionX, positionY })),
+  );
+  // Only topology, pinned coordinates and measured dimensions require Dagre.
+  const positions = useMemo(
+    () => layoutPositions(JSON.parse(structure) as LayoutNode[], sizes),
+    [structure, sizes],
+  );
   const edges = useMemo(() => {
     const path = new Set<string>();
     const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -67,21 +78,31 @@ export function useLaidOutNodes(
       path.add(current);
       current = byId.get(current)?.parentId ?? null;
     }
-    return laid.edges.map((edge) => ({
-      ...edge,
-      data: {
-        ...(edge.data as Record<string, unknown> | undefined),
-        // The path through the selected experiment's ancestors: solid and
-        // accented, so the branch you are working along reads at a glance.
-        live: path.has(edge.target) && path.has(edge.source),
-      },
-    }));
-  }, [laid, nodes, selectedId]);
+    return nodes
+      .filter((node) => node.parentId !== null)
+      .map((node) => ({
+        id: `${node.parentId}->${node.id}`,
+        source: node.parentId!,
+        target: node.id,
+        type: 'bonsai',
+        data: {
+          conversationOnly: codeState(node) === 'none',
+          live: path.has(node.id) && path.has(node.parentId!),
+        },
+        ariaLabel: `Conversation from ${byId.get(node.parentId!)?.displayName ?? 'source'} to ${node.displayName}`,
+      }));
+  }, [nodes, selectedId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setFlowNodes((current) => {
       const byId = new Map(current.map((n) => [n.id, n]));
-      return laid.nodes.map((fresh) => {
+      const next = nodes.map((record) => {
+        const fresh = {
+          id: record.id,
+          type: 'bonsai',
+          draggable: true,
+          position: positions.get(record.id)!,
+        };
         const previous = byId.get(fresh.id);
         /**
          * `selected` is set from OUR selection, not React Flow's.
@@ -91,7 +112,19 @@ export function useLaidOutNodes(
          * the prop the card reads was permanently false and the canvas gave no
          * hint which of twenty nodes the panel was showing.
          */
-        const marked = { ...fresh, selected: fresh.id === selectedId };
+        if (
+          previous?.data === record &&
+          previous.selected === (fresh.id === selectedId) &&
+          previous.position.x === fresh.position.x &&
+          previous.position.y === fresh.position.y
+        )
+          return previous;
+        const marked = {
+          ...fresh,
+          data: record,
+          ariaLabel: `Experiment ${record.displayName}`,
+          selected: fresh.id === selectedId,
+        };
         // Keep the measured node and overlay only what the server changed.
         return previous === undefined
           ? marked
@@ -100,53 +133,60 @@ export function useLaidOutNodes(
               ...marked,
             };
       });
+      return next.length === current.length && next.every((node, i) => node === current[i])
+        ? current
+        : next;
     });
-  }, [laid, selectedId, setFlowNodes]);
+  }, [positions, nodes, selectedId, setFlowNodes]);
 
-  // Fit once for a project. Later selection reveals only offscreen nodes, without changing zoom.
+  // Open the selected experiment at readable scale once per project. Later selection reveals only offscreen nodes, without changing zoom.
   const flow = useReactFlow();
   const flowRef = useRef(flow);
   flowRef.current = flow;
   const fitted = useRef(false);
+  const initialized = useNodesInitialized();
   const count = flowNodes.length;
+  useLayoutEffect(() => {
+    if (!initialized || count === 0 || fitted.current) return;
+    const chosen =
+      flowNodes.find((node) => node.id === selectedId) ??
+      flowNodes.find((node) => node.data.parentId === null);
+    if (!chosen) return;
+    const point = positions.get(chosen.id) ?? chosen.position;
+    void flowRef.current.setCenter(
+      point.x + (chosen.width ?? 248) / 2,
+      point.y + (chosen.height ?? 122) / 2,
+      { zoom: 1, duration: 0 },
+    );
+    fitted.current = true;
+  }, [count, initialized, flowNodes, positions, selectedId]);
   useEffect(() => {
-    if (count === 0 || fitted.current) return;
-    const timer = setTimeout(() => {
-      flowRef.current.fitView(FIT);
-      fitted.current = true;
-    }, 120);
-    return () => clearTimeout(timer);
-  }, [count]);
-  useEffect(() => {
-    if (!selectedId || !fitted.current) return;
-    const timer = setTimeout(() => {
-      const node = flowRef.current.getNode(selectedId);
-      const element = document.querySelector<HTMLElement>('.react-flow');
-      if (!node || !element || element.clientWidth === 0) return;
-      const viewport = flowRef.current.getViewport();
-      const left = node.position.x * viewport.zoom + viewport.x;
-      const top = node.position.y * viewport.zoom + viewport.y;
-      const width = (node.width ?? 260) * viewport.zoom;
-      const height = (node.height ?? 138) * viewport.zoom;
-      const dx =
-        left < 30
-          ? 30 - left
-          : left + width > element.clientWidth - 30
-            ? element.clientWidth - 30 - left - width
-            : 0;
-      const dy =
-        top < 100
-          ? 100 - top
-          : top + height > element.clientHeight - 70
-            ? element.clientHeight - 70 - top - height
-            : 0;
-      if (dx || dy)
-        flowRef.current.setViewport(
-          { ...viewport, x: viewport.x + dx, y: viewport.y + dy },
-          { duration: 0 },
-        );
-    }, 160);
-    return () => clearTimeout(timer);
-  }, [selectedId, count]);
+    if (!selectedId || !fitted.current || !initialized) return;
+    const node = flowRef.current.getNode(selectedId);
+    const element = document.querySelector<HTMLElement>('.react-flow');
+    if (!node || !element || element.clientWidth === 0) return;
+    const viewport = flowRef.current.getViewport();
+    const left = node.position.x * viewport.zoom + viewport.x;
+    const top = node.position.y * viewport.zoom + viewport.y;
+    const width = (node.width ?? 260) * viewport.zoom;
+    const height = (node.height ?? 138) * viewport.zoom;
+    const dx =
+      left < 30
+        ? 30 - left
+        : left + width > element.clientWidth - 30
+          ? element.clientWidth - 30 - left - width
+          : 0;
+    const dy =
+      top < 100
+        ? 100 - top
+        : top + height > element.clientHeight - 70
+          ? element.clientHeight - 70 - top - height
+          : 0;
+    if (dx || dy)
+      flowRef.current.setViewport(
+        { ...viewport, x: viewport.x + dx, y: viewport.y + dy },
+        { duration: 0 },
+      );
+  }, [selectedId, count, initialized]);
   return { flowNodes, edges, onNodesChange };
 }

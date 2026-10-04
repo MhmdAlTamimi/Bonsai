@@ -1,4 +1,5 @@
 import type { ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import type { ServerEvent } from '@bonsai/shared';
 
 /**
@@ -12,6 +13,13 @@ import type { ServerEvent } from '@bonsai/shared';
 export class EventBus {
   private readonly subscribers = new Map<string, Set<ServerResponse>>();
   private lastId = 0;
+  private published = 0;
+  private readonly instance = randomUUID();
+  private readonly revisions = new Map<string, number>();
+
+  revision(projectId: string): string {
+    return `${this.instance}:${projectId === '*' ? this.published : (this.revisions.get(projectId) ?? 0)}`;
+  }
 
   subscribe(projectId: string, res: ServerResponse): () => void {
     res.writeHead(200, {
@@ -49,19 +57,27 @@ export class EventBus {
   }
 
   publish(projectId: string, event: ServerEvent): void {
+    this.published += 1;
+    this.revisions.set(projectId, this.published);
+    this.lastId += 1;
     const set = this.subscribers.get(projectId);
-    if (set === undefined) return;
-    for (const res of set) this.send(res, event);
+    if (set) for (const res of set) this.send(res, event);
+    for (const res of this.subscribers.get('*') ?? [])
+      this.write(res, 'event', { projectId, event });
   }
 
   private send(res: ServerResponse, event: ServerEvent): void {
+    this.write(res, event.type, event);
+  }
+
+  private write(res: ServerResponse, type: string, data: unknown): void {
     if (res.destroyed || res.writableEnded) return;
     if (res.writableLength > 1_048_576) {
       res.destroy();
       return;
     }
     this.lastId += 1;
-    res.write(`id: ${this.lastId}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    res.write(`id: ${this.lastId}\nevent: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
   }
 
   closeAll(): void {

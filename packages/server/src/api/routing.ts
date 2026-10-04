@@ -19,6 +19,9 @@ import { type Logger } from '../log.js';
  * area, and register themselves here when ./router.ts imports them.
  */
 export interface Ctx {
+  /** Identity of the frontend shipped with this server process. */
+  buildId?: string | null;
+  allowedOrigins?: readonly string[];
   store: Store;
   bus: EventBus;
   jobs: RunJobs;
@@ -173,7 +176,13 @@ export async function handleApi(
   if (!url.pathname.startsWith('/api/')) return false;
 
   try {
-    assertLocalRequest(req.headers, req.method);
+    assertLocalRequest(req.headers, req.method, ctx.allowedOrigins);
+    if (ctx.buildId) {
+      res.setHeader('x-bonsai-build', ctx.buildId);
+      const client = req.headers['x-bonsai-build'];
+      if (client && client !== 'development' && client !== ctx.buildId && req.method !== 'GET')
+        throw new HttpError(409, 'Bonsai was updated. Reload this tab before making changes.');
+    }
   } catch (error) {
     sendError(res, error);
     return true;

@@ -1,4 +1,12 @@
-import { appendFileSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
+import { redactCredentials } from './redact.js';
+import {
+  appendFileSync,
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  unlinkSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -50,7 +58,9 @@ export class FileLogger implements Logger {
 
   constructor(dataDir: string) {
     this.dir = join(dataDir, 'logs');
-    mkdirSync(this.dir, { recursive: true });
+    mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    chmodSync(this.dir, 0o700);
+    for (const name of this.logFiles()) chmodSync(join(this.dir, name), 0o600);
     this.prune();
   }
 
@@ -96,9 +106,13 @@ export class FileLogger implements Logger {
       this.day = day;
       this.prune();
     }
-    const line = JSON.stringify({ t: now.toISOString(), level, event, ...compact(fields) });
+    const line = JSON.stringify(
+      redactCredentials({ t: now.toISOString(), level, event, ...compact(fields) }),
+    );
     try {
-      appendFileSync(join(this.dir, `bonsai-${day}.log`), line + '\n');
+      const file = join(this.dir, `bonsai-${day}.log`);
+      appendFileSync(file, line + '\n', { mode: 0o600 });
+      chmodSync(file, 0o600);
     } catch {
       // A log that cannot be written must not take the app down with it. The
       // console still has it.

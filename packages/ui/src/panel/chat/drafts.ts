@@ -1,6 +1,8 @@
 /** Per-tab drafts survive reloads without overwriting another tab's unsent message. */
 const drafts = new Map<string, string>();
 const PREFIX = 'bonsai.draft.v1:';
+const unsaved = new Set<string>();
+export const hasUnsavedDrafts = (): boolean => unsaved.size > 0;
 function restore(key: string): void {
   if (drafts.has(key)) return;
   drafts.set(key, '');
@@ -27,14 +29,16 @@ function restore(key: string): void {
   }
 }
 function persist(key: string): void {
+  const text = drafts.get(key) ?? '';
+  const items = attachments.get(key) ?? NONE;
   try {
-    const text = drafts.get(key) ?? '';
-    const items = attachments.get(key) ?? NONE;
     if (text === '' && items.length === 0) globalThis.sessionStorage.removeItem(PREFIX + key);
     else
       globalThis.sessionStorage.setItem(PREFIX + key, JSON.stringify({ text, attachments: items }));
+    unsaved.delete(key);
   } catch {
-    // Keep editing usable in private/storage-restricted browsing.
+    if (text !== '' || items.length > 0) unsaved.add(key);
+    else unsaved.delete(key);
   }
 }
 export const draftKey = (projectId: string, nodeId: string, channel: string): string =>

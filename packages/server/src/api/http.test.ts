@@ -36,6 +36,7 @@ test('HTTP routes validate requests, persist accepted runs, and stream project e
   const server = createServer((req, res) => {
     void handleApi(req, res, {
       store,
+      buildId: 'current-build',
       settings,
       connection,
       bus,
@@ -63,6 +64,26 @@ test('HTTP routes validate requests, persist accepted runs, and stream project e
     });
   try {
     assert.equal((await fetch(base + '/api/not-a-route')).status, 404);
+    const version = await fetch(base + '/api/version');
+    assert.deepEqual(await version.json(), { buildId: 'current-build' });
+    assert.equal(version.headers.get('x-bonsai-build'), 'current-build');
+    const stale = await fetch(base + '/api/projects', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-bonsai-build': 'old-build' },
+      body: JSON.stringify({ name: 'Must not create', description: '' }),
+    });
+    assert.equal(stale.status, 409);
+    assert.equal(
+      store.listProjects().length,
+      0,
+      'a mismatched frontend cannot mutate the upgraded server',
+    );
+    assert.equal(
+      (await fetch(base + '/api/projects', { headers: { 'x-bonsai-build': 'old-build' } })).status,
+      200,
+      'saved work stays readable',
+    );
+
     assert.equal(
       (await fetch(base + '/api/settings', { headers: { origin: 'https://example.com' } })).status,
       403,
@@ -76,6 +97,16 @@ test('HTTP routes validate requests, persist accepted runs, and stream project e
         })
       ).status,
       415,
+    );
+    assert.equal(
+      (
+        await fetch(base + '/api/projects', {
+          method: 'POST',
+          headers: { origin: 'http://localhost:9999' },
+        })
+      ).status,
+      403,
+      'a simple bodyless POST from an unrelated local website is rejected before routing',
     );
     assert.equal((await post('/api/projects', [])).status, 400);
     assert.equal((await post('/api/projects', {})).status, 400);
@@ -94,6 +125,37 @@ test('HTTP routes validate requests, persist accepted runs, and stream project e
     bus.publish(project.projectId, { type: 'tree.updated', projectId: project.projectId });
     assert.match(new TextDecoder().decode((await reader.read()).value), /event: tree.updated/);
     stream.abort();
+
+    // Shared browser transport carries the project identity; finite polling
+    // observes changes even when no event stream is connected.
+    const check = async (id: string): Promise<string> => {
+      const result = await fetch(`${base}/api/events/check?projectId=${id}`);
+      assert.equal(result.status, 200);
+      return ((await result.json()) as { revision: string }).revision;
+    };
+    const before = await check(project.projectId);
+    const otherBefore = await check('other-project');
+    const shared = new AbortController();
+    const sharedResponse = await fetch(`${base}/api/events?all=1`, { signal: shared.signal });
+    const sharedReader =
+      sharedResponse.body!.getReader() as ReadableStreamDefaultReader<Uint8Array>;
+    await sharedReader.read();
+    const event = {
+      type: 'tree.updated' as const,
+      projectId: project.projectId,
+      nodeId: project.masterNodeId,
+    };
+    bus.publish(project.projectId, event);
+    const frame = new TextDecoder().decode((await sharedReader.read()).value);
+    assert.match(frame, /event: event/);
+    assert.ok(frame.includes(JSON.stringify({ projectId: project.projectId, event })));
+    shared.abort();
+    assert.notEqual(await check(project.projectId), before);
+    assert.equal(await check('other-project'), otherBefore);
+    const disconnected = await check(project.projectId);
+    bus.publish(project.projectId, event);
+    assert.notEqual(await check(project.projectId), disconnected);
+    assert.notEqual(new EventBus().revision(project.projectId), bus.revision(project.projectId));
 
     const accepted = await post(`/api/nodes/${project.masterNodeId}/runs`, {
       prompt: 'HTTP durable request',

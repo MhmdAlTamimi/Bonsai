@@ -14,7 +14,7 @@ export class AlreadyRunningError extends Error {
  * is needed, and aliases of the same data folder contend on the same file.
  */
 export function acquireInstanceLock(dataDir: string, port: number): () => void {
-  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const root = realpathSync(dataDir);
   const addressFile = join(root, 'instance.json');
   const lock = new DatabaseSync(join(root, 'instance.lock.db'));

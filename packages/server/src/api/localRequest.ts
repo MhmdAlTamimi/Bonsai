@@ -18,10 +18,21 @@ const SIMPLE_BODIES = ['application/x-www-form-urlencoded', 'multipart/form-data
  * Origin check stops another site's page, and the body type is the second
  * lock on that door for any client that leaves Origin out.
  */
-export function assertLocalRequest(headers: IncomingHttpHeaders, method = 'GET'): void {
+export function assertLocalRequest(
+  headers: IncomingHttpHeaders,
+  method = 'GET',
+  allowedOrigins: readonly string[] = [],
+): void {
   try {
     if (!headers.host || !loopback(new URL(`http://${headers.host}`).hostname)) throw new Error();
-    if (headers.origin && !loopback(new URL(headers.origin).hostname)) throw new Error();
+    if (headers.origin) {
+      const origin = new URL(headers.origin);
+      if (
+        origin.origin !== new URL(`http://${headers.host}`).origin &&
+        !allowedOrigins.includes(origin.origin)
+      )
+        throw new Error();
+    }
   } catch {
     throw new HttpError(403, 'Bonsai accepts requests from local applications only.');
   }

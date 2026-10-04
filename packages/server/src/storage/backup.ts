@@ -180,7 +180,7 @@ export async function makeBackup(
   }
   const dataDir = settings.view().dataDir;
   const backups = join(dataDir, 'backups');
-  await mkdir(backups, { recursive: true });
+  await mkdir(backups, { recursive: true, mode: 0o700 });
   const path = await mkdtemp(join(backups, 'bonsai-'));
   const createdAt = new Date().toISOString();
   await writeFile(

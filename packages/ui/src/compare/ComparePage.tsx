@@ -36,6 +36,8 @@ export function ComparePage({
   comparisonId,
   projectId,
   revision,
+  nodeRevisions,
+  queueRevision,
   onBack,
   onOpenExperiment,
   ask,
@@ -47,11 +49,13 @@ export function ComparePage({
    * can say its experiment has moved on since.
    */
   revision: string;
+  nodeRevisions: Readonly<Record<string, number>>;
+  queueRevision: number;
   onBack: () => void;
   onOpenExperiment: (nodeId: string) => void;
   ask: (request: ConfirmRequest) => Promise<boolean>;
 }): JSX.Element {
-  const { data, error } = useComparison(comparisonId, revision);
+  const { data, error } = useComparison(comparisonId, revision, nodeRevisions, queueRevision);
   const references = useReferences();
   const [actionError, setActionError] = useState<string | null>(null);
   const [updating, setUpdating] = useState(false);

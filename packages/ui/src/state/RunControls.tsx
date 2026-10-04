@@ -1,6 +1,8 @@
 import {
   createContext,
   useContext,
+  useCallback,
+  useMemo,
   useEffect,
   useRef,
   useState,
@@ -34,6 +36,8 @@ export function RunControls({
   const questions = useRef(new Map<string, string | undefined>());
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const latest = useRef({ nodes, onChanged });
+  latest.current = { nodes, onChanged };
   useEffect(() => {
     const changedQuestions = new Set(
       nodes
@@ -45,35 +49,41 @@ export function RunControls({
       const node = nodes.find((n) => n.id === id);
       if (!node || !hasActiveJob(node) || node.activeRunId !== runId) pending.current.delete(id);
     }
-    setStopping(new Set(pending.current.keys()));
-    setErrors((prev) =>
-      Object.fromEntries(
+    setStopping((previous) =>
+      previous.size === pending.current.size && [...previous].every((id) => pending.current.has(id))
+        ? previous
+        : new Set(pending.current.keys()),
+    );
+    setErrors((prev) => {
+      const next = Object.fromEntries(
         Object.entries(prev).filter(
           ([id]) => !changedQuestions.has(id) && nodes.some((n) => n.id === id && hasActiveJob(n)),
         ),
-      ),
-    );
+      );
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
   }, [nodes]);
   useEffect(() => {
     if (stopping.size === 0) return;
     const timer = setInterval(onChanged, 1500);
     return () => clearInterval(timer);
   }, [stopping, onChanged]);
-  const stop = (id: string): void => {
+  const stop = useCallback((id: string): void => {
     if (pending.current.has(id)) return;
-    pending.current.set(id, nodes.find((node) => node.id === id)?.activeRunId);
+    pending.current.set(id, latest.current.nodes.find((node) => node.id === id)?.activeRunId);
     setStopping(new Set(pending.current.keys()));
     setErrors((prev) => ({ ...prev, [id]: '' }));
     void api
       .cancelNode(id)
-      .then(onChanged)
+      .then(() => latest.current.onChanged())
       .catch((e: unknown) => {
         pending.current.delete(id);
         setStopping(new Set(pending.current.keys()));
         setErrors((prev) => ({ ...prev, [id]: describeError(e) }));
       });
-  };
-  return <Context.Provider value={{ stopping, errors, stop }}>{children}</Context.Provider>;
+  }, []);
+  const value = useMemo(() => ({ stopping, errors, stop }), [stopping, errors, stop]);
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
 /**

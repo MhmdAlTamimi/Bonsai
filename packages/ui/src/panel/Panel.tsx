@@ -181,6 +181,7 @@ function NodePanel({
     // losing one, so the thread restores itself when it comes back.
     visible,
     `${chat.messages.length}:${chat.pending.length}:${streamRevision}`,
+    chat.messages[0]?.id,
   );
 
   /**
@@ -325,6 +326,21 @@ function NodePanel({
                     : 'No conversation yet. Ask a question about this code.'}
                 </p>
               )}
+            {chat.hasEarlier && (
+              <div className="earlier-history">
+                <p className="muted">Showing recent messages. Earlier conversation is saved.</p>
+                <button
+                  disabled={chat.loadingEarlier}
+                  onClick={() => {
+                    reading.preserveEarlier();
+                    void chat.loadEarlier();
+                  }}
+                >
+                  {chat.loadingEarlier ? 'Loading earlier messages…' : 'Load earlier messages'}
+                </button>
+                {chat.earlierError && <p role="alert">{chat.earlierError}</p>}
+              </div>
+            )}
             {(chat.messages.length > 0 || chat.pending.length > 0) && (
               <Transcript
                 onSave={(text) =>

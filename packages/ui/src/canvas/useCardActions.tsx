@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react';
+import { useState, type JSX } from 'react';
 import type { NodeView } from '@bonsai/shared';
 
 import { api } from '../api/client.ts';
@@ -82,27 +82,21 @@ export function useCardActions({
   const nodeActions = useNodeActions(refresh, (message) => {
     if (message !== null) report(message);
   });
-  const actions = useMemo<CardActions>(
-    () => ({
-      branch: (nodeId) => {
-        const node = nodes?.find((n) => n.id === nodeId);
-        if (node !== undefined)
-          branch({ parentId: node.id, parentName: node.displayName, position: null });
-      },
-      review,
-      apply: setApplying,
-      rename: setRenaming,
-      compact: setCompacting,
-      reference: (node) => openReference({ kind: 'new', sourceNodeId: node.id, draft: true }),
-      details: setDetailing,
-      archive: (node) => void archive(node),
-      remove: (node) => void nodeActions.remove(node),
-    }),
-    // `branch` and `review` change identity on every render; the actions only
-    // need to be rebuilt when the tree does.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nodes, nodeActions.remove],
-  );
+  const actions: CardActions = {
+    branch: (nodeId) => {
+      const node = nodes?.find((n) => n.id === nodeId);
+      if (node !== undefined)
+        branch({ parentId: node.id, parentName: node.displayName, position: null });
+    },
+    review,
+    apply: setApplying,
+    rename: setRenaming,
+    compact: setCompacting,
+    reference: (node) => openReference({ kind: 'new', sourceNodeId: node.id, draft: true }),
+    details: setDetailing,
+    archive: (node) => void archive(node),
+    remove: (node) => void nodeActions.remove(node),
+  };
 
   const dialogs = (
     <>

@@ -5,6 +5,7 @@ import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import type { ConfirmRequest } from '../ConfirmDialog.tsx';
 import { deletionMessage } from './deletionMessage.ts';
+import { reconcileTree } from './reconcileTree.ts';
 
 /**
  * Long enough to swallow the three events one finished run produces, short
@@ -63,7 +64,8 @@ export function useProjectTree(
     setError(null);
     try {
       const value = await api.tree(id);
-      if (ticket === request.current && id === current.current) setTree(value);
+      if (ticket === request.current && id === current.current)
+        setTree((previous) => reconcileTree(previous, value));
     } catch (e) {
       if (ticket === request.current && id === current.current) setError(describeError(e));
     } finally {

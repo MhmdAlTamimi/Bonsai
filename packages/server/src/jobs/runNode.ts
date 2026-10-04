@@ -273,6 +273,7 @@ export class RunJobs {
     this.bus.publish(dropped.projectId, {
       type: 'tree.updated',
       projectId: dropped.projectId,
+      nodeId: dropped.nodeId,
     });
   }
 
@@ -518,7 +519,11 @@ export class RunJobs {
         position: this.pool.position(runId),
         limit: this.limit(),
       });
-      this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+      this.bus.publish(node.project_id, {
+        type: 'tree.updated',
+        projectId: node.project_id,
+        nodeId: node.id,
+      });
     }
 
     return { runId };
@@ -951,7 +956,11 @@ export class RunJobs {
       inputTokens: transcript.inputTokens,
       outputTokens: transcript.outputTokens,
     });
-    this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+    this.bus.publish(node.project_id, {
+      type: 'tree.updated',
+      projectId: node.project_id,
+      nodeId: node.id,
+    });
   }
 
   /**
@@ -980,7 +989,11 @@ export class RunJobs {
     this.publishStatus(nodeId, 'interrupted');
     const node = this.store.getNode(nodeId);
     if (node !== undefined) {
-      this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+      this.bus.publish(node.project_id, {
+        type: 'tree.updated',
+        projectId: node.project_id,
+        nodeId: node.id,
+      });
     }
   }
 

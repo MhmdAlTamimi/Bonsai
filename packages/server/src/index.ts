@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -71,7 +71,7 @@ const pool = new ExecutionPool(
   () => settings.maxConcurrentRuns(),
   (projects) => {
     for (const projectId of projects) {
-      bus.publish(projectId, { type: 'tree.updated', projectId });
+      bus.publish(projectId, { type: 'queue.updated', projectId });
       for (const row of store.comparisons.list(projectId))
         if (comparisons.isRunning(row.id))
           bus.publish(projectId, { type: 'comparison.updated', projectId, comparisonId: row.id });
@@ -130,6 +130,11 @@ try {
 
 const UI_DIST = resolve(fileURLToPath(new URL('../../ui/dist', import.meta.url)));
 
+const manifestPath = join(UI_DIST, 'build.json');
+const buildId = existsSync(manifestPath)
+  ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as { buildId: string }).buildId
+  : null;
+
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -142,6 +147,10 @@ const server = createServer((req, res) => {
   void (async () => {
     if (
       await handleApi(req, res, {
+        buildId,
+        allowedOrigins: process.argv.includes('--dev')
+          ? ['http://localhost:5173', 'http://127.0.0.1:5173']
+          : [],
         store,
         bus,
         jobs,

@@ -20,6 +20,40 @@ describe('store, against real SQL', () => {
     byName = new Map(store.treeView(projectId).map((n) => [n.displayName, n]));
   });
 
+  test('history pages stay bounded and complete while new messages arrive', () => {
+    const id = byName.get('master')!.id;
+    for (let i = 0; i < 503; i++)
+      store.appendMessage({
+        nodeId: id,
+        runId: null,
+        role: 'assistant',
+        kind: 'text',
+        content: `Saved ${i}`,
+      });
+    const all = store.listMessages(id, 0);
+    const latest = store.messages.page(id);
+    assert.equal(latest.messages.length, 200);
+    assert.equal(latest.hasEarlier, true);
+    assert.deepEqual(latest.messages, all.slice(-200));
+    const added = store.appendMessage({
+      nodeId: id,
+      runId: null,
+      role: 'assistant',
+      kind: 'text',
+      content: 'Arrived while reading',
+    });
+    let combined = latest.messages;
+    let page = latest;
+    while (page.hasEarlier) {
+      page = store.messages.page(id, page.messages[0]!.seq);
+      assert.ok(page.messages.length <= 200);
+      combined = [...page.messages, ...combined];
+    }
+    assert.deepEqual(combined, all);
+    assert.deepEqual(store.listMessages(id, latest.messages.at(-1)!.seq), [added]);
+    assert.deepEqual(store.messages.page('missing'), { messages: [], hasEarlier: false });
+  });
+
   test('the demo tree is five nodes with correct nesting', () => {
     const nodes = store.treeView(projectId);
     assert.equal(nodes.length, 5);

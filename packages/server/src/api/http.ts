@@ -1,3 +1,4 @@
+import { redactCredentials } from '../redact.js';
 import { OperationConflict } from '../domain/errors.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiError } from '@bonsai/shared';
@@ -32,7 +33,7 @@ export function sendError(res: ServerResponse, err: unknown): void {
     return;
   }
   const message = err instanceof Error ? err.message : String(err);
-  process.stderr.write(`[bonsai] unhandled: ${message}\n`);
+  process.stderr.write(`[bonsai] unhandled: ${String(redactCredentials(message))}\n`);
   sendJson(res, 500, { error: message } satisfies ApiError);
 }
 

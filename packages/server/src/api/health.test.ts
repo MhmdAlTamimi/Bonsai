@@ -16,7 +16,7 @@ test('local API rejects remote origins, opaque origins and DNS rebinding hosts',
   ])
     assert.throws(() => assertLocalRequest(headers), /local applications/);
   assert.doesNotThrow(() =>
-    assertLocalRequest({ host: 'localhost:8787', origin: 'http://localhost:5173' }),
+    assertLocalRequest({ host: 'localhost:8787', origin: 'http://localhost:8787' }),
   );
   assert.doesNotThrow(() => assertLocalRequest({ host: '127.0.0.1:8787' }));
 });

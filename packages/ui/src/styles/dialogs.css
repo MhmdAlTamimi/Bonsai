@@ -382,3 +382,6 @@ dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px
 .apply-download { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
 .apply-download a { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: var(--r-8); background: var(--control-strong); color: var(--text); text-decoration: none; }
 .apply-download a:hover { background: var(--control-hover); }
+
+.storage-project { margin-block: 16px; }
+.storage-comparison { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }

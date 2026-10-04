@@ -1,10 +1,11 @@
-import { type JSX, useRef } from 'react';
+import { type JSX, useCallback, useMemo, useRef } from 'react';
 import ReactFlow, { Background, type NodeMouseHandler, useReactFlow, useStore } from 'reactflow';
 import 'reactflow/dist/style.css';
 import type { NodeView } from '@bonsai/shared';
 
 import { Icon } from '../Icon.tsx';
 
+import { FindExperiment } from './FindExperiment.tsx';
 import { CanvasHints } from './CanvasHints.tsx';
 import { FIT, MAX_ZOOM, MIN_ZOOM } from './zoom.ts';
 
@@ -64,14 +65,34 @@ export function Canvas({
 
   // Behind a ref for the same reason fitView is: useReactFlow() hands back a
   // new identity whenever the viewport moves.
-  const { screenToFlowPosition, fitView, zoomIn, zoomOut, zoomTo } = useReactFlow();
+  const { screenToFlowPosition, fitView, zoomIn, zoomOut, zoomTo, getNode, setCenter } =
+    useReactFlow();
   const screenToFlowRef = useRef(screenToFlowPosition);
   screenToFlowRef.current = screenToFlowPosition;
 
   /** Set between connect start and connect end. See onConnectEnd. */
   const dragSource = useRef<string | null>(null);
 
-  const picked = new Map((picks ?? []).map((id, position) => [id, position]));
+  const picked = useMemo(
+    () => new Map((picks ?? []).map((id, position) => [id, position])),
+    [picks],
+  );
+  const latest = useRef({ actions, nodes, onBranch });
+  latest.current = { actions, nodes, onBranch };
+  const stableActions = useMemo<CardActions>(
+    () => ({
+      branch: (id) => latest.current.actions.branch(id),
+      review: (id) => latest.current.actions.review(id),
+      apply: (node) => latest.current.actions.apply(node),
+      rename: (node) => latest.current.actions.rename(node),
+      compact: (node) => latest.current.actions.compact(node),
+      reference: (node) => latest.current.actions.reference(node),
+      details: (node) => latest.current.actions.details(node),
+      archive: (node) => latest.current.actions.archive(node),
+      remove: (node) => latest.current.actions.remove(node),
+    }),
+    [],
+  );
   /**
    * While picking, a click picks. ⌘, Ctrl or Shift picks at any time, which is
    * how you pick without reaching for the Compare tool first.
@@ -108,15 +129,19 @@ export function Canvas({
   };
 
   /** A click or a key on a card's `+`: the same dialog, placed by the layout. */
-  const branchFrom = (parentId: string): void =>
-    onBranch({
-      parentId,
-      parentName: nodes.find((n) => n.id === parentId)?.displayName ?? 'this experiment',
-      position: null,
-    });
+  const branchFrom = useCallback(
+    (parentId: string): void =>
+      latest.current.onBranch({
+        parentId,
+        parentName:
+          latest.current.nodes.find((n) => n.id === parentId)?.displayName ?? 'this experiment',
+        position: null,
+      }),
+    [],
+  );
 
   return (
-    <CardActionsContext.Provider value={actions}>
+    <CardActionsContext.Provider value={stableActions}>
       <PickContext.Provider value={picked}>
         <BranchContext.Provider value={branchFrom}>
           <ReactFlow
@@ -129,6 +154,7 @@ export function Canvas({
             onConnectEnd={onConnectEnd}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
+            edgesFocusable={false}
             onNodeClick={onNodeClick}
             onNodeDragStop={(_event, node) => onMoved(node.id, node.position)}
             /**
@@ -150,10 +176,42 @@ export function Canvas({
             nodesConnectable
             connectOnClick={false}
             onKeyDownCapture={(event) => {
-              if (event.nativeEvent.isComposing || !['Enter', ' '].includes(event.key)) return;
+              if (
+                event.nativeEvent.isComposing ||
+                !['Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(
+                  event.key,
+                )
+              )
+                return;
               const target = event.target as HTMLElement;
               if (!target.classList.contains('react-flow__node')) return;
               const id = target.dataset['id'];
+              if (id && event.key.startsWith('Arrow')) {
+                event.preventDefault();
+                event.stopPropagation();
+                const current = nodes.find((node) => node.id === id);
+                if (!current) return;
+                const siblings = nodes.filter((node) => node.parentId === current.parentId);
+                const index = siblings.findIndex((node) => node.id === id);
+                const next =
+                  event.key === 'ArrowUp'
+                    ? current.parentId
+                    : event.key === 'ArrowDown'
+                      ? nodes.find((node) => node.parentId === id)?.id
+                      : siblings[index + (event.key === 'ArrowRight' ? 1 : -1)]?.id;
+                const point = next ? getNode(next) : undefined;
+                if (point && next) {
+                  void setCenter(
+                    point.position.x + (point.width ?? 248) / 2,
+                    point.position.y + (point.height ?? 122) / 2,
+                    { zoom: Math.max(zoom, 0.8), duration: 0 },
+                  );
+                  document
+                    .querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(next)}"]`)
+                    ?.focus({ preventScroll: true });
+                }
+                return;
+              }
               if (id) {
                 event.preventDefault();
                 onSelect(id);
@@ -162,8 +220,6 @@ export function Canvas({
               }
             }}
             maxZoom={MAX_ZOOM}
-            fitView
-            fitViewOptions={FIT}
             proOptions={{ hideAttribution: true }}
           >
             {/* The dot grid: what tells you this is a surface you move on rather
@@ -182,6 +238,19 @@ export function Canvas({
              * app's buttons, in the app's sizes, in one bar.
              */}
             <div className="canvas-tools" role="toolbar" aria-label="Canvas controls">
+              <FindExperiment
+                nodes={nodes}
+                onSelect={(id) => {
+                  onSelect(id);
+                  const point = getNode(id);
+                  if (point)
+                    void setCenter(
+                      point.position.x + (point.width ?? 248) / 2,
+                      point.position.y + (point.height ?? 122) / 2,
+                      { zoom: 1, duration: 0 },
+                    );
+                }}
+              />
               <div className="tool-group">
                 <button
                   className="canvas-tool icon-only"

@@ -1,10 +1,11 @@
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 
+import { storageUse } from '../archive.js';
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { EventBus } from '../api/events.js';
@@ -137,6 +138,31 @@ describe('comparisons', () => {
   });
 
   const nodes = (...ids: string[]) => ids.map((id) => store.getNode(id)!);
+
+  test('storage counts independent comparison files and run attachments, and explicit deletion frees only its comparison', async () => {
+    const row = await comparisons.create(projectId, nodes(redis, lru));
+    const attachment = join(store.projectScratchDir(projectId), 'run-context', 'saved-fixture');
+    await mkdir(attachment, { recursive: true });
+    await writeFile(join(attachment, 'reference.md'), 'Original reference version');
+    const measured = await storageUse(store);
+    assert.ok(measured.comparisonBytes > 0);
+    assert.ok(measured.attachmentBytes > 0);
+    assert.equal(measured.projects[0]!.comparisons[0]!.id, row.id);
+    assert.equal(measured.projects[0]!.comparisons[0]!.hasDeletedSources, false);
+    store.deleteNode(lru);
+    const retained = await storageUse(store);
+    assert.equal(retained.comparisonBytes, measured.comparisonBytes);
+    assert.equal(retained.projects[0]!.comparisons[0]!.hasDeletedSources, true);
+    await comparisons.delete(row.id);
+    const removed = await storageUse(store);
+    assert.equal(removed.comparisonBytes, 0);
+    assert.equal(removed.attachmentBytes, measured.attachmentBytes);
+    assert.deepEqual(removed.projects[0]!.comparisons, []);
+    assert.equal(
+      await readFile(join(attachment, 'reference.md'), 'utf8'),
+      'Original reference version',
+    );
+  });
 
   test('snapshots each experiment into a folder of its own, with an index', async () => {
     const row = await comparisons.create(projectId, nodes(redis, lru));

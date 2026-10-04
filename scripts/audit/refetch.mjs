@@ -8,6 +8,7 @@
  * on it, then ten runs happen on OTHER experiments. Counts how often the open
  * conversation is downloaded again in full, and how many bytes that is.
  */
+import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -69,6 +70,7 @@ try {
   }
   await delay(2000);
   const fetched = Number(await page.eval('window.__messages'));
+  assert.equal(fetched, 0, 'unrelated runs must not download the selected conversation');
   const trees = Number(await page.eval('window.__trees'));
   console.log(`open conversation: ${history} runs, ${(size / 1024).toFixed(0)} KB per download`);
   console.log(

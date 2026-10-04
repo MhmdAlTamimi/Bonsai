@@ -124,7 +124,7 @@ route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
     store.usage.finishDraft(draftId, controller.signal.aborted ? 'cancelled' : 'failed');
     throw error;
   } finally {
-    ctx.bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
+    ctx.bus.publish(project.id, { type: 'usage.updated', projectId: project.id });
   }
   // Sizes, never contents: the conversation is the user's own words.
   log.info('reference.draft', {

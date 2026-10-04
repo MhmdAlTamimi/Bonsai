@@ -88,3 +88,14 @@ test('a repeated frame is idempotent rather than doubled', () => {
   const live = [agent(1, 'a'), agent(1, 'a')];
   assert.deepEqual(pendingDeltas(live, stored(1)), []);
 });
+
+// A page can start in the middle of a run; counting only its loaded assistant
+// messages must not make already-persisted frames appear a second time.
+test('paged history reconciles live output by its persisted message cursor', () => {
+  const live: Delta[] = [
+    { runId: 'long-run', seq: 199, messageSeq: 300, text: 'Already saved' },
+    { runId: 'long-run', seq: 200, messageSeq: 301, text: 'New output' },
+  ];
+  const page: PersistedMessage[] = [{ runId: 'long-run', seq: 300, role: 'assistant' }];
+  assert.deepEqual(pendingDeltas(live, page), [live[1]]);
+});

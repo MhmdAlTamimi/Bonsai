@@ -240,7 +240,11 @@ export class QuestionDesk {
       questionId,
       text: question.text,
     });
-    this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+    this.bus.publish(node.project_id, {
+      type: 'tree.updated',
+      projectId: node.project_id,
+      nodeId: node.id,
+    });
 
     return new Promise<T>((resolve) => {
       let settled = false;
@@ -261,7 +265,11 @@ export class QuestionDesk {
         });
         if (resume) {
           this.setStatus(node.id, 'running');
-          this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+          this.bus.publish(node.project_id, {
+            type: 'tree.updated',
+            projectId: node.project_id,
+            nodeId: node.id,
+          });
         }
         resolve(outcome);
       };

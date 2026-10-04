@@ -53,6 +53,11 @@ export function CanvasHints(): JSX.Element {
             <dd>
               Pick experiments to compare, as the <Icon name="compare" /> Compare tool does.
             </dd>
+            <dt>Keyboard</dt>
+            <dd>
+              On a card: ↑ parent, ↓ first child, ←/→ siblings. Space selects, Enter reviews. ⌘K /
+              Ctrl+K finds an experiment.
+            </dd>
             <dt>Padlock</dt>
             <dd>Read-only: either a child has committed, or it is your own folder.</dd>
           </dl>

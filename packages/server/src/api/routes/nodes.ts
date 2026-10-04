@@ -80,7 +80,7 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, ctx) => {
     await copyParentConversation(store, ctx.conversations, created.nodeId, ctx.log);
   }
 
-  bus.publish(projectId, { type: 'tree.updated', projectId });
+  bus.publish(projectId, { type: 'tree.updated', projectId, nodeId: created.nodeId });
 
   // A file that could not be copied is told at the node it affects, not
   // buried in a log: a node missing its .env will fail its checks later for a
@@ -206,7 +206,11 @@ route(
         join(settings.view().dataDir, 'recovery'),
       ),
     );
-    bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+    bus.publish(node.project_id, {
+      type: 'tree.updated',
+      projectId: node.project_id,
+      nodeId: node.id,
+    });
     sendJson(res, 200, { preservedPath });
   },
 );
@@ -254,7 +258,7 @@ route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus, jobs }) 
     ...(body.positionX !== undefined ? { positionX: body.positionX } : {}),
     ...(body.positionY !== undefined ? { positionY: body.positionY } : {}),
   });
-  bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
+  bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id, nodeId: row.id });
   sendJson(
     res,
     200,
@@ -287,7 +291,7 @@ route('DELETE', '/api/nodes/:id', async (_req, res, params, { store, bus, jobs, 
   const announce = comparisons.beforeDeleting(doomed);
   const removed = await jobs.withStoppedNodes(doomed, () => deleteNodeTree(store, row.id));
   announce();
-  bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
+  bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id, nodeId: row.id });
   sendJson(res, 200, { ok: true, removed });
 });
 
@@ -295,6 +299,13 @@ route('GET', '/api/nodes/:id/messages', (req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const url = new URL(req.url ?? '/', 'http://localhost');
+  if (url.searchParams.has('beforeSeq')) {
+    const before = Number(url.searchParams.get('beforeSeq'));
+    if (!Number.isSafeInteger(before) || before <= 0)
+      throw new HttpError(400, 'Invalid history cursor');
+    sendJson(res, 200, store.messages.page(row.id, before));
+    return;
+  }
   const afterSeq = Number(url.searchParams.get('afterSeq') ?? 0);
   sendJson(res, 200, store.listMessages(row.id, Number.isFinite(afterSeq) ? afterSeq : 0));
 });
@@ -350,7 +361,11 @@ route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus, j
     // Archived: bring the folder back first -- it is what was asked to be seen.
     // Setup waits for the next run, which is what needs what it installs.
     await jobs.whileIdle(node.id, () => allocateNodeWorktree(store, node));
-    bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+    bus.publish(node.project_id, {
+      type: 'tree.updated',
+      projectId: node.project_id,
+      nodeId: node.id,
+    });
   }
   await revealInFileManager(node.worktree_path);
   sendJson(res, 200, { ok: true });
@@ -420,7 +435,11 @@ route('POST', '/api/nodes/:id/archive', async (req, res, params, { store, bus, j
     await archiveFolder(store, fresh, body.removeIgnored === true);
   });
   log.info('archive.done', { nodeId: node.id, projectId: node.project_id, by: 'user' });
-  bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+  bus.publish(node.project_id, {
+    type: 'tree.updated',
+    projectId: node.project_id,
+    nodeId: node.id,
+  });
   sendJson(res, 200, { ok: true });
 });
 

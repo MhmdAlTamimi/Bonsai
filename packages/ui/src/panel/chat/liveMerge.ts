@@ -40,6 +40,7 @@ export interface Delta {
   runId: string;
   /** 1-based within its run; 0 for output that is never persisted. */
   seq: number;
+  messageSeq?: number;
   text: string;
   tool?: { name: string; detail: string; id?: string };
   /** What a tool produced, when this frame is a result rather than a call. */
@@ -48,6 +49,7 @@ export interface Delta {
 
 /** The fields of a persisted message this needs, and no more. */
 export interface PersistedMessage {
+  seq?: number;
   role: 'user' | 'assistant' | 'system';
   runId: string | null;
 }
@@ -67,5 +69,10 @@ export function pendingDeltas(
 
   const stored = persisted.filter((m) => m.role === 'assistant' && m.runId === current).length;
 
-  return deltas.filter((d) => d.runId === current && (d.seq === 0 || d.seq > stored));
+  const persistedSeq = persisted.reduce((latest, message) => Math.max(latest, message.seq ?? 0), 0);
+  return deltas.filter(
+    (d) =>
+      d.runId === current &&
+      (d.seq === 0 || (d.messageSeq === undefined ? d.seq > stored : d.messageSeq > persistedSeq)),
+  );
 }

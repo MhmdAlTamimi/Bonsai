@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MessageView, NodeView } from '@bonsai/shared';
 
 import { api } from '../../api/client.ts';
@@ -28,6 +28,10 @@ export function useChat(
   messages: MessageView[];
   loading: boolean;
   loaded: boolean;
+  hasEarlier: boolean;
+  loadingEarlier: boolean;
+  earlierError: string | null;
+  loadEarlier: () => Promise<void>;
   error: string | null;
   retry: () => void;
   /** Live deltas the persisted transcript has not caught up with. */
@@ -58,17 +62,44 @@ export function useChat(
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [hasEarlier, setHasEarlier] = useState(false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [earlierError, setEarlierError] = useState<string | null>(null);
+  const initialized = useRef(false);
+  const earlierRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => earlierRequest.current?.abort(), []);
+  const history = useRef<{ nodeId: string; messages: MessageView[] }>({
+    nodeId: node.id,
+    messages: [],
+  });
 
   useEffect(() => {
     let alive = true;
     const controller = new AbortController();
+    if (history.current.nodeId !== node.id) {
+      history.current = { nodeId: node.id, messages: [] };
+      setMessages([]);
+      setLoaded(false);
+      initialized.current = false;
+      setHasEarlier(false);
+    }
+    const afterSeq = history.current.messages.at(-1)?.seq ?? 0;
     setLoading(true);
     setError(null);
-    void api
-      .messages(node.id, 0, controller.signal)
-      .then((m) => {
+    const request = initialized.current
+      ? api.messages(node.id, afterSeq, controller.signal).then((messages) => ({ messages }))
+      : api.messagePage(node.id, undefined, controller.signal);
+    void request
+      .then((page) => {
+        const m = page.messages;
         if (alive) {
-          setMessages(m);
+          initialized.current = true;
+          if ('hasEarlier' in page) setHasEarlier(page.hasEarlier as boolean);
+          if (m.length > 0) {
+            const combined = [...history.current.messages, ...m];
+            history.current = { nodeId: node.id, messages: combined };
+            setMessages(combined);
+          }
           setLoaded(true);
           setLoading(false);
         }
@@ -84,6 +115,31 @@ export function useChat(
       controller.abort();
     };
   }, [node.id, node.status, revision, streamRevision]);
+
+  const loadEarlier = async (): Promise<void> => {
+    if (earlierRequest.current || !hasEarlier) return;
+    const controller = new AbortController();
+    earlierRequest.current = controller;
+    setLoadingEarlier(true);
+    setEarlierError(null);
+    try {
+      const page = await api.messagePage(
+        node.id,
+        history.current.messages[0]?.seq,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      const combined = [...page.messages, ...history.current.messages];
+      history.current = { nodeId: node.id, messages: combined };
+      setMessages(combined);
+      setHasEarlier(page.hasEarlier);
+    } catch (error) {
+      if (!controller.signal.aborted) setEarlierError(describeError(error));
+    } finally {
+      earlierRequest.current = null;
+      if (!controller.signal.aborted) setLoadingEarlier(false);
+    }
+  };
 
   const running = node.status === 'running';
   /**
@@ -133,6 +189,10 @@ export function useChat(
     messages,
     loading,
     loaded,
+    hasEarlier,
+    loadingEarlier,
+    earlierError,
+    loadEarlier,
     error,
     retry: () => setRevision((n) => n + 1),
     pending: busy ? pendingDeltas(live, messages) : [],

@@ -31,8 +31,11 @@ export function useRestoredSelection(
   const openedProject = useRef<string | null>(null);
   useEffect(() => {
     if (!tree || tree.nodes.length === 0 || openedProject.current === tree.project.id) return;
+    const requested =
+      openedProject.current === null && tree.project.id === arrivedAt.projectId
+        ? arrivedAt.nodeId
+        : null;
     openedProject.current = tree.project.id;
-    const requested = tree.project.id === arrivedAt.projectId ? arrivedAt.nodeId : null;
     const chosen =
       tree.nodes.find((n) => n.id === requested) ??
       tree.nodes.find((n) => n.id === selection.primary) ??

@@ -64,7 +64,7 @@ export class RunTranscript {
           },
         };
         this.store.appendMessage({ nodeId, runId, role: 'system', kind: 'text', content: note });
-        this.bus.publish(projectId, { type: 'tree.updated', projectId });
+        this.bus.publish(projectId, { type: 'tree.updated', projectId, nodeId });
         break;
       }
       case 'notice':
@@ -75,11 +75,11 @@ export class RunTranscript {
           kind: 'text',
           content: event.text,
         });
-        this.bus.publish(projectId, { type: 'tree.updated', projectId });
+        this.bus.publish(projectId, { type: 'tree.updated', projectId, nodeId });
         break;
-      case 'text':
+      case 'text': {
         this.seq += 1;
-        this.store.appendMessage({
+        const message = this.store.appendMessage({
           nodeId,
           runId,
           role: 'assistant',
@@ -91,9 +91,11 @@ export class RunTranscript {
           nodeId,
           runId,
           seq: this.seq,
+          messageSeq: message.seq,
           text: event.text,
         });
         break;
+      }
       case 'tool': {
         this.toolCalls += 1;
         this.seq += 1;
@@ -106,7 +108,7 @@ export class RunTranscript {
           ...(event.id === undefined ? {} : { id: event.id }),
           ...(event.description === undefined ? {} : { description: event.description }),
         };
-        this.store.appendMessage({
+        const message = this.store.appendMessage({
           nodeId,
           runId,
           role: 'assistant',
@@ -118,6 +120,7 @@ export class RunTranscript {
           nodeId,
           runId,
           seq: this.seq,
+          messageSeq: message.seq,
           text: `${event.name}: ${event.detail}`,
           tool,
         });
@@ -128,9 +131,9 @@ export class RunTranscript {
        * call's row: messages are append-only, and the conversation pairs the
        * two by the tool's id when it draws the block.
        */
-      case 'tool_result':
+      case 'tool_result': {
         this.seq += 1;
-        this.store.appendMessage({
+        const message = this.store.appendMessage({
           nodeId,
           runId,
           role: 'assistant',
@@ -142,10 +145,12 @@ export class RunTranscript {
           nodeId,
           runId,
           seq: this.seq,
+          messageSeq: message.seq,
           text: '',
           toolResult: event.result,
         });
         break;
+      }
       case 'model':
         this.model = event.model;
         this.apiKeySource = event.apiKeySource ?? null;
@@ -162,7 +167,7 @@ export class RunTranscript {
         this.model = event.model ?? this.model;
         this.usageStatus = event.usageStatus ?? 'recorded';
         this.store.runs.recordUsage(runId, { ...event, model: this.model }, this.apiKeySource);
-        this.bus.publish(projectId, { type: 'tree.updated', projectId });
+        this.bus.publish(projectId, { type: 'tree.updated', projectId, nodeId });
         break;
       case 'error':
         if (event.apiFailure) throw new AgentApiFailure(event.error);

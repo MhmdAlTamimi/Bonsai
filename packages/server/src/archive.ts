@@ -217,12 +217,37 @@ export async function storageUse(store: Store): Promise<StorageView> {
       folders += 1;
       bytes += await folderBytes(node.worktree_path);
     }
-    projects.push({ id: project.id, name: project.name, folders, bytes, archived });
+    const scratch = store.projectScratchDir(project.id);
+    const comparisonBytes = await folderBytes(join(scratch, 'compare'));
+    const attachmentBytes = await folderBytes(join(scratch, 'run-context'));
+    const comparisons: StorageView['projects'][number]['comparisons'] = [];
+    for (const row of store.comparisons.list(project.id)) {
+      comparisons.push({
+        id: row.id,
+        title: row.title,
+        bytes: await folderBytes(join(scratch, 'compare', row.id)),
+        hasDeletedSources: store.comparisons
+          .experiments(row.id)
+          .some((experiment) => experiment.nodeId === null),
+      });
+    }
+    projects.push({
+      id: project.id,
+      name: project.name,
+      folders,
+      bytes,
+      archived,
+      comparisonBytes,
+      attachmentBytes,
+      comparisons,
+    });
   }
   return {
     folders: projects.reduce((n, p) => n + p.folders, 0),
     bytes: projects.reduce((n, p) => n + p.bytes, 0),
     archived: projects.reduce((n, p) => n + p.archived, 0),
+    comparisonBytes: projects.reduce((n, p) => n + p.comparisonBytes, 0),
+    attachmentBytes: projects.reduce((n, p) => n + p.attachmentBytes, 0),
     projects,
   };
 }

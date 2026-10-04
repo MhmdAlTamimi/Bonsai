@@ -2,10 +2,17 @@ import { useLayoutEffect, useRef, useState } from 'react';
 
 // Session-only UI state, scoped to the experiment; no browser storage.
 const positions = new Map<string, { top: number; following: boolean }>();
-export function useReadingPosition(key: string, ready: boolean, visible: boolean, version: string) {
+export function useReadingPosition(
+  key: string,
+  ready: boolean,
+  visible: boolean,
+  version: string,
+  historyStart?: string,
+) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const saved = useRef(positions.get(key) ?? { top: 0, following: true });
+  const prependAnchor = useRef<{ id: string; top: number } | null>(null);
   const restored = useRef(false);
   const lastHeight = useRef<number | null>(null);
   const [away, setAway] = useState(!saved.current.following);
@@ -63,5 +70,30 @@ export function useReadingPosition(key: string, ready: boolean, visible: boolean
     observer.observe(content);
     return () => observer.disconnect();
   }, [key, ready, visible, version]);
-  return { scrollRef, contentRef, onScroll: remember, away, unread, jump };
+  const preserveEarlier = (): void => {
+    const region = scrollRef.current;
+    const anchor = region?.querySelector<HTMLElement>('[data-message-id]');
+    if (anchor?.dataset['messageId']) {
+      prependAnchor.current = {
+        id: anchor.dataset['messageId'],
+        top: anchor.getBoundingClientRect().top,
+      };
+      saved.current.following = false;
+    }
+  };
+  useLayoutEffect(() => {
+    const anchor = prependAnchor.current;
+    const region = scrollRef.current;
+    if (!anchor || !region) return;
+    const element = region.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(anchor.id)}"]`,
+    );
+    if (element) {
+      region.scrollTop += element.getBoundingClientRect().top - anchor.top;
+      saved.current.top = region.scrollTop;
+      positions.set(key, saved.current);
+      prependAnchor.current = null;
+    }
+  }, [key, historyStart]);
+  return { scrollRef, contentRef, onScroll: remember, away, unread, jump, preserveEarlier };
 }

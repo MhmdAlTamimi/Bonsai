@@ -1,4 +1,4 @@
-import { type JSX, useLayoutEffect, useRef, useState } from 'react';
+import { type JSX, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   CompactionNote,
   MessageView,
@@ -56,9 +56,31 @@ export function Transcript({
   /** The latest run's numbers are shown under the conversation, so its turn leaves them out. */
   pinLatest?: boolean;
 }): JSX.Element {
-  const runsById = new Map(runs.map((run) => [run.id, run]));
-  const numberOf = new Map(runs.map((run, index) => [run.id, index + 1]));
-  const groups = groupByRun([...messages, ...liveMessages(pending)]);
+  const runsById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs]);
+  const numberOf = useMemo(() => new Map(runs.map((run, index) => [run.id, index + 1])), [runs]);
+  const savedGroups = useMemo(() => groupByRun(messages), [messages]);
+  const groups = useMemo(() => {
+    if (pending.length === 0) return savedGroups;
+    const live = groupByRun(liveMessages(pending));
+    const last = savedGroups.at(-1);
+    const first = live[0];
+    return last && first?.runId === last.runId
+      ? [
+          ...savedGroups.slice(0, -1),
+          { ...last, messages: [...last.messages, ...first.messages] },
+          ...live.slice(1),
+        ]
+      : [...savedGroups, ...live];
+  }, [savedGroups, pending]);
+  const latest = useRef({ onSave, onProjectSettings });
+  latest.current = { onSave, onProjectSettings };
+  const callbacks = useMemo(
+    () => ({
+      save: (text: string) => latest.current.onSave?.(text),
+      settings: () => latest.current.onProjectSettings?.(),
+    }),
+    [],
+  );
   const liveRunId = pending.at(-1)?.runId ?? null;
   const latestRunId = runs.at(-1)?.id ?? null;
 
@@ -69,12 +91,12 @@ export function Transcript({
           <SetupActivity
             key="setup"
             messages={group.messages}
-            onProjectSettings={onProjectSettings}
+            onProjectSettings={onProjectSettings ? callbacks.settings : undefined}
           />
         ) : (
           <Turn
             key={group.runId}
-            onSave={onSave}
+            onSave={onSave ? callbacks.save : undefined}
             group={group}
             run={runsById.get(group.runId)}
             number={numberOf.get(group.runId) ?? null}
@@ -121,109 +143,123 @@ function liveMessages(pending: readonly Delta[]): MessageView[] {
   }));
 }
 
-function Turn({
-  onSave,
-  group,
-  run,
-  number,
-  running,
-  phase,
-  pinned,
-}: {
-  onSave: ((text: string) => void) | undefined;
-  group: Group;
-  run: RunView | undefined;
-  number: number | null;
-  running: boolean;
-  phase: RunActivity['state'];
-  pinned: boolean;
-}): JSX.Element {
-  const { prompt, rest } = splitPrompt(group.messages);
-  const parts = compose(rest);
-  // Notes from Bonsai (a compaction, a skipped command) are not the agent speaking.
-  const agentSpoke = parts.some((part) => part.kind !== 'said' || part.message.role !== 'system');
-  const when = prompt?.createdAt ?? run?.startedAt ?? null;
-  const sent: Sent = {
-    references: run?.resolvedContext?.references ?? [],
-    experiments: run?.resolvedContext?.experiments ?? [],
-  };
-  // A finished message can be saved as it stands; a live one is still changing.
-  const save = running ? undefined : onSave;
-  const reply = save === undefined ? null : finalReply(parts);
+const Turn = memo(
+  function Turn({
+    onSave,
+    group,
+    run,
+    number,
+    running,
+    phase,
+    pinned,
+  }: {
+    onSave: ((text: string) => void) | undefined;
+    group: Group;
+    run: RunView | undefined;
+    number: number | null;
+    running: boolean;
+    phase: RunActivity['state'];
+    pinned: boolean;
+  }): JSX.Element {
+    const { prompt, rest } = splitPrompt(group.messages);
+    const parts = compose(rest);
+    // Notes from Bonsai (a compaction, a skipped command) are not the agent speaking.
+    const agentSpoke = parts.some((part) => part.kind !== 'said' || part.message.role !== 'system');
+    const when = prompt?.createdAt ?? run?.startedAt ?? null;
+    const sent: Sent = {
+      references: run?.resolvedContext?.references ?? [],
+      experiments: run?.resolvedContext?.experiments ?? [],
+    };
+    // A finished message can be saved as it stands; a live one is still changing.
+    const save = running ? undefined : onSave;
+    const reply = save === undefined ? null : finalReply(parts);
 
-  return (
-    <article className={`turn${running ? ' live' : ''}`}>
-      {number !== null && number > 1 && (
-        <div className="run-divider">
-          <span className="run-label">RUN {number}</span>
-          <span className="run-rule" />
-          {when !== null && (
-            <time className="run-when" title={exactTime(when)}>
-              {clockTime(when)}
-            </time>
-          )}
-        </div>
-      )}
+    return (
+      <article className={`turn${running ? ' live' : ''}`}>
+        {number !== null && number > 1 && (
+          <div className="run-divider">
+            <span className="run-label">RUN {number}</span>
+            <span className="run-rule" />
+            {when !== null && (
+              <time className="run-when" title={exactTime(when)}>
+                {clockTime(when)}
+              </time>
+            )}
+          </div>
+        )}
 
-      {prompt !== undefined && (
-        <YouSaid
-          message={prompt}
-          onSave={save}
-          sent={group.runId === null ? undefined : { runId: group.runId, ...sent }}
-        />
-      )}
+        {prompt !== undefined && (
+          <YouSaid
+            message={prompt}
+            onSave={save}
+            sent={group.runId === null ? undefined : { runId: group.runId, ...sent }}
+          />
+        )}
 
-      {(parts.length > 0 || running) && (
-        <div className="msg agent">
-          {(agentSpoke || running) && (
-            <div className="msg-head">
-              <span className="msg-label">Agent:</span>
-              {reply !== null && save !== undefined && (
-                <SaveAsReference
-                  text={reply}
-                  onSave={save}
-                  label="Save the final reply as a reference"
+        {(parts.length > 0 || running) && (
+          <div className="msg agent">
+            {(agentSpoke || running) && (
+              <div className="msg-head">
+                <span className="msg-label">Agent:</span>
+                {reply !== null && save !== undefined && (
+                  <SaveAsReference
+                    text={reply}
+                    onSave={save}
+                    label="Save the final reply as a reference"
+                  />
+                )}
+              </div>
+            )}
+            {stretches(parts).map((item) =>
+              item.kind === 'activity' ? (
+                <ActivityGroup
+                  key={item.at}
+                  // The run and where the stretch starts in it: stable as the run grows.
+                  id={`${group.runId ?? 'setup'}:${item.at}`}
+                  steps={item.blocks.map((block) => ({
+                    name: block.name,
+                    detail: block.detail,
+                    description: block.description,
+                    parentToolUseId: block.parentToolUseId,
+                    result: block.result,
+                    live: running && block.result === undefined,
+                    subject: attachmentRead(block.name, block.detail, sent),
+                  }))}
                 />
-              )}
-            </div>
-          )}
-          {stretches(parts).map((item) =>
-            item.kind === 'activity' ? (
-              <ActivityGroup
-                key={item.at}
-                // The run and where the stretch starts in it: stable as the run grows.
-                id={`${group.runId ?? 'setup'}:${item.at}`}
-                steps={item.blocks.map((block) => ({
-                  name: block.name,
-                  detail: block.detail,
-                  description: block.description,
-                  parentToolUseId: block.parentToolUseId,
-                  result: block.result,
-                  live: running && block.result === undefined,
-                  subject: attachmentRead(block.name, block.detail, sent),
-                }))}
-              />
-            ) : item.part.kind === 'you' ? (
-              <YouSaid key={item.at} message={item.part.message} inline />
-            ) : (
-              <Said key={item.at} message={item.part.message} />
-            ),
-          )}
-          {running && (
-            <div className="working" aria-live="polite">
-              <span className="working-dot" aria-hidden="true" />
-              {LIVE_WORDS[phase]}
-            </div>
-          )}
-        </div>
-      )}
+              ) : item.part.kind === 'you' ? (
+                <YouSaid key={item.at} message={item.part.message} inline />
+              ) : (
+                <Said key={item.at} message={item.part.message} />
+              ),
+            )}
+            {running && (
+              <div className="working" aria-live="polite">
+                <span className="working-dot" aria-hidden="true" />
+                {LIVE_WORDS[phase]}
+              </div>
+            )}
+          </div>
+        )}
 
-      {/* A finished run's numbers are pinned under the conversation instead,
+        {/* A finished run's numbers are pinned under the conversation instead,
           when the caller shows them there; how a run failed stays in the thread. */}
-      {!running && run !== undefined && !(pinned && run.status === 'done') && <RunFoot run={run} />}
-    </article>
-  );
-}
+        {!running && run !== undefined && !(pinned && run.status === 'done') && (
+          <RunFoot run={run} />
+        )}
+      </article>
+    );
+  },
+  (before, after) =>
+    before.onSave === after.onSave &&
+    before.number === after.number &&
+    before.running === after.running &&
+    before.phase === after.phase &&
+    before.pinned === after.pinned &&
+    JSON.stringify(before.run) === JSON.stringify(after.run) &&
+    before.group.runId === after.group.runId &&
+    before.group.messages.length === after.group.messages.length &&
+    before.group.messages.every((message, i) => message === after.group.messages[i]),
+);
 
 /**
  * The request, and everything after it.
@@ -353,7 +389,7 @@ function YouSaid({
 }): JSX.Element {
   const text = asText(message.content);
   return (
-    <div className={`msg you${inline ? ' inline' : ''}`}>
+    <div data-message-id={message.id} className={`msg you${inline ? ' inline' : ''}`}>
       <div className="msg-head">
         <span className="msg-label">You:</span>
         {onSave !== undefined && (
@@ -587,7 +623,11 @@ function Said({ message }: { message: MessageView }): JSX.Element {
   if (isCompaction(message.content)) return <CompactionDivider note={message.content} />;
   const text = asText(message.content);
   if (message.role === 'system') return <p className="msg system">{text}</p>;
-  return <Markdown source={text} />;
+  return (
+    <div data-message-id={message.id}>
+      <Markdown source={text} />
+    </div>
+  );
 }
 
 /**

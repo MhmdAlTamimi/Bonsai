@@ -346,3 +346,5 @@ button[aria-busy='true']:disabled {
     animation: none;
   }
 }
+
+.earlier-history { padding: 12px 0 20px; text-align: center; }

@@ -404,6 +404,53 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.type('.composer textarea', '');
   });
+  test('unavailable browser storage warns before losing an unsent message', async () => {
+    await session.eval("document.querySelector('.composer-open')?.click()");
+    await session.eval(`window.originalStorageSet = Storage.prototype.setItem;
+      Storage.prototype.setItem = function () { throw new DOMException('Full', 'QuotaExceededError'); };`);
+    try {
+      await session.type('.composer textarea', 'must not lose this draft');
+      await session.waitFor(
+        "document.body.textContent.includes('Some unsent messages are only in this tab')",
+      );
+      assert.equal(
+        await session.eval(`(() => {
+        const event = new Event('beforeunload', { cancelable: true });
+        window.dispatchEvent(event);
+        return event.defaultPrevented;
+      })()`),
+        true,
+      );
+      assert.equal(
+        await session.eval("document.querySelector('.composer textarea').value"),
+        'must not lose this draft',
+      );
+    } finally {
+      await session.eval('Storage.prototype.setItem = window.originalStorageSet');
+    }
+    await session.type('.composer textarea', 'saved after storage recovers');
+    await session.waitFor(
+      "!document.body.textContent.includes('Some unsent messages are only in this tab')",
+    );
+    assert.equal(
+      await session.eval(`(() => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    })()`),
+      false,
+    );
+    await session.goto(String(await session.eval('location.href')));
+    await session.waitFor(
+      "!!document.querySelector('.composer textarea') || !!document.querySelector('.composer-open')",
+    );
+    await session.eval("document.querySelector('.composer-open')?.click()");
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'saved after storage recovers',
+    );
+    await session.type('.composer textarea', '');
+  });
   test('rename changes metadata and branching discloses divergent sources', async () => {
     const p = (await (await fetch(`${BASE}/api/projects`)).json()) as Array<{ id: string }>;
     const projectId = p[0]!.id;
@@ -966,6 +1013,284 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-review.png'));
   });
+  test('map opens readably, finds experiments and supports tree navigation and cross-project questions', async () => {
+    const request = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
+      const response = await fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.ok, true, await response.clone().text());
+      return response.json() as Promise<Record<string, unknown>>;
+    };
+    const project = await request('/api/projects', {
+      name: 'Find my experiments',
+      description: '',
+    });
+    const master = String(project['masterNodeId']);
+    const projectId = String(project['projectId']);
+    const ids: string[] = [];
+    for (let n = 0; n < 18; n++) {
+      const created = await request(`/api/projects/${projectId}/nodes`, {
+        parentId: master,
+        displayName: `Searchable ${n}`,
+        description: 'A distinct approach',
+        startFresh: true,
+      });
+      ids.push((created['node'] as { id: string }).id);
+    }
+    await session.goto(`${BASE}/?project=${projectId}&node=${ids[12]}`);
+    await session.waitFor(
+      "document.querySelectorAll('.react-flow__node').length === 19 && document.querySelector('.panel h2')?.textContent === 'Searchable 12'",
+    );
+    await session.waitFor("document.querySelector('.canvas-tools').textContent.includes('100%')");
+    assert.equal(
+      await session.eval('document.querySelectorAll(\'.react-flow__edge[tabindex="0"]\').length'),
+      0,
+    );
+    await session.eval(`document.querySelector('.react-flow__node[data-id="${ids[12]}"]').focus()`);
+    for (const [key, expected] of [
+      ['ArrowUp', master],
+      ['ArrowDown', ids[0]],
+      ['ArrowRight', ids[1]],
+      ['ArrowLeft', ids[0]],
+    ] as const) {
+      await session.send('Input.dispatchKeyEvent', { type: 'keyDown', key });
+      await session.waitFor(`document.activeElement?.dataset.id === '${expected}'`);
+    }
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'k',
+      code: 'KeyK',
+      modifiers: 2,
+    });
+    await session.waitFor('!!document.querySelector(\'[aria-label="Search experiments"]\')');
+    await session.type('[aria-label="Search experiments"]', 'Searchable 17');
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Enter',
+      code: 'Enter',
+      windowsVirtualKeyCode: 13,
+    });
+    await session.waitFor(
+      "!document.querySelector('dialog[open]') && document.querySelector('.panel h2')?.textContent === 'Searchable 17'",
+    );
+    const other = await request('/api/projects', { name: 'Question elsewhere', description: '' });
+    await request(`/api/nodes/${String(other['masterNodeId'])}/runs`, {
+      prompt: 'choose: an approach',
+    });
+    await session.waitFor(
+      "document.title.includes('Needs you') && document.querySelector('.attention-notice')?.textContent.includes('Question elsewhere')",
+    );
+    await session.click('.attention-notice button');
+    await session.waitFor(
+      `new URL(location.href).searchParams.get('project') === '${String(other['projectId'])}' && !!document.querySelector('.choice-question')`,
+    );
+    await request(`/api/nodes/${String(other['masterNodeId'])}/cancel`, {});
+    await session.waitFor(
+      "document.title === 'Bonsai' && !document.querySelector('.attention-notice')",
+    );
+  });
+
+  test('Storage shows comparison copies and confirms manual cleanup without deleting experiments', async () => {
+    const request = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
+      const response = await fetch(`${BASE}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      assert.equal(response.ok, true, await response.clone().text());
+      return response.json() as Promise<Record<string, unknown>>;
+    };
+    const project = await request('/api/projects', { name: 'Snapshot storage', description: '' });
+    const child = await request(`/api/projects/${String(project['projectId'])}/nodes`, {
+      parentId: project['masterNodeId'],
+      displayName: 'Storage child',
+      startFresh: true,
+    });
+    const comparison = await request(`/api/projects/${String(project['projectId'])}/comparisons`, {
+      nodeIds: [project['masterNodeId'], (child['node'] as { id: string }).id],
+    });
+    await session.goto(
+      `${BASE}/?project=${String(project['projectId'])}&node=${String(project['masterNodeId'])}`,
+    );
+    await session.waitFor("!!document.querySelector('.panel h2')");
+    await session.click('[aria-label="Settings"]');
+    await session.waitFor(
+      "!!document.querySelector('.settings-storage .storage-comparison button')",
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.settings-storage').textContent.includes('Run attachments:')",
+      ),
+      true,
+    );
+    await session.eval(
+      "document.querySelector('.storage-comparison button').scrollIntoView({ block: 'center' })",
+    );
+    await session.click('.storage-comparison button');
+    await session.waitFor("!!document.querySelector('dialog.confirm')");
+    assert.equal(
+      await session.eval(
+        "document.querySelector('dialog.confirm').textContent.includes('saved code files and conversation')",
+      ),
+      true,
+    );
+    await session.click('dialog.confirm button.destructive');
+    await session.waitFor(
+      "!document.querySelector('dialog.confirm') && !document.querySelector('.storage-comparison')",
+    );
+    assert.equal((await fetch(`${BASE}/api/comparisons/${String(comparison['id'])}`)).status, 404);
+    assert.equal((await fetch(`${BASE}/api/nodes/${String(project['masterNodeId'])}`)).status, 200);
+    await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
+  });
+
+  test('an upgraded server prompts an explicit reload, blocks stale mutations and preserves the draft', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Updated tab', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor("!!document.querySelector('.composer textarea')");
+    await session.type('.composer textarea', 'Keep this unsent draft after updating');
+    await session.eval(
+      `window.versionFetch = window.fetch; window.versionMutations = 0; window.fetch = (...args) => { if (args[1]?.method && args[1].method !== 'GET') window.versionMutations++; if (String(args[0]) === '/api/version') return Promise.resolve(new Response(JSON.stringify({buildId:'new-fixture-build'}), {headers:{'content-type':'application/json','x-bonsai-build':'new-fixture-build'}})); return window.versionFetch(...args); }; window.dispatchEvent(new Event('online'));`,
+    );
+    await session.waitFor("!!document.querySelector('.build-notice')");
+    await session.eval(
+      "document.querySelector('.composer textarea').dispatchEvent(new KeyboardEvent('keydown', {key:'Enter',bubbles:true,cancelable:true}))",
+    );
+    await session.waitFor(
+      "document.querySelector('.panel').textContent.includes('Reload this tab')",
+    );
+    assert.equal(await session.eval('window.versionMutations'), 0);
+    await session.click('.build-notice button');
+    await session.waitFor(
+      "!document.querySelector('.build-notice') && document.querySelector('.composer textarea')?.value === 'Keep this unsent draft after updating'",
+    );
+  });
+
+  test('long history loads in pages, preserves reading position and ignores another experiment’s updates', async () => {
+    const created = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Long history', description: '' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const child = (await (
+      await fetch(`${BASE}/api/projects/${created.projectId}/nodes`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          parentId: created.masterNodeId,
+          displayName: 'Unrelated',
+          startFresh: true,
+        }),
+      })
+    ).json()) as { node: { id: string } };
+    const fixture = new DatabaseSync(join(dataDir, 'bonsai.db'));
+    try {
+      fixture.exec('BEGIN');
+      const run = fixture.prepare(
+        "INSERT INTO run(id,node_id,status,started_at,ended_at) VALUES(?,?,'done','2026-01-01','2026-01-01')",
+      );
+      const message = fixture.prepare(
+        "INSERT INTO message(id,node_id,run_id,seq,role,kind,content_json,created_at) VALUES(?,?,?,?,?,'text',?,'2026-01-01')",
+      );
+      for (let n = 1; n <= 250; n++) {
+        const id = `history-${created.projectId}-${n}`;
+        run.run(id, created.masterNodeId);
+        message.run(
+          `${id}-user`,
+          created.masterNodeId,
+          id,
+          n * 2 - 1,
+          'user',
+          JSON.stringify(`Request ${n}`),
+        );
+        message.run(
+          `${id}-reply`,
+          created.masterNodeId,
+          id,
+          n * 2,
+          'assistant',
+          JSON.stringify(`## Reply ${n}\n\nSaved answer with **formatting**.`),
+        );
+      }
+      fixture.exec('COMMIT');
+    } finally {
+      fixture.close();
+    }
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
+    await session.waitFor(
+      "document.querySelectorAll('.turn').length === 100 && !!document.querySelector('.earlier-history button')",
+    );
+    assert.equal(
+      await session.eval("document.querySelector('.thread').textContent.includes('Request 1\\n')"),
+      false,
+    );
+    await session.eval(
+      `window.historyRequests = []; window.historyPending = 0; window.historyFetch = window.fetch; window.fetch = (...args) => { window.historyRequests.push(String(args[0])); window.historyPending++; return window.historyFetch(...args).finally(() => window.historyPending--); }; window.dispatchEvent(new Event('offline')); window.dispatchEvent(new Event('online'));`,
+    );
+    await session.waitFor(
+      "window.historyPending === 0 && window.historyRequests.some(url => url.includes('/messages?afterSeq=500'))",
+    );
+    await session.eval('window.historyRequests = []');
+    await fetch(`${BASE}/api/nodes/${child.node.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ displayName: 'Other changed' }),
+    });
+    await session.waitFor(
+      `document.querySelector('[data-id="${child.node.id}"] .card-name')?.textContent === 'Other changed'`,
+    );
+    assert.deepEqual(
+      await session.eval(
+        `window.historyRequests.filter(url => url.includes('/api/nodes/${created.masterNodeId}'))`,
+      ),
+      [],
+    );
+    await session.eval(
+      "document.querySelector('.panel-body').scrollTop = 0; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.historyAnchor = document.querySelector('[data-message-id]'); window.historyTop = window.historyAnchor.getBoundingClientRect().top; document.querySelector('.earlier-history button').click();",
+    );
+    await session.waitFor("document.querySelectorAll('.turn').length === 200");
+    assert.ok(
+      Number(
+        await session.eval(
+          'Math.abs(window.historyAnchor.getBoundingClientRect().top - window.historyTop)',
+        ),
+      ) < 5,
+      'loading earlier content preserves the previous first message',
+    );
+    await session.eval("document.querySelector('.earlier-history button').click()");
+    await session.waitFor(
+      "document.querySelectorAll('.turn').length === 250 && !document.querySelector('.earlier-history')",
+    );
+    assert.equal(await session.eval("document.querySelectorAll('[data-message-id]').length"), 500);
+    await fetch(`${BASE}/api/nodes/${created.masterNodeId}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '? Fresh history reply' }),
+    });
+    await session.waitFor(
+      "document.querySelectorAll('.turn').length === 251 && document.querySelector('.thread').textContent.includes('Fresh history reply')",
+    );
+    assert.equal(
+      await session.eval(
+        `window.historyRequests.some(url => url.includes('/messages?afterSeq=500'))`,
+      ),
+      true,
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch('${BASE}/api/nodes/${created.masterNodeId}')).json()).node.status === 'ready')()`,
+    );
+    await session.eval('window.fetch = window.historyFetch');
+  });
+
   test('keeps reading position, reconciles missed history and renders readable output', async () => {
     const created = (await (
       await fetch(`${BASE}/api/projects`, {
@@ -1054,10 +1379,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         Number(await session.eval("document.querySelector('.panel-body').scrollTop")) - 240,
       ) < 5,
     );
-    // Capture a subsequent native subscription; drop event delivery to simulate a transport gap.
-    await session.send('Page.addScriptToEvaluateOnNewDocument', {
-      source: `window.__sources = []; const Native = window.EventSource; window.EventSource = class extends Native { constructor(url) { super(url); window.__sources.push(this); } addEventListener(type, listener, options) { super.addEventListener(type, (event) => { if (!window.__dropEvents) listener(event); }, options); } };`,
-    });
+    // Suspend the tab's transport while the server continues recording work.
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     // A live stream says nothing -- the standing health indicator is gone, and
     // only a gap in it speaks -- so "live" is the absence of the notice.
@@ -1067,7 +1389,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "!Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting')) && !!document.querySelector('.markdown-table') && !!document.querySelector('.run-foot')",
     );
     await session.eval(
-      "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.__dropEvents = true; window.__sources.at(-1).dispatchEvent(new Event('error'));",
+      "document.querySelector('.panel-body').scrollTop = 240; document.querySelector('.panel-body').dispatchEvent(new Event('scroll')); window.dispatchEvent(new Event('offline'));",
     );
     await session.waitFor(
       "Array.from(document.querySelectorAll('.transport-notice')).some(n => n.textContent.includes('Reconnecting'))",
@@ -1080,9 +1402,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       `(async () => (await (await fetch(${JSON.stringify(nodeUrl)})).json()).node.status === 'ready')()`,
     );
-    await session.eval(
-      "window.__dropEvents = false; window.__sources.at(-1).dispatchEvent(new Event('open'));",
-    );
+    await session.eval("window.dispatchEvent(new Event('online'));");
     await session.waitFor(
       "document.querySelector('.thread')?.textContent.includes('Message written during transport gap')",
     );
@@ -2640,6 +2960,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
 
     await session.goto(`${BASE}/?project=${created.projectId}&node=${next}`);
     await session.click(`[data-id="${next}"] .review-control`);
+
     const pressed = 'document.querySelector(\'.review-scope [aria-pressed="true"]\')?.textContent';
     await session.waitFor(
       "document.querySelector('.review .diff-note')?.textContent.includes('has not changed any files itself yet')",

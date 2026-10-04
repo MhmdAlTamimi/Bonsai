@@ -1,7 +1,5 @@
 import dagre from '@dagrejs/dagre';
 import type { NodeView } from '@bonsai/shared';
-import type { Edge, Node } from 'reactflow';
-import { codeState } from '../nodeCode.ts';
 
 /** The card's drawn size, kept in step with `.card` in styles/canvas.css. */
 export const CARD_WIDTH = 248;
@@ -19,18 +17,13 @@ export const CARD_HEIGHT = 122;
  */
 export const RANK_DIR: 'TB' | 'LR' = 'TB';
 
-/**
- * PRD §9: positions are nullable and auto-layout is the default. A node that
- * has been dragged carries its own position and is pinned there; everything
- * else is laid out by dagre.
- */
-export function layoutTree(
-  nodes: readonly NodeView[],
+export type LayoutNode = Pick<NodeView, 'id' | 'parentId' | 'positionX' | 'positionY'>;
+
+/** Geometry is independent of run status, names and conversation updates. */
+export function layoutPositions(
+  nodes: readonly LayoutNode[],
   sizes: ReadonlyMap<string, { width: number; height: number }> = new Map(),
-): {
-  nodes: Array<Node<NodeView>>;
-  edges: Edge[];
-} {
+): Map<string, { x: number; y: number }> {
   const graph = new dagre.graphlib.Graph();
   // In TB, nodesep is the horizontal gap between siblings and ranksep the
   // vertical gap between generations; in LR the two swap roles, so the numbers
@@ -45,41 +38,19 @@ export function layoutTree(
   for (const n of nodes)
     graph.setNode(n.id, sizes.get(n.id) ?? { width: CARD_WIDTH, height: CARD_HEIGHT });
 
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const edges: Edge[] = [];
-  for (const n of nodes) {
-    if (n.parentId === null) continue;
-    graph.setEdge(n.parentId, n.id);
-    edges.push({
-      id: `${n.parentId}->${n.id}`,
-      source: n.parentId,
-      target: n.id,
-      type: 'bonsai',
-      ariaLabel: `Conversation from ${byId.get(n.parentId)?.displayName ?? 'source'} to ${n.displayName}`,
-      // An edge into a node that ran and wrote nothing carries conversation but
-      // no code. Drawing that distinction is the whole point of the tree -- but
-      // only once the run has finished and the answer is actually known.
-      data: { conversationOnly: codeState(n) === 'none' },
-    });
-  }
-
+  for (const node of nodes) if (node.parentId !== null) graph.setEdge(node.parentId, node.id);
   dagre.layout(graph);
-
-  return {
-    nodes: nodes.map((n) => {
-      const laid = graph.node(n.id) as { x: number; y: number } | undefined;
-      const size = sizes.get(n.id) ?? { width: CARD_WIDTH, height: CARD_HEIGHT };
-      const x = n.positionX ?? (laid?.x ?? 0) - size.width / 2;
-      const y = n.positionY ?? (laid?.y ?? 0) - size.height / 2;
-      return {
-        id: n.id,
-        type: 'bonsai',
-        position: { x, y },
-        data: n,
-        draggable: true,
-        ariaLabel: `Experiment ${n.displayName}`,
-      } satisfies Node<NodeView>;
+  return new Map(
+    nodes.map((node) => {
+      const laid = graph.node(node.id) as { x: number; y: number } | undefined;
+      const size = sizes.get(node.id) ?? { width: CARD_WIDTH, height: CARD_HEIGHT };
+      return [
+        node.id,
+        {
+          x: node.positionX ?? (laid?.x ?? 0) - size.width / 2,
+          y: node.positionY ?? (laid?.y ?? 0) - size.height / 2,
+        },
+      ];
     }),
-    edges,
-  };
+  );
 }

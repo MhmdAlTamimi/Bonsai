@@ -1,4 +1,7 @@
 import { type JSX, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { useAttention } from './state/useAttention.ts';
+import { DraftStorageNotice } from './DraftStorageNotice.tsx';
+import { BuildNotice } from './BuildNotice.tsx';
 import { ReactFlowProvider } from 'reactflow';
 import { PANEL_WIDTH, type NodeView } from '@bonsai/shared';
 
@@ -88,6 +91,7 @@ export function App(): JSX.Element {
   };
   const comparing = useComparePicking(projectId, selection.primary, arrivedAt.compareId);
   useAddressBar({ projectId, nodeId: selection.primary, compareId: comparing.comparing });
+  const attention = useAttention();
   const live = useRunStream(projectId, projectTree.refresh);
   const comparisonList = useComparisons(projectId, live.comparisonsRevision);
   /**
@@ -193,6 +197,29 @@ export function App(): JSX.Element {
       references={library.references}
       experiments={experiments}
     >
+      {attention.length > 0 && (
+        <nav className="attention-notice" aria-label="Experiments needing an answer">
+          <strong role="status">
+            {attention.length} {attention.length === 1 ? 'experiment needs' : 'experiments need'}{' '}
+            you
+          </strong>
+          {attention.map((item) => (
+            <button
+              key={item.nodeId}
+              onClick={() => {
+                if (item.projectId !== projectId) projectTree.open(item.projectId);
+                selectExperiment(item.nodeId);
+                view.showExperiment();
+                setReviewing(false);
+                comparing.open(null);
+              }}
+            >
+              {item.projectId !== projectId ? `${item.projectName} · ` : ''}
+              {item.displayName}
+            </button>
+          ))}
+        </nav>
+      )}
       <RunControls nodes={tree?.nodes ?? []} onChanged={projectTree.refresh}>
         <div
           className={`app${view.experimentOpen ? '' : ' panel-hidden'}${reviewing ? ' review-mode' : ''}${comparing.comparing !== null && tree !== null ? ' compare-mode' : ''}`}
@@ -313,7 +340,9 @@ export function App(): JSX.Element {
               key={comparing.comparing}
               comparisonId={comparing.comparing}
               projectId={tree.project.id}
-              revision={`${live.comparisonsRevision}:${live.revision}`}
+              revision={`${live.comparisonsRevision}:${live.resyncRevision}`}
+              nodeRevisions={live.nodeRevisions}
+              queueRevision={live.queueRevision}
               onBack={() => comparing.open(null)}
               onOpenExperiment={(id) => {
                 comparing.open(null);
@@ -393,7 +422,9 @@ export function App(): JSX.Element {
             }}
             stream={selected === null ? [] : (live.streams[selected.id] ?? [])}
             liveActivity={selected === null ? null : (live.activity[selected.id] ?? null)}
-            streamRevision={live.revision}
+            streamRevision={
+              live.resyncRevision + (selected === null ? 0 : (live.nodeRevisions[selected.id] ?? 0))
+            }
             visible={view.experimentOpen}
             narrow={view.narrow}
             onHide={view.showMap}
@@ -466,6 +497,8 @@ function WindowContexts({
 export function Root(): JSX.Element {
   return (
     <ReactFlowProvider>
+      <DraftStorageNotice />
+      <BuildNotice />
       <App />
     </ReactFlowProvider>
   );

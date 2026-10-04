@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react';
+import { memo, useState, type JSX } from 'react';
 
 import { CopyButton } from '../../CopyButton.tsx';
 import { parseMarkdown, type Block, type Inline } from './markdown.ts';
@@ -12,7 +12,7 @@ import { Disclosure } from './Disclosure.tsx';
  * make the transcript the one place in this app where content nobody wrote
  * becomes executable. React escaping it is the whole defence, and it is free.
  */
-export function Markdown({ source }: { source: string }): JSX.Element {
+export const Markdown = memo(function Markdown({ source }: { source: string }): JSX.Element {
   const blocks = parseMarkdown(source);
   // An empty reply is possible (a run that only made tool calls). Render
   // nothing rather than an empty block that takes up a line.
@@ -24,7 +24,7 @@ export function Markdown({ source }: { source: string }): JSX.Element {
       ))}
     </div>
   );
-}
+});
 
 function BlockView({ block }: { block: Block }): JSX.Element {
   switch (block.kind) {

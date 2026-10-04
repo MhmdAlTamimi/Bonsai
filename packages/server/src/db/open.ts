@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,13 +18,17 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * leave something to go back to.
  */
 export function openDatabase(dataDir: string): DatabaseSync {
-  mkdirSync(dataDir, { recursive: true });
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const file = join(dataDir, 'bonsai.db');
   const existed = existsSync(file);
 
   const db = new DatabaseSync(file);
 
   try {
+    chmodSync(file, 0o600);
+    // A WAL left by an older process can retain its old permissions after reopen.
+    for (const suffix of ['-wal', '-shm'])
+      if (existsSync(file + suffix)) chmodSync(file + suffix, 0o600);
     // Inspect and back up the original database before even adding current tables.
     const hasMeta = db
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
@@ -39,6 +43,7 @@ export function openDatabase(dataDir: string): DatabaseSync {
       const temporary = `${backup}.tmp`;
       try {
         db.prepare('VACUUM INTO ?').run(temporary);
+        chmodSync(temporary, 0o600);
         renameSync(temporary, backup);
         process.stdout.write(`[bonsai] backed up the database to ${backup}\n`);
       } catch (err) {

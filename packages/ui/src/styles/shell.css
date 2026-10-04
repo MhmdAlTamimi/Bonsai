@@ -4,7 +4,9 @@
   display: grid;
   /* The panel stops at half the window (PANEL_SHARE in the contract). */
   grid-template-columns: minmax(0, 1fr) var(--seam) min(var(--panel-width), 50vw);
-  height: 100dvh;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
   overflow: hidden;
 }
 .app.single {
@@ -130,3 +132,9 @@ body.resizing .panel-resizer {
   }
 }
 .view-switch button { min-height: var(--control-h); border-radius: var(--r-md); }
+
+#root { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+.attention-notice, .build-notice { flex: none; padding: 8px 16px; display: flex; align-items: center; gap: 12px; background: var(--surface); border-bottom: 1px solid var(--accent); overflow-x: auto; }
+.attention-notice strong, .attention-notice button { white-space: nowrap; }
+.experiment-matches { max-height: min(55vh, 32rem); overflow-y: auto; margin-top: 12px; }
+.experiment-matches button { width: 100%; display: flex; justify-content: space-between; gap: 12px; text-align: left; margin: 4px 0; }

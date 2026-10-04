@@ -161,7 +161,18 @@ export interface StorageView {
   folders: number;
   bytes: number;
   archived: number;
-  projects: Array<{ id: string; name: string; folders: number; bytes: number; archived: number }>;
+  comparisonBytes: number;
+  attachmentBytes: number;
+  projects: Array<{
+    id: string;
+    name: string;
+    folders: number;
+    bytes: number;
+    archived: number;
+    comparisonBytes: number;
+    attachmentBytes: number;
+    comparisons: Array<{ id: string; title: string; bytes: number; hasDeletedSources: boolean }>;
+  }>;
 }
 
 /**
@@ -1169,9 +1180,11 @@ export type ServerEvent =
   | { type: 'hello'; projectId: string }
   /** A comparison changed: created, answered, updated, renamed or deleted. */
   | { type: 'comparison.updated'; projectId: string; comparisonId: string }
-  | { type: 'tree.updated'; projectId: string }
+  | { type: 'tree.updated'; projectId: string; nodeId?: string }
   /** The project's references changed: one was written, edited or deleted. */
   | { type: 'references.updated'; projectId: string }
+  | { type: 'queue.updated'; projectId: string }
+  | { type: 'usage.updated'; projectId: string }
   | { type: 'node.status'; nodeId: string; status: NodeStatus }
   | { type: 'run.started'; nodeId: string; runId: string }
   | {
@@ -1179,6 +1192,8 @@ export type ServerEvent =
       nodeId: string;
       runId: string;
       seq: number;
+      /** Stable node message cursor, including when older history is not loaded. */
+      messageSeq?: number;
       text: string;
       tool?: {
         name: string;
@@ -1298,4 +1313,11 @@ export interface AskComparisonRequest {
 
 export interface ApiError {
   error: string;
+}
+
+export interface AttentionView {
+  projectId: string;
+  projectName: string;
+  nodeId: string;
+  displayName: string;
 }

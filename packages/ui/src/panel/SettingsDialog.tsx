@@ -93,7 +93,7 @@ export function SettingsDialog({
           <ConnectionSettings settings={settings} connection={connection} onChanged={onChanged} />
           <Appearance settings={settings} onChanged={onChanged} />
           <AppDefaults settings={settings} models={connection.models} onChanged={onChanged} />
-          <Storage settings={settings} onChanged={onChanged} />
+          <Storage settings={settings} onChanged={onChanged} confirm={confirm} />
           <Locations settings={settings} onChanged={onChanged} />
         </div>
         <div hidden={tab !== 'project'} className="settings-sections">
@@ -255,14 +255,18 @@ function ProjectAgent({
 function Storage({
   settings,
   onChanged,
+  confirm,
 }: {
   settings: SettingsView;
   onChanged: () => void;
+  confirm: (request: ConfirmRequest) => Promise<boolean>;
 }): JSX.Element {
   const [enabled, setEnabled] = useState(settings.archiveAfterDays !== null);
   const [days, setDays] = useState(settings.archiveAfterDays ?? ARCHIVE_AFTER_DAYS.default);
   const draft = useSettingsDraft({ enabled, days });
   const [use, setUse] = useState<StorageView | null>(null);
+  const [storageRevision, setStorageRevision] = useState(0);
+  const cleanup = useSave();
   const [useError, setUseError] = useState<string | null>(null);
   const [backupPath, setBackupPath] = useState<string | null>(null);
   const [backupFallbacks, setBackupFallbacks] = useState(0);
@@ -281,7 +285,7 @@ function Storage({
     return () => {
       alive = false;
     };
-  }, []);
+  }, [storageRevision]);
   return (
     <section className="settings-storage">
       <h4>Storage</h4>
@@ -290,6 +294,66 @@ function Storage({
           ? (useError ?? 'Measuring experiment folders')
           : `${plural(use.folders, 'experiment folder')} on disk, ${bytes(use.bytes)} in all. ${plural(use.archived, 'experiment')} archived.`}
       </p>
+      {use !== null && (
+        <>
+          <p className="hint">
+            Saved comparison files: {bytes(use.comparisonBytes)}. Run attachments:{' '}
+            {bytes(use.attachmentBytes)}. These are separate from experiment folders; Git history,
+            database files and backups are not included.
+          </p>
+          <p className="hint">
+            Comparisons keep independent copies of the code they read, including code from deleted
+            experiments. Deleting a comparison removes its saved files and conversation. Run
+            attachments stay with their experiment for reproducible history.
+          </p>
+          {use.projects
+            .filter((project) => project.comparisonBytes > 0 || project.attachmentBytes > 0)
+            .map((project) => (
+              <div key={project.id} className="storage-project">
+                <h4>{project.name}</h4>
+                <p className="hint">
+                  Comparisons: {bytes(project.comparisonBytes)} · Run attachments:{' '}
+                  {bytes(project.attachmentBytes)}
+                </p>
+                {project.comparisons.map((comparison) => (
+                  <div className="storage-comparison" key={comparison.id}>
+                    <span>
+                      {comparison.title} · {bytes(comparison.bytes)}
+                      {comparison.hasDeletedSources ? ' · Includes deleted experiments' : ''}
+                    </span>
+                    <button
+                      disabled={cleanup.busy}
+                      onClick={() =>
+                        void cleanup.run(async () => {
+                          const ok = await confirm({
+                            title: `Delete comparison “${comparison.title}”?`,
+                            body: [
+                              'This permanently removes the comparison’s saved code files and conversation. The experiments themselves are unchanged.',
+                              ...(comparison.hasDeletedSources
+                                ? [
+                                    'Some original experiments were deleted. These comparison files may be their only remaining code copy. Make a backup before deleting if you need them.',
+                                  ]
+                                : []),
+                            ],
+                            confirmLabel: 'Delete comparison',
+                            danger: true,
+                          });
+                          if (!ok) return;
+                          await api.deleteComparison(comparison.id);
+                          setStorageRevision((value) => value + 1);
+                          onChanged();
+                        })
+                      }
+                    >
+                      Delete comparison
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ))}
+          <SaveFeedback {...cleanup} />
+        </>
+      )}
       <p className="hint">
         Make a verified backup of conversations, Git history, experiment files and comparisons.
         Finish or stop active jobs first. Bonsai pauses changes while copying. Claude sign-in and

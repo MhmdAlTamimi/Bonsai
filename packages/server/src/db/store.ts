@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  AttentionView,
   ComparisonSummary,
   ComparisonView,
   MessageView,
@@ -385,6 +386,15 @@ export class Store {
   }
 
   // -- messages, questions and checks ---------------------------------------
+
+  attention(): AttentionView[] {
+    return this.db
+      .prepare(
+        `SELECT n.project_id AS projectId, p.name AS projectName, n.id AS nodeId, n.display_name AS displayName
+      FROM node n JOIN project p ON p.id = n.project_id WHERE n.status = 'needs_you' ORDER BY p.name, n.created_at`,
+      )
+      .all() as unknown as AttentionView[];
+  }
 
   listMessages(nodeId: string, afterSeq: number): MessageView[] {
     return this.messages.list(nodeId, afterSeq);

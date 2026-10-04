@@ -18,16 +18,18 @@ export class MessageStore {
     const rows = this.db
       .prepare(`SELECT * FROM message WHERE node_id = ? AND seq > ? ORDER BY seq ASC`)
       .all(nodeId, afterSeq) as unknown as Array<Record<string, unknown>>;
-    return rows.map((r) => ({
-      id: r['id'] as string,
-      nodeId: r['node_id'] as string,
-      runId: (r['run_id'] as string | null) ?? null,
-      seq: Number(r['seq']),
-      role: r['role'] as MessageView['role'],
-      kind: r['kind'] as MessageView['kind'],
-      content: JSON.parse(r['content_json'] as string) as unknown,
-      createdAt: r['created_at'] as string,
-    }));
+    return messageViews(rows);
+  }
+
+  /** Indexed reverse cursor: bounded history without scanning/parsing old content. */
+  page(
+    nodeId: string,
+    beforeSeq = Number.MAX_SAFE_INTEGER,
+  ): { messages: MessageView[]; hasEarlier: boolean } {
+    const rows = this.db
+      .prepare(`SELECT * FROM message WHERE node_id = ? AND seq < ? ORDER BY seq DESC LIMIT 201`)
+      .all(nodeId, beforeSeq) as unknown as Array<Record<string, unknown>>;
+    return { messages: messageViews(rows.slice(0, 200).reverse()), hasEarlier: rows.length > 200 };
   }
 
   append(input: {
@@ -216,4 +218,17 @@ function readRequest(json: string | null): {
     kind: 'permission',
     request: parsed as unknown as NonNullable<NodeView['pendingQuestion']>['request'],
   };
+}
+
+function messageViews(rows: Array<Record<string, unknown>>): MessageView[] {
+  return rows.map((r) => ({
+    id: r['id'] as string,
+    nodeId: r['node_id'] as string,
+    runId: (r['run_id'] as string | null) ?? null,
+    seq: Number(r['seq']),
+    role: r['role'] as MessageView['role'],
+    kind: r['kind'] as MessageView['kind'],
+    content: JSON.parse(r['content_json'] as string) as unknown,
+    createdAt: r['created_at'] as string,
+  }));
 }

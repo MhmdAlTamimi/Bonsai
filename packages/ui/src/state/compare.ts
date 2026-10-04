@@ -97,9 +97,17 @@ function turnAsRun(comparisonId: string, turn: ComparisonTurnView): RunView {
 export function useComparison(
   comparisonId: string,
   revision: string,
+  nodeRevisions: Readonly<Record<string, number>>,
+  queueRevision: number,
 ): { data: ComparisonView | null; error: string | null } {
   const [data, setData] = useState<ComparisonView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Only source experiments affect snapshot freshness. Queue changes matter while asking.
+  const sourceRevision = (data?.experiments ?? [])
+    .filter((source) => source.nodeId !== null && nodeRevisions[source.nodeId])
+    .map((source) => `${source.nodeId}:${nodeRevisions[source.nodeId!]}`)
+    .join(',');
+  const activeQueueRevision = data?.turns.at(-1)?.status === 'running' ? queueRevision : 0;
   useEffect(() => {
     const controller = new AbortController();
     api
@@ -112,7 +120,7 @@ export function useComparison(
         if (!controller.signal.aborted) setError(describeError(e));
       });
     return () => controller.abort();
-  }, [comparisonId, revision]);
+  }, [comparisonId, revision, sourceRevision, activeQueueRevision]);
   // A different comparison is a different page, not an update of this one.
   return { data: data?.id === comparisonId ? data : null, error };
 }

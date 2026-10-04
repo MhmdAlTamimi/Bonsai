@@ -30,6 +30,8 @@ export function useRunStream(
   activity: Record<string, RunActivity>;
   health: 'connecting' | 'live' | 'reconnecting';
   revision: number;
+  nodeRevisions: Record<string, number>;
+  resyncRevision: number;
   /**
    * Bumped only when a run reports an error.
    *
@@ -44,6 +46,7 @@ export function useRunStream(
   referencesRevision: number;
   /** Bumped when any of the project's comparisons change, and when the stream reconnects. */
   comparisonsRevision: number;
+  queueRevision: number;
 } {
   // Live run output, keyed by node. Cleared when a run starts so a second run
   // does not read as a continuation of the first.
@@ -59,8 +62,11 @@ export function useRunStream(
    */
   const [health, setHealth] = useState<'connecting' | 'live' | 'reconnecting'>('connecting');
   const [revision, setRevision] = useState(0);
+  const [nodeRevisions, setNodeRevisions] = useState<Record<string, number>>({});
+  const [resyncRevision, setResyncRevision] = useState(0);
   const [agentRevision, setAgentRevision] = useState(0);
   const [referencesRevision, setReferencesRevision] = useState(0);
+  const [queueRevision, setQueueRevision] = useState(0);
   const [comparisonsRevision, setComparisonsRevision] = useState(0);
   const notify = useRef(onTreeChanged);
   notify.current = onTreeChanged;
@@ -80,6 +86,12 @@ export function useRunStream(
     // Per node, outside React state: whether a push changed working to
     // waiting or back is decided synchronously, as it arrives.
     const states = new Map<string, RunActivity['state']>();
+    const changed = (nodeId?: string): void => {
+      setRevision((n) => n + 1);
+      if (nodeId) setNodeRevisions((prev) => ({ ...prev, [nodeId]: (prev[nodeId] ?? 0) + 1 }));
+      else setResyncRevision((n) => n + 1);
+      notify.current();
+    };
     const add = (nodeId: string, delta: Delta): void => {
       setStreams((prev) => {
         const existing = prev[nodeId] ?? [];
@@ -93,6 +105,7 @@ export function useRunStream(
       (event) => {
         switch (event.type) {
           case 'run.started':
+            changed(event.nodeId);
             setStreams((prev) => ({ ...prev, [event.nodeId]: [] }));
             states.delete(event.nodeId);
             forget(event.nodeId);
@@ -104,8 +117,7 @@ export function useRunStream(
             // Waiting shows on the card as well, and the card reads the tree.
             // Refetched only when it flips, which is rare, not on every tool.
             if (was !== event.activity.state) {
-              setRevision((n) => n + 1);
-              notify.current();
+              changed(event.nodeId);
             }
             break;
           }
@@ -113,6 +125,7 @@ export function useRunStream(
             add(event.nodeId, {
               runId: event.runId,
               seq: event.seq,
+              ...(event.messageSeq === undefined ? {} : { messageSeq: event.messageSeq }),
               text: event.text,
               ...(event.tool ? { tool: event.tool } : {}),
               ...(event.toolResult ? { toolResult: event.toolResult } : {}),
@@ -126,8 +139,7 @@ export function useRunStream(
             states.delete(event.nodeId);
             forget(event.nodeId);
             setAgentRevision((n) => n + 1);
-            setRevision((n) => n + 1);
-            notify.current();
+            changed(event.nodeId);
             break;
           // run.question is here rather than in a case of its own because the
           // tree already carries the question (NodeView.pendingQuestion) -- this
@@ -136,14 +148,20 @@ export function useRunStream(
           case 'run.finished':
             states.delete(event.nodeId);
             forget(event.nodeId);
-            setRevision((n) => n + 1);
-            notify.current();
+            changed(event.nodeId);
             break;
           case 'tree.updated':
           case 'node.status':
           case 'run.question':
+            changed(event.nodeId);
+            break;
+          case 'queue.updated':
+            setQueueRevision((n) => n + 1);
             setRevision((n) => n + 1);
             notify.current();
+            break;
+          case 'usage.updated':
+            setRevision((n) => n + 1);
             break;
           case 'references.updated':
             setReferencesRevision((n) => n + 1);
@@ -163,6 +181,7 @@ export function useRunStream(
           states.clear();
           setActivity({});
           setRevision((n) => n + 1);
+          setResyncRevision((n) => n + 1);
           // A transport gap can hide a failure the gate recorded while the
           // stream was down, so reconciling after one includes the credential.
           setAgentRevision((n) => n + 1);
@@ -179,8 +198,11 @@ export function useRunStream(
     activity,
     health,
     revision,
+    nodeRevisions,
+    resyncRevision,
     agentRevision,
     referencesRevision,
     comparisonsRevision,
+    queueRevision,
   };
 }

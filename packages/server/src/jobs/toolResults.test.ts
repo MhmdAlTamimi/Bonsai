@@ -111,5 +111,13 @@ describe('what a tool produced, in the transcript', () => {
       e.type === 'run.delta' && e.toolResult !== undefined ? [e.toolResult] : [],
     );
     assert.deepEqual(streamed, [RAN, EDITED]);
+    const persisted = store.listMessages(nodeId, 0);
+    for (const event of bus.events) {
+      if (event.type !== 'run.delta' || event.seq === 0) continue;
+      const message = persisted.find((row) => row.seq === event.messageSeq);
+      assert.ok(message, 'every persisted live frame names its real node message cursor');
+      assert.equal(message.runId, event.runId);
+      assert.equal(message.role, 'assistant');
+    }
   });
 });

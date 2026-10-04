@@ -190,7 +190,11 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
       await assertGitState(row.worktree_path, await expectedGitState(repoPath, row));
       await discardWorktreeChanges(row.worktree_path);
       store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
-      bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
+      bus.publish(row.project_id, {
+        type: 'tree.updated',
+        projectId: row.project_id,
+        nodeId: row.id,
+      });
       sendJson(res, 200, { ok: true });
       return;
     }
@@ -200,7 +204,11 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
       // flagged so it is not mistaken for something needing attention, but
       // nothing is thrown away and resume stays available.
       store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
-      bus.publish(row.project_id, { type: 'tree.updated', projectId: row.project_id });
+      bus.publish(row.project_id, {
+        type: 'tree.updated',
+        projectId: row.project_id,
+        nodeId: row.id,
+      });
       sendJson(res, 200, { ok: true });
       return;
 

@@ -1,3 +1,4 @@
+import { redactCredentials } from '../redact.js';
 import type { DiagnosticsView } from '@bonsai/shared';
 
 /** Diagnostics exclude free-form names/errors/output. Logs retain only event identity and numeric metrics. */
@@ -37,18 +38,5 @@ export function diagnosticReport(
           },
   };
   // Apply known-key and common credential-pattern redaction to the remaining metadata (including paths).
-  const redact = (value: unknown): unknown => {
-    if (typeof value === 'string') {
-      let text = value;
-      for (const key of knownKeys) if (key.length > 0) text = text.split(key).join('[redacted]');
-      return text
-        .replace(/\b(?:sk-ant-|sk-|ghp_|github_pat_)[A-Za-z0-9_-]+/g, '[redacted]')
-        .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]');
-    }
-    if (Array.isArray(value)) return value.map(redact);
-    if (value !== null && typeof value === 'object')
-      return Object.fromEntries(Object.entries(value).map(([key, field]) => [key, redact(field)]));
-    return value;
-  };
-  return redact(safe) as DiagnosticsView;
+  return redactCredentials(safe, knownKeys) as DiagnosticsView;
 }

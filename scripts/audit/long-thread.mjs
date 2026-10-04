@@ -9,6 +9,7 @@
  * "tree changed" event — made here by renaming ANOTHER experiment, the same
  * event every run anywhere in the project sends several of.
  */
+import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -45,9 +46,16 @@ for (const length of lengths) {
     await page.send('Performance.enable');
     const opened = performance.now();
     await page.goto(`${bonsai.base}/?project=${project.projectId}&node=${long}`);
-    await page.waitFor(`document.querySelectorAll('.turn').length >= ${length}`, {
-      timeoutMs: 180_000,
-    });
+    await page.waitFor(
+      `document.querySelector('.thread')?.textContent.includes('Step ${length}:')`,
+      {
+        timeoutMs: 180_000,
+      },
+    );
+    assert.ok(
+      Number(await page.eval("document.querySelectorAll('.turn').length")) <= 200,
+      'initial history rendering is bounded',
+    );
     const drawMs = Math.round(performance.now() - opened);
     await delay(2000);
     const elements = await page.eval(`document.getElementsByTagName('*').length`);

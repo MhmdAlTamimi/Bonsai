@@ -1,4 +1,5 @@
 import type {
+  AttentionView,
   LostExperimentView,
   ApplyPatchView,
   ChangeScope,
@@ -37,10 +38,11 @@ import type {
   UpdateProjectRequest,
   NodeDetail,
   NodeView,
-  ServerEvent,
   TreeResponse,
   UpdateNodeRequest,
 } from '@bonsai/shared';
+
+import { assertCurrentBuild, buildId, observeBuild } from './version.ts';
 
 import { ApiCallError } from './ApiCallError.ts';
 
@@ -54,6 +56,7 @@ export { ApiCallError };
  */
 
 async function json<T>(input: string, init?: RequestInit): Promise<T> {
+  if (init?.method && init.method !== 'GET') assertCurrentBuild();
   const timeout =
     init?.method === undefined || init.method === 'GET' ? AbortSignal.timeout(20_000) : null;
   const signal =
@@ -65,12 +68,17 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
   const res = await fetch(input, {
     ...init,
     ...(signal ? { signal } : {}),
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      'content-type': 'application/json',
+      'x-bonsai-build': buildId,
+      ...(init?.headers ?? {}),
+    },
   }).catch((e: unknown) => {
     if (timeout?.aborted)
       throw new Error('Bonsai did not respond in time. Retry when the server is available.');
     throw e;
   });
+  observeBuild(res.headers.get('x-bonsai-build'));
   const body: unknown = await res.json().catch(() => ({ error: res.statusText }));
   if (!res.ok) {
     const err = body as { error?: string; milestone?: string };
@@ -87,6 +95,8 @@ export interface NodeDiffView {
 }
 
 export const api = {
+  attention: () => json<AttentionView[]>('/api/attention'),
+  version: () => json<{ buildId: string | null }>('/api/version'),
   usage: (projectId: string) => json<ProjectUsageView>(`/api/projects/${projectId}/usage`),
   connection: () => json<ConnectionStatus>('/api/connection'),
   checkConnection: () => json<ConnectionStatus>('/api/connection/check', { method: 'POST' }),
@@ -298,6 +308,12 @@ export const api = {
       signal ? { signal } : undefined,
     ),
 
+  messagePage: (nodeId: string, beforeSeq = Number.MAX_SAFE_INTEGER, signal?: AbortSignal) =>
+    json<{ messages: MessageView[]; hasEarlier: boolean }>(
+      `/api/nodes/${nodeId}/messages?beforeSeq=${beforeSeq}`,
+      signal ? { signal } : undefined,
+    ),
+
   createNode: (
     projectId: string,
     body: {
@@ -413,71 +429,4 @@ export const api = {
     json<NodeDeletionImpactView>(`/api/nodes/${nodeId}/deletion-impact`),
 };
 
-/** Subscribes to the project's event stream. Returns an unsubscribe function. */
-export function subscribe(
-  projectId: string,
-  onEvent: (e: ServerEvent) => void,
-  onState?: (state: 'live' | 'reconnecting') => void,
-): () => void {
-  const handle = (e: MessageEvent<string>): void => {
-    try {
-      onEvent(JSON.parse(e.data) as ServerEvent);
-    } catch {
-      /* a malformed frame is not worth tearing the stream down for */
-    }
-  };
-  const connect = (): EventSource => {
-    const source = new EventSource(`/api/events?projectId=${encodeURIComponent(projectId)}`);
-    source.onopen = () => onState?.('live');
-    source.onerror = () => onState?.('reconnecting');
-    for (const type of [
-      'hello',
-      'tree.updated',
-      'references.updated',
-      'comparison.updated',
-      'node.status',
-      'run.started',
-      'run.delta',
-      'run.activity',
-      'run.question',
-      'run.finished',
-      'run.error',
-    ])
-      source.addEventListener(type, handle as EventListener);
-    return source;
-  };
-  let source = connect();
-  const close = (): void => {
-    source.onopen = null;
-    source.onerror = null;
-    source.close();
-  };
-  const offline = (): void => {
-    close();
-    onState?.('reconnecting');
-  };
-  const online = (): void => {
-    close();
-    onState?.('reconnecting');
-    source = connect();
-  };
-  // A document in the back/forward cache can retain its React tree. Release
-  // its stream on navigation, then reconcile if that document is restored.
-  const resume = (event: PageTransitionEvent): void => {
-    if (event.persisted) {
-      if (navigator.onLine) online();
-      else offline();
-    }
-  };
-  window.addEventListener('pagehide', close);
-  window.addEventListener('pageshow', resume);
-  window.addEventListener('offline', offline);
-  window.addEventListener('online', online);
-  return () => {
-    close();
-    window.removeEventListener('pagehide', close);
-    window.removeEventListener('pageshow', resume);
-    window.removeEventListener('offline', offline);
-    window.removeEventListener('online', online);
-  };
-}
+export { subscribe } from './events.ts';

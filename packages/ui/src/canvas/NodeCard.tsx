@@ -1,5 +1,5 @@
 import { Icon, IconButton } from '../Icon.tsx';
-import { type JSX, useCallback, useContext, useRef, useState } from 'react';
+import { type JSX, memo, useCallback, useContext, useRef, useState } from 'react';
 import { Handle, Position, useStore } from 'reactflow';
 import { RANK_DIR } from './layout.ts';
 import { CODE_TOOLTIP, codeState } from '../nodeCode.ts';
@@ -52,7 +52,13 @@ const FROZEN_TOOLTIP: Record<NonNullable<NodeView['frozenReason']>, string> = {
     'The code this project started from, taken from your folder when you adopted it. It stays as it was; branch an experiment to make changes.',
 };
 
-export function NodeCard({ data, selected }: { data: NodeView; selected: boolean }): JSX.Element {
+export const NodeCard = memo(function NodeCard({
+  data,
+  selected,
+}: {
+  data: NodeView;
+  selected: boolean;
+}): JSX.Element {
   const zoom = useStore((s) => s.transform[2]);
   const lod = lodFor(zoom);
   const branch = useContext(BranchContext);
@@ -392,4 +398,4 @@ export function NodeCard({ data, selected }: { data: NodeView; selected: boolean
       </Handle>
     </div>
   );
-}
+});

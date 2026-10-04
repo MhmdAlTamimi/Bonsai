@@ -90,7 +90,7 @@ export default tseslint.config(
   },
 
   {
-    files: ['packages/ui/**/*.{ts,tsx}'],
+    files: ['packages/ui/src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
       ...reactHooks.configs.recommended.rules,
