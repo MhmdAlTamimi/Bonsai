@@ -170,6 +170,8 @@ export class RunJobs {
    * finishes. Refuses a node that is running, queued or being deleted.
    */
   async whileIdle<T>(nodeId: string, work: () => Promise<T>): Promise<T> {
+    if (this.store.deletions.forNode(nodeId))
+      throw new OperationConflict('Finish or cancel this experiment’s pending deletion first.');
     if (this.isRunning(nodeId) || this.retiring.has(nodeId) || this.archiving.has(nodeId))
       throw new OperationConflict(
         'This experiment is busy. Retry after its current operation finishes.',
@@ -421,6 +423,8 @@ export class RunJobs {
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
     if (this.isRetiring(nodeId)) throw new OperationConflict('This experiment is being deleted.');
+    if (this.store.deletions.forNode(nodeId))
+      throw new OperationConflict('Finish or cancel this experiment’s pending deletion first.');
     if (this.archiving.has(nodeId))
       throw new OperationConflict('Its folder is being archived. Try again in a moment.');
     if (this.isRunning(nodeId))

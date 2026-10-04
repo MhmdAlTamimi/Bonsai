@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { GitRecoveryView, SynchronizeAction } from '@bonsai/shared';
 import type { NodeRow, Store } from '../db/store.js';
 import { isUsersOwnCheckout } from '../db/rows.js';
@@ -41,7 +41,7 @@ export async function gitRecovery(store: Store, node: NodeRow): Promise<GitRecov
       problem = 'missing_folder';
       message =
         'The experiment folder is missing. Its Git history is still available. Restore its recorded folder, or import its latest saved Git commit. Uncommitted files need your own backup.';
-    } else if (folderExists && node.worktree_allocated !== 0) {
+    } else if (folderExists) {
       const actual = await readGitState(node.worktree_path);
       head = actual.head;
       branch = actual.branch;
@@ -59,7 +59,11 @@ export async function gitRecovery(store: Store, node: NodeRow): Promise<GitRecov
         if (unmerged)
           message +=
             ' Git has unresolved merge conflicts. Resolve them before importing folder state, or preserve and restore the recorded code.';
+        if (node.worktree_allocated === 0)
+          message =
+            'An unexpected folder exists at this experiment’s reserved location. Import its state, or restore the recorded code. All current files and known commits will be preserved first.';
         if (
+          node.worktree_allocated !== 0 &&
           head === recorded &&
           branch === branchOf(node) &&
           (saved === recorded || saved === null)
@@ -100,6 +104,7 @@ export async function synchronizeExperiment(
   node: NodeRow,
   action: SynchronizeAction,
   version: string,
+  preservationRoot?: string,
 ): Promise<string> {
   const project = store.getProject(node.project_id)!;
   const observed = await gitRecovery(store, node);
@@ -148,7 +153,7 @@ export async function synchronizeExperiment(
   const preserved = await exportExperiment(
     project.repo_path,
     snapshot ?? observed.savedCommit ?? selected,
-    join(store.projectScratchDir(project.id), 'recovery'),
+    preservationRoot ?? join(dirname(store.projectScratchDir(project.id)), 'recovery'),
     node.display_name,
   );
   await protectExportTips(preserved, project.repo_path, {

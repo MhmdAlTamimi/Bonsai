@@ -18,6 +18,7 @@ import type { ProjectStore } from './projectStore.js';
 import { isInside, samePath } from '../paths.js';
 import { revisionOf, type ReferenceRow } from './referenceStore.js';
 import type { RunStore } from './runStore.js';
+import type { DeletionStore } from './deletionStore.js';
 import {
   isAdoptedRoot,
   isUsersOwnCheckout,
@@ -43,6 +44,7 @@ export class Views {
     private readonly runs: RunStore,
     private readonly messages: MessageStore,
     private readonly comparisons: ComparisonStore,
+    private readonly deletions: DeletionStore,
   ) {}
 
   /**
@@ -57,6 +59,7 @@ export class Views {
     const stats = this.runs.statsByNode(projectId);
     const costs = this.runs.costsByNode(projectId);
     const rows = this.nodes.list(projectId);
+    const deleting = this.deletions.views(projectId);
     const lastRuns = this.runs.latestEndReasonByNode(projectId);
     const runCounts = this.runs.countsByNode(projectId);
     const experimentCommits = this.runs.experimentCommits(projectId);
@@ -89,6 +92,7 @@ export class Views {
       const question = row.status === 'needs_you' ? this.messages.pendingQuestion(row.id) : null;
       return {
         id: row.id,
+        deletion: deleting.get(row.id) ?? null,
         initialExperimentIds: parseStringArray(row.initial_experiment_ids) ?? [],
         projectId: row.project_id,
         parentId: row.parent_id,

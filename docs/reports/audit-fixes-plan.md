@@ -58,7 +58,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 ### audit-05-removing-and-recovering
 
 - [x] R1: A crash while a run is saving leaves the experiment stuck for good
-- [ ] R2: A delete that stops part-way leaves experiments on the map with nothing behind them
+- [x] R2: A delete that stops part-way leaves experiments on the map with nothing behind them
 - [x] R3: `git fsck` reports every project Bonsai created as broken
 
 ### audit-06-backups-export-moving
@@ -138,6 +138,9 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] E9: Recovery must preserve staged-only content and all unresolved merge-index versions; do not import unresolved conflict markers as finished work.
 - [x] E10: Committed per-run diffs must remain readable without the experiment checkout.
 - [x] E11: Ignored run-note paths must not cause fallback text to overwrite agent notes or lose their committed history. Resume must name the project’s recorded notes path.
+- [x] E12: Independent recovery copies must survive deletion of their original project.
+- [x] E13: An unexpected folder at an unallocated experiment path must never be silently deleted.
+- [x] E14: The second force needed for submodule cleanup must respect Git worktree locks.
 
 ## Verification log
 
@@ -150,3 +153,5 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - Durable-input batch: full `npm test` passed (381 server tests, 120 UI/shared tests), production build and all 26 browser tests passed. Database reopen tests preserve queued prompts and attachment identities; an injected final-status write failure rolls back the commit, totals and conversation position together. Both SIGTERM and SIGKILL reproductions resume the waiting request. SDK-frame tests retain failed-command text with bounded output. Browser reload tests cover unsent per-tab drafts and a saved Start-from-latest attachment after browser storage is cleared. Real HTTP tests cover validation, origin restrictions, SSE and run acceptance/finalization.
 
 - Git recovery/export batch: full `npm test` passed (391 server tests, 120 UI/shared tests), production build and all 27 browser tests passed. Fault injection followed by database reopen covers saves before Git moves, after Git moves, and the legacy HEAD/ref split; unrelated commits are refused. Real Git tests preserve ignored files, staged-only content, every merge-conflict index stage, branch tips and history, reject stale choices, restore missing folders and prove exported repositories survive deletion of the source storage. HTTP regressions keep recovery and committed run diffs reachable without a checkout. Twenty seeded SIGKILL rounds produced no stuck experiments, mismatched refs or integrity errors. Real SDK `npm version` reproduction used the verified fake API: no source tag/commit appeared and the next run succeeded. Known implicit version commits are guarded; arbitrary shell commands remain cooperative, not a security sandbox. Older-database Git drift now has explicit import/restore; orphan discovery remains to finish B3.
+
+- Durable deletion batch: production build, typecheck/lint/format, all 397 server tests, 120 UI/shared tests and 28 browser tests passed. Real Git lock failures and a database trigger interrupt cleanup after filesystem removal; restart finishes only matching cleanup and refuses a changed ref. Browser recovery cancels remaining cleanup and explicitly restores the missing checkout. Ten SIGKILL rounds now wait for actual folder removal before killing: all ten deletions finish on restart, with zero half-deleted experiments. Recovery repositories survive project deletion; an unallocated unexpected checkout and a locked worktree are preserved. The Start-from-latest browser fixture now waits for preview readiness before clicking its disabled button.

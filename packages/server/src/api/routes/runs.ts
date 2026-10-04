@@ -143,6 +143,11 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
   const { store, bus, jobs } = ctx;
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
+  if (store.deletions.forNode(row.id))
+    throw new HttpError(
+      409,
+      'Finish or cancel the pending deletion before recovering this experiment.',
+    );
   if (row.status === 'running' || row.status === 'needs_you')
     throw new HttpError(409, 'this node is still running');
 

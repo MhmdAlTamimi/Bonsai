@@ -338,6 +338,12 @@ export interface ProjectSetupView {
 export type FrozenReason = 'child_committed' | 'your_folder' | 'snapshot';
 
 export interface NodeView {
+  deletion?: {
+    id: string;
+    kind: 'node' | 'project';
+    rootNodeId: string | null;
+    error: string | null;
+  } | null;
   initialExperimentIds?: readonly string[];
   id: string;
   projectId: string;

@@ -215,6 +215,8 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
+  cancelDeletion: (id: string) =>
+    json<{ ok: true }>(`/api/deletions/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
 
   /**
    * D34: answer a question the agent stopped on. A refusal's message is the

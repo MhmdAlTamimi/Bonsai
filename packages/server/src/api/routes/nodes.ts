@@ -12,7 +12,12 @@ import type {
 import { deriveNodeName } from '@bonsai/shared';
 import { isUsersOwnCheckout } from '../../db/store.js';
 import { copyParentConversation } from '../../jobs/conversation.js';
-import { allocateNodeWorktree, createChildNode, deleteNodeTree } from '../../projects.js';
+import {
+  allocateNodeWorktree,
+  cancelPendingDeletion,
+  createChildNode,
+  deleteNodeTree,
+} from '../../projects.js';
 import { archiveCheck, archiveFolder } from '../../archive.js';
 import { writeApplyPatch } from '../applyPatch.js';
 import { behindBy } from '../behind.js';
@@ -177,24 +182,34 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
   sendJson(res, 200, body);
 });
 
-route('POST', '/api/nodes/:id/synchronize', async (req, res, params, { store, jobs, bus }) => {
-  const node = store.getNode(params['id']!);
-  if (!node) throw new HttpError(404, 'No such experiment.');
-  const body = await readJson<{ action?: unknown; version?: unknown }>(req);
-  if (
-    body.action !== 'import-folder' &&
-    body.action !== 'import-saved' &&
-    body.action !== 'restore'
-  )
-    throw new HttpError(400, 'Choose import-folder, import-saved or restore.');
-  const action = body.action;
-  const version = requireString(body.version, 'version');
-  const preservedPath = await jobs.whileIdle(node.id, () =>
-    synchronizeExperiment(store, store.getNode(node.id)!, action, version),
-  );
-  bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
-  sendJson(res, 200, { preservedPath });
-});
+route(
+  'POST',
+  '/api/nodes/:id/synchronize',
+  async (req, res, params, { store, jobs, bus, settings }) => {
+    const node = store.getNode(params['id']!);
+    if (!node) throw new HttpError(404, 'No such experiment.');
+    const body = await readJson<{ action?: unknown; version?: unknown }>(req);
+    if (
+      body.action !== 'import-folder' &&
+      body.action !== 'import-saved' &&
+      body.action !== 'restore'
+    )
+      throw new HttpError(400, 'Choose import-folder, import-saved or restore.');
+    const action = body.action;
+    const version = requireString(body.version, 'version');
+    const preservedPath = await jobs.whileIdle(node.id, () =>
+      synchronizeExperiment(
+        store,
+        store.getNode(node.id)!,
+        action,
+        version,
+        join(settings.view().dataDir, 'recovery'),
+      ),
+    );
+    bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+    sendJson(res, 200, { preservedPath });
+  },
+);
 
 route('POST', '/api/nodes/:id/export', async (_req, res, params, { store, jobs, settings }) => {
   const node = store.getNode(params['id']!);
@@ -284,6 +299,17 @@ route('GET', '/api/nodes/:id/messages', (req, res, params, { store }) => {
   sendJson(res, 200, store.listMessages(row.id, Number.isFinite(afterSeq) ? afterSeq : 0));
 });
 
+route('POST', '/api/deletions/:id/cancel', async (_req, res, params, { store, jobs, bus }) => {
+  const intent = store.deletions.get(params['id']!);
+  if (!intent) throw new HttpError(404, 'That deletion is no longer pending.');
+  await jobs.withStoppedNodes(
+    intent.nodes.map((node) => node.id),
+    () => cancelPendingDeletion(store, intent.id),
+  );
+  bus.publish(intent.project.id, { type: 'tree.updated', projectId: intent.project.id });
+  sendJson(res, 200, { ok: true });
+});
+
 route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
@@ -315,7 +341,7 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
 });
 
 /** Review: what this experiment changed, file by file. No patches here. */
-route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus }) => {
+route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus, jobs }) => {
   const node = store.getNode(params['id']!);
   if (!node) throw new HttpError(404, 'No such experiment.');
   if (node.worktree_allocated === 0 && node.archived_at === null)
@@ -323,7 +349,7 @@ route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus })
   if (node.archived_at !== null) {
     // Archived: bring the folder back first -- it is what was asked to be seen.
     // Setup waits for the next run, which is what needs what it installs.
-    await allocateNodeWorktree(store, node);
+    await jobs.whileIdle(node.id, () => allocateNodeWorktree(store, node));
     bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
   }
   await revealInFileManager(node.worktree_path);

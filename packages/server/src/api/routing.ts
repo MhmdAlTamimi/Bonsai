@@ -83,12 +83,23 @@ interface Route {
 
 const routes: Route[] = [];
 const structure = new ProjectOperations();
-function structural(handler: Handler, target: 'node' | 'project'): Handler {
+function structural(handler: Handler, target: 'node' | 'project' | 'deletion'): Handler {
   return async (req, res, params, ctx) => {
-    const id = target === 'project' ? params['id'] : ctx.store.getNode(params['id']!)?.project_id;
+    const id =
+      target === 'project'
+        ? params['id']
+        : target === 'deletion'
+          ? ctx.store.deletions.get(params['id']!)?.project.id
+          : ctx.store.getNode(params['id']!)?.project_id;
     if (!id) throw new HttpError(404, 'No such project.');
     await structure.run(id, async () => {
-      await handler(req, res, params, ctx);
+      try {
+        await handler(req, res, params, ctx);
+      } catch (error) {
+        if (ctx.store.deletions.pending().some((intent) => intent.project.id === id))
+          ctx.bus.publish(id, { type: 'tree.updated', projectId: id });
+        throw error;
+      }
     });
   };
 }
@@ -97,9 +108,19 @@ export function route(method: string, pattern: string, handler: Handler): void {
   if (
     (method === 'POST' && pattern === '/api/projects/:id/nodes') ||
     (method === 'DELETE' && ['/api/projects/:id', '/api/nodes/:id'].includes(pattern)) ||
-    (method === 'POST' && ['/api/nodes/:id/synchronize', '/api/nodes/:id/export'].includes(pattern))
+    (method === 'POST' &&
+      ['/api/nodes/:id/synchronize', '/api/nodes/:id/export', '/api/deletions/:id/cancel'].includes(
+        pattern,
+      ))
   ) {
-    handler = structural(handler, pattern.startsWith('/api/nodes/') ? 'node' : 'project');
+    handler = structural(
+      handler,
+      pattern.startsWith('/api/deletions/')
+        ? 'deletion'
+        : pattern.startsWith('/api/nodes/')
+          ? 'node'
+          : 'project',
+    );
   }
   routes.push({ method, segments: pattern.split('/').filter(Boolean), handler, pattern });
 }

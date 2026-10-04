@@ -12,7 +12,7 @@ import { handleApi } from './api/router.js';
 import { RunJobs } from './jobs/runNode.js';
 import { ComparisonJobs } from './jobs/comparisons.js';
 import { ArchiveSweeper } from './archive.js';
-import { pinExistingNodes } from './projects.js';
+import { pinExistingNodes, recoverDeletions } from './projects.js';
 import { FakeRunner } from './agent/FakeRunner.js';
 import { ClaudeSdkRunner } from './agent/ClaudeSdkRunner.js';
 import { Settings } from './settings.js';
@@ -99,6 +99,7 @@ if (orphaned > 0) {
   process.stdout.write(`[bonsai] marked ${orphaned} interrupted run(s) from a previous session\n`);
 }
 await recoverRunSaves(store, log);
+await recoverDeletions(store, log);
 
 // Experiments made before hidden refs existed get theirs now, so git keeps
 // their code even while they have no folder (see git/refs.ts).

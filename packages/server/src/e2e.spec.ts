@@ -1952,6 +1952,9 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       'Later experiment (latest)',
     );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('dialog[open] button')).some(b => b.textContent.trim() === 'Save for later' && !b.disabled)",
+    );
     await session.eval(
       "Array.from(document.querySelectorAll('dialog[open] button')).find(b => b.textContent.trim() === 'Save for later').click()",
     );
@@ -3222,6 +3225,67 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor(
       "!document.querySelector('[aria-label=\"Synchronize Git and Bonsai\"]') && !!document.querySelector('.composer textarea')",
     );
+  });
+  test('a partially removed experiment shows paused deletion and recovers after cancelling remaining cleanup', async () => {
+    const post = (path: string, body: unknown) =>
+      fetch(BASE + path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const created = (await (
+      await post('/api/projects', { name: 'Paused deletion browser', description: '' })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const child = (await (
+      await post(`/api/projects/${created.projectId}/nodes`, {
+        parentId: created.masterNodeId,
+        displayName: 'Paused child',
+        description: '',
+      })
+    ).json()) as { node: { id: string } };
+    await post(`/api/nodes/${child.node.id}/runs`, { prompt: 'make recoverable work' });
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${child.node.id}`);
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${child.node.id}')).json()).node.status === 'ready')()`,
+    );
+    const fixtureDb = new DatabaseSync(join(dataDir, 'bonsai.db'));
+    try {
+      fixtureDb.exec(
+        `CREATE TRIGGER paused_delete_fixture BEFORE DELETE ON node WHEN OLD.id = '${child.node.id}' BEGIN SELECT RAISE(ABORT, 'fixture deletion write failure'); END`,
+      );
+      assert.equal(
+        (await fetch(`${BASE}/api/nodes/${child.node.id}`, { method: 'DELETE' })).status,
+        500,
+      );
+      await session.waitFor('!!document.querySelector(\'[aria-label="Paused deletion"]\')');
+      assert.equal(await session.eval("!!document.querySelector('.composer textarea')"), false);
+      assert.equal(
+        (await post(`/api/nodes/${child.node.id}/runs`, { prompt: 'blocked while deleting' }))
+          .status,
+        409,
+      );
+      await session.eval(
+        "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Cancel remaining deletion').click()",
+      );
+      await session.waitFor(
+        '!document.querySelector(\'[aria-label="Paused deletion"]\') && !!document.querySelector(\'[aria-label="Synchronize Git and Bonsai"]\')',
+      );
+      await session.eval(
+        "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Restore Bonsai recorded code').click()",
+      );
+      await session.waitFor(
+        "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Preserve and restore')",
+      );
+      await session.eval(
+        "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Preserve and restore').click()",
+      );
+      await session.waitFor(
+        "!document.querySelector('.recover') && !!document.querySelector('.composer textarea')",
+      );
+    } finally {
+      fixtureDb.exec('DROP TRIGGER IF EXISTS paused_delete_fixture');
+      fixtureDb.close();
+    }
   });
 });
 

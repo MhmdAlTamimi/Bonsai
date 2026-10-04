@@ -1,5 +1,7 @@
 import { lstat } from 'node:fs/promises';
-import { git } from './exec.js';
+import { existsSync } from 'node:fs';
+import { OperationConflict } from '../domain/errors.js';
+import { git, gitLine, GitError } from './exec.js';
 
 /**
  * Worktrees separate checkouts, not host permissions. One shared object store, one
@@ -58,7 +60,14 @@ async function initialiseSubmodules(path: string): Promise<void> {
 
 export async function removeWorktree(repoPath: string, worktreePath: string): Promise<void> {
   try {
-    await git(['worktree', 'remove', '--force', '--force', worktreePath], repoPath);
+    if (existsSync(worktreePath)) await assertWorktreeUnlocked(worktreePath);
+    try {
+      await git(['worktree', 'remove', '--force', worktreePath], repoPath);
+    } catch (error) {
+      if (!(error instanceof GitError) || !/submodules/i.test(error.stderr)) throw error;
+      await assertWorktreeUnlocked(worktreePath);
+      await git(['worktree', 'remove', '--force', '--force', worktreePath], repoPath);
+    }
   } catch (error) {
     // Never replace a failed Git ownership check with recursive deletion.
     try {
@@ -71,6 +80,15 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
     }
     throw error;
   }
+}
+
+/** The second force needed for submodules must never override a user's Git lock. */
+export async function assertWorktreeUnlocked(path: string): Promise<void> {
+  const lock = await gitLine(['rev-parse', '--path-format=absolute', '--git-path', 'locked'], path);
+  if (existsSync(lock))
+    throw new OperationConflict(
+      'This experiment folder is locked by Git. Unlock the worktree with Git and retry; its files are preserved.',
+    );
 }
 
 /** Delete only an existing ref; failures (including use by another checkout) matter. */

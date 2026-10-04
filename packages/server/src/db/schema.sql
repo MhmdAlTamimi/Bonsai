@@ -218,6 +218,13 @@ CREATE TABLE IF NOT EXISTS run_save (
   payload_json TEXT NOT NULL
 );
 
+-- No cascading FK: the cleanup intent must outlive a partially removed project.
+CREATE TABLE IF NOT EXISTS deletion_operation (
+  id TEXT PRIMARY KEY,
+  payload_json TEXT NOT NULL,
+  error TEXT
+);
+
 -- Not in PRD §8. §5 requires a transcript for `ready` and `interrupted` nodes
 -- across app restarts and there was nowhere to put one. Re-reading the SDK's
 -- machine-local session JSONL would put an agent-internal file format in the

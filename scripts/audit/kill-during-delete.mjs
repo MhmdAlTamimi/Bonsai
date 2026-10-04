@@ -1,12 +1,13 @@
 /**
  * Audit phase 5: kill Bonsai while it deletes an experiment with five
- * children, at a later moment each round, and count what a restart shows.
+ * children, after cleanup actually starts, and count what a restart shows.
  *
  *   npm run build:server && node scripts/audit/kill-during-delete.mjs
  *
  * "half-deleted" means experiments still on the map whose folder is gone.
  */
 import { existsSync } from 'node:fs';
+import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,9 +44,27 @@ try {
     );
     before.close();
 
-    const killAt = 15 + round * 12;
-    void bonsai.api('DELETE', `/api/nodes/${ids[0]}`).catch(() => undefined);
-    await delay(killAt);
+    const started = performance.now();
+    let settled = false;
+    void bonsai
+      .api('DELETE', `/api/nodes/${ids[0]}`)
+      .finally(() => {
+        settled = true;
+      })
+      .catch(() => undefined);
+    const deadline = performance.now() + 10000;
+    while (
+      folders.every((folder) => existsSync(folder)) &&
+      !settled &&
+      performance.now() < deadline
+    )
+      await delay(1);
+    assert.ok(
+      folders.some((folder) => !existsSync(folder)),
+      'deletion must actually remove a folder before this crash check',
+    );
+    await delay(round);
+    const killAt = Math.round(performance.now() - started);
     await bonsai.stop();
     bonsai = await startBonsai(dataDir, env);
 
@@ -65,6 +84,7 @@ try {
     if (rows.some((r) => r.onTheMap)) await bonsai.api('DELETE', `/api/nodes/${ids[0]}`);
   }
   console.log(JSON.stringify(tally));
+  assert.equal(tally.halfDeleted, 0, 'restart must finish a confirmed partial deletion');
 } finally {
   await bonsai.stop();
   await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

@@ -9,6 +9,7 @@ import { plural } from '../words.ts';
 import { relativeTime } from './chat/time.ts';
 import { Recovery } from './node/Recovery.tsx';
 import { GitRecovery } from './node/GitRecovery.tsx';
+import { DeletionRecovery } from './node/DeletionRecovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
 import { nodeStatusTitle } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
@@ -354,14 +355,21 @@ function NodePanel({
       </div>
 
       <div className="panel-foot">
-        {detail?.gitRecovery && node.status !== 'running' && node.status !== 'needs_you' && (
-          <GitRecovery
-            recovery={detail.gitRecovery}
-            busy={actions.busy}
-            onSynchronize={(action) => void actions.synchronize(node, action, detail.gitRecovery!)}
-          />
-        )}
-        {!detail?.gitRecovery &&
+        {node.deletion && <DeletionRecovery node={node} onChanged={onChanged} onError={setError} />}
+        {!node.deletion &&
+          detail?.gitRecovery &&
+          node.status !== 'running' &&
+          node.status !== 'needs_you' && (
+            <GitRecovery
+              recovery={detail.gitRecovery}
+              busy={actions.busy}
+              onSynchronize={(action) =>
+                void actions.synchronize(node, action, detail.gitRecovery!)
+              }
+            />
+          )}
+        {!node.deletion &&
+          !detail?.gitRecovery &&
           (node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
           node.status !== 'running' &&
           node.status !== 'needs_you' && (
@@ -395,7 +403,7 @@ function NodePanel({
             Folder archived · the next message brings it back and runs setup again
           </p>
         )}
-        {node.pendingQuestion === null && !detail?.gitRecovery && (
+        {node.pendingQuestion === null && !node.deletion && !detail?.gitRecovery && (
           <Composer
             node={node}
             busy={chat.busy}

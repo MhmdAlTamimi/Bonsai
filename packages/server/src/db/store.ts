@@ -16,6 +16,7 @@ import { CheckStore } from './checkStore.js';
 import { ComparisonStore, type ComparisonRow } from './comparisonStore.js';
 import { MessageStore } from './messageStore.js';
 import { SaveStore } from './saveStore.js';
+import { DeletionStore } from './deletionStore.js';
 import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
 import { ReferenceStore } from './referenceStore.js';
@@ -63,6 +64,7 @@ export class Store {
   readonly runs: RunStore;
   readonly messages: MessageStore;
   readonly saves: SaveStore;
+  readonly deletions: DeletionStore;
   readonly checks: CheckStore;
   readonly references: ReferenceStore;
   readonly comparisons: ComparisonStore;
@@ -78,10 +80,18 @@ export class Store {
     this.runs = new RunStore(db);
     this.messages = new MessageStore(db);
     this.saves = new SaveStore(db);
+    this.deletions = new DeletionStore(db);
     this.checks = new CheckStore(db);
     this.references = new ReferenceStore(db);
     this.comparisons = new ComparisonStore(db);
-    this.views = new Views(this.projects, this.nodes, this.runs, this.messages, this.comparisons);
+    this.views = new Views(
+      this.projects,
+      this.nodes,
+      this.runs,
+      this.messages,
+      this.comparisons,
+      this.deletions,
+    );
   }
 
   // -- projects ------------------------------------------------------------
@@ -136,6 +146,21 @@ export class Store {
   }
   deleteNode(id: string): void {
     this.nodes.delete(id);
+  }
+  completeDeletion(id: string, kind: 'node' | 'project', targetId: string): void {
+    this.transaction(() => {
+      if (kind === 'node') this.nodes.delete(targetId);
+      else this.projects.delete(targetId);
+      this.deletions.remove(id);
+    });
+  }
+  cancelDeletion(id: string): void {
+    this.transaction(() => {
+      const intent = this.deletions.get(id);
+      if (intent === undefined) return;
+      for (const node of intent.nodes) this.nodes.setStatus(node.id, 'interrupted');
+      this.deletions.remove(id);
+    });
   }
   descendantsOf(id: string): NodeRow[] {
     return this.nodes.descendantsOf(id);

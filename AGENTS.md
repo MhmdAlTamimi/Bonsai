@@ -78,6 +78,10 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   their tips; reconciliation detaches the owned checkout. A missing repository or foreign
   checkout is reported and is never reset. Full repository exports have their own Git objects
   and history and must remain usable after the source Bonsai storage is removed.
+- Confirmed deletion records an immutable cleanup intent before removing files. Restart
+  resumes only matching owned state; failure stays visible and offers retry or cancellation
+  while recorded commits remain recoverable. Never delete an unallocated folder or override
+  a Git worktree lock. Recovery copies live outside the project's deletion directory.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain
   host access. The Git command hook is a cooperative guard, not arbitrary-code containment.
   Scoped external approval is future work, not an existing guarantee.

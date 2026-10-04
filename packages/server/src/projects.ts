@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import type { PermissionMode } from '@bonsai/shared';
 
 import type { NodeRow, ProjectRow, Store } from './db/store.js';
+import type { DeletionIntent } from './db/deletionStore.js';
 import { workDirIn } from './db/rows.js';
 import {
   DEFAULT_BRANCH,
@@ -18,6 +19,7 @@ import {
   addDetachedWorktree,
   deleteBranch,
   removeWorktree,
+  assertWorktreeUnlocked,
 } from './git/worktree.js';
 import { resolveBaseCommit } from './domain/lineage.js';
 import { toLineage } from './db/store.js';
@@ -30,6 +32,7 @@ import {
   deleteRef,
   nodeRef,
   pinNode,
+  pinRef,
   projectRefs,
   readRef,
   tipOf,
@@ -335,6 +338,8 @@ export async function createChildNode(
   if (project === undefined) throw new Error('no such project');
   const parent = store.getNode(input.parentId);
   if (parent === undefined) throw new Error('no such parent node');
+  if (store.deletions.forNode(parent.id))
+    throw new OperationConflict('Finish or cancel this experiment’s pending deletion first.');
 
   // Computed here as well as inside createNode so the value that reaches git is
   // provably the same one that reaches the database.
@@ -476,34 +481,44 @@ function ownsBranch(project: ProjectRow, node: NodeRow): boolean {
  * (PRD 6.7) -- but only the ones Bonsai created.
  */
 export async function deleteNodeTree(store: Store, nodeId: string): Promise<number> {
-  const node = store.getNode(nodeId);
+  const id = `node:${nodeId}`;
+  const intent = store.deletions.get(id);
+  const node = store.getNode(nodeId) ?? intent?.nodes.find((row) => row.id === nodeId);
   if (node === undefined) return 0;
-  const project = store.getProject(node.project_id);
+  const project = store.getProject(node.project_id) ?? intent?.project;
   if (project === undefined) return 0;
 
   // Collect before deleting: the rows are gone once the cascade fires.
-  const doomed = store.descendantsOf(nodeId);
+  const doomed = intent?.nodes ?? store.descendantsOf(nodeId);
+  rejectOverlappingDeletion(store, id, doomed);
+  if (intent) assertDeletionIntent(store, intent);
+  try {
+    for (const row of doomed) await verifyDeletion(project, row, intent !== undefined);
+    if (!intent)
+      store.deletions.prepare({ id, kind: 'node', project, nodes: doomed, rootNodeId: nodeId });
+    for (const row of doomed) {
+      if (ownsWorktree(project, row) && row.worktree_allocated !== 0) {
+        await removeWorktree(project.repo_path, row.worktree_path);
+      }
+      if (ownsBranch(project, row)) {
+        await deleteBranch(project.repo_path, row.branch_name!);
+      }
+      await deleteNodeRef(project, row);
+    }
 
-  for (const row of doomed) await verifyDeletion(project, row);
-  for (const row of doomed) {
-    if (ownsWorktree(project, row)) {
-      await removeWorktree(project.repo_path, row.worktree_path);
-    }
-    if (ownsBranch(project, row)) {
-      await deleteBranch(project.repo_path, row.branch_name!);
-    }
-    await deleteNodeRef(project, row);
+    for (const row of doomed)
+      for (const run of store.listRuns(row.id)) {
+        await rm(join(store.projectScratchDir(project.id), 'run-context', run.id), {
+          recursive: true,
+          force: true,
+        });
+      }
+    store.completeDeletion(id, 'node', nodeId);
+    return doomed.length;
+  } catch (error) {
+    store.deletions.blocked(id, error instanceof Error ? error.message : String(error));
+    throw error;
   }
-
-  for (const row of doomed)
-    for (const run of store.listRuns(row.id)) {
-      await rm(join(store.projectScratchDir(project.id), 'run-context', run.id), {
-        recursive: true,
-        force: true,
-      });
-    }
-  store.deleteNode(nodeId);
-  return doomed.length;
 }
 
 /**
@@ -523,55 +538,73 @@ export async function deleteProjectTree(
   store: Store,
   projectId: string,
 ): Promise<{ nodes: number; removedDirectory: string | null; keptDirectory: string | null }> {
-  const project = store.getProject(projectId);
+  const id = `project:${projectId}`;
+  const intent = store.deletions.get(id);
+  const project = store.getProject(projectId) ?? intent?.project;
   if (project === undefined) return { nodes: 0, removedDirectory: null, keptDirectory: null };
 
-  const nodes = store.listNodes(projectId);
-
-  for (const node of nodes) await verifyDeletion(project, node);
-  for (const node of nodes) {
-    if (ownsWorktree(project, node)) {
-      await removeWorktree(project.repo_path, node.worktree_path);
+  const nodes = intent?.nodes ?? store.listNodes(projectId);
+  rejectOverlappingDeletion(store, id, nodes);
+  if (intent) assertDeletionIntent(store, intent);
+  try {
+    for (const node of nodes) await verifyDeletion(project, node, intent !== undefined);
+    if (!intent) store.deletions.prepare({ id, kind: 'project', project, nodes, rootNodeId: null });
+    for (const node of nodes) {
+      if (
+        ownsWorktree(project, node) &&
+        node.worktree_allocated !== 0 &&
+        (await pathExists(project.repo_path))
+      ) {
+        await removeWorktree(project.repo_path, node.worktree_path);
+      }
+      if (
+        project.source_kind === 'adopted' &&
+        ownsBranch(project, node) &&
+        (await pathExists(project.repo_path))
+      ) {
+        await deleteBranch(project.repo_path, node.branch_name!);
+      }
     }
-    if (project.source_kind === 'adopted' && ownsBranch(project, node)) {
-      await deleteBranch(project.repo_path, node.branch_name!);
+
+    if (project.source_kind === 'adopted') {
+      // Every ref of this project, including any no node names any more. Only
+      // `refs/bonsai/<project>/`, which nothing but Bonsai writes.
+      if (await pathExists(project.repo_path))
+        await deleteProjectRefs(project.repo_path, project.id);
+      // Their repository stays. Bonsai's own folder for this project -- which
+      // held the node worktrees and nothing else -- does not; leaving it behind
+      // was a slow disk leak and, worse, made "deleted" mean two different
+      // things depending on how the project started.
+      const scratch = bonsaiDirectoryFor(store, project);
+      if (scratch !== null) await rm(scratch, { recursive: true, force: true });
+      store.completeDeletion(id, 'project', projectId);
+      return { nodes: nodes.length, removedDirectory: null, keptDirectory: project.source_path };
     }
+
+    // The bare repo and the internal worktrees sit under one directory Bonsai
+    // owns. Master's checkout may have been placed elsewhere, at a folder the
+    // user chose -- Bonsai created that folder too (prepareNewDirectory refuses
+    // to reuse an existing one), so it goes as well.
+    const internal = bonsaiDirectoryFor(store, project) ?? dirname(project.repo_path);
+    const checkout =
+      project.source_path !== null && !isInside(internal, project.source_path)
+        ? project.source_path
+        : null;
+
+    await rm(internal, { recursive: true, force: true });
+    if (checkout !== null) await rm(checkout, { recursive: true, force: true });
+
+    store.completeDeletion(id, 'project', projectId);
+    return {
+      nodes: nodes.length,
+      // The path worth naming is the one the user has seen.
+      removedDirectory: checkout ?? internal,
+      keptDirectory: null,
+    };
+  } catch (error) {
+    store.deletions.blocked(id, error instanceof Error ? error.message : String(error));
+    throw error;
   }
-
-  if (project.source_kind === 'adopted') {
-    // Every ref of this project, including any no node names any more. Only
-    // `refs/bonsai/<project>/`, which nothing but Bonsai writes.
-    if (await pathExists(project.repo_path)) await deleteProjectRefs(project.repo_path, project.id);
-    // Their repository stays. Bonsai's own folder for this project -- which
-    // held the node worktrees and nothing else -- does not; leaving it behind
-    // was a slow disk leak and, worse, made "deleted" mean two different
-    // things depending on how the project started.
-    const scratch = bonsaiDirectoryFor(store, project);
-    if (scratch !== null) await rm(scratch, { recursive: true, force: true });
-    store.deleteProject(projectId);
-    return { nodes: nodes.length, removedDirectory: null, keptDirectory: project.source_path };
-  }
-
-  // The bare repo and the internal worktrees sit under one directory Bonsai
-  // owns. Master's checkout may have been placed elsewhere, at a folder the
-  // user chose -- Bonsai created that folder too (prepareNewDirectory refuses
-  // to reuse an existing one), so it goes as well.
-  const internal = bonsaiDirectoryFor(store, project) ?? dirname(project.repo_path);
-  const checkout =
-    project.source_path !== null && !isInside(internal, project.source_path)
-      ? project.source_path
-      : null;
-
-  await rm(internal, { recursive: true, force: true });
-  if (checkout !== null) await rm(checkout, { recursive: true, force: true });
-
-  store.deleteProject(projectId);
-  return {
-    nodes: nodes.length,
-    // The path worth naming is the one the user has seen.
-    removedDirectory: checkout ?? internal,
-    keptDirectory: null,
-  };
 }
 
 /**
@@ -622,7 +655,14 @@ export function projectDeletionImpact(
 }
 
 /** Check the whole deletion set before changing anything. External drift is preserved. */
-async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void> {
+async function verifyDeletion(project: ProjectRow, node: NodeRow, resuming = false): Promise<void> {
+  if (
+    !(await pathExists(project.repo_path)) &&
+    resuming &&
+    project.source_kind === 'created' &&
+    !(await pathExists(node.worktree_path))
+  )
+    return;
   // Every node's, the user's own folder included: the ref is Bonsai's either way.
   if (await pathExists(project.repo_path)) {
     const pinned = await readRef(project.repo_path, nodeRef(project.id, node.id));
@@ -632,6 +672,10 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
       );
   }
   if (!ownsWorktree(project, node)) return;
+  if (node.worktree_allocated === 0 && (await pathExists(node.worktree_path)))
+    throw new OperationConflict(
+      'An unexpected folder exists for this unallocated experiment. Its files are preserved. Import its state in the experiment panel, or move the folder aside before deleting.',
+    );
   const branch = branchOf(node);
   if (
     branch !== null &&
@@ -643,8 +687,13 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
     );
   }
   const expected = await expectedGitState(project.repo_path, node);
-  if (await pathExists(node.worktree_path)) await assertGitState(node.worktree_path, expected);
+  if (await pathExists(node.worktree_path)) {
+    await assertGitState(node.worktree_path, expected);
+    await assertWorktreeUnlocked(node.worktree_path);
+  }
   if (branch !== null) {
+    if (resuming && ownsBranch(project, node) && !(await branchExists(project.repo_path, branch)))
+      return;
     const head = await gitLine(
       ['rev-parse', '--verify', `refs/heads/${branch}`],
       project.repo_path,
@@ -654,6 +703,77 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow): Promise<void>
         'The recorded branch changed outside Bonsai. Nothing was deleted.',
       );
   }
+}
+
+function rejectOverlappingDeletion(store: Store, id: string, nodes: readonly NodeRow[]): void {
+  const target = new Set(nodes.map((node) => node.id));
+  if (
+    store.deletions
+      .pending()
+      .some((intent) => intent.id !== id && intent.nodes.some((node) => target.has(node.id)))
+  )
+    throw new OperationConflict('Finish or cancel the pending deletion in this project first.');
+}
+
+/** A deletion never follows a moved row, changed tip or replacement project. */
+function assertDeletionIntent(store: Store, intent: DeletionIntent): void {
+  const project = store.getProject(intent.project.id);
+  if (
+    project &&
+    (!samePath(project.repo_path, intent.project.repo_path) ||
+      project.source_kind !== intent.project.source_kind ||
+      (project.source_path === null
+        ? intent.project.source_path !== null
+        : intent.project.source_path === null ||
+          !samePath(project.source_path, intent.project.source_path)))
+  )
+    throw new OperationConflict('The project changed after deletion began. Work is preserved.');
+  for (const before of intent.nodes) {
+    const current = store.getNode(before.id);
+    if (
+      current &&
+      (!samePath(current.worktree_path, before.worktree_path) ||
+        current.project_id !== before.project_id ||
+        current.parent_id !== before.parent_id ||
+        current.branch_name !== before.branch_name ||
+        tipOf(current) !== tipOf(before))
+    )
+      throw new OperationConflict('An experiment changed after deletion began. Work is preserved.');
+  }
+}
+
+export async function recoverDeletions(store: Store, log: Logger): Promise<number> {
+  let completed = 0;
+  for (const intent of store.deletions.pending()) {
+    try {
+      if (intent.kind === 'project') await deleteProjectTree(store, intent.project.id);
+      else await deleteNodeTree(store, intent.rootNodeId!);
+      completed += 1;
+      log.info('deletion.recovered', { id: intent.id, projectId: intent.project.id });
+    } catch (error) {
+      store.deletions.blocked(intent.id, error instanceof Error ? error.message : String(error));
+      log.warn('deletion.recovery_blocked', { id: intent.id, error: String(error) });
+    }
+  }
+  return completed;
+}
+
+/** Cancel only remaining cleanup; recoverable commits are pinned before accepting new work. */
+export async function cancelPendingDeletion(store: Store, id: string): Promise<void> {
+  const intent = store.deletions.get(id);
+  if (!intent) return;
+  assertDeletionIntent(store, intent);
+  for (const node of intent.nodes)
+    if (!(await commitExists(intent.project.repo_path, tipOf(node) ?? '')))
+      throw new OperationConflict(
+        'Some code has already been removed. Finish deletion, or restore your backup before cancelling the remaining cleanup.',
+      );
+  for (const node of intent.nodes) {
+    const tip = tipOf(node);
+    if (tip !== null)
+      await pinRef(intent.project.repo_path, nodeRef(node.project_id, node.id), tip);
+  }
+  store.cancelDeletion(id);
 }
 
 /** Removes a node's ref, which verifyDeletion found at its tip or missing. */
