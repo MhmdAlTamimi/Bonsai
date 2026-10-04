@@ -176,6 +176,15 @@ describe('interrupted-run recovery (§6.6 / D31)', () => {
     assert.match(resumePrompt(state, 'train', 'app_closed'), /Bonsai closed/);
 
     const after = resumePrompt(state, 'train', 'changed_after_finish');
+    const ownNotes = resumePrompt(
+      state,
+      'train',
+      'changed_after_finish',
+      null,
+      '.bonsai/notes-test.md',
+    );
+    assert.match(ownNotes, /update \.bonsai\/notes-test\.md/);
+    assert.doesNotMatch(ownNotes, /update CONTEXT\.md/);
     assert.doesNotMatch(after, /interrupted|stopped before/i);
     assert.match(after, /changed after it ended/);
     assert.match(after, /results\.csv/);

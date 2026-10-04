@@ -96,9 +96,10 @@ function structural(handler: Handler, target: 'node' | 'project'): Handler {
 export function route(method: string, pattern: string, handler: Handler): void {
   if (
     (method === 'POST' && pattern === '/api/projects/:id/nodes') ||
-    (method === 'DELETE' && ['/api/projects/:id', '/api/nodes/:id'].includes(pattern))
+    (method === 'DELETE' && ['/api/projects/:id', '/api/nodes/:id'].includes(pattern)) ||
+    (method === 'POST' && ['/api/nodes/:id/synchronize', '/api/nodes/:id/export'].includes(pattern))
   ) {
-    handler = structural(handler, pattern === '/api/nodes/:id' ? 'node' : 'project');
+    handler = structural(handler, pattern.startsWith('/api/nodes/') ? 'node' : 'project');
   }
   routes.push({ method, segments: pattern.split('/').filter(Boolean), handler, pattern });
 }

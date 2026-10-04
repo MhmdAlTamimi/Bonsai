@@ -217,6 +217,7 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'node: attachments for a saved first request',
     up: (db) => addColumn(db, 'node', 'initial_experiment_ids', 'TEXT'),
   },
+  { version: 24, name: 'durable Git save intents', up: () => undefined },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

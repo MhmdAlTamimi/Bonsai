@@ -105,9 +105,10 @@ export async function gitInput(
   args: readonly string[],
   cwd: string,
   input: string,
+  env?: Record<string, string>,
 ): Promise<string> {
   try {
-    const pending = run('git', commandArgs(args), options(cwd));
+    const pending = run('git', commandArgs(args), options(cwd, env));
     pending.child.stdin?.end(input);
     const { stdout } = await pending;
     return stdout;

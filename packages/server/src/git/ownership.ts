@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { OperationConflict } from '../domain/errors.js';
 import { gitLine } from './exec.js';
 import { branchOf, nodeRef, readRef, tipOf } from './refs.js';
+import { samePath } from '../paths.js';
 
 export interface GitState {
   head: string;
@@ -27,13 +28,13 @@ export async function assertGitState(path: string, expected: GitState): Promise<
   if (
     actual.head !== expected.head ||
     actual.branch !== expected.branch ||
-    actual.commonDir !== expected.commonDir ||
+    !samePath(actual.commonDir, expected.commonDir) ||
     // Refs are shared by every worktree of a repository, so the node's own
     // folder reads the same ref the repository does.
     (expected.ref !== undefined && (await readRef(path, expected.ref)) !== expected.head)
   ) {
     throw new OperationConflict(
-      'This experiment’s Git state changed outside Bonsai. Work is preserved. Inspect and preserve unexpected work with your Git tools before restoring the recorded state; Bonsai will not rewrite it.',
+      'This experiment’s Git state changed outside Bonsai. Work is preserved. Open its panel to import the changes or restore its saved state.',
     );
   }
 }

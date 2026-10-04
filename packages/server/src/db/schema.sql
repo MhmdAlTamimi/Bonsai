@@ -212,6 +212,12 @@ CREATE TABLE IF NOT EXISTS run (
 
 CREATE INDEX IF NOT EXISTS run_node_idx ON run(node_id);
 
+-- Written before a Bonsai commit can move Git; removed in the finalization transaction.
+CREATE TABLE IF NOT EXISTS run_save (
+  run_id TEXT PRIMARY KEY REFERENCES run(id) ON DELETE CASCADE,
+  payload_json TEXT NOT NULL
+);
+
 -- Not in PRD §8. §5 requires a transcript for `ready` and `interrupted` nodes
 -- across app restarts and there was nowhere to put one. Re-reading the SDK's
 -- machine-local session JSONL would put an agent-internal file format in the

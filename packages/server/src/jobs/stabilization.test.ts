@@ -233,6 +233,13 @@ test('an archived folder comes back at the same path on the next run, and setup 
   // Nothing may start on the folder while it is being removed.
   await jobs.whileIdle(child.nodeId, async () => {
     assert.throws(() => jobs.start(child.nodeId, 'too soon'), /being archived/);
+    await assert.rejects(
+      jobs.withStoppedNodes([child.nodeId], async () => {
+        await deleteNodeTree(store, child.nodeId);
+      }),
+      /being archived, exported or synchronized/,
+    );
+    assert.ok(store.getNode(child.nodeId));
     await archiveFolder(store, store.getNode(child.nodeId)!, false);
   });
   await assert.rejects(readFile(join(folder, 'work.txt')), { code: 'ENOENT' });

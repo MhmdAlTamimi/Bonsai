@@ -196,6 +196,7 @@ route('GET', '/api/runs/:id/diff', async (_req, res, params, { store }) => {
   const node = store.getNode(run.node_id);
   if (node === undefined) throw new HttpError(404, 'no such node');
 
-  const base = await parentSnapshot(node.worktree_path, run.commit_sha);
-  sendJson(res, 200, await runDiff(node.worktree_path, base, run.commit_sha));
+  const repo = store.getProject(node.project_id)!.repo_path;
+  const base = await parentSnapshot(repo, run.commit_sha);
+  sendJson(res, 200, await runDiff(repo, base, run.commit_sha));
 });

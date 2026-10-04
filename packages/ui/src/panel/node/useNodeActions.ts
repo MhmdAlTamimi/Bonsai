@@ -1,5 +1,5 @@
 import { useState, type JSX } from 'react';
-import type { NodeView, RecoverAction } from '@bonsai/shared';
+import type { GitRecoveryView, NodeView, RecoverAction, SynchronizeAction } from '@bonsai/shared';
 
 import { api } from '../../api/client.ts';
 import { describeError } from '../../api/describeError.ts';
@@ -29,6 +29,11 @@ export function useNodeActions(
 ): {
   busy: boolean;
   recover: (node: NodeView, action: RecoverAction) => Promise<void>;
+  synchronize: (
+    node: NodeView,
+    action: SynchronizeAction,
+    recovery: GitRecoveryView,
+  ) => Promise<void>;
   remove: (node: NodeView) => Promise<void>;
   /** Render this in the panel; null unless something is being confirmed. */
   confirmDialog: JSX.Element | null;
@@ -36,6 +41,34 @@ export function useNodeActions(
   const [busy, setBusy] = useState(false);
   const confirm = useConfirm();
   const setError = onError;
+  const synchronize = async (
+    node: NodeView,
+    action: SynchronizeAction,
+    recovery: GitRecoveryView,
+  ): Promise<void> => {
+    setError(null);
+    setBusy(true);
+    try {
+      if (
+        action === 'restore' &&
+        !(await confirm.ask({
+          title: `Restore saved code in "${node.displayName}"?`,
+          body: [
+            'Bonsai will first preserve the current files, ignored files, staged content and known Git commits in an independent recovery folder.',
+            `Then this experiment will use the recorded commit ${recovery.recordedCommit?.slice(0, 10)}. Existing branches keep their tips.`,
+          ],
+          confirmLabel: 'Preserve and restore',
+        }))
+      )
+        return;
+      await api.synchronize(node.id, action, recovery.version);
+      onChanged();
+    } catch (error) {
+      setError(describeError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const recover = async (node: NodeView, action: RecoverAction): Promise<void> => {
     setError(null);
@@ -100,5 +133,5 @@ export function useNodeActions(
     }
   };
 
-  return { busy, recover, remove, confirmDialog: confirm.dialog };
+  return { busy, recover, synchronize, remove, confirmDialog: confirm.dialog };
 }

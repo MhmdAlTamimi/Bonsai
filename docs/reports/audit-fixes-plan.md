@@ -57,7 +57,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-05-removing-and-recovering
 
-- [ ] R1: A crash while a run is saving leaves the experiment stuck for good
+- [x] R1: A crash while a run is saving leaves the experiment stuck for good
 - [ ] R2: A delete that stops part-way leaves experiments on the map with nothing behind them
 - [x] R3: `git fsck` reports every project Bonsai created as broken
 
@@ -67,7 +67,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [ ] B2: A backup taken while Bonsai runs gives back broken experiments, and Bonsai offers no safe one
 - [ ] B3: Putting back an older database leaves stuck experiments and leftovers nobody can see
 - [ ] B4: An experiment's conversation lives in Claude Code's folder, where it is not backed up, not moved, and deleted after 30 days
-- [ ] B5: A missing folder is reported as an empty git error
+- [x] B5: A missing folder is reported as an empty git error
 
 ### audit-07-a-run-start-to-finish
 
@@ -78,7 +78,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-08-inside-a-run
 
-- [ ] I1: A tool that commits by itself leaves the experiment stuck, and its tag lands in your repository
+- [x] I1: A tool that commits by itself leaves the experiment stuck, and its tag lands in your repository
 - [x] I2: A command that fails shows no output in the conversation
 - [ ] I3: Runs waiting on you, or on background work, hold run slots; a new request queues with no reason given
 - [ ] I4: On Windows, processes the agent leaves running are neither found nor stopped
@@ -106,9 +106,9 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-12-review-and-apply
 
-- [ ] V1: For a project Bonsai created, there is no safe way to take an experiment's code out
+- [x] V1: For a project Bonsai created, there is no safe way to take an experiment's code out
 - [x] V2: Review is twenty times slower when the experiment has uncommitted work
-- [ ] V3: What Apply's command prints is hard to read, on success and on failure
+- [x] V3: What Apply's command prints is hard to read, on success and on failure
 
 ### audit-13-sharing-between-experiments
 
@@ -133,6 +133,12 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [x] E6: A failed submodule setup must remove the newly created checkout so retry does not hit an unexpected-folder dead end.
 
+- [x] E7: Questions from ended or restarted runs must not remain pending or show stale answer controls.
+- [x] E8: Deletion must not race an idle archive, export or synchronization operation.
+- [x] E9: Recovery must preserve staged-only content and all unresolved merge-index versions; do not import unresolved conflict markers as finished work.
+- [x] E10: Committed per-run diffs must remain readable without the experiment checkout.
+- [x] E11: Ignored run-note paths must not cause fallback text to overwrite agent notes or lose their committed history. Resume must name the project’s recorded notes path.
+
 ## Verification log
 
 - Baseline review: build, 367 server tests, 120 UI/shared tests and 25 browser tests passed; documented independent validation is in `/workspace/bonsai-review/REVIEW.md`.
@@ -142,3 +148,5 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - Git/files batch (`ed33ce5`): 377 server tests, 120 UI/shared tests and all 25 browser tests passed; production build passed. Real Git tests cover hook/signing isolation, system config, stable diff prefixes, unique immutable Apply artifacts, submodule contents and failed-setup cleanup. Adoption reproduction excludes 20,000 dependency files and the credential canary without writing `.git` in the source; home/root are refused. The 40,000-file Review reproduction now opens dirty files in 279–302 ms (previously 4.3–5.2 s). New projects use their own recorded `.bonsai/notes-<project>.md`; old projects retain `CONTEXT.md` compatibility. Manual archive text is browser-tested; automatic ignored-file handling remains deferred. Audit SDK helper now verifies the fake API identity before starting, with bounded readiness/settle waits.
 
 - Durable-input batch: full `npm test` passed (381 server tests, 120 UI/shared tests), production build and all 26 browser tests passed. Database reopen tests preserve queued prompts and attachment identities; an injected final-status write failure rolls back the commit, totals and conversation position together. Both SIGTERM and SIGKILL reproductions resume the waiting request. SDK-frame tests retain failed-command text with bounded output. Browser reload tests cover unsent per-tab drafts and a saved Start-from-latest attachment after browser storage is cleared. Real HTTP tests cover validation, origin restrictions, SSE and run acceptance/finalization.
+
+- Git recovery/export batch: full `npm test` passed (391 server tests, 120 UI/shared tests), production build and all 27 browser tests passed. Fault injection followed by database reopen covers saves before Git moves, after Git moves, and the legacy HEAD/ref split; unrelated commits are refused. Real Git tests preserve ignored files, staged-only content, every merge-conflict index stage, branch tips and history, reject stale choices, restore missing folders and prove exported repositories survive deletion of the source storage. HTTP regressions keep recovery and committed run diffs reachable without a checkout. Twenty seeded SIGKILL rounds produced no stuck experiments, mismatched refs or integrity errors. Real SDK `npm version` reproduction used the verified fake API: no source tag/commit appeared and the next run succeeded. Known implicit version commits are guarded; arbitrary shell commands remain cooperative, not a security sandbox. Older-database Git drift now has explicit import/restore; orphan discovery remains to finish B3.

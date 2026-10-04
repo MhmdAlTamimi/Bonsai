@@ -1,11 +1,12 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { assertGitState, type GitState } from './ownership.js';
 import { OperationConflict } from '../domain/errors.js';
 
-import { git, gitLine, status } from './exec.js';
+import { git, gitInput, gitLine, status } from './exec.js';
 import { parentSnapshot } from './diff.js';
-import { moveRef, pinRef, readRef } from './refs.js';
+import { pinRef } from './refs.js';
 
 /** D22/D28: a single human-readable record, written by the agent, committed by the app. */
 export const CONTEXT_FILE = 'CONTEXT.md';
@@ -80,6 +81,8 @@ export async function commitRunOutput(opts: {
   baseCommit?: string | null;
   expectedState?: GitState;
   contextFile?: string;
+  /** Durable save intent, recorded before HEAD or the node's ref can move. */
+  prepareSave?: (before: string, outcome: CommitOutcome) => Promise<void>;
 }): Promise<CommitOutcome> {
   const { worktreePath, branchName, message } = opts;
 
@@ -89,6 +92,14 @@ export async function commitRunOutput(opts: {
   }
   const contextFile = opts.contextFile ?? CONTEXT_FILE;
   const entries = await status(worktreePath);
+  // The recorded notes file belongs to Bonsai even when the repository ignores
+  // its directory. Preserve the agent's text; do not replace it with fallback notes.
+  if (
+    !entries.some((entry) => entry.path === contextFile) &&
+    existsSync(join(worktreePath, contextFile)) &&
+    !(await isTracked(worktreePath, contextFile))
+  )
+    entries.push({ code: '??', path: contextFile, untracked: true });
   const changed = entries.filter((e) => e.path !== contextFile);
 
   if (changed.length === 0) {
@@ -117,7 +128,12 @@ export async function commitRunOutput(opts: {
     const tracked = await isTracked(worktreePath, contextFile);
     if (!tracked) {
       await mkdir(dirname(join(worktreePath, contextFile)), { recursive: true });
-      await writeFile(join(worktreePath, contextFile), opts.fallbackContext, 'utf8');
+      await writeFile(join(worktreePath, contextFile), opts.fallbackContext, {
+        encoding: 'utf8',
+        flag: 'wx',
+      }).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      });
     }
   }
 
@@ -134,29 +150,20 @@ export async function commitRunOutput(opts: {
   // `git add -A` rather than a path list: it stages deletions and untracked
   // files alike, which a path list assembled from a diff would miss (D31).
   await git(['add', '-A'], worktreePath);
-  await git(['commit', '-m', message], worktreePath);
-
-  const commit = await gitLine(['rev-parse', 'HEAD'], worktreePath);
-  // Git checks the ref still points at `before`, so a move by anyone else in
-  // the meantime fails here rather than being overwritten.
-  await moveRef(opts.repoPath, opts.ref, commit, before).catch(async (error: unknown) => {
-    if ((await readRef(opts.repoPath, opts.ref)) !== before)
-      throw new OperationConflict(
-        'The experiment’s saved code moved outside Bonsai while this run was saving. Its new commit is kept in its folder.',
-      );
-    throw error;
-  });
+  if (existsSync(join(worktreePath, contextFile)))
+    await git(['add', '--force', '--', contextFile], worktreePath);
+  const tree = await gitLine(['write-tree'], worktreePath);
+  const commit = await gitLine(['commit-tree', tree, '-p', before, '-m', message], worktreePath);
   const parent = await parentSnapshot(worktreePath, commit);
   if (opts.expectedState) {
     if (parent !== opts.expectedState.head)
       throw new OperationConflict(
         'The saved commit has an unexpected parent. Work is preserved for inspection.',
       );
-    await assertGitState(worktreePath, { ...opts.expectedState, head: commit, branch: branchName });
   }
   const ownStat = await diffStat(worktreePath, parent, commit);
 
-  return {
+  const outcome: CommitOutcome = {
     committed: true,
     commit,
     branch: branchName ?? opts.ref,
@@ -171,6 +178,29 @@ export async function commitRunOutput(opts: {
     stat: opts.baseCommit == null ? ownStat : await diffStat(worktreePath, opts.baseCommit, commit),
     ownStat,
   };
+  await opts.prepareSave?.(before, outcome);
+  if (opts.expectedState) await assertGitState(worktreePath, opts.expectedState);
+  await advanceCommit(worktreePath, branchName, opts.ref, before, before, commit);
+  if (opts.expectedState)
+    await assertGitState(worktreePath, { ...opts.expectedState, head: commit });
+  return outcome;
+}
+
+/** One compare-and-swap transaction moves the checkout tip and its protecting ref. */
+export async function advanceCommit(
+  path: string,
+  branch: string | null,
+  ref: string,
+  beforeHead: string,
+  beforeRef: string | null,
+  after: string,
+): Promise<void> {
+  const headRef = branch === null ? 'HEAD' : `refs/heads/${branch}`;
+  await gitInput(
+    ['update-ref', '--stdin'],
+    path,
+    `option no-deref\nstart\nupdate ${headRef} ${after} ${beforeHead}\nupdate ${ref} ${after} ${beforeRef ?? ''}\nprepare\ncommit\n`,
+  );
 }
 
 /**
@@ -214,7 +244,7 @@ async function revertContextFile(
   if (context === undefined) return;
 
   if (context.untracked) {
-    await git(['clean', '-f', '--', contextFile], worktreePath);
+    await git(['clean', '-fx', '--', contextFile], worktreePath);
   } else {
     await git(['restore', '--', contextFile], worktreePath);
   }

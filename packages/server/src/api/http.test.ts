@@ -107,6 +107,40 @@ test('HTTP routes validate requests, persist accepted runs, and stream project e
       await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(store.getRun(run.runId)?.status, 'done');
     assert.equal(store.getNode(project.masterNodeId)?.status, 'ready');
+    const node = store.getNode(project.masterNodeId)!;
+    await rm(node.worktree_path, { recursive: true });
+    assert.equal(
+      (await fetch(`${base}/api/runs/${run.runId}/diff`)).status,
+      200,
+      'committed run changes remain readable without a checkout',
+    );
+    const missing = await fetch(`${base}/api/nodes/${node.id}`);
+    assert.equal(
+      missing.status,
+      200,
+      'recovery must remain reachable when the checkout is missing',
+    );
+    const detail = (await missing.json()) as {
+      gitRecovery: { problem: string; version: string };
+      partialWork: unknown;
+    };
+    assert.equal(detail.gitRecovery.problem, 'missing_folder');
+    assert.equal(detail.partialWork, null);
+    assert.equal(
+      (await post(`/api/nodes/${node.id}/synchronize`, { action: 'restore', version: 'stale' }))
+        .status,
+      409,
+    );
+    assert.equal(
+      (
+        await post(`/api/nodes/${node.id}/synchronize`, {
+          action: 'restore',
+          version: detail.gitRecovery.version,
+        })
+      ).status,
+      200,
+    );
+    assert.equal((await post(`/api/nodes/${node.id}/export`, {})).status, 201);
   } finally {
     bus.closeAll();
     await jobs.drain();

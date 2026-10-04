@@ -15,6 +15,7 @@ import type {
 import { CheckStore } from './checkStore.js';
 import { ComparisonStore, type ComparisonRow } from './comparisonStore.js';
 import { MessageStore } from './messageStore.js';
+import { SaveStore } from './saveStore.js';
 import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
 import { ReferenceStore } from './referenceStore.js';
@@ -61,6 +62,7 @@ export class Store {
   readonly nodes: NodeStore;
   readonly runs: RunStore;
   readonly messages: MessageStore;
+  readonly saves: SaveStore;
   readonly checks: CheckStore;
   readonly references: ReferenceStore;
   readonly comparisons: ComparisonStore;
@@ -75,6 +77,7 @@ export class Store {
     this.nodes = new NodeStore(db, (projectId) => this.projects.scratchDir(projectId));
     this.runs = new RunStore(db);
     this.messages = new MessageStore(db);
+    this.saves = new SaveStore(db);
     this.checks = new CheckStore(db);
     this.references = new ReferenceStore(db);
     this.comparisons = new ComparisonStore(db);
@@ -202,6 +205,8 @@ export class Store {
       status: NodeStatus;
       commit?: { branch: string; head: string };
       sessionPosition?: string | null;
+      abandonSaves?: readonly string[];
+      restored?: boolean;
     },
   ): void {
     this.transaction(() => {
@@ -211,6 +216,9 @@ export class Store {
       if (node.sessionPosition !== undefined)
         this.nodes.setSessionPosition(nodeId, node.sessionPosition);
       this.nodes.setStatus(nodeId, node.status);
+      if (end.status === 'done') this.saves.remove(runId);
+      for (const id of node.abandonSaves ?? []) this.saves.remove(id);
+      if (node.restored) this.nodes.markRestored(nodeId);
     });
   }
 

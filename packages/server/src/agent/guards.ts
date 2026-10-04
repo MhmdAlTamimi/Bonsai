@@ -73,7 +73,7 @@ const MUTATING_GIT = [
  *
  * The guarantee comes from elsewhere: after every run the app compares the
  * branch head against what it expected, so a commit the agent slipped through
- * is detected and folded back rather than silently corrupting the tree. And
+ * is detected and offered for explicit preserved import or restore. And
  * working-tree destruction (`rm -rf`, and the git verbs above that touch no
  * ref) is neither blocked nor recoverable -- V0 is a visualizer of experiments,
  * not a sandbox, and pretending otherwise would be the same overclaim D18 makes.
@@ -81,6 +81,13 @@ const MUTATING_GIT = [
 export function mutatesGit(command: string): boolean {
   // Split on shell separators so `ls && git commit` is inspected as two commands.
   for (const part of command.split(/(?:&&|\|\||[;|\n])/)) {
+    // Version commands can commit and tag without spelling a Git verb.
+    // Keep package-only edits available with the explicit no-tag option.
+    if (
+      /\b(?:npm|pnpm|yarn)\s+(?:--?\S+(?:\s+\S+)?\s+)*version\b/.test(part) &&
+      !/(?:--no-git-tag-version\b|--git-tag-version(?:=|\s+)false\b)/.test(part)
+    )
+      return true;
     const tokens = part.trim().split(/\s+/);
     const gitAt = tokens.findIndex((t) => t === 'git' || t.endsWith('/git'));
     if (gitAt === -1) continue;

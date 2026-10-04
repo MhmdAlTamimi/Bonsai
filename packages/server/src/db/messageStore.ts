@@ -165,6 +165,7 @@ export class MessageStore {
       .prepare(
         `SELECT id, text, request_json FROM question
          WHERE node_id = ? AND answered_at IS NULL
+           AND run_id IN (SELECT id FROM run WHERE status = 'running')
          ORDER BY asked_at DESC LIMIT 1`,
       )
       .get(nodeId) as unknown as

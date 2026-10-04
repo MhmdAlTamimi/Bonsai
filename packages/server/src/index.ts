@@ -19,6 +19,7 @@ import { Settings } from './settings.js';
 import { Connection } from './api/connectionGate.js';
 import { FileLogger } from './log.js';
 import { acquireInstanceLock, AlreadyRunningError } from './instanceLock.js';
+import { recoverRunSaves } from './git/saveRecovery.js';
 
 const config = loadConfig();
 let releaseInstance: () => void;
@@ -97,6 +98,7 @@ const orphaned = store.markOrphanedRunsInterrupted();
 if (orphaned > 0) {
   process.stdout.write(`[bonsai] marked ${orphaned} interrupted run(s) from a previous session\n`);
 }
+await recoverRunSaves(store, log);
 
 // Experiments made before hidden refs existed get theirs now, so git keeps
 // their code even while they have no folder (see git/refs.ts).

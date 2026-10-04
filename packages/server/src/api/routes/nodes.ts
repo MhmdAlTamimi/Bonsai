@@ -19,6 +19,9 @@ import { behindBy } from '../behind.js';
 import { nodeDiff, parentSnapshot } from '../../git/diff.js';
 import { experimentNotes, reviewOf, reviewPatchOf } from '../review.js';
 import { readWorktreeState } from '../../git/recovery.js';
+import { gitRecovery, synchronizeExperiment } from '../../git/reconcile.js';
+import { exportExperiment } from '../../git/export.js';
+import { tipOf } from '../../git/refs.js';
 import { revealInFileManager } from '../reveal.js';
 import { testingSection, testingNotesCommit } from '../../git/context.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
@@ -119,21 +122,39 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
   const view = withLive(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
-  const { contextMd, cwd, head } = await experimentNotes(store, row);
+  const recovery = jobs.isRunning(row.id) ? null : await gitRecovery(store, row);
+  const { contextMd, cwd, head } = await experimentNotes(
+    store,
+    recovery === null
+      ? row
+      : {
+          ...row,
+          worktree_allocated: 0,
+          archived_at: row.archived_at ?? row.created_at,
+        },
+  ).catch((error: unknown) => {
+    if (recovery === null) throw error;
+    return {
+      contextMd: null,
+      cwd: store.getProject(row.project_id)!.repo_path,
+      head: tipOf(row) ?? 'HEAD',
+    };
+  });
   const project = store.getProject(row.project_id);
   const notes = testingSection(contextMd);
-  const sourceCommit = await testingNotesCommit(
-    cwd,
-    notes,
-    head,
-    project?.notes_path ?? 'CONTEXT.md',
-  );
+  const sourceCommit =
+    recovery === null
+      ? await testingNotesCommit(cwd, notes, head, project?.notes_path ?? 'CONTEXT.md')
+      : null;
   const source = sourceCommit === null ? null : store.testingSource(sourceCommit);
   const runs = store.listRuns(row.id);
   const ownFolder = isUsersOwnCheckout(project, row);
   const partialWork =
-    ownFolder || row.worktree_allocated === 0 ? null : await readWorktreeState(row.worktree_path);
+    ownFolder || row.worktree_allocated === 0 || recovery?.folderCommit === null
+      ? null
+      : await readWorktreeState(row.worktree_path);
   const body: NodeDetail = {
+    gitRecovery: recovery,
     nextRunSettings: resolveRunSettings(row, project!, settings),
     node: view,
     runs,
@@ -151,9 +172,44 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
           },
     partialWork,
     contextMd,
-    behind: await behindBy(store, row, project!.repo_path),
+    behind: recovery === null ? await behindBy(store, row, project!.repo_path) : null,
   };
   sendJson(res, 200, body);
+});
+
+route('POST', '/api/nodes/:id/synchronize', async (req, res, params, { store, jobs, bus }) => {
+  const node = store.getNode(params['id']!);
+  if (!node) throw new HttpError(404, 'No such experiment.');
+  const body = await readJson<{ action?: unknown; version?: unknown }>(req);
+  if (
+    body.action !== 'import-folder' &&
+    body.action !== 'import-saved' &&
+    body.action !== 'restore'
+  )
+    throw new HttpError(400, 'Choose import-folder, import-saved or restore.');
+  const action = body.action;
+  const version = requireString(body.version, 'version');
+  const preservedPath = await jobs.whileIdle(node.id, () =>
+    synchronizeExperiment(store, store.getNode(node.id)!, action, version),
+  );
+  bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
+  sendJson(res, 200, { preservedPath });
+});
+
+route('POST', '/api/nodes/:id/export', async (_req, res, params, { store, jobs, settings }) => {
+  const node = store.getNode(params['id']!);
+  if (!node) throw new HttpError(404, 'No such experiment.');
+  const path = await jobs.whileIdle(node.id, async () => {
+    const tip = tipOf(store.getNode(node.id)!);
+    if (tip === null) throw new HttpError(409, 'No saved code is available to export.');
+    return exportExperiment(
+      store.getProject(node.project_id)!.repo_path,
+      tip,
+      join(settings.view().dataDir, 'exports'),
+      node.display_name,
+    );
+  });
+  sendJson(res, 201, { path });
 });
 
 route('PATCH', '/api/nodes/:id', async (req, res, params, { store, bus, jobs }) => {

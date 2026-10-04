@@ -32,6 +32,13 @@ test('accepted requests and attachments survive reopening, and finalization roll
       experimentIds: ['experiment-id'],
     };
     store.enqueueRun('queued-run', node.id, request);
+    store.askQuestion({
+      id: 'old-question',
+      nodeId: node.id,
+      runId: 'queued-run',
+      text: 'Continue?',
+    });
+    assert.equal(store.pendingQuestion(node.id)?.id, 'old-question');
     db.close();
     db = openDatabase(dir);
     store = new Store(db, join(dir, 'repos'));
@@ -42,6 +49,11 @@ test('accepted requests and attachments survive reopening, and finalization roll
     assert.equal(store.lastUserPrompt(node.id), request.prompt);
     assert.equal(store.markOrphanedRunsInterrupted(), 1);
     assert.equal(store.getNode(node.id)!.status, 'interrupted');
+    assert.equal(
+      store.pendingQuestion(node.id),
+      null,
+      'ended runs cannot leave live answer controls',
+    );
     assert.deepEqual(store.runs.requestOf('queued-run'), request);
 
     // Fail after the commit/head and run-end writes, before the status write.

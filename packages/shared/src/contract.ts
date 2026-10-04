@@ -881,6 +881,7 @@ export interface ChildPreviewView {
 }
 
 export interface NodeDetail {
+  gitRecovery?: GitRecoveryView | null;
   nextRunSettings: NextRunSettings;
   node: NodeView;
   runs: RunView[];
@@ -914,6 +915,26 @@ export interface NodeDetail {
    * experiment keeps its original code and is never updated to them.
    */
   behind: ExperimentBehind | null;
+}
+
+export type SynchronizeAction = 'import-folder' | 'import-saved' | 'restore';
+export interface GitRecoveryView {
+  version: string;
+  problem:
+    | 'drift'
+    | 'missing_folder'
+    | 'missing_repository'
+    | 'unreadable_repository'
+    | 'foreign_repository'
+    | 'missing_commit';
+  message: string;
+  recordedCommit: string | null;
+  folderCommit: string | null;
+  savedCommit: string | null;
+  changedFiles: string[];
+  canImportFolder: boolean;
+  canImportSaved: boolean;
+  canRestore: boolean;
 }
 
 export interface TreeResponse {

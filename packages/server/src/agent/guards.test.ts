@@ -47,4 +47,11 @@ describe('mutatesGit', () => {
     assert.equal(mutatesGit('g=git; $g commit -m x'), false);
     assert.equal(mutatesGit("sh -c 'git commit -m x'"), false);
   });
+  test('blocks version commands that commit and tag implicitly, while allowing package-only updates', () => {
+    assert.equal(mutatesGit('npm version patch'), true);
+    assert.equal(mutatesGit('npm --prefix packages/app version minor'), true);
+    assert.equal(mutatesGit('yarn version --new-version 1.2.0'), true);
+    assert.equal(mutatesGit('npm version patch --no-git-tag-version'), false);
+    assert.equal(mutatesGit('pnpm version patch --git-tag-version=false'), false);
+  });
 });

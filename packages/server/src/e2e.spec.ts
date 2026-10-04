@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
 
 import { findLeftovers } from './jobs/leftovers.js';
 
@@ -3139,6 +3140,88 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ textScale: 100 }),
     });
+  });
+  test('Git drift has explicit preserved import/restore controls and an independent export', async () => {
+    const post = (path: string, body: unknown) =>
+      fetch(BASE + path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const created = (await (
+      await post('/api/projects', { name: 'Browser recovery', description: '' })
+    ).json()) as { projectId: string; masterNodeId: string };
+    const child = (await (
+      await post(`/api/projects/${created.projectId}/nodes`, {
+        parentId: created.masterNodeId,
+        displayName: 'Recover me',
+        description: '',
+      })
+    ).json()) as { node: { id: string } };
+    const fixtureDb = new DatabaseSync(join(dataDir, 'bonsai.db'), { readOnly: true });
+    const folder = (
+      fixtureDb
+        .prepare('SELECT worktree_path FROM node WHERE id = ?')
+        .get(child.node.id) as unknown as { worktree_path: string }
+    ).worktree_path;
+    fixtureDb.close();
+    await post(`/api/nodes/${child.node.id}/runs`, { prompt: 'create files' });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const detail = (await (await fetch(`${BASE}/api/nodes/${child.node.id}`)).json()) as {
+        node: { status: string };
+      };
+      if (detail.node.status === 'ready') break;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+    await writeFile(join(folder, 'external.txt'), 'external code');
+    await git(['add', '-A'], folder);
+    await git(['commit', '-m', 'external commit'], folder);
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${child.node.id}`);
+    await session.waitFor(
+      '!!document.querySelector(\'[aria-label="Synchronize Git and Bonsai"]\')',
+    );
+    assert.equal(await session.eval("!!document.querySelector('.composer textarea')"), false);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Import folder state').click()",
+    );
+    await session.waitFor(
+      "!document.querySelector('[aria-label=\"Synchronize Git and Bonsai\"]') && !!document.querySelector('.composer textarea')",
+    );
+    await session.waitFor("document.querySelector('.panel').textContent.includes('preserved at')");
+    await session.click('[aria-label="Actions for Recover me"]');
+    await session.eval(
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Apply')).click()",
+    );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Export full repository')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Export full repository').click()",
+    );
+    await session.waitFor('!!document.querySelector(\'[aria-label="Copy export folder"]\')');
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent.trim() === 'Close').click()",
+    );
+    await writeFile(join(folder, 'later.txt'), 'keep this too');
+    await git(['add', '-A'], folder);
+    await git(['commit', '-m', 'later external commit'], folder);
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${child.node.id}`);
+    await session.waitFor(
+      '!!document.querySelector(\'[aria-label="Synchronize Git and Bonsai"]\')',
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Restore Bonsai recorded code').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('dialog')?.textContent.includes('ignored files, staged content')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Preserve and restore').click()",
+    );
+    await session.waitFor(
+      "!document.querySelector('[aria-label=\"Synchronize Git and Bonsai\"]') && !!document.querySelector('.composer textarea')",
+    );
   });
 });
 

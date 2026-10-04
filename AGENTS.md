@@ -70,6 +70,14 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   master (`isUsersOwnCheckout`): never written, archived, discarded or deleted.
 - Git state checks detect unexpected HEAD/ref/common-repository changes before execution,
   commit and deletion. Preserve drifted work; never silently reset it to match the database.
+  Run saving computes a commit with `commit-tree`, records its exact identity and database
+  consequences in `run_save`, then moves the checkout tip and node ref in one Git CAS
+  transaction. Startup finishes only a matching durable Bonsai save. Unknown changes use
+  the panel's explicit synchronization choices, which first create an independent recovery
+  repository with ignored files, staged content and known tips. Existing branches retain
+  their tips; reconciliation detaches the owned checkout. A missing repository or foreign
+  checkout is reported and is never reset. Full repository exports have their own Git objects
+  and history and must remain usable after the source Bonsai storage is removed.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain
   host access. The Git command hook is a cooperative guard, not arbitrary-code containment.
   Scoped external approval is future work, not an existing guarantee.

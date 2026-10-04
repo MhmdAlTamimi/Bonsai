@@ -13,7 +13,8 @@ import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { parentSnapshot } from '../git/diff.js';
 import { assertGitState, type GitState } from '../git/ownership.js';
 import { readWorktreeState, resumePrompt } from '../git/recovery.js';
-import { branchOf, nodeRef } from '../git/refs.js';
+import { branchOf, deleteRef, nodeRef, pinRef } from '../git/refs.js';
+import { saveRef } from '../git/saveRecovery.js';
 import { silentLogger, type Logger } from '../log.js';
 import { detachedJobs, endLeftovers, trackedJobs } from './background.js';
 import { LEFT_TO_AGENT, QuestionDesk } from './questions.js';
@@ -140,6 +141,10 @@ export class RunJobs {
   async withStoppedNodes<T>(ids: readonly string[], remove: () => Promise<T>): Promise<T> {
     if (ids.some((id) => this.retiring.has(id)))
       throw new OperationConflict('Deletion is already in progress.');
+    if (ids.some((id) => this.archiving.has(id)))
+      throw new OperationConflict(
+        'An experiment is being archived, exported or synchronized. Retry when it finishes.',
+      );
     for (const id of ids) this.retiring.add(id);
     try {
       for (const id of ids) this.cancel(id);
@@ -166,7 +171,9 @@ export class RunJobs {
    */
   async whileIdle<T>(nodeId: string, work: () => Promise<T>): Promise<T> {
     if (this.isRunning(nodeId) || this.retiring.has(nodeId) || this.archiving.has(nodeId))
-      throw new OperationConflict('It is running. Archive it once it stops.');
+      throw new OperationConflict(
+        'This experiment is busy. Retry after its current operation finishes.',
+      );
     this.archiving.add(nodeId);
     try {
       return await work();
@@ -375,7 +382,13 @@ export class RunJobs {
     if (request?.command === true) return this.start(nodeId, original, { command: true });
     return this.start(
       nodeId,
-      resumePrompt(state, original, recoveryCause(last), last?.error ?? null),
+      resumePrompt(
+        state,
+        original,
+        recoveryCause(last),
+        last?.error ?? null,
+        this.store.getProject(node.project_id)?.notes_path ?? 'CONTEXT.md',
+      ),
       { referenceIds, experimentIds },
     );
   }
@@ -812,6 +825,31 @@ export class RunJobs {
           contextFile: project.notes_path ?? 'CONTEXT.md',
           expectedState: run.expectedState!,
           baseCommit: await this.baseFor(node),
+          prepareSave: async (_before, prepared) => {
+            this.store.saves.prepare({
+              runId,
+              nodeId,
+              projectId: project.id,
+              repoPath: project.repo_path,
+              worktreePath: node.worktree_path,
+              before: run.expectedState!,
+              after: prepared.commit!,
+              totals: transcript.totals({
+                commitSha: prepared.commit,
+                stat: prepared.stat,
+                change: prepared.ownStat,
+                stoppedBackground: run.stoppedBackground,
+              }),
+              node: {
+                status: 'ready',
+                commit: { branch: prepared.branch!, head: prepared.commit! },
+                ...(transcript.position !== null || transcript.compacted
+                  ? { sessionPosition: transcript.position }
+                  : {}),
+              },
+            });
+            await pinRef(project.repo_path, saveRef(project.id, runId), prepared.commit!);
+          },
         });
 
     this.store.completeRun(
@@ -834,6 +872,11 @@ export class RunJobs {
           : {}),
       },
     );
+    if (outcome.commit !== null)
+      await deleteRef(project.repo_path, saveRef(project.id, runId), outcome.commit).catch(
+        (error: unknown) =>
+          this.log.warn('run.save_ref_cleanup_failed', { runId, error: String(error) }),
+      );
     // Only a finished run moves where a child's copy of this conversation ends.
     // After a compaction with nothing written since, a copy takes the whole
     // session, which now opens with the summary.

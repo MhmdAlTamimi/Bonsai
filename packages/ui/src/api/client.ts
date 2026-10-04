@@ -26,6 +26,7 @@ import type {
   DiffView,
   MessageView,
   RecoverAction,
+  SynchronizeAction,
   ReviewFilePatchView,
   ReviewView,
   SettingsView,
@@ -201,6 +202,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ action }),
     }),
+  synchronize: (nodeId: string, action: SynchronizeAction, version: string) =>
+    json<{ preservedPath: string }>(`/api/nodes/${nodeId}/synchronize`, {
+      method: 'POST',
+      body: JSON.stringify({ action, version }),
+    }),
+  exportNode: (nodeId: string) =>
+    json<{ path: string }>(`/api/nodes/${nodeId}/export`, { method: 'POST' }),
 
   updateProject: (projectId: string, body: UpdateProjectRequest) =>
     json<ProjectView>(`/api/projects/${projectId}`, {

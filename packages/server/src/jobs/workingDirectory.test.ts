@@ -127,7 +127,8 @@ describe('the agent working directory', () => {
   test('an adopted CONTEXT.md stays documentation while run notes have their own path', async () => {
     const { repo } = await repoWithSubproject();
     await writeFile(join(repo, 'CONTEXT.md'), '# My architecture documentation\n');
-    await git(['add', 'CONTEXT.md'], repo);
+    await writeFile(join(repo, '.gitignore'), '.bonsai/\n');
+    await git(['add', 'CONTEXT.md', '.gitignore'], repo);
     await git(['commit', '-m', 'documentation'], repo);
     const { projectId, masterNodeId } = await adoptProject(store, {
       path: repo,
@@ -150,6 +151,10 @@ describe('the agent working directory', () => {
       '# My architecture documentation\n',
     );
     assert.equal((await experimentNotes(store, node)).contextMd, '# Root run notes\n');
+    assert.equal(
+      await git(['show', `HEAD:${store.getProject(projectId)!.notes_path}`], node.worktree_path),
+      '# Root run notes\n',
+    );
     const patch = await writeApplyPatch(store, node, join(root, 'patches'));
     const content = await readFile(patch.path, 'utf8');
     assert.match(content, /written-here.txt/);

@@ -8,6 +8,7 @@ import { Icon, IconButton } from '../Icon.tsx';
 import { plural } from '../words.ts';
 import { relativeTime } from './chat/time.ts';
 import { Recovery } from './node/Recovery.tsx';
+import { GitRecovery } from './node/GitRecovery.tsx';
 import { useNodeActions } from './node/useNodeActions.ts';
 import { nodeStatusTitle } from '../nodeStatus.tsx';
 import { AskBox } from './node/AskBox.tsx';
@@ -353,7 +354,15 @@ function NodePanel({
       </div>
 
       <div className="panel-foot">
-        {(node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
+        {detail?.gitRecovery && node.status !== 'running' && node.status !== 'needs_you' && (
+          <GitRecovery
+            recovery={detail.gitRecovery}
+            busy={actions.busy}
+            onSynchronize={(action) => void actions.synchronize(node, action, detail.gitRecovery!)}
+          />
+        )}
+        {!detail?.gitRecovery &&
+          (node.status === 'interrupted' || (detail?.partialWork?.changed.length ?? 0) > 0) &&
           node.status !== 'running' &&
           node.status !== 'needs_you' && (
             <Recovery
@@ -386,7 +395,7 @@ function NodePanel({
             Folder archived · the next message brings it back and runs setup again
           </p>
         )}
-        {node.pendingQuestion === null && (
+        {node.pendingQuestion === null && !detail?.gitRecovery && (
           <Composer
             node={node}
             busy={chat.busy}

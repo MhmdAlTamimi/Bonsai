@@ -84,6 +84,7 @@ export function resumePrompt(
   originalPrompt: string,
   cause: RecoveryCause,
   error: string | null = null,
+  notesPath = CONTEXT_FILE,
 ): string {
   const afterFinish = cause === 'changed_after_finish';
   if (state.changed.length === 0) {
@@ -127,7 +128,7 @@ export function resumePrompt(
       '',
       'Review these changes. Check whether they are the complete, correct output of the work --',
       'for example results a job finished writing -- or something left half-written. Finish',
-      'anything incomplete and update CONTEXT.md to describe the results. Do not redo work that',
+      `anything incomplete and update ${notesPath} to describe the results. Do not redo work that`,
       'is already present.',
       '',
       'For context, the task was:',

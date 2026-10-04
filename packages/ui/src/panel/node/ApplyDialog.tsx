@@ -34,6 +34,18 @@ export function ApplyDialog({
   // Kept across a switch, so the choice does not vanish while the other loads.
   const [scopes, setScopes] = useState<ApplyPatchView['scopes']>(null);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportPath, setExportPath] = useState<string | null>(null);
+  const exportCode = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      setExportPath((await api.exportNode(node.id)).path);
+    } catch (error) {
+      setError(describeError(error));
+    } finally {
+      setExporting(false);
+    }
+  };
   useEffect(() => {
     let alive = true;
     setPatch(null);
@@ -131,6 +143,11 @@ export function ApplyDialog({
             both versions for you to choose. Bonsai&rsquo;s notes and anything uncommitted in the
             experiment are left out.
           </p>
+          <p className="hint">
+            A successful command may print nothing. Check its exit status and staged diff. If Git
+            reports conflicts, resolve the marked files before committing. If it reports an error,
+            inspect the message and leave your existing work intact.
+          </p>
           <p className="hint apply-download">
             Using a Git app instead?
             <a href={api.patchFileUrl(node.id, scope)} download>
@@ -139,6 +156,24 @@ export function ApplyDialog({
           </p>
         </section>
       )}
+      <section className="apply-section" aria-label="Independent repository export">
+        <p>
+          Export the full saved code and its Git history to a separate repository. It will keep
+          working after this experiment or Bonsai is removed.
+        </p>
+        <p className="hint">
+          Uncommitted and ignored files are excluded. Submodules must be accessible during export.
+        </p>
+        <button disabled={exporting || exportPath !== null} onClick={() => void exportCode()}>
+          {exporting ? 'Exporting…' : 'Export full repository'}
+        </button>
+        {exportPath !== null && (
+          <div className="row">
+            <code>{exportPath}</code>
+            <CopyButton text={exportPath} label="Copy export folder" />
+          </div>
+        )}
+      </section>
       <div className="dialog-actions">
         <button className="primary" onClick={onClose}>
           Close
