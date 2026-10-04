@@ -161,7 +161,13 @@ export function NewProject({
         <p>Try ideas with Claude side by side, then keep the best one.</p>
       </header>
 
-      <div className="tabs project-source-switch" role="group" aria-label="Project source">
+      <div
+        className="tabs project-source-switch"
+        role="group"
+        aria-label="Project source"
+        data-mode={mode}
+      >
+        <span className="project-source-fill" aria-hidden="true" />
         <button
           aria-pressed={mode === 'new'}
           className={mode === 'new' ? 'on' : ''}
