@@ -1119,6 +1119,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ prompt: 'queued fixture' }),
     });
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${queued.node.id}`);
+    await session.waitFor(
+      "document.querySelector('.panel')?.textContent.includes('needs your answer')",
+      { label: 'the reason this request is queued' },
+    );
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
     await session.waitFor(
       "!!document.querySelector('.ask input') && document.querySelector('.stop-all')?.textContent.includes('2 runs')",

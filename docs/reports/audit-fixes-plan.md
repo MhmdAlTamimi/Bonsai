@@ -80,7 +80,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [x] I1: A tool that commits by itself leaves the experiment stuck, and its tag lands in your repository
 - [x] I2: A command that fails shows no output in the conversation
-- [ ] I3: Runs waiting on you, or on background work, hold run slots; a new request queues with no reason given
+- [x] I3: Runs waiting on you, or on background work, hold run slots; a new request queues with no reason given — retain the bound on live processes and explain blockers
 - [ ] I4: On Windows, processes the agent leaves running are neither found nor stopped
 
 ### audit-09-live-updates
@@ -127,7 +127,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [ ] E1: Modified copy-in ignored files can be lost on archive. Manual warning in scope; automatic preservation/blocking deferred.
 - [x] E2: Apply artifacts collide and can change after their command is displayed.
-- [ ] E3: Project deletion and concurrency bounds omit comparison/draft jobs.
+- [x] E3: Project deletion and concurrency bounds omit comparison/draft jobs.
 - [ ] E4: Deleting experiments changes historical spending totals.
 - [x] E5: HTTP drain precedes the shutdown cancellation deadline.
 
@@ -146,6 +146,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] E17: Subscription mode must not silently inherit an API key from the environment; an empty selected API key must not fall back to subscription credentials.
 - [x] E18: An SDK result with `subtype: success` and `is_error: true` must not finish a run or commit partial work as successful.
 - [x] E19: Git/setup/task errors that mention authentication must not invalidate the Claude connection.
+- [x] E20: Deleting a comparison removes its files and rows before its active answer has unwound.
 
 ## Verification log
 
@@ -165,3 +166,5 @@ A checkbox is checked only after implementation and relevant verification. Defer
   Follow-up: all 13 relocation/discovery/deletion regressions pass with a guard against project deletion while unrecorded Git experiments exist. This avoids deleting work that an older database cannot include in its deletion preview.
 
 - Connection/retry batch: production build, typecheck/lint/format, all 413 server tests, 120 UI/shared tests and 30 browser tests passed. Scripted SDK frames verify visible retries, bounded retry count and deadline, immediate terminal classification and `is_error` results. Real SDK reproductions used the verified fake API: credential/account failures finish in seconds, all partial files remain recoverable without a finished commit, and rate/overload failures leave the gate usable. Real connection probes classify 401, billing and 429 in 6.6–7.8 seconds instead of the previous timeout. Browser coverage keeps Stop available during retries. Subscription authentication resolves the installed SDK executable without global CLI discovery; actual account sign-in requires the user's credential. Environment canaries verify auth-mode precedence and preservation of the fake API URL. A real job-pipeline regression proves ordinary failures cannot change the Claude gate.
+
+- Shared scheduler batch: production build, typecheck/lint/format, all 417 server tests, 120 UI/shared tests and 30 browser tests passed. Real HTTP/Git/SQLite tests interleave runs, comparisons and drafts at a limit of one, verify FIFO ordering and a peak of one process, and cancel queued work during project deletion. Delayed comparison cleanup writes successfully before either project or comparison deletion removes its rows/files. An idle maintenance gate refuses API/filesystem mutations and releases after an injected failure. Browser coverage verifies a queued experiment explains that another job needs an answer. Question/background jobs intentionally retain slots while their processes remain live; Stop or answering the question is the explicit way to free capacity. Shutdown drains the same shared pool.

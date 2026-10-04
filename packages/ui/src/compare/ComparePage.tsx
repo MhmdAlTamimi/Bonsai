@@ -229,6 +229,11 @@ export function ComparePage({
       </div>
 
       <div className="compare-foot thread-width">
+        {data?.queuePosition != null && (
+          <p role="status">
+            Queued · position {data.queuePosition} · {data.queueReason}
+          </p>
+        )}
         {actionError !== null && (
           <ErrorNote onDismiss={() => setActionError(null)}>{actionError}</ErrorNote>
         )}

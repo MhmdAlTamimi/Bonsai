@@ -83,9 +83,11 @@ route('GET', '/api/projects/:id/tree', (_req, res, params, { store, jobs }) => {
 route('POST', '/api/projects/:id/locate', async (req, res, params, { store, jobs, bus }) => {
   const body = await readJson<{ path: string }>(req);
   const id = params['id']!;
-  await jobs.withStoppedNodes(
-    store.listNodes(id).map((node) => node.id),
-    () => locateRepository(store, id, requireString(body.path, 'path')),
+  await jobs.pool.withStoppedProject(id, () =>
+    jobs.withStoppedNodes(
+      store.listNodes(id).map((node) => node.id),
+      () => locateRepository(store, id, requireString(body.path, 'path')),
+    ),
   );
   bus.publish(id, { type: 'tree.updated', projectId: id });
   sendJson(res, 200, { ok: true });
@@ -218,9 +220,11 @@ route('GET', '/api/projects/:id/deletion-impact', (_req, res, params, { store })
 route('DELETE', '/api/projects/:id', async (_req, res, params, { store, bus, jobs }) => {
   const project = store.getProject(params['id']!);
   if (project === undefined) throw new HttpError(404, 'no such project');
-  const removed = await jobs.withStoppedNodes(
-    store.listNodes(project.id).map((node) => node.id),
-    () => deleteProjectTree(store, project.id),
+  const removed = await jobs.pool.withStoppedProject(project.id, () =>
+    jobs.withStoppedNodes(
+      store.listNodes(project.id).map((node) => node.id),
+      () => deleteProjectTree(store, project.id),
+    ),
   );
   bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
   sendJson(res, 200, { ok: true, ...removed });

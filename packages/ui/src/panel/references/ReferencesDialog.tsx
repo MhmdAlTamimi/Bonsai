@@ -514,6 +514,7 @@ function Fill({
                 {comparison !== null
                   ? 'Reading the comparison'
                   : `Reading ${chosen?.displayName ?? ''}’s conversation`}
+                {' · Waiting for an available job slot if Bonsai is busy.'}
               </span>
               <button onClick={() => controller.current?.abort()}>Cancel</button>
             </div>

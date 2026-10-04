@@ -54,7 +54,10 @@ export function ActivityStrip({
   if (node.queuePosition !== null) {
     return (
       <div className="activity activity-line">
-        <span role="status">Queued · position {node.queuePosition}</span>
+        <span role="status">
+          Queued · position {node.queuePosition}
+          {node.queueReason && <span className="hint"> · {node.queueReason}</span>}
+        </span>
         <div className="spacer" />
         <StopButton node={node} />
       </div>

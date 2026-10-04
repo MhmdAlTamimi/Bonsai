@@ -21,6 +21,7 @@ import { FileLogger } from './log.js';
 import { acquireInstanceLock, AlreadyRunningError } from './instanceLock.js';
 import { recoverRunSaves } from './git/saveRecovery.js';
 import { relocateManagedStorage } from './storage/relocate.js';
+import { ExecutionPool } from './jobs/executionPool.js';
 
 const config = loadConfig();
 let releaseInstance: () => void;
@@ -62,8 +63,19 @@ const connection = new Connection(settings, useStandIn);
  * gate stops runs before they start when it cannot reach Claude.
  */
 const runner = useStandIn ? new FakeRunner() : new ClaudeSdkRunner();
-const jobs = new RunJobs(store, bus, runner, settings, log, connection);
-const comparisons = new ComparisonJobs(store, bus, runner, settings, log);
+const pool = new ExecutionPool(
+  () => settings.maxConcurrentRuns(),
+  (projects) => {
+    for (const projectId of projects) {
+      bus.publish(projectId, { type: 'tree.updated', projectId });
+      for (const row of store.comparisons.list(projectId))
+        if (comparisons.isRunning(row.id))
+          bus.publish(projectId, { type: 'comparison.updated', projectId, comparisonId: row.id });
+    }
+  },
+);
+const jobs = new RunJobs(store, bus, runner, settings, log, connection, pool);
+const comparisons = new ComparisonJobs(store, bus, runner, settings, log, pool);
 // Idle experiment folders are archived to save space; see archive.ts.
 const archiver = new ArchiveSweeper({ store, bus, log, jobs, settings });
 archiver.start();
@@ -217,7 +229,7 @@ const shutdown = (exitCode = 0): void => {
   deadline.unref();
   server.close();
   server.closeAllConnections();
-  void Promise.all([jobs.drain(3000), comparisons.drain(3000)]).finally(() => {
+  void Promise.all([pool.drain(3000), jobs.drain(3000), comparisons.drain(3000)]).finally(() => {
     db.close();
     releaseInstance();
     process.exit(exitCode);

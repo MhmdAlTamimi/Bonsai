@@ -51,6 +51,7 @@ export function withLive(jobs: RunJobs, nodes: NodeView[]): NodeView[] {
   return nodes.map((n) => ({
     ...n,
     queuePosition: jobs.queuePosition(n.id),
+    queueReason: jobs.queueReason(n.id),
     activeRunId: jobs.activeRunId(n.id),
     activity: jobs.activity(n.id),
   }));
@@ -83,14 +84,19 @@ interface Route {
 
 const routes: Route[] = [];
 const structure = new ProjectOperations();
-function structural(handler: Handler, target: 'node' | 'project' | 'deletion'): Handler {
+function structural(
+  handler: Handler,
+  target: 'node' | 'project' | 'deletion' | 'comparison',
+): Handler {
   return async (req, res, params, ctx) => {
     const id =
       target === 'project'
         ? params['id']
         : target === 'deletion'
           ? ctx.store.deletions.get(params['id']!)?.project.id
-          : ctx.store.getNode(params['id']!)?.project_id;
+          : target === 'comparison'
+            ? ctx.store.comparisons.get(params['id']!)?.project_id
+            : ctx.store.getNode(params['id']!)?.project_id;
     if (!id) throw new HttpError(404, 'No such project.');
     await structure.run(id, async () => {
       try {
@@ -111,8 +117,11 @@ export function route(method: string, pattern: string, handler: Handler): void {
         '/api/projects/:id/nodes',
         '/api/projects/:id/locate',
         '/api/projects/:id/lost-experiments',
+        '/api/projects/:id/comparisons',
       ].includes(pattern)) ||
-    (method === 'DELETE' && ['/api/projects/:id', '/api/nodes/:id'].includes(pattern)) ||
+    (method === 'DELETE' &&
+      ['/api/projects/:id', '/api/nodes/:id', '/api/comparisons/:id'].includes(pattern)) ||
+    (method === 'POST' && pattern === '/api/comparisons/:id/refresh') ||
     (method === 'POST' &&
       ['/api/nodes/:id/synchronize', '/api/nodes/:id/export', '/api/deletions/:id/cancel'].includes(
         pattern,
@@ -122,9 +131,11 @@ export function route(method: string, pattern: string, handler: Handler): void {
       handler,
       pattern.startsWith('/api/deletions/')
         ? 'deletion'
-        : pattern.startsWith('/api/nodes/')
-          ? 'node'
-          : 'project',
+        : pattern.startsWith('/api/comparisons/')
+          ? 'comparison'
+          : pattern.startsWith('/api/nodes/')
+            ? 'node'
+            : 'project',
     );
   }
   routes.push({ method, segments: pattern.split('/').filter(Boolean), handler, pattern });
@@ -174,7 +185,11 @@ export async function handleApi(
     return true;
   }
   try {
-    await found.handler(req, res, found.params, ctx);
+    const handle = async (): Promise<void> => {
+      await found.handler(req, res, found.params, ctx);
+    };
+    if (req.method === 'GET' || found.pattern === '/api/backup') await handle();
+    else await ctx.jobs.pool.mutation(handle);
   } catch (err) {
     /**
      * Logged here rather than in sendError, which has the error but not the

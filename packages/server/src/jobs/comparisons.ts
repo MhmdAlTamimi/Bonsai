@@ -16,9 +16,12 @@ import {
 import { folderNames } from './experimentSnapshot.js';
 import { fileNames } from './runContext.js';
 import { revisionOf } from '../db/referenceStore.js';
+import { CONCURRENCY } from '@bonsai/shared';
+import { ExecutionPool } from './executionPool.js';
 
 /** What a comparison needs from the app's settings. */
 export interface ComparisonSettings {
+  maxConcurrentRuns?(): number;
   model(): string | null;
   effort(): string | null;
   agentEnv(): Record<string, string> | null;
@@ -28,12 +31,14 @@ export interface ComparisonSettings {
  * Comparisons: made from 2-4 experiments, asked questions, brought up to date.
  *
  * Deliberately separate from the run pipeline. A comparison has no checkout,
- * commits nothing, touches no experiment and never needs a slot the
- * experiments are waiting for: each question is one read-only answer, and the
- * only thing it writes is its own conversation.
+ * commits nothing and touches no experiment. Questions share the same process
+ * bound as runs and drafts; their files remain owned until cleanup finishes.
  */
 export class ComparisonJobs {
   private readonly active = new Map<string, AbortController>();
+  private readonly turns = new Map<string, string>();
+  private readonly deleting = new Set<string>();
+  readonly pool: ExecutionPool;
 
   constructor(
     private readonly store: Store,
@@ -41,10 +46,19 @@ export class ComparisonJobs {
     private readonly comparer: Comparer,
     private readonly settings: ComparisonSettings,
     private readonly log: Logger,
-  ) {}
+    pool?: ExecutionPool,
+  ) {
+    this.pool =
+      pool ?? new ExecutionPool(() => settings.maxConcurrentRuns?.() ?? CONCURRENCY.default);
+  }
 
   isRunning(comparisonId: string): boolean {
     return this.active.has(comparisonId);
+  }
+
+  queuePosition(comparisonId: string): number | null {
+    const turnId = this.turns.get(comparisonId);
+    return turnId ? this.pool.position(turnId) : null;
   }
 
   /** Snapshots the experiments and records the comparison. Nothing is asked yet. */
@@ -178,6 +192,8 @@ export class ComparisonJobs {
     referenceIds: readonly string[] = [],
   ): { turnId: string } {
     const row = this.require(comparisonId);
+    this.pool.assertAvailable(row.project_id);
+    if (this.deleting.has(row.id)) throw new OperationConflict('This comparison is being deleted.');
     if (this.isRunning(row.id)) throw new OperationConflict('This comparison is still answering.');
     const rows = referenceIds.flatMap((id) => this.store.references.get(id) ?? []);
     const files = fileNames(rows.map((reference) => reference.name));
@@ -204,8 +220,23 @@ export class ComparisonJobs {
     });
     const controller = new AbortController();
     this.active.set(row.id, controller);
+    this.turns.set(row.id, turnId);
     this.publish(row);
-    void this.answer(row, turnId, prompt, attached, controller);
+    this.pool.enqueue(
+      { id: turnId, projectId: row.project_id, kind: 'comparison', label: row.title, controller },
+      () => this.answer(row, turnId, prompt, attached, controller),
+      () => {
+        this.store.comparisons.finishTurn(turnId, {
+          status: 'cancelled',
+          costUsd: 0,
+          model: null,
+          error: null,
+        });
+        this.active.delete(row.id);
+        this.turns.delete(row.id);
+        this.publish(row);
+      },
+    );
     return { turnId };
   }
 
@@ -215,13 +246,27 @@ export class ComparisonJobs {
 
   async delete(comparisonId: string): Promise<void> {
     const row = this.require(comparisonId);
-    this.stop(row.id);
-    this.store.comparisons.delete(row.id);
-    await rm(comparisonFolder(this.store, row.project_id, row.id), {
-      recursive: true,
-      force: true,
-    });
-    this.publish(row);
+    if (this.deleting.has(row.id)) throw new OperationConflict('Deletion is already in progress.');
+    this.deleting.add(row.id);
+    try {
+      this.stop(row.id);
+      const deadline = Date.now() + 10000;
+      while (this.isRunning(row.id)) {
+        if (Date.now() >= deadline)
+          throw new OperationConflict(
+            'The comparison is still stopping. Its files are preserved; retry shortly.',
+          );
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      this.store.comparisons.delete(row.id);
+      await rm(comparisonFolder(this.store, row.project_id, row.id), {
+        recursive: true,
+        force: true,
+      });
+      this.publish(row);
+    } finally {
+      this.deleting.delete(row.id);
+    }
   }
 
   /** Stops every answer and waits, briefly, for them to be recorded. */
@@ -279,6 +324,7 @@ export class ComparisonJobs {
       const status = controller.signal.aborted ? 'cancelled' : error === null ? 'done' : 'failed';
       this.store.comparisons.finishTurn(turnId, { status, costUsd: cost, model, error });
       this.active.delete(row.id);
+      this.turns.delete(row.id);
       // Sizes and outcome, never the question or the answer.
       this.log.info('comparison.answered', {
         comparisonId: row.id,
@@ -295,27 +341,29 @@ export class ComparisonJobs {
     const message =
       event.type === 'text'
         ? { kind: 'text' as const, content: event.text }
-        : event.type === 'tool'
-          ? {
-              kind: 'tool_use' as const,
-              content: {
-                name: event.name,
-                detail: event.detail,
-                ...(event.id === undefined ? {} : { id: event.id }),
-                ...(event.description === undefined ? {} : { description: event.description }),
-                ...(event.parentToolUseId === undefined
-                  ? {}
-                  : { parentToolUseId: event.parentToolUseId }),
-              },
-            }
-          : event.type === 'tool_result'
-            ? { kind: 'tool_result' as const, content: event.result }
-            : null;
+        : event.type === 'notice'
+          ? { kind: 'text' as const, content: event.text }
+          : event.type === 'tool'
+            ? {
+                kind: 'tool_use' as const,
+                content: {
+                  name: event.name,
+                  detail: event.detail,
+                  ...(event.id === undefined ? {} : { id: event.id }),
+                  ...(event.description === undefined ? {} : { description: event.description }),
+                  ...(event.parentToolUseId === undefined
+                    ? {}
+                    : { parentToolUseId: event.parentToolUseId }),
+                },
+              }
+            : event.type === 'tool_result'
+              ? { kind: 'tool_result' as const, content: event.result }
+              : null;
     if (message === null) return;
     this.store.comparisons.appendMessage({
       comparisonId: row.id,
       turnId,
-      role: 'assistant',
+      role: event.type === 'notice' ? 'system' : 'assistant',
       ...message,
     });
     this.publish(row);
@@ -324,6 +372,12 @@ export class ComparisonJobs {
   private require(comparisonId: string): ComparisonRow {
     const row = this.store.comparisons.get(comparisonId);
     if (row === undefined) throw new OperationConflict('That comparison no longer exists.');
+    if (
+      this.store.deletions
+        .pending()
+        .some((intent) => intent.kind === 'project' && intent.project.id === row.project_id)
+    )
+      throw new OperationConflict('Finish or cancel the project’s pending deletion first.');
     return row;
   }
 

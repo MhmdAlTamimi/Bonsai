@@ -22,6 +22,7 @@ import { LEFT_TO_AGENT, QuestionDesk } from './questions.js';
 import { resolveRunSettings } from './runSettings.js';
 import { RunTranscript } from './runTranscript.js';
 import { prepareRun } from './workspace.js';
+import { ExecutionPool } from './executionPool.js';
 
 export { LEFT_TO_AGENT } from './questions.js';
 
@@ -107,6 +108,7 @@ export class RunJobs {
    * to everything except the card's queue badge.
    */
   private readonly queue: Queued[] = [];
+  readonly pool: ExecutionPool;
 
   constructor(
     private readonly store: Store,
@@ -115,7 +117,9 @@ export class RunJobs {
     private readonly settings?: SettingsSource,
     private readonly log: Logger = silentLogger,
     private readonly connection?: { recordFailure(message: string): void },
+    pool?: ExecutionPool,
   ) {
+    this.pool = pool ?? new ExecutionPool(() => this.limit());
     this.questions = new QuestionDesk(store, bus, log, (nodeId, status) =>
       this.setStatus(nodeId, status),
     );
@@ -179,7 +183,7 @@ export class RunJobs {
       );
     this.archiving.add(nodeId);
     try {
-      return await work();
+      return await this.pool.mutation(work);
     } finally {
       this.archiving.delete(nodeId);
     }
@@ -205,8 +209,12 @@ export class RunJobs {
    * process, not about the tree.
    */
   queuePosition(nodeId: string): number | null {
-    const index = this.queue.findIndex((q) => q.nodeId === nodeId);
-    return index === -1 ? null : index + 1;
+    const job = this.queue.find((q) => q.nodeId === nodeId);
+    return job === undefined ? null : this.pool.position(job.runId);
+  }
+
+  queueReason(nodeId: string): string | null {
+    return this.queuePosition(nodeId) === null ? null : this.pool.reason();
   }
 
   queuedCount(): number {
@@ -229,20 +237,25 @@ export class RunJobs {
       return true;
     }
 
-    const index = this.queue.findIndex((q) => q.nodeId === nodeId);
-    if (index === -1) return false;
-    const [dropped] = this.queue.splice(index, 1);
-    if (dropped === undefined) return false;
+    const job = this.queue.find((q) => q.nodeId === nodeId);
+    if (job === undefined) return false;
+    job.controller.abort();
+    return true;
+  }
 
-    this.log.info('run.cancelled', { runId: dropped.runId, nodeId, queued: true });
+  private cancelQueued(dropped: Queued): void {
+    const index = this.queue.indexOf(dropped);
+    if (index < 0) return;
+    this.queue.splice(index, 1);
+    this.log.info('run.cancelled', { runId: dropped.runId, nodeId: dropped.nodeId, queued: true });
     const status = this.closing
       ? 'interrupted'
-      : this.store.getNode(nodeId)?.head_commit === null
+      : this.store.getNode(dropped.nodeId)?.head_commit === null
         ? 'new'
         : 'ready';
     this.store.completeRun(
       dropped.runId,
-      nodeId,
+      dropped.nodeId,
       this.stopped(),
       {
         cost: 0,
@@ -251,12 +264,11 @@ export class RunJobs {
       },
       { status },
     );
-    this.publishStatus(nodeId, status);
+    this.publishStatus(dropped.nodeId, status);
     this.bus.publish(dropped.projectId, {
       type: 'tree.updated',
       projectId: dropped.projectId,
     });
-    return true;
   }
 
   /**
@@ -439,6 +451,7 @@ export class RunJobs {
     const runId = randomUUID();
     const controller = new AbortController();
 
+    this.pool.assertAvailable(node.project_id);
     this.store.enqueueRun(runId, nodeId, {
       prompt,
       command,
@@ -471,19 +484,35 @@ export class RunJobs {
       controller,
     };
 
-    if (this.running.size < this.limit()) {
-      this.dispatch(job);
-    } else {
-      this.queue.push(job);
+    this.queue.push(job);
+    this.pool.enqueue(
+      {
+        id: runId,
+        projectId: node.project_id,
+        kind: 'run',
+        label: node.display_name,
+        controller,
+        state: () =>
+          this.store.getNode(nodeId)?.status === 'needs_you'
+            ? 'question'
+            : this.running.get(nodeId)?.activity?.state === 'waiting'
+              ? 'background'
+              : 'working',
+      },
+      () => {
+        const index = this.queue.indexOf(job);
+        if (index >= 0) this.queue.splice(index, 1);
+        return this.dispatch(job);
+      },
+      () => this.cancelQueued(job),
+    );
+    if (this.pool.position(runId) !== null) {
       this.log.info('run.queued', {
         runId,
         nodeId,
-        position: this.queue.length,
+        position: this.pool.position(runId),
         limit: this.limit(),
       });
-      // No run.started here -- that event clears the live output pane, and a
-      // queued run has nothing to show yet. tree.updated is what makes the
-      // card render its place in the queue.
       this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
     }
 
@@ -495,7 +524,7 @@ export class RunJobs {
   }
 
   /** Starts a job now, and takes the next queued one when it finishes. */
-  private dispatch(job: Queued): void {
+  private dispatch(job: Queued): Promise<void> {
     const live: LiveRun = {
       runId: job.runId,
       projectId: job.projectId,
@@ -513,10 +542,9 @@ export class RunJobs {
       runId: job.runId,
     });
 
-    void this.execute(job, live).finally(() => {
+    return this.execute(job, live).finally(() => {
       if (live.publishTimer !== null) clearTimeout(live.publishTimer);
       this.running.delete(job.nodeId);
-      this.pump();
     });
   }
 
@@ -528,6 +556,7 @@ export class RunJobs {
   private reportActivity(nodeId: string, live: LiveRun, activity: RunActivity): void {
     const was = live.activity?.state;
     live.activity = activity;
+    if (was !== activity.state) this.pool.refresh();
     if (activity.state === 'waiting' && was !== 'waiting') {
       // Counts, not descriptions: a description is the agent's words about
       // the user's code, and logs are what get pasted into bug reports.
@@ -559,26 +588,6 @@ export class RunJobs {
       runId: live.runId,
       activity: live.activity,
     });
-  }
-
-  /**
-   * Fills every free slot.
-   *
-   * A loop rather than a single take, because the limit can be raised while
-   * runs are queued -- and because cancelling three at once frees three slots
-   * in the same tick.
-   */
-  private pump(): void {
-    while (this.running.size < this.limit()) {
-      const next = this.queue.shift();
-      if (next === undefined) return;
-      // It may have been cancelled while queued; cancel() removes it from the
-      // queue, so reaching here means it is still wanted, but the controller
-      // is checked anyway rather than trusted.
-      if (next.controller.signal.aborted) continue;
-      this.bus.publish(next.projectId, { type: 'tree.updated', projectId: next.projectId });
-      this.dispatch(next);
-    }
   }
 
   /**
@@ -948,6 +957,7 @@ export class RunJobs {
   private setStatus(nodeId: string, status: NodeStatus): void {
     this.store.setNodeStatus(nodeId, status);
     this.publishStatus(nodeId, status);
+    this.pool.refresh();
   }
 
   private publishStatus(nodeId: string, status: NodeStatus): void {

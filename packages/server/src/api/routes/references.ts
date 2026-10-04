@@ -5,6 +5,7 @@ import type {
   UpdateReferenceRequest,
 } from '@bonsai/shared';
 import type { MessageView } from '@bonsai/shared';
+import { randomUUID } from 'node:crypto';
 import { type Store } from '../../db/store.js';
 import {
   DRAFT_INSTRUCTIONS,
@@ -76,6 +77,12 @@ route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
   const source = await draftSource(store, body);
   const project = store.getProject(source.projectId);
   if (project === undefined) throw new HttpError(404, 'no such project');
+  if (
+    store.deletions
+      .pending()
+      .some((intent) => intent.kind === 'project' && intent.project.id === project.id)
+  )
+    throw new HttpError(409, 'Finish or cancel the project’s pending deletion first.');
   const instruction = draftInstruction(body.instruction);
   const current =
     typeof body.current === 'string' && body.current.trim() !== '' ? body.current : null;
@@ -89,13 +96,24 @@ route('POST', '/api/references/draft', async (req, res, _params, ctx) => {
     if (!res.writableEnded) controller.abort();
   });
   const startedAt = Date.now();
-  const text = await ctx.drafts.draft({
-    instructions: DRAFT_INSTRUCTIONS,
-    input: draftInput(conversation.text, instruction, current),
-    model: source.model ?? project.default_model ?? settings.model(),
-    agentEnv: settings.agentEnv(),
-    signal: controller.signal,
-  });
+  if (res.destroyed) controller.abort();
+  const text = await ctx.jobs.pool.run(
+    {
+      id: randomUUID(),
+      projectId: project.id,
+      kind: 'draft',
+      label: 'Reference draft',
+      controller,
+    },
+    () =>
+      ctx.drafts.draft({
+        instructions: DRAFT_INSTRUCTIONS,
+        input: draftInput(conversation.text, instruction, current),
+        model: source.model ?? project.default_model ?? settings.model(),
+        agentEnv: settings.agentEnv(),
+        signal: controller.signal,
+      }),
+  );
   // Sizes, never contents: the conversation is the user's own words.
   log.info('reference.draft', {
     from: source.kind,

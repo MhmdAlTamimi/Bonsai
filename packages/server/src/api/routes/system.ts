@@ -168,53 +168,58 @@ route('GET', '/api/settings', (_req, res, _p, { settings }) => {
   sendJson(res, 200, settings.view());
 });
 
-route('PATCH', '/api/settings', async (req, res, _p, { settings, connection, store, bus }) => {
-  const body = await readJson<UpdateSettingsRequest>(req);
-  if (body.authMode !== undefined && !['cli', 'api_key'].includes(body.authMode))
-    throw new HttpError(400, 'Choose a sign-in method.');
-  for (const field of ['apiKey', 'model', 'effort', 'reposRoot'] as const) {
-    if (body[field] !== undefined && body[field] !== null && typeof body[field] !== 'string')
-      throw new HttpError(400, `${field} must be text.`);
-  }
-  if (body.apiKey === null || body.reposRoot === null)
-    throw new HttpError(400, 'Key and folder must be text.');
-  if (
-    body.permissionMode !== undefined &&
-    !['default', 'acceptEdits', 'bypassPermissions', 'plan'].includes(body.permissionMode)
-  )
-    throw new HttpError(400, 'Choose a supported permission mode.');
-  if (
-    body.effort !== undefined &&
-    body.effort !== null &&
-    !['low', 'medium', 'high', 'xhigh', 'max'].includes(body.effort)
-  )
-    throw new HttpError(400, 'Choose a supported effort.');
-  for (const field of ['panelWidth', 'maxConcurrentRuns'] as const) {
+route(
+  'PATCH',
+  '/api/settings',
+  async (req, res, _p, { settings, connection, store, bus, jobs }) => {
+    const body = await readJson<UpdateSettingsRequest>(req);
+    if (body.authMode !== undefined && !['cli', 'api_key'].includes(body.authMode))
+      throw new HttpError(400, 'Choose a sign-in method.');
+    for (const field of ['apiKey', 'model', 'effort', 'reposRoot'] as const) {
+      if (body[field] !== undefined && body[field] !== null && typeof body[field] !== 'string')
+        throw new HttpError(400, `${field} must be text.`);
+    }
+    if (body.apiKey === null || body.reposRoot === null)
+      throw new HttpError(400, 'Key and folder must be text.');
     if (
-      body[field] !== undefined &&
-      (typeof body[field] !== 'number' || !Number.isFinite(body[field]))
+      body.permissionMode !== undefined &&
+      !['default', 'acceptEdits', 'bypassPermissions', 'plan'].includes(body.permissionMode)
     )
-      throw new HttpError(400, `${field} must be a number.`);
-  }
-  if (
-    body.archiveAfterDays !== undefined &&
-    body.archiveAfterDays !== null &&
-    (typeof body.archiveAfterDays !== 'number' || !Number.isFinite(body.archiveAfterDays))
-  )
-    throw new HttpError(400, 'archiveAfterDays must be a number of days, or null.');
-  if (body.wrapLines !== undefined && typeof body.wrapLines !== 'boolean')
-    throw new HttpError(400, 'wrapLines must be boolean.');
-  if (body.textScale !== undefined && !TEXT_SCALES.some((scale) => scale === body.textScale))
-    throw new HttpError(400, 'Choose a supported text size.');
-  const view = settings.update(body);
-  // Auth-affecting changes invalidate what we know, so re-check immediately.
-  if (body.authMode !== undefined || body.apiKey !== undefined || body.model !== undefined) {
-    await connection.check();
-  }
-  for (const project of store.listProjects())
-    bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
-  sendJson(res, 200, view);
-});
+      throw new HttpError(400, 'Choose a supported permission mode.');
+    if (
+      body.effort !== undefined &&
+      body.effort !== null &&
+      !['low', 'medium', 'high', 'xhigh', 'max'].includes(body.effort)
+    )
+      throw new HttpError(400, 'Choose a supported effort.');
+    for (const field of ['panelWidth', 'maxConcurrentRuns'] as const) {
+      if (
+        body[field] !== undefined &&
+        (typeof body[field] !== 'number' || !Number.isFinite(body[field]))
+      )
+        throw new HttpError(400, `${field} must be a number.`);
+    }
+    if (
+      body.archiveAfterDays !== undefined &&
+      body.archiveAfterDays !== null &&
+      (typeof body.archiveAfterDays !== 'number' || !Number.isFinite(body.archiveAfterDays))
+    )
+      throw new HttpError(400, 'archiveAfterDays must be a number of days, or null.');
+    if (body.wrapLines !== undefined && typeof body.wrapLines !== 'boolean')
+      throw new HttpError(400, 'wrapLines must be boolean.');
+    if (body.textScale !== undefined && !TEXT_SCALES.some((scale) => scale === body.textScale))
+      throw new HttpError(400, 'Choose a supported text size.');
+    const view = settings.update(body);
+    jobs.pool.refresh();
+    // Auth-affecting changes invalidate what we know, so re-check immediately.
+    if (body.authMode !== undefined || body.apiKey !== undefined || body.model !== undefined) {
+      await connection.check();
+    }
+    for (const project of store.listProjects())
+      bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
+    sendJson(res, 200, view);
+  },
+);
 
 route('POST', '/api/reveal', async (req, res) => {
   const body = await readJson<{ path?: string }>(req);

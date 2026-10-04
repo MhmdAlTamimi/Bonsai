@@ -44,7 +44,12 @@ export function ComparisonsDialog({
               >
                 <span className="reference-name comparison-title">{comparison.title}</span>
                 <span className="reference-meta">
-                  {comparison.running ? 'Answering' : plural(comparison.questions, 'question')} ·{' '}
+                  {comparison.queuePosition != null
+                    ? `Queued · ${comparison.queuePosition}`
+                    : comparison.running
+                      ? 'Answering'
+                      : plural(comparison.questions, 'question')}{' '}
+                  ·{' '}
                   <time title={exactTime(comparison.updatedAt)}>
                     {relativeTime(comparison.updatedAt)}
                   </time>

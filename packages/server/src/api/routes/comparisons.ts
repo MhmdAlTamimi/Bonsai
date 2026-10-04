@@ -11,7 +11,12 @@ route('GET', '/api/projects/:id/comparisons', (_req, res, params, { store, compa
   sendJson(
     res,
     200,
-    store.comparisonSummaries(params['id']!, (id) => comparisons.isRunning(id)),
+    store
+      .comparisonSummaries(params['id']!, (id) => comparisons.isRunning(id))
+      .map((row) => ({
+        ...row,
+        queuePosition: comparisons.queuePosition(row.id),
+      })),
   );
 });
 
@@ -28,10 +33,15 @@ route('POST', '/api/projects/:id/comparisons', async (req, res, params, ctx) => 
   sendJson(res, 201, ctx.store.comparisonView(row));
 });
 
-route('GET', '/api/comparisons/:id', (_req, res, params, { store }) => {
+route('GET', '/api/comparisons/:id', (_req, res, params, { store, comparisons }) => {
   const row = store.comparisons.get(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such comparison');
-  sendJson(res, 200, store.comparisonView(row));
+  const queuePosition = comparisons.queuePosition(row.id);
+  sendJson(res, 200, {
+    ...store.comparisonView(row),
+    queuePosition,
+    queueReason: queuePosition === null ? null : comparisons.pool.reason(),
+  });
 });
 
 route('POST', '/api/comparisons/:id/messages', async (req, res, params, ctx) => {

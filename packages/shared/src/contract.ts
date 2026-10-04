@@ -347,6 +347,7 @@ export interface ProjectSetupView {
 export type FrozenReason = 'child_committed' | 'your_folder' | 'snapshot';
 
 export interface NodeView {
+  queueReason?: string | null;
   deletion?: {
     id: string;
     kind: 'node' | 'project';
@@ -1206,6 +1207,8 @@ export type ServerEvent =
  * the experiment has moved on since, and Update takes a fresh snapshot.
  */
 export interface ComparisonView {
+  queuePosition?: number | null;
+  queueReason?: string | null;
   id: string;
   projectId: string;
   title: string;
@@ -1223,6 +1226,7 @@ export interface ComparisonSummary {
   experiments: Array<{ nodeId: string | null; name: string }>;
   questions: number;
   running: boolean;
+  queuePosition?: number | null;
   updatedAt: string;
 }
 

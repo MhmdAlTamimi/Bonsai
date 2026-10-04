@@ -103,6 +103,11 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
 - Setup is skipped for read-only runs. Copy-in files must be untracked and ignored in the
   destination; reject unsafe paths and failed inspections. Never copy dependencies.
 - Runs are asynchronous. Every exit must finalize state and release the execution slot.
+  Runs, comparison questions and reference drafts share one FIFO execution pool. Waiting
+  questions and background jobs still own live processes and count toward its limit; explain
+  their queue blockers. Project removal/relocation stops every kind and waits for cleanup.
+  Comparison removal also waits before touching its files or rows. Idle maintenance excludes
+  HTTP mutations and idle filesystem operations and always releases its gate after failure.
   Use bounded process cleanup, preserve partial work and report incomplete cleanup.
   Temporary API retries are visible and bounded. Authentication/billing failures stop promptly;
   a transient rate limit does not permanently close the global connection gate. Only an API
