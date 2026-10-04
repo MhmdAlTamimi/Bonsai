@@ -28,7 +28,7 @@ interface Entry {
 }
 
 export function conversationText(
-  messages: readonly MessageView[],
+  messages: ReadonlyArray<Pick<MessageView, 'role' | 'kind' | 'content'>>,
   notes: string | null,
   budget = DRAFT_BUDGET,
 ): { text: string; basis: DraftBasis } {
@@ -83,7 +83,7 @@ function size(entries: readonly Entry[]): number {
   return entries.reduce((sum, entry) => sum + entry.text.length + 1, 0);
 }
 
-function toEntries(message: MessageView): Entry[] {
+function toEntries(message: Pick<MessageView, 'role' | 'kind' | 'content'>): Entry[] {
   const content = message.content;
   if (message.kind === 'tool_use') {
     const call = content as { name?: string; detail?: string };

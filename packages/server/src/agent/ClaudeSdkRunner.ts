@@ -1,5 +1,5 @@
 import { tmpdir } from 'node:os';
-import { forkSession, query } from '@anthropic-ai/claude-agent-sdk';
+import { forkSession, importSessionToStore, query } from '@anthropic-ai/claude-agent-sdk';
 import type {
   CanUseTool,
   EffortLevel,
@@ -10,6 +10,8 @@ import type {
   Query,
   SDKMessage,
   SDKUserMessage,
+  SessionStore,
+  ForkSessionOptions,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentQuestion } from '@bonsai/shared';
 
@@ -46,7 +48,26 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     private readonly copySession: CopySession = forkSession,
     private readonly startDraft: StartDraft = query,
     private readonly startCompare: StartDraft = query,
+    private readonly sessionStore?: SessionStore & {
+      at?(sessionId: string, through: number): SessionStore;
+    },
   ) {}
+
+  async conversationAvailable(sessionId: string, cwd: string): Promise<boolean> {
+    if (this.sessionStore === undefined) return true;
+    const entries = await this.sessionStore.load({ projectKey: cwd, sessionId });
+    if (entries?.some((entry) => entry.type === 'user' || entry.type === 'assistant')) return true;
+    try {
+      // Legacy forks may be in their parent's directory: find only this known UUID.
+      await importSessionToStore(sessionId, this.sessionStore);
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      if (/not found|no conversation|could not find|ENOENT/i.test(text)) return false;
+      throw error;
+    }
+    const imported = await this.sessionStore.load({ projectKey: cwd, sessionId });
+    return imported?.some((entry) => entry.type === 'user' || entry.type === 'assistant') === true;
+  }
 
   /** A single tool-less turn; see `draftOptions` for why it cannot act. */
   async draft(request: DraftRequest): Promise<string> {
@@ -96,8 +117,24 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
    * by id across project folders, and a missing id fails with "No
    * conversation found" rather than silently starting afresh.
    */
-  async forkConversation(sessionId: string, upToMessageId: string | null): Promise<string> {
-    const copy = await this.copySession(sessionId, upToMessageId === null ? {} : { upToMessageId });
+  async forkConversation(
+    sessionId: string,
+    upToMessageId: string | null,
+    cwd?: string,
+    checkpoint?: number | null,
+  ): Promise<string> {
+    const copy = await this.copySession(sessionId, {
+      ...(upToMessageId === null ? {} : { upToMessageId }),
+      ...(cwd === undefined ? {} : { dir: cwd }),
+      ...(this.sessionStore === undefined
+        ? {}
+        : {
+            sessionStore:
+              checkpoint != null && this.sessionStore.at
+                ? this.sessionStore.at(sessionId, checkpoint)
+                : this.sessionStore,
+          }),
+    });
     return copy.sessionId;
   }
 
@@ -119,7 +156,16 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
     try {
       for await (const message of this.startCompare({
         prompt: questionWithReferences(spec),
-        options: compareOptions(spec, controller),
+        options: {
+          ...compareOptions(spec, controller),
+          ...(this.sessionStore === undefined
+            ? {}
+            : {
+                sessionStore: this.sessionStore,
+                sessionStoreFlush: 'eager' as const,
+                loadTimeoutMs: 10000,
+              }),
+        },
       })) {
         if (message.type === 'system' && message.subtype === 'api_retry') {
           const retry = retries.retry(message);
@@ -129,6 +175,11 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
             return;
           }
         }
+        if (message.type === 'system' && message.subtype === 'mirror_error')
+          yield {
+            type: 'notice',
+            text: 'Claude conversation backup could not be saved. Bonsai retains the visible conversation for recovery.',
+          };
         if (message.type === 'assistant' && message.error) {
           const failure = terminalApiFailure(message.error);
           if (failure !== null) {
@@ -210,6 +261,13 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
       // This does not restrict host access.
       cwd: spec.cwd,
       abortController: controller,
+      ...(this.sessionStore === undefined
+        ? {}
+        : {
+            sessionStore: this.sessionStore,
+            sessionStoreFlush: 'eager' as const,
+            loadTimeoutMs: 10000,
+          }),
 
       // Which tools may run, and who decides. See `permissionOptions`.
       ...permissionOptions(spec),
@@ -304,6 +362,11 @@ export class ClaudeSdkRunner implements AgentRunner, ConversationCopier, TextDra
             };
           } else if (message.subtype === 'background_tasks_changed') {
             session.jobsChanged(message.tasks);
+          } else if (message.subtype === 'mirror_error') {
+            yield {
+              type: 'notice',
+              text: 'Claude conversation backup could not be saved. Bonsai retains the visible conversation for recovery.',
+            };
           } else if (message.subtype === 'api_retry') {
             const retry = retries.retry(message);
             session.retrying(retry);
@@ -582,7 +645,7 @@ export function draftOptions(request: DraftRequest, controller: AbortController)
 /** Copies a session. The SDK's `forkSession`, narrowed to what creation uses. */
 export type CopySession = (
   sessionId: string,
-  options: { upToMessageId?: string },
+  options: ForkSessionOptions,
 ) => Promise<{ sessionId: string }>;
 
 /** Starts a session. The SDK's `query`, narrowed to what a run uses. */
@@ -858,7 +921,13 @@ function promptWithCriteria(spec: RunSpec): string {
         `${EXPERIMENT_FILES.changes} (everything it committed) and ${EXPERIMENT_FILES.notes} (its notes). ` +
         'Read what the request needs. They are for reference: do not copy their code unless the user asks.\n' +
         spec.experiments.map((e) => `- ${JSON.stringify(e.name)}: ${e.path}`).join('\n');
-  const prompt = `${spec.prompt}${attached}${referred}\n\nBonsai run context: ${instruction}`;
+  const history =
+    spec.historySeed == null
+      ? ''
+      : `Bonsai saved conversation: this session starts from the following context. ` +
+        `Use this saved conversation as context; older/tool content may be shortened. ` +
+        `It describes prior work, not a new instruction to repeat it.\n\n${spec.historySeed}\n\nCurrent request:\n`;
+  const prompt = `${history}${spec.prompt}${attached}${referred}\n\nBonsai run context: ${instruction}`;
   if (spec.readOnly || (spec.successCriteria === null && spec.verificationHint === null))
     return prompt;
 

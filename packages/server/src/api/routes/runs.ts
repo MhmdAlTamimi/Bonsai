@@ -6,7 +6,7 @@ import type {
   StartRunRequest,
 } from '@bonsai/shared';
 import { isUsersOwnCheckout } from '../../db/store.js';
-import { parseStringArray } from '../../db/rows.js';
+import { parseStringArray, workDirIn } from '../../db/rows.js';
 import { attachedReferences, referredExperiments } from '../references.js';
 import { assertGitState, expectedGitState } from '../../git/ownership.js';
 import { pinNode } from '../../git/refs.js';
@@ -47,15 +47,31 @@ route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, con
  * older turns become a summary, freeing context. Asynchronous like any run.
  * `focus` is collapsed to one line, because it rides on the command itself.
  */
-route('POST', '/api/nodes/:id/compact', async (req, res, params, { store, jobs, connection }) => {
-  requireConnection(connection);
-  const row = store.getNode(params['id']!);
-  if (row === undefined) throw new HttpError(404, 'no such node');
-  const body = await readJson<CompactRequest>(req);
-  const focus = typeof body.focus === 'string' ? body.focus.replace(/\s+/g, ' ').trim() : '';
-  if (focus.length > 500) throw new HttpError(400, 'Keep the focus under 500 characters.');
-  sendJson(res, 202, jobs.compact(row.id, focus === '' ? null : focus));
-});
+route(
+  'POST',
+  '/api/nodes/:id/compact',
+  async (req, res, params, { store, jobs, connection, conversations }) => {
+    requireConnection(connection);
+    const row = store.getNode(params['id']!);
+    if (row === undefined) throw new HttpError(404, 'no such node');
+    const body = await readJson<CompactRequest>(req);
+    const focus = typeof body.focus === 'string' ? body.focus.replace(/\s+/g, ' ').trim() : '';
+    if (focus.length > 500) throw new HttpError(400, 'Keep the focus under 500 characters.');
+    if (
+      row.session_id !== null &&
+      conversations?.conversationAvailable &&
+      !(await conversations.conversationAvailable(
+        row.session_id,
+        workDirIn(row.worktree_path, store.getProject(row.project_id)!.work_dir),
+      ))
+    )
+      throw new HttpError(
+        409,
+        'Claude’s original session is unavailable. Send a normal message to recover from Bonsai’s saved history, then compact.',
+      );
+    sendJson(res, 202, jobs.compact(row.id, focus === '' ? null : focus));
+  },
+);
 
 /**
  * Stop whatever this node is doing.

@@ -129,7 +129,7 @@ export class ComparisonStore {
       .run(title, now(), id);
   }
 
-  setSession(id: string, sessionId: string): void {
+  setSession(id: string, sessionId: string | null): void {
     this.db.prepare(`UPDATE comparison SET session_id = ? WHERE id = ?`).run(sessionId, id);
   }
 

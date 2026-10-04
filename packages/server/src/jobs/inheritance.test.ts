@@ -28,7 +28,13 @@ class RecordingRunner implements AgentRunner, ConversationCopier {
   readonly copies: Array<{ sessionId: string; upToMessageId: string | null }> = [];
   onRun: ((spec: RunSpec) => void) | null = null;
   failCopy = false;
+  missing = new Set<string>();
+  failBeforeSession = false;
   constructor(private readonly writes = true) {}
+
+  conversationAvailable(sessionId: string): Promise<boolean> {
+    return Promise.resolve(!this.missing.has(sessionId));
+  }
 
   forkConversation(sessionId: string, upToMessageId: string | null): Promise<string> {
     if (this.failCopy) return Promise.reject(new Error('session file missing'));
@@ -39,6 +45,10 @@ class RecordingRunner implements AgentRunner, ConversationCopier {
   async *run(spec: RunSpec): AsyncIterable<RunEvent> {
     this.specs.push({ ...spec });
     this.onRun?.(spec);
+    if (this.failBeforeSession) {
+      this.failBeforeSession = false;
+      throw new Error('failed before session initialization');
+    }
     yield { type: 'session', sessionId: spec.resumeSessionId ?? `session-${this.specs.length}` };
     yield { type: 'text', text: `handled: ${spec.prompt}` };
     yield { type: 'position', messageId: `end-of-run-${this.specs.length}` };
@@ -179,7 +189,7 @@ describe('conversation inheritance', () => {
     assert.equal(store.childLineageOf(store.getNode(masterNodeId)!).conversationFrom, null);
   });
 
-  test('a failed copy keeps the child and tells it why it starts without the conversation', async () => {
+  test('a failed native copy recovers a fixed copy of the saved conversation', async () => {
     const { projectId, masterNodeId } = await project();
     await run(masterNodeId, '? first');
     const nodeId = await child(projectId, masterNodeId);
@@ -189,7 +199,63 @@ describe('conversation inheritance', () => {
     const note = store.listMessages(nodeId, 0).at(-1)!;
     assert.equal(note.role, 'system');
     assert.match(String(note.content), /session file missing/);
-    assert.match(String(note.content), /starts without it/);
+    assert.match(String(note.content), /using the saved Bonsai conversation/);
+    await run(masterNodeId, '? later parent message');
+    await run(nodeId, '? child request');
+    assert.match(runner.specs.at(-1)!.historySeed!, /first/);
+    assert.doesNotMatch(runner.specs.at(-1)!.historySeed!, /later parent message|child request/);
+  });
+
+  test('missing sessions recover saved history even if initialization fails before a replacement session exists', async () => {
+    const { masterNodeId } = await project();
+    await run(masterNodeId, '? original context');
+    runner.missing.add(store.getNode(masterNodeId)!.session_id!);
+    runner.failBeforeSession = true;
+    await run(masterNodeId, '? recover attempt');
+    assert.equal(store.getNode(masterNodeId)!.session_id, null);
+    assert.equal(store.listRuns(masterNodeId).at(-1)!.status, 'failed');
+    assert.match(runner.specs.at(-1)!.historySeed!, /original context/);
+    assert.doesNotMatch(runner.specs.at(-1)!.historySeed!, /recover attempt/);
+    await jobs.startResume(masterNodeId);
+    await settle(jobs, masterNodeId);
+    assert.match(runner.specs.at(-1)!.historySeed!, /original context/);
+    assert.equal(runner.specs.at(-1)!.resumeSessionId, null);
+    assert.equal(store.listRuns(masterNodeId).at(-1)!.status, 'done');
+    assert.ok(
+      store
+        .listMessages(masterNodeId, 0)
+        .some(
+          (message) =>
+            message.role === 'system' && String(message.content).includes('saved history'),
+        ),
+    );
+  });
+
+  test('a legacy compacted session without a completed SDK boundary uses saved context instead of copying unfinished turns', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, '? completed context');
+    store.setSessionPosition(masterNodeId, null);
+    await run(masterNodeId, 'fail');
+    store.setSessionPosition(masterNodeId, null);
+    const nodeId = await child(projectId, masterNodeId);
+    assert.equal(await copyParentConversation(store, runner, nodeId, silentLogger), 'failed');
+    assert.equal(runner.copies.length, 0);
+    await run(nodeId, '? continue child');
+    assert.match(runner.specs.at(-1)!.historySeed!, /completed context/);
+    assert.doesNotMatch(runner.specs.at(-1)!.historySeed!, /User: fail/);
+  });
+
+  test('a parent whose first turn failed never contributes its unfinished conversation', async () => {
+    const { projectId, masterNodeId } = await project();
+    await run(masterNodeId, 'fail');
+    const nodeId = await child(projectId, masterNodeId);
+    assert.equal(
+      await copyParentConversation(store, runner, nodeId, silentLogger),
+      'nothing to copy',
+    );
+    assert.equal(runner.copies.length, 0);
+    await run(nodeId, '? fresh child');
+    assert.equal(runner.specs.at(-1)!.historySeed, null);
   });
 
   test('creation is metadata-only, first run allocates the pinned code, and parent remains writable', async () => {

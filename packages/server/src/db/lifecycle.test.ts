@@ -56,6 +56,11 @@ test('accepted requests and attachments survive reopening, and finalization roll
     );
     assert.deepEqual(store.runs.requestOf('queued-run'), request);
 
+    store.setSessionId(node.id, 'owned-session');
+    await store.sdkSessions.append({ projectKey: 'fixture', sessionId: 'owned-session' }, [
+      { type: 'assistant', uuid: 'completed-message' },
+    ]);
+    const boundary = store.sdkSessions.checkpoint('owned-session');
     // Fail after the commit/head and run-end writes, before the status write.
     db.exec(
       "CREATE TRIGGER fail_status BEFORE UPDATE OF status ON node WHEN NEW.status = 'ready' BEGIN SELECT RAISE(ABORT, 'disk write fixture'); END",
@@ -75,6 +80,7 @@ test('accepted requests and attachments survive reopening, and finalization roll
     assert.throws(complete, /disk write fixture/);
     assert.equal(store.getNode(node.id)!.head_commit, 'before');
     assert.equal(store.getNode(node.id)!.session_position, null);
+    assert.equal(store.metadata(`session_boundary:${node.id}`), null);
     assert.equal(store.getRun('queued-run')!.status, 'failed');
     assert.equal(store.listRuns(node.id)[0]!.costUsd, 0);
     db.exec('DROP TRIGGER fail_status');
@@ -82,6 +88,7 @@ test('accepted requests and attachments survive reopening, and finalization roll
     assert.equal(store.getNode(node.id)!.head_commit, 'after');
     assert.equal(store.getNode(node.id)!.status, 'ready');
     assert.equal(store.getNode(node.id)!.session_position, 'message-id');
+    assert.equal(store.metadata(`session_boundary:${node.id}`), String(boundary));
     assert.equal(store.getRun('queued-run')!.commit_sha, 'after');
     assert.equal(store.listRuns(node.id)[0]!.costUsd, 0.5);
   } finally {

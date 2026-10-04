@@ -337,3 +337,20 @@ CREATE TABLE IF NOT EXISTS comparison_message (
 CREATE INDEX IF NOT EXISTS comparison_message_idx ON comparison_message(comparison_id, seq);
 CREATE INDEX IF NOT EXISTS comparison_message_turn_idx ON comparison_message(turn_id);
 CREATE INDEX IF NOT EXISTS comparison_experiment_node_idx ON comparison_experiment(node_id);
+
+-- SDK session UUIDs survive folder moves. Cleanup in Claude Code's global folder
+-- cannot delete this mirror, which is included in the database's verified backup.
+CREATE TABLE IF NOT EXISTS sdk_session (
+  session_id TEXT PRIMARY KEY,
+  project_key TEXT NOT NULL,
+  modified_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sdk_session_entry (
+  id INTEGER PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES sdk_session(session_id) ON DELETE CASCADE,
+  subpath TEXT NOT NULL DEFAULT '',
+  uuid TEXT,
+  data_json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sdk_session_entry_order_idx ON sdk_session_entry(session_id, subpath, id);
+CREATE UNIQUE INDEX IF NOT EXISTS sdk_session_entry_uuid_idx ON sdk_session_entry(session_id, subpath, uuid) WHERE uuid IS NOT NULL;

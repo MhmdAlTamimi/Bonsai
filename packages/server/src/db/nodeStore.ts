@@ -226,7 +226,7 @@ export class NodeStore {
 
   /** A3: where a child's fork was taken from its parent's conversation. */
   /** A session copied from the parent at creation, and how much of it there was. */
-  adoptForkedSession(id: string, sessionId: string, parentMessageSeq: number): void {
+  adoptForkedSession(id: string, sessionId: string | null, parentMessageSeq: number): void {
     this.db
       .prepare(`UPDATE node SET session_id = ?, forked_from_message_seq = ? WHERE id = ?`)
       .run(sessionId, parentMessageSeq, id);
@@ -283,7 +283,7 @@ export class NodeStore {
     return new Map(rows.map((row) => [row.id, row.at]));
   }
 
-  setSessionId(id: string, sessionId: string): void {
+  setSessionId(id: string, sessionId: string | null): void {
     this.db.prepare(`UPDATE node SET session_id = ? WHERE id = ?`).run(sessionId, id);
   }
 

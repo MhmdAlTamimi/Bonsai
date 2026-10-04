@@ -32,6 +32,12 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   flow in. Code and conversation can come from different ancestors when the parent has no
   commits. Compaction (`/compact`) is a read-only run that commits nothing; it resets where a
   later child's copy is cut, so children copy the compacted conversation.
+  Native SDK transcripts and subagents are mirrored through `SessionStore` into SQLite,
+  keyed by owned session UUIDs that survive folder moves. The completed SDK checkpoint is
+  saved in the final run transaction; child forks exclude later unfinished entries even
+  when compaction clears the message cut point. Import available legacy sessions by known
+  UUID. Missing sessions explicitly rebuild from bounded saved Bonsai history and the fixed
+  inherited seed; do not silently drop context or retry an unavailable compact command.
 - References are project-scoped text rows: not nodes, not in Git, never pasted into a prompt.
   A run gets write-once copies outside the checkout (`run-context/<runId>/references/` in the
   project's scratch directory) and reads them itself; each copy's revision is recorded in the

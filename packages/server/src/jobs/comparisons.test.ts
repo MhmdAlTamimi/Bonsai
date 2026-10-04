@@ -40,7 +40,12 @@ class ScriptedComparer implements Comparer {
   readonly specs: ComparisonSpec[] = [];
   readonly folders: string[][] = [];
   hold = false;
+  missing = new Set<string>();
   private release: (() => void) | null = null;
+
+  conversationAvailable(sessionId: string): Promise<boolean> {
+    return Promise.resolve(!this.missing.has(sessionId));
+  }
 
   async *compare(spec: ComparisonSpec): AsyncIterable<RunEvent> {
     this.specs.push(spec);
@@ -194,6 +199,26 @@ describe('comparisons', () => {
       ],
     );
     assert.equal(view.messages[2]!.content, 'answer to: which is simpler?');
+  });
+
+  test('a missing comparison session explicitly rebuilds from its saved conversation', async () => {
+    const row = await comparisons.create(projectId, nodes(redis, lru));
+    comparisons.ask(row.id, 'which is simpler?');
+    await settle(() => !comparisons.isRunning(row.id));
+    comparer.missing.add('compare-session');
+    comparisons.ask(row.id, 'and faster?');
+    await settle(() => !comparisons.isRunning(row.id));
+    assert.equal(comparer.specs.at(-1)!.resumeSessionId, null);
+    assert.match(comparer.specs.at(-1)!.prompt, /User: which is simpler\?/);
+    assert.match(comparer.specs.at(-1)!.prompt, /Current request:\nand faster\?/);
+    assert.equal(comparer.specs.at(-1)!.prompt.match(/and faster\?/g)!.length, 1);
+    const view = store.comparisonView(store.comparisons.get(row.id)!);
+    assert.ok(
+      view.messages.some(
+        (message) => message.role === 'system' && String(message.content).includes('saved history'),
+      ),
+    );
+    assert.equal(view.turns.at(-1)!.status, 'done');
   });
 
   test('one question at a time, and a stopped answer is recorded as stopped', async () => {

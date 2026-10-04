@@ -93,7 +93,7 @@ function reply(model, blocks, stopReason) {
   return events;
 }
 
-export async function startFakeApi() {
+export async function startFakeApi({ captureMessages = false } = {}) {
   const script = [];
   let fallback = 'text';
   const requests = [];
@@ -129,7 +129,14 @@ export async function startFakeApi() {
           : typeof result.content === 'string'
             ? result.content
             : (result.content ?? []).map((c) => c.text ?? '').join('');
-      requests.push({ path, mainLoop, step, toolResult, at: Date.now() });
+      requests.push({
+        path,
+        mainLoop,
+        step,
+        toolResult,
+        at: Date.now(),
+        ...(captureMessages ? { messages: body.messages } : {}),
+      });
       if (path !== '/v1/messages') {
         res.writeHead(404, { 'content-type': 'application/json' });
         res.end(

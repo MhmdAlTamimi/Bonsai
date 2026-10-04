@@ -166,7 +166,8 @@ async function repairMarkers(
 export async function makeBackup(
   store: Store,
   settings: Settings,
-): Promise<{ path: string; createdAt: string }> {
+  conversationFallbacks = 0,
+): Promise<{ path: string; createdAt: string; conversationFallbacks: number }> {
   if (store.deletions.pending().length > 0 || store.saves.pending().length > 0)
     throw new OperationConflict('Finish the pending recovery or deletion before making a backup.');
   for (const project of store.listProjects()) {
@@ -184,7 +185,7 @@ export async function makeBackup(
   const createdAt = new Date().toISOString();
   await writeFile(
     join(path, 'backup.json'),
-    JSON.stringify({ complete: false, createdAt }, null, 2),
+    JSON.stringify({ complete: false, createdAt, conversationFallbacks }, null, 2),
   );
   const roots = new Map<string, Root[]>();
   const checks: Array<{ path: string; digest: string; git: boolean }> = [];
@@ -441,6 +442,7 @@ export async function makeBackup(
         {
           complete: true,
           createdAt,
+          conversationFallbacks,
           projects: store.listProjects().length,
           credentialsIncluded: false,
         },
@@ -448,7 +450,7 @@ export async function makeBackup(
         2,
       ) + '\n',
     );
-    return { path, createdAt };
+    return { path, createdAt, conversationFallbacks };
   } catch (error) {
     throw new OperationConflict(
       `Backup could not finish. The incomplete copy is kept at ${path}. ${error instanceof Error ? error.message : String(error)}`,

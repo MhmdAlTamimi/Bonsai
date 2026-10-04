@@ -17,6 +17,7 @@ import { ComparisonStore, type ComparisonRow } from './comparisonStore.js';
 import { MessageStore } from './messageStore.js';
 import { SaveStore } from './saveStore.js';
 import { DeletionStore } from './deletionStore.js';
+import { SdkSessionStore } from './sdkSessionStore.js';
 import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
 import { ReferenceStore } from './referenceStore.js';
@@ -65,6 +66,7 @@ export class Store {
   readonly messages: MessageStore;
   readonly saves: SaveStore;
   readonly deletions: DeletionStore;
+  readonly sdkSessions: SdkSessionStore;
   readonly checks: CheckStore;
   readonly references: ReferenceStore;
   readonly comparisons: ComparisonStore;
@@ -81,6 +83,7 @@ export class Store {
     this.messages = new MessageStore(db);
     this.saves = new SaveStore(db);
     this.deletions = new DeletionStore(db);
+    this.sdkSessions = new SdkSessionStore(db);
     this.checks = new CheckStore(db);
     this.references = new ReferenceStore(db);
     this.comparisons = new ComparisonStore(db);
@@ -253,8 +256,12 @@ export class Store {
   descendantsOf(id: string): NodeRow[] {
     return this.nodes.descendantsOf(id);
   }
-  adoptForkedSession(id: string, sessionId: string, parentMessageSeq: number): void {
-    this.nodes.adoptForkedSession(id, sessionId, parentMessageSeq);
+  adoptForkedSession(id: string, sessionId: string | null, parentMessageSeq: number): void {
+    this.transaction(() => {
+      this.nodes.adoptForkedSession(id, sessionId, parentMessageSeq);
+      const checkpoint = sessionId === null ? null : this.sdkSessions.checkpoint(sessionId);
+      this.setMetadata(`session_boundary:${id}`, checkpoint === null ? null : String(checkpoint));
+    });
   }
   setSessionPosition(id: string, messageId: string | null): void {
     this.nodes.setSessionPosition(id, messageId);
@@ -266,7 +273,9 @@ export class Store {
     this.runs.recordContext(...args);
   }
 
-  setSessionId(id: string, sessionId: string): void {
+  setSessionId(id: string, sessionId: string | null): void {
+    if (this.nodes.get(id)?.session_id !== sessionId)
+      this.setMetadata(`session_boundary:${id}`, null);
     this.nodes.setSessionId(id, sessionId);
   }
   markSetupRan(nodeId: string): void {
@@ -328,6 +337,11 @@ export class Store {
       this.runs.finish(runId, end, totals);
       if (node.sessionPosition !== undefined)
         this.nodes.setSessionPosition(nodeId, node.sessionPosition);
+      if (end.status === 'done' && node.sessionPosition !== undefined) {
+        const sessionId = this.nodes.get(nodeId)?.session_id;
+        const checkpoint = sessionId ? this.sdkSessions.checkpoint(sessionId) : null;
+        if (checkpoint !== null) this.setMetadata(`session_boundary:${nodeId}`, String(checkpoint));
+      }
       this.nodes.setStatus(nodeId, node.status);
       if (end.status === 'done') this.saves.remove(runId);
       for (const id of node.abandonSaves ?? []) this.saves.remove(id);

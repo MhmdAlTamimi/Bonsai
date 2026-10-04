@@ -23,6 +23,7 @@ import { resolveRunSettings } from './runSettings.js';
 import { RunTranscript } from './runTranscript.js';
 import { prepareRun } from './workspace.js';
 import { ExecutionPool } from './executionPool.js';
+import { savedConversation, CONVERSATION_RECOVERY_NOTICE } from './conversationRecovery.js';
 
 export { LEFT_TO_AGENT } from './questions.js';
 
@@ -657,6 +658,27 @@ export class RunJobs {
       const permissionMode = effective.permissionMode;
       const contextPath = join(node.worktree_path, project.notes_path ?? 'CONTEXT.md');
       if (!readOnly) await mkdir(dirname(contextPath), { recursive: true });
+      const cwd = workDirIn(node.worktree_path, project.work_dir);
+      let resumeSessionId = node.session_id;
+      let historySeed: string | null = null;
+      if (
+        resumeSessionId !== null &&
+        this.runner.conversationAvailable &&
+        !(await this.runner.conversationAvailable(resumeSessionId, cwd))
+      ) {
+        if (command)
+          throw new OperationConflict(
+            'Claude’s original session is unavailable. Send a normal message to recover from Bonsai’s saved history, then compact.',
+          );
+        historySeed = savedConversation(this.store, nodeId, { excludeRunId: runId });
+        this.store.setSessionId(nodeId, null);
+        this.store.setSessionPosition(nodeId, null);
+        resumeSessionId = null;
+        transcript.record({ type: 'notice', text: CONVERSATION_RECOVERY_NOTICE });
+      } else if (resumeSessionId === null && !command) {
+        const saved = savedConversation(this.store, nodeId, { excludeRunId: runId });
+        if (saved.trim() !== '') historySeed = saved;
+      }
 
       for await (const event of this.runner.run({
         runId,
@@ -667,7 +689,7 @@ export class RunJobs {
          * it, the way an editor opens a folder. '' means the worktree root,
          * which is every project that did not choose a subdirectory.
          */
-        cwd: workDirIn(node.worktree_path, project.work_dir),
+        cwd,
         contextPath,
         prompt,
         isCommand: command,
@@ -676,7 +698,8 @@ export class RunJobs {
         attachmentsFolder: resolved.folder,
         // Always the node's own session. A child's was copied from its parent
         // when it was created (jobs/conversation.ts), never here.
-        resumeSessionId: node.session_id,
+        resumeSessionId,
+        historySeed,
         readOnly,
         successCriteria: node.success_criteria,
         verificationHint: node.verification_hint,

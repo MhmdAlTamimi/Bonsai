@@ -18,6 +18,7 @@ import { fileNames } from './runContext.js';
 import { revisionOf } from '../db/referenceStore.js';
 import { CONCURRENCY } from '@bonsai/shared';
 import { ExecutionPool } from './executionPool.js';
+import { boundedConversation, CONVERSATION_RECOVERY_NOTICE } from './conversationRecovery.js';
 
 /** What a comparison needs from the app's settings. */
 export interface ComparisonSettings {
@@ -292,6 +293,25 @@ export class ComparisonJobs {
     let error: string | null = null;
     const startedAt = Date.now();
     try {
+      const cwd = comparisonFolder(this.store, row.project_id, row.id);
+      let resumeSessionId = row.session_id;
+      if (
+        resumeSessionId !== null &&
+        this.comparer.conversationAvailable &&
+        !(await this.comparer.conversationAvailable(resumeSessionId, cwd))
+      ) {
+        this.store.comparisons.setSession(row.id, null);
+        resumeSessionId = null;
+        this.record(row, turnId, { type: 'notice', text: CONVERSATION_RECOVERY_NOTICE });
+      }
+      const previous = this.store.comparisons
+        .messages(row.id)
+        .filter((message) => message.turnId !== turnId);
+      const history =
+        resumeSessionId === null && previous.length > 0
+          ? boundedConversation(previous, 24_000)
+          : '';
+      const prompt = note === null ? question : `${note}\n\n${question}`;
       if (note !== null) this.store.comparisons.setPendingNote(row.id, null);
       const folder = turnReferencesFolder(this.store, row.project_id, row.id, turnId);
       if (attached.length > 0) await mkdir(folder, { recursive: true });
@@ -300,13 +320,16 @@ export class ComparisonJobs {
       }
       for await (const event of this.comparer.compare({
         comparisonId: row.id,
-        cwd: comparisonFolder(this.store, row.project_id, row.id),
-        prompt: note === null ? question : `${note}\n\n${question}`,
+        cwd,
+        prompt:
+          history.trim() === ''
+            ? prompt
+            : `Bonsai saved conversation: use the following prior context. Older messages and tool output may be shortened.\n\n${history}\n\nCurrent request:\n${prompt}`,
         references: attached.map(({ view }) => ({
           name: view.name,
           path: join(folder, view.file),
         })),
-        resumeSessionId: row.session_id,
+        resumeSessionId,
         model: project?.default_model ?? this.settings.model(),
         effort: project?.default_effort ?? this.settings.effort(),
         agentEnv: this.settings.agentEnv(),

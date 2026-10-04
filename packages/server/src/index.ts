@@ -62,7 +62,9 @@ const connection = new Connection(settings, useStandIn);
  * Without BONSAI_FAKE_AGENT=1 there is exactly one runner, and the connection
  * gate stops runs before they start when it cannot reach Claude.
  */
-const runner = useStandIn ? new FakeRunner() : new ClaudeSdkRunner();
+const runner = useStandIn
+  ? new FakeRunner()
+  : new ClaudeSdkRunner(undefined, undefined, undefined, undefined, store.sdkSessions);
 const pool = new ExecutionPool(
   () => settings.maxConcurrentRuns(),
   (projects) => {

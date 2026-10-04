@@ -12,6 +12,8 @@ import { bundledClaudeCodeVersion } from '../../agent/claudeCode.js';
 import { route } from '../routing.js';
 import { canonicalPath, samePath } from '../../paths.js';
 import { makeBackup } from '../../storage/backup.js';
+import { workDirIn } from '../../db/rows.js';
+import { comparisonFolder } from '../../jobs/comparisonSnapshot.js';
 
 /** Connection, settings, diagnostics and the local filesystem. */
 
@@ -165,8 +167,31 @@ route('GET', '/api/storage', async (_req, res, _p, { store }) => {
   sendJson(res, 200, await storageUse(store));
 });
 
-route('POST', '/api/backup', async (_req, res, _p, { store, settings, jobs }) => {
-  const backup = await jobs.pool.exclusivelyWhenIdle(() => makeBackup(store, settings));
+route('POST', '/api/backup', async (_req, res, _p, { store, settings, jobs, conversations }) => {
+  const backup = await jobs.pool.exclusivelyWhenIdle(async () => {
+    let conversationFallbacks = 0;
+    if (conversations.conversationAvailable) {
+      for (const project of store.listProjects()) {
+        const sessions = [
+          ...store.listNodes(project.id).map((node) => ({
+            id: node.session_id,
+            cwd: workDirIn(node.worktree_path, project.work_dir),
+          })),
+          ...store.comparisons.list(project.id).map((row) => ({
+            id: row.session_id,
+            cwd: comparisonFolder(store, project.id, row.id),
+          })),
+        ];
+        for (const session of sessions)
+          if (
+            session.id !== null &&
+            !(await conversations.conversationAvailable(session.id, session.cwd))
+          )
+            conversationFallbacks += 1;
+      }
+    }
+    return makeBackup(store, settings, conversationFallbacks);
+  });
   sendJson(res, 201, backup);
 });
 

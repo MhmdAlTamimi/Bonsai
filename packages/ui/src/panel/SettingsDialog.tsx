@@ -222,6 +222,7 @@ function Storage({
   const [use, setUse] = useState<StorageView | null>(null);
   const [useError, setUseError] = useState<string | null>(null);
   const [backupPath, setBackupPath] = useState<string | null>(null);
+  const [backupFallbacks, setBackupFallbacks] = useState(0);
   const backup = useSave();
   const save = useSave();
   useEffect(() => {
@@ -257,7 +258,9 @@ function Storage({
           onClick={() =>
             void backup.run(async () => {
               setBackupPath(null);
-              setBackupPath((await api.backup()).path);
+              const result = await api.backup();
+              setBackupPath(result.path);
+              setBackupFallbacks(result.conversationFallbacks);
             })
           }
         >
@@ -269,6 +272,13 @@ function Storage({
         <p className="hint" role="status">
           Backup verified: <code>{backupPath}</code>. Close Bonsai before restoring it as your data
           folder, then sign in again. Copy it to another drive for protection against disk failure.
+        </p>
+      )}
+      {backupPath !== null && backupFallbacks > 0 && (
+        <p className="hint" role="status">
+          {plural(backupFallbacks, 'original Claude conversation')} unavailable. The saved Bonsai
+          messages are backed up; continuing these conversations will explicitly rebuild their
+          context and may shorten older content.
         </p>
       )}
       <label className="check">

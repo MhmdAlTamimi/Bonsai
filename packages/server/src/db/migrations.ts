@@ -219,6 +219,7 @@ export const MIGRATIONS: readonly Migration[] = [
   },
   { version: 24, name: 'durable Git save intents', up: () => undefined },
   { version: 25, name: 'retryable deletion intents', up: () => undefined },
+  { version: 26, name: 'Bonsai-owned SDK transcripts', up: () => undefined },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

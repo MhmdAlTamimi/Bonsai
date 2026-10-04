@@ -9,6 +9,8 @@ export interface RunSpec {
   /** Repository-root notes path, independent of the selected working subdirectory. */
   contextPath?: string;
   prompt: string;
+  /** Explicit recovery when the original Claude session is unavailable. */
+  historySeed?: string | null;
   /**
    * The prompt is a Claude Code command such as `/compact`, to be sent exactly
    * as written. Nothing is appended -- no run context, no definition of done --
@@ -191,6 +193,7 @@ export class AgentApiFailure extends Error {}
 
 export interface AgentRunner {
   run(spec: RunSpec): AsyncIterable<RunEvent>;
+  conversationAvailable?(sessionId: string, cwd: string): Promise<boolean>;
 }
 
 /**
@@ -207,7 +210,13 @@ export interface ConversationCopier {
    * of it. No model call is made -- this is a transcript copy, which is why it
    * can happen at node creation.
    */
-  forkConversation(sessionId: string, upToMessageId: string | null): Promise<string>;
+  forkConversation(
+    sessionId: string,
+    upToMessageId: string | null,
+    cwd?: string,
+    checkpoint?: number | null,
+  ): Promise<string>;
+  conversationAvailable?(sessionId: string, cwd: string): Promise<boolean>;
 }
 
 /**
@@ -239,6 +248,7 @@ export interface ComparisonSpec {
 
 export interface Comparer {
   compare(spec: ComparisonSpec): AsyncIterable<RunEvent>;
+  conversationAvailable?(sessionId: string, cwd: string): Promise<boolean>;
 }
 
 export interface TextDrafter {

@@ -224,6 +224,16 @@ files, comparison snapshots and preserved recovery/export folders. External sour
 are copied privately; the originals are untouched. Authentication credentials and Git
 remote/credential configuration are excluded. Copy the completed folder to another disk.
 
+Claude conversation transcripts and subagent history are mirrored into Bonsai's database
+through the SDK's session store, so verified backups and storage moves preserve resumable
+sessions. Older sessions are imported when available, including before a verified backup.
+Backup reports original sessions that are unavailable and preserves their saved Bonsai messages.
+If Claude's original session is
+missing, Bonsai explicitly starts a new conversation from its saved messages and inherited
+context; older messages and tool output may be shortened. A child keeps the parent's context
+as of its last completed run, including after compaction, without inheriting unfinished turns.
+Send a normal message to recover a missing session before using Compact.
+
 To restore, close Bonsai, preserve the current data folder, then copy the **whole completed
 backup folder** into the chosen data location (or set `BONSAI_DATA_DIR` to it). Start Bonsai
 and sign in again. Owned checkout paths are repaired on startup. A backup whose
