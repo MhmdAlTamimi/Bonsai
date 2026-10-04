@@ -333,6 +333,21 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       'newer child draft',
     );
   });
+  test('an unsent draft survives a full page reload in its own experiment', async () => {
+    const before = String(await session.eval('location.href'));
+    await session.eval("document.querySelector('.composer-open')?.click()");
+    await session.type('.composer textarea', 'unsent message survives reload');
+    await session.goto(before);
+    await session.waitFor(
+      "!!document.querySelector('.composer textarea') || !!document.querySelector('.composer-open')",
+    );
+    await session.eval("document.querySelector('.composer-open')?.click()");
+    assert.equal(
+      await session.eval("document.querySelector('.composer textarea').value"),
+      'unsent message survives reload',
+    );
+    await session.type('.composer textarea', '');
+  });
   test('rename changes metadata and branching discloses divergent sources', async () => {
     const p = (await (await fetch(`${BASE}/api/projects`)).json()) as Array<{ id: string }>;
     const projectId = p[0]!.id;
@@ -1936,8 +1951,35 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       'Later experiment (latest)',
     );
-    await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
-    await session.waitFor("!document.querySelector('dialog[open]')");
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog[open] button')).find(b => b.textContent.trim() === 'Save for later').click()",
+    );
+    await session.waitFor(
+      "!document.querySelector('dialog[open]') && document.querySelector('.panel h2')?.textContent === 'Later experiment (latest)'",
+    );
+    const latestTree = (await (
+      await fetch(`${BASE}/api/projects/${created.projectId}/tree`)
+    ).json()) as {
+      nodes: Array<{ id: string; displayName: string; initialExperimentIds: string[] }>;
+    };
+    const redo = latestTree.nodes.find((n) => n.displayName === 'Later experiment (latest)')!;
+    assert.deepEqual(redo.initialExperimentIds, [child]);
+    await session.eval('sessionStorage.clear()');
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${redo.id}`);
+    await session.waitFor(
+      "document.querySelector('.attached-references')?.textContent.includes('Later experiment')",
+    );
+    await session.click('.composer-row .send');
+    await session.waitFor(
+      `(async()=> (await (await fetch(${JSON.stringify(nodeUrl(redo.id))})).json()).node.status === 'ready')()`,
+    );
+    const redone = (await (await fetch(nodeUrl(redo.id))).json()) as {
+      runs: Array<{ resolvedContext: { experiments?: Array<{ id: string }> } }>;
+    };
+    assert.deepEqual(
+      redone.runs.at(-1)?.resolvedContext.experiments?.map((e) => e.id),
+      [child],
+    );
 
     const fresh = await saveChildForLater('Fresh experiment', true);
     const freshDetail = await detail(fresh);

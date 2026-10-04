@@ -50,6 +50,9 @@ export function useChat(
     node.id,
     'reply',
     node.status === 'new' ? node.summaryLine : '',
+    node.runCount === 0
+      ? (node.initialExperimentIds ?? []).map((id) => ({ kind: 'experiment' as const, id }))
+      : [],
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

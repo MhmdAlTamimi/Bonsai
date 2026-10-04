@@ -28,6 +28,7 @@ export class NodeStore {
    * resolveBaseCommit() and is never recomputed afterwards.
    */
   create(input: {
+    initialExperimentIds?: readonly string[];
     /** Chosen by the caller when something recorded at insert names the node. */
     id?: string;
     projectId: string;
@@ -66,6 +67,7 @@ export class NodeStore {
     }
 
     const row: NodeRow = {
+      initial_experiment_ids: JSON.stringify(input.initialExperimentIds ?? []),
       id,
       project_id: input.projectId,
       parent_id: input.parentId,
@@ -98,8 +100,8 @@ export class NodeStore {
                            session_id, forked_from_message_seq, branch_name,
                            base_commit, head_commit, worktree_path, status, model,
                            permission_mode, success_criteria, verification_hint,
-                           position_x, position_y, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           position_x, position_y, created_at, initial_experiment_ids)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         row.id,
@@ -121,6 +123,7 @@ export class NodeStore {
         row.position_x,
         row.position_y,
         row.created_at,
+        row.initial_experiment_ids!,
       );
     return row;
   }

@@ -274,6 +274,7 @@ export const api = {
   createNode: (
     projectId: string,
     body: {
+      initialExperimentIds?: readonly string[];
       parentId: string;
       sourceVersion?: string;
       displayName?: string;

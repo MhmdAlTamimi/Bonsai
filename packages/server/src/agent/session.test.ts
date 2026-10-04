@@ -210,6 +210,34 @@ async function until(condition: () => boolean, what: string): Promise<void> {
 const drained = (): Promise<void> => new Promise((r) => setTimeout(r, 20));
 
 describe('a run and its background work', () => {
+  test('the SDK error-only tool result retains command output in the transcript', async () => {
+    const run = start();
+    const session = await run.session;
+    await until(() => session.received.length === 1, 'the prompt to arrive');
+    session.emit(callTool('failed-tool', 'Bash', 'echo visible-failure >&2; exit 3'));
+    session.emit({
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'failed-tool',
+            is_error: true,
+            content: 'Exit code 3\nvisible-failure',
+          },
+        ],
+      },
+      parent_tool_use_id: null,
+      ...ids,
+    } as unknown as SDKMessage);
+    session.emit(turnOver(0));
+    await run.done;
+    const result = run.events.find((event) => event.type === 'tool_result');
+    assert.ok(result?.type === 'tool_result');
+    assert.equal(result.result.ok, false);
+    assert.deepEqual(result.result.output, ['Exit code 3', 'visible-failure']);
+  });
   test('a turn that leaves nothing running ends the run', async () => {
     const run = start();
     const session = await run.session;

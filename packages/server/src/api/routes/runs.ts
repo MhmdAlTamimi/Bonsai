@@ -6,6 +6,7 @@ import type {
   StartRunRequest,
 } from '@bonsai/shared';
 import { isUsersOwnCheckout } from '../../db/store.js';
+import { parseStringArray } from '../../db/rows.js';
 import { attachedReferences, referredExperiments } from '../references.js';
 import { assertGitState, expectedGitState } from '../../git/ownership.js';
 import { pinNode } from '../../git/refs.js';
@@ -22,7 +23,14 @@ route('POST', '/api/nodes/:id/runs', async (req, res, params, { store, jobs, con
   if (row === undefined) throw new HttpError(404, 'no such node');
   const body = await readJson<StartRunRequest>(req);
   const referenceIds = attachedReferences(store, row.project_id, body.referenceIds);
-  const experimentIds = referredExperiments(store, row, body.experimentIds);
+  const experimentIds = referredExperiments(
+    store,
+    row,
+    body.experimentIds ??
+      (store.listRuns(row.id).length === 0
+        ? (parseStringArray(row.initial_experiment_ids) ?? [])
+        : []),
+  );
   try {
     sendJson(
       res,

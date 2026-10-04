@@ -10,11 +10,19 @@ import {
   type Attachment,
 } from './drafts.ts';
 
-export function useDraft(projectId: string, nodeId: string, channel: string, initial = '') {
+export function useDraft(
+  projectId: string,
+  nodeId: string,
+  channel: string,
+  initial = '',
+  initialAttached: readonly Attachment[] = [],
+) {
   const key = draftKey(projectId, nodeId, channel);
   const prompt = useSyncExternalStore(subscribeDrafts, () => readDraft(key, initial));
   const sending = useSyncExternalStore(subscribeDrafts, () => isSending(key));
-  const attached = useSyncExternalStore(subscribeDrafts, () => readAttachments(key));
+  const attached = useSyncExternalStore(subscribeDrafts, () =>
+    readAttachments(key, initialAttached),
+  );
   return {
     key,
     prompt,

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { ResolvedRunContext, RunView } from '@bonsai/shared';
 
-import { now, parseStringArray, type RunEnd, type RunTotals } from './rows.js';
+import { now, parseStringArray, type RunEnd, type RunRequest, type RunTotals } from './rows.js';
 
 /**
  * Runs: one agent request, from start to whatever ended it.
@@ -14,10 +14,19 @@ import { now, parseStringArray, type RunEnd, type RunTotals } from './rows.js';
 export class RunStore {
   constructor(private readonly db: DatabaseSync) {}
 
-  create(runId: string, nodeId: string): void {
+  create(runId: string, nodeId: string, request?: RunRequest): void {
     this.db
-      .prepare(`INSERT INTO run (id, node_id, status, started_at) VALUES (?, ?, 'running', ?)`)
-      .run(runId, nodeId, now());
+      .prepare(
+        `INSERT INTO run (id, node_id, status, started_at, request_json) VALUES (?, ?, 'running', ?, ?)`,
+      )
+      .run(runId, nodeId, now(), request === undefined ? null : JSON.stringify(request));
+  }
+
+  requestOf(runId: string): RunRequest | null {
+    const row = this.db.prepare('SELECT request_json FROM run WHERE id = ?').get(runId);
+    return typeof row?.['request_json'] === 'string'
+      ? (JSON.parse(row['request_json']) as RunRequest)
+      : null;
   }
 
   recordContext(runId: string, context: ResolvedRunContext): void {

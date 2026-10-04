@@ -23,6 +23,7 @@ import { revealInFileManager } from '../reveal.js';
 import { testingSection, testingNotesCommit } from '../../git/context.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { route, withLive } from '../routing.js';
+import { referredExperiments } from '../references.js';
 
 /** Experiments: creating, reading, renaming and deleting them, and reading their changes. */
 
@@ -63,6 +64,7 @@ route('POST', '/api/projects/:id/nodes', async (req, res, params, ctx) => {
     // means the node behaves exactly as nodes did before these were asked.
     successCriteria: typeof body.successCriteria === 'string' ? body.successCriteria : null,
     verificationHint: typeof body.verificationHint === 'string' ? body.verificationHint : null,
+    initialExperimentIds: referredExperiments(store, parent, body.initialExperimentIds),
   });
   // Before the tree is announced, so the new node never appears without the
   // conversation it is about to have.

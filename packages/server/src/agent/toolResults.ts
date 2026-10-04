@@ -33,16 +33,42 @@ export function toolResultFrom(
   structured: unknown,
   /** The agent's working directory, so an edited file is named as the user names it. */
   root = '',
+  fallback: unknown = null,
 ): ToolResultContent | null {
   const output = structured as Record<string, unknown> | null;
-  if (output === null || typeof output !== 'object') return null;
 
-  if (Array.isArray(output['structuredPatch']) && typeof output['filePath'] === 'string') {
-    return edited(toolUseId, name, ok, output, root);
+  // Failed commands often have only the user-message tool_result text. Keep
+  // that evidence with the same bounds as structured stdout/stderr.
+  if (output !== null && typeof output === 'object') {
+    if (Array.isArray(output['structuredPatch']) && typeof output['filePath'] === 'string') {
+      return edited(toolUseId, name, ok, output, root);
+    }
+    if (typeof output['stdout'] === 'string' || typeof output['stderr'] === 'string') {
+      return ran(toolUseId, name, ok, output);
+    }
   }
-  if (typeof output['stdout'] === 'string' || typeof output['stderr'] === 'string') {
-    return ran(toolUseId, name, ok, output);
+  if (!ok) {
+    const text =
+      typeof fallback === 'string'
+        ? fallback
+        : Array.isArray(fallback)
+          ? fallback
+              .map((block: unknown) =>
+                typeof block === 'object' &&
+                block !== null &&
+                'text' in block &&
+                typeof block.text === 'string'
+                  ? block.text
+                  : '',
+              )
+              .filter(Boolean)
+              .join('\n')
+          : '';
+    return ran(toolUseId, name, false, {
+      stderr: text || 'The tool failed without returning output.',
+    });
   }
+
   return null;
 }
 

@@ -89,6 +89,7 @@ export class Views {
       const question = row.status === 'needs_you' ? this.messages.pendingQuestion(row.id) : null;
       return {
         id: row.id,
+        initialExperimentIds: parseStringArray(row.initial_experiment_ids) ?? [],
         projectId: row.project_id,
         parentId: row.parent_id,
         displayName: row.display_name,

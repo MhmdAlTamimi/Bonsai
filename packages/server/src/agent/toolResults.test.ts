@@ -50,6 +50,16 @@ describe('what a tool produced', () => {
     assert.deepEqual(result?.output, ['command not found']);
   });
 
+  test('a failed command with no structured result keeps SDK text and obeys output bounds', () => {
+    const result = toolResultFrom('failed', 'Bash', false, undefined, '', [
+      { type: 'text', text: Array.from({ length: 100 }, (_, i) => `failure line ${i}`).join('\n') },
+    ]);
+    assert.equal(result?.ok, false);
+    assert.equal(result?.output?.length, MAX_OUTPUT_LINES);
+    assert.equal(result?.output?.at(-1), 'failure line 99');
+    assert.equal(result?.dropped, 100 - MAX_OUTPUT_LINES);
+  });
+
   test('an edit keeps its changed lines with the numbers they have in the file', () => {
     const result = toolResultFrom(
       't2',

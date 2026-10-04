@@ -338,6 +338,7 @@ export interface ProjectSetupView {
 export type FrozenReason = 'child_committed' | 'your_folder' | 'snapshot';
 
 export interface NodeView {
+  initialExperimentIds?: readonly string[];
   id: string;
   projectId: string;
   parentId: string | null;
@@ -1044,6 +1045,7 @@ export interface DirectoryListingView {
 }
 
 export interface CreateNodeRequest {
+  initialExperimentIds?: readonly string[];
   sourceVersion?: string;
   parentId: string;
   /**

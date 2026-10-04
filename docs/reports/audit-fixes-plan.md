@@ -30,13 +30,13 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] S1: Two copies of Bonsai on one data folder corrupt each other's runs
 - [x] S2: One unexpected error stops everything, and leaves no trace in the log
 - [ ] S3: An open tab keeps running old code after an upgrade
-- [ ] S4: The HTTP layer is tested only through the browser
+- [x] S4: The HTTP layer is tested only through the browser
 
 ### audit-02-database
 
 - [x] D1: The pre-upgrade backup can be empty
 - [x] D2: Deleting freezes the whole app, for longer the more you have used it
-- [ ] D3: A run's end is recorded in several separate writes
+- [x] D3: A run's end is recorded in several separate writes
 
 ### audit-03-starting-a-project
 
@@ -73,13 +73,13 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [ ] A1: Each run's cost includes every earlier run of its experiment, so Usage is overstated, and more so the more you use it
 - [ ] A2: While Claude Code retries a failing API, Bonsai just shows "working"; a rejected key takes three minutes to fail, and one rate limit stops every experiment until you re-check
-- [ ] A3: A request waiting in the queue is lost when Bonsai closes, and after a crash Resume sends the previous request instead
+- [x] A3: A request waiting in the queue is lost when Bonsai closes, and after a crash Resume sends the previous request instead
 - [ ] A4: No spending limit, and a run's cost is unknown until it ends — budget limits deferred; missing/incorrect accounting remains in scope
 
 ### audit-08-inside-a-run
 
 - [ ] I1: A tool that commits by itself leaves the experiment stuck, and its tag lands in your repository
-- [ ] I2: A command that fails shows no output in the conversation
+- [x] I2: A command that fails shows no output in the conversation
 - [ ] I3: Runs waiting on you, or on background work, hold run slots; a new request queues with no reason given
 - [ ] I4: On Windows, processes the agent leaves running are neither found nor stopped
 
@@ -98,10 +98,10 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-11-conversation-panel
 
-- [ ] C1: An unsent message is lost when the page reloads
+- [x] C1: An unsent message is lost when the page reloads
 - [ ] C2: A long conversation slows the whole page, whatever else is happening
 - [ ] C3: When the agent asks you something, the answer buttons are below the fold
-- [ ] C4: A queued request is not shown in its own panel
+- [x] C4: A queued request is not shown in its own panel
 - [ ] C5: Result tables break their words apart at the panel's default width
 
 ### audit-12-review-and-apply
@@ -115,7 +115,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [ ] X1: Every comparison keeps a full copy of each compared experiment's repository, and nothing counts or removes them
 - [ ] X2: Spending on comparisons and on drafted references is not in Usage
 - [ ] X3: A comparison's address does not open it
-- [ ] X4: *Start from latest*, saved for later, loses the work it carries
+- [x] X4: *Start from latest*, saved for later, loses the work it carries
 
 ### audit-14-sign-in-and-settings
 
@@ -139,4 +139,6 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - Foundation fixes (`a65ba2c`): full `npm test` passed (369 server tests, 120 UI/shared tests) and `npm run build:ui` passed; an additional real-Git integrity test and crash-released instance-lock test passed. WAL-crash reproduction now backs up all 50 experiments. Two-instance reproduction refuses both duplicate servers while the original run completes normally. Deletion benchmark explicitly drops the index for the baseline: whole-project deletion fell from 14.6 s to 0.63 s for 180,000 messages. Fatal errors are logged and shut down; continued serving after an uncaught error is deliberately avoided.
 
-- Git/files batch: 377 server tests, 120 UI/shared tests and all 25 browser tests passed; production build passed. Real Git tests cover hook/signing isolation, system config, stable diff prefixes, unique immutable Apply artifacts, submodule contents and failed-setup cleanup. Adoption reproduction excludes 20,000 dependency files and the credential canary without writing `.git` in the source; home/root are refused. The 40,000-file Review reproduction now opens dirty files in 279–302 ms (previously 4.3–5.2 s). New projects use their own recorded `.bonsai/notes-<project>.md`; old projects retain `CONTEXT.md` compatibility. Manual archive text is browser-tested; automatic ignored-file handling remains deferred. Audit SDK helper now verifies the fake API identity before starting, with bounded readiness/settle waits.
+- Git/files batch (`ed33ce5`): 377 server tests, 120 UI/shared tests and all 25 browser tests passed; production build passed. Real Git tests cover hook/signing isolation, system config, stable diff prefixes, unique immutable Apply artifacts, submodule contents and failed-setup cleanup. Adoption reproduction excludes 20,000 dependency files and the credential canary without writing `.git` in the source; home/root are refused. The 40,000-file Review reproduction now opens dirty files in 279–302 ms (previously 4.3–5.2 s). New projects use their own recorded `.bonsai/notes-<project>.md`; old projects retain `CONTEXT.md` compatibility. Manual archive text is browser-tested; automatic ignored-file handling remains deferred. Audit SDK helper now verifies the fake API identity before starting, with bounded readiness/settle waits.
+
+- Durable-input batch: full `npm test` passed (381 server tests, 120 UI/shared tests), production build and all 26 browser tests passed. Database reopen tests preserve queued prompts and attachment identities; an injected final-status write failure rolls back the commit, totals and conversation position together. Both SIGTERM and SIGKILL reproductions resume the waiting request. SDK-frame tests retain failed-command text with bounded output. Browser reload tests cover unsent per-tab drafts and a saved Start-from-latest attachment after browser storage is cleared. Real HTTP tests cover validation, origin restrictions, SSE and run acceptance/finalization.

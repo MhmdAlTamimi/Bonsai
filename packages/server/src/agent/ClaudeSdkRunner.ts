@@ -413,6 +413,7 @@ function toolResultEvents(
       block.is_error !== true,
       message.tool_use_result,
       cwd,
+      block.content,
     );
     if (result !== null) events.push({ type: 'tool_result', result });
   }

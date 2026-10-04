@@ -207,6 +207,16 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'project: separate new run notes from repository documentation',
     up: (db) => addColumn(db, 'project', 'notes_path', "TEXT NOT NULL DEFAULT 'CONTEXT.md'"),
   },
+  {
+    version: 22,
+    name: 'run: durable queued request and attachment identities',
+    up: (db) => addColumn(db, 'run', 'request_json', 'TEXT'),
+  },
+  {
+    version: 23,
+    name: 'node: attachments for a saved first request',
+    up: (db) => addColumn(db, 'node', 'initial_experiment_ids', 'TEXT'),
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

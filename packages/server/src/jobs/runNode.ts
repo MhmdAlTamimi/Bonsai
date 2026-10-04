@@ -225,12 +225,23 @@ export class RunJobs {
     if (dropped === undefined) return false;
 
     this.log.info('run.cancelled', { runId: dropped.runId, nodeId, queued: true });
-    this.store.finishRun(dropped.runId, this.stopped(), {
-      cost: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-    });
-    this.setStatus(nodeId, this.store.getNode(nodeId)?.head_commit === null ? 'new' : 'ready');
+    const status = this.closing
+      ? 'interrupted'
+      : this.store.getNode(nodeId)?.head_commit === null
+        ? 'new'
+        : 'ready';
+    this.store.completeRun(
+      dropped.runId,
+      nodeId,
+      this.stopped(),
+      {
+        cost: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      },
+      { status },
+    );
+    this.publishStatus(nodeId, status);
     this.bus.publish(dropped.projectId, {
       type: 'tree.updated',
       projectId: dropped.projectId,
@@ -353,11 +364,15 @@ export class RunJobs {
       node.worktree_allocated === 0
         ? { changed: [], untracked: [], patch: '' }
         : await readWorktreeState(node.worktree_path);
-    const original = this.store.lastUserPrompt(nodeId) ?? node.description;
     const last = this.store.listRuns(nodeId).at(-1);
+    const request = last === undefined ? null : this.store.runs.requestOf(last.id);
+    const original = request?.prompt ?? this.store.lastUserPrompt(nodeId) ?? node.description;
     // The interrupted request carried these; resuming it should too.
-    const referenceIds = (last?.resolvedContext?.references ?? []).map((r) => r.id);
-    const experimentIds = (last?.resolvedContext?.experiments ?? []).map((e) => e.id);
+    const referenceIds =
+      request?.referenceIds ?? (last?.resolvedContext?.references ?? []).map((r) => r.id);
+    const experimentIds =
+      request?.experimentIds ?? (last?.resolvedContext?.experiments ?? []).map((e) => e.id);
+    if (request?.command === true) return this.start(nodeId, original, { command: true });
     return this.start(
       nodeId,
       resumePrompt(state, original, recoveryCause(last), last?.error ?? null),
@@ -406,7 +421,12 @@ export class RunJobs {
     const runId = randomUUID();
     const controller = new AbortController();
 
-    this.store.createRun(runId, nodeId);
+    this.store.enqueueRun(runId, nodeId, {
+      prompt,
+      command,
+      referenceIds: command ? [] : (options.referenceIds ?? []),
+      experimentIds: command ? [] : (options.experimentIds ?? []),
+    });
     // Lengths, never contents: a log is the artefact most likely to be pasted
     // into a bug report, and the prompt is the user's own words about their
     // own code.
@@ -419,7 +439,7 @@ export class RunJobs {
     });
     // Marked running even when it will wait: the user asked for it, it is
     // going to happen, and the only visible difference is a queue badge.
-    this.setStatus(nodeId, 'running');
+    this.publishStatus(nodeId, 'running');
 
     const job: Queued = {
       runId,
@@ -587,8 +607,6 @@ export class RunJobs {
       });
       this.finishRun(runId, nodeId, this.stopped(), transcript.totals({ stoppedBackground }));
     };
-
-    this.store.appendMessage({ nodeId, runId, role: 'user', kind: 'text', content: prompt });
 
     try {
       const { resolved, expectedState } = await prepareRun(
@@ -796,14 +814,9 @@ export class RunJobs {
           baseCommit: await this.baseFor(node),
         });
 
-    if (outcome.committed) {
-      // D29: always a new commit, never an amend. A node is a branch that may
-      // accumulate several commits without changing existing children’s pinned bases.
-      this.store.recordCommit(nodeId, outcome.branch!, outcome.commit!);
-    }
-
-    this.store.finishRun(
+    this.store.completeRun(
       runId,
+      nodeId,
       { status: 'done', reason: 'finished', error: null },
       transcript.totals({
         commitSha: outcome.commit,
@@ -811,12 +824,19 @@ export class RunJobs {
         change: outcome.ownStat,
         stoppedBackground: run.stoppedBackground,
       }),
+      {
+        status: 'ready',
+        ...(outcome.committed
+          ? { commit: { branch: outcome.branch!, head: outcome.commit! } }
+          : {}),
+        ...(transcript.position !== null || transcript.compacted
+          ? { sessionPosition: transcript.position }
+          : {}),
+      },
     );
     // Only a finished run moves where a child's copy of this conversation ends.
     // After a compaction with nothing written since, a copy takes the whole
     // session, which now opens with the summary.
-    if (transcript.position !== null || transcript.compacted)
-      this.store.setSessionPosition(nodeId, transcript.position);
     this.log.info('run.done', {
       runId,
       nodeId,
@@ -835,7 +855,7 @@ export class RunJobs {
       committed: outcome.committed,
       changedFiles: outcome.changedPaths.length,
     });
-    this.setStatus(nodeId, 'ready');
+    this.publishStatus(nodeId, 'ready');
     this.bus.publish(node.project_id, {
       type: 'run.finished',
       nodeId,
@@ -869,8 +889,8 @@ export class RunJobs {
   }
 
   private finishRun(runId: string, nodeId: string, end: RunEnd, totals: RunTotals): void {
-    this.store.finishRun(runId, end, totals);
-    this.setStatus(nodeId, 'interrupted');
+    this.store.completeRun(runId, nodeId, end, totals, { status: 'interrupted' });
+    this.publishStatus(nodeId, 'interrupted');
     const node = this.store.getNode(nodeId);
     if (node !== undefined) {
       this.bus.publish(node.project_id, { type: 'tree.updated', projectId: node.project_id });
@@ -879,6 +899,10 @@ export class RunJobs {
 
   private setStatus(nodeId: string, status: NodeStatus): void {
     this.store.setNodeStatus(nodeId, status);
+    this.publishStatus(nodeId, status);
+  }
+
+  private publishStatus(nodeId: string, status: NodeStatus): void {
     const node = this.store.getNode(nodeId);
     if (node !== undefined) {
       this.bus.publish(node.project_id, { type: 'node.status', nodeId, status });

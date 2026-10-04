@@ -328,6 +328,7 @@ export async function createChildNode(
     permissionMode?: PermissionMode | null;
     successCriteria?: string | null;
     verificationHint?: string | null;
+    initialExperimentIds?: readonly string[];
   },
 ): Promise<{ nodeId: string; baseCommit: string; seeded: SeedFileOutcome[] }> {
   const project = store.getProject(input.projectId);

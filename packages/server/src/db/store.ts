@@ -20,7 +20,7 @@ import { ProjectStore } from './projectStore.js';
 import { ReferenceStore } from './referenceStore.js';
 import { RunStore } from './runStore.js';
 import { Views } from './views.js';
-import type { NodeRow, ProjectRow, RunEnd, RunTotals } from './rows.js';
+import type { NodeRow, ProjectRow, RunEnd, RunRequest, RunTotals } from './rows.js';
 import type { ReferenceRow } from './referenceStore.js';
 
 export type { NodeRow, ProjectRow, RunEnd, RunTotals };
@@ -66,7 +66,11 @@ export class Store {
   readonly comparisons: ComparisonStore;
   readonly views: Views;
 
-  constructor(db: DatabaseSync, reposRoot: string, futureReposRoot?: () => string) {
+  constructor(
+    private readonly db: DatabaseSync,
+    reposRoot: string,
+    futureReposRoot?: () => string,
+  ) {
     this.projects = new ProjectStore(db, reposRoot, futureReposRoot);
     this.nodes = new NodeStore(db, (projectId) => this.projects.scratchDir(projectId));
     this.runs = new RunStore(db);
@@ -167,6 +171,49 @@ export class Store {
 
   // -- runs ----------------------------------------------------------------
 
+  private transaction<T>(work: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const value = work();
+      this.db.exec('COMMIT');
+      return value;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  /** Accepting a request is durable before scheduling or returning HTTP 202. */
+  enqueueRun(runId: string, nodeId: string, request: RunRequest): void {
+    this.transaction(() => {
+      this.runs.create(runId, nodeId, request);
+      this.messages.append({ nodeId, runId, role: 'user', kind: 'text', content: request.prompt });
+      this.nodes.setStatus(nodeId, 'running');
+    });
+  }
+
+  /** The Git commit precedes this transaction; all database consequences land together. */
+  completeRun(
+    runId: string,
+    nodeId: string,
+    end: RunEnd,
+    totals: RunTotals,
+    node: {
+      status: NodeStatus;
+      commit?: { branch: string; head: string };
+      sessionPosition?: string | null;
+    },
+  ): void {
+    this.transaction(() => {
+      if (node.commit !== undefined)
+        this.nodes.recordCommit(nodeId, node.commit.branch, node.commit.head);
+      this.runs.finish(runId, end, totals);
+      if (node.sessionPosition !== undefined)
+        this.nodes.setSessionPosition(nodeId, node.sessionPosition);
+      this.nodes.setStatus(nodeId, node.status);
+    });
+  }
+
   createRun(runId: string, nodeId: string): void {
     this.runs.create(runId, nodeId);
   }
@@ -186,7 +233,9 @@ export class Store {
     return this.runs.counts();
   }
   markOrphanedRunsInterrupted(): number {
-    return this.runs.markOrphanedInterrupted() + this.comparisons.markOrphanedTurnsFailed();
+    return this.transaction(
+      () => this.runs.markOrphanedInterrupted() + this.comparisons.markOrphanedTurnsFailed(),
+    );
   }
 
   // -- messages, questions and checks ---------------------------------------

@@ -1,7 +1,13 @@
 import { useCallback, useState } from 'react';
 
 import { api } from '../api/client.ts';
-import { draftKey, setSending } from '../panel/chat/drafts.ts';
+import {
+  clearSubmittedDraft,
+  draftKey,
+  setSending,
+  writeAttachments,
+  writeDraft,
+} from '../panel/chat/drafts.ts';
 import { describeError } from '../api/describeError.ts';
 
 /**
@@ -78,8 +84,14 @@ export function useChildCreation(opts: {
         verificationHint,
         sourceVersion,
         startFresh,
+        initialExperimentIds: pending.redo === undefined ? [] : [pending.redo.id],
       });
       const draft = draftKey(projectId, node.id, 'reply');
+      writeDraft(draft, description);
+      writeAttachments(
+        draft,
+        pending.redo === undefined ? [] : [{ kind: 'experiment', id: pending.redo.id }],
+      );
       setSending(draft, true);
       // Creation is confirmed. A later placement/start error must not lose the node.
       setPending(null);
@@ -96,12 +108,15 @@ export function useChildCreation(opts: {
         }
       }
       try {
-        if (startNow)
+        if (startNow) {
           await api.startRun(
             node.id,
             description,
             pending.redo === undefined ? {} : { experimentIds: [pending.redo.id] },
           );
+          clearSubmittedDraft(draft, description);
+          writeAttachments(draft, []);
+        }
       } catch (e) {
         setFailedStart({
           nodeId: node.id,

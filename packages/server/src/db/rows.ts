@@ -18,6 +18,7 @@ import { samePath } from '../paths.js';
 
 /** The full node row. Only the server ever sees this shape. */
 export interface NodeRow {
+  initial_experiment_ids?: string | null;
   id: string;
   project_id: string;
   parent_id: string | null;
@@ -78,6 +79,13 @@ export interface RunEnd {
   reason: RunEndReason;
   /** A failure's message. Null for everything else. */
   error: string | null;
+}
+
+export interface RunRequest {
+  prompt: string;
+  command: boolean;
+  referenceIds: readonly string[];
+  experimentIds: readonly string[];
 }
 
 export interface RunTotals {

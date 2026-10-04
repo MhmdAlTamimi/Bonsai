@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS project (
 );
 
 CREATE TABLE IF NOT EXISTS node (
+  initial_experiment_ids TEXT,
   id            TEXT PRIMARY KEY,
   project_id    TEXT NOT NULL REFERENCES project(id) ON DELETE CASCADE,
   -- D7: delete cascades to descendants.
@@ -138,6 +139,7 @@ CREATE INDEX IF NOT EXISTS node_parent_idx  ON node(parent_id);
 
 CREATE TABLE IF NOT EXISTS run (
   resolved_context TEXT,
+  request_json  TEXT,
   id            TEXT PRIMARY KEY,
   node_id       TEXT NOT NULL REFERENCES node(id) ON DELETE CASCADE,
   status        TEXT NOT NULL,
