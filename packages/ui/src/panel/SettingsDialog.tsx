@@ -9,6 +9,8 @@ import {
   type SettingsView,
   type StorageView,
 } from '@bonsai/shared';
+import { IconButton } from '../Icon.tsx';
+import { CopyButton } from '../CopyButton.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 import { bytes, plural } from '../words.ts';
@@ -53,9 +55,7 @@ export function SettingsDialog({
     closing.current = true;
     void confirm({
       title: 'Discard unsaved settings?',
-      body: [
-        'Your edits have not been saved. Cancel to keep editing, or discard them to close Settings.',
-      ],
+      body: ['Close Settings and lose your unsaved edits?'],
       confirmLabel: 'Discard edits',
     })
       .then((discard) => {
@@ -80,12 +80,19 @@ export function SettingsDialog({
         <DialogHeader title="Settings" onClose={close} />
         <nav className="settings-tabs" aria-label="Settings scope">
           {(['app', 'project', 'diagnostics'] as const).map((scope) => (
-            <button key={scope} aria-pressed={tab === scope} onClick={() => setTab(scope)}>
-              {scope === 'app'
-                ? 'App settings'
-                : scope === 'project'
-                  ? 'Project settings'
-                  : 'Diagnostics'}
+            <button
+              key={scope}
+              aria-label={
+                scope === 'app'
+                  ? 'App settings'
+                  : scope === 'project'
+                    ? 'Project settings'
+                    : 'Diagnostics'
+              }
+              aria-pressed={tab === scope}
+              onClick={() => setTab(scope)}
+            >
+              {scope === 'app' ? 'App' : scope === 'project' ? 'Project' : 'Diagnostics'}
             </button>
           ))}
         </nav>
@@ -145,10 +152,7 @@ function AppDefaults({
   return (
     <section className="app-defaults">
       <h4>Agent defaults</h4>
-      <p className="hint">
-        New projects start with these values. Projects using App default follow later model and
-        effort changes.
-      </p>
+      <p className="hint">Used by new projects and those set to App default.</p>
       <AgentFields
         models={models}
         value={value}
@@ -176,11 +180,10 @@ function AppDefaults({
           ))}
         </select>
       </label>
-      <p className="hint">
-        Applies to scheduling across all projects. Active runs finish normally.
-      </p>
+      <p className="hint">Across all projects. Active runs keep running.</p>
       <div className="save-row">
         <button
+          aria-label="Save app defaults"
           disabled={save.busy}
           onClick={() =>
             void save.run(async () => {
@@ -190,7 +193,7 @@ function AppDefaults({
             })
           }
         >
-          Save app defaults
+          Save
         </button>
         <SaveFeedback {...save} />
       </div>
@@ -216,10 +219,7 @@ function ProjectAgent({
   return (
     <section className="project-agent">
       <h4>Agent for this project</h4>
-      <p className="hint">
-        Applies when a run begins, including queued runs. Already running agents keep their
-        settings.
-      </p>
+      <p className="hint">Applies to the next run, including queued work.</p>
       <AgentFields
         models={models}
         inherited
@@ -232,6 +232,7 @@ function ProjectAgent({
       />
       <div className="save-row">
         <button
+          aria-label="Save project agent"
           disabled={save.busy}
           onClick={() =>
             void save.run(async () => {
@@ -241,7 +242,7 @@ function ProjectAgent({
             })
           }
         >
-          Save project agent
+          Save
         </button>
         <SaveFeedback {...save} />
       </div>
@@ -292,73 +293,96 @@ function Storage({
       <p className="hint" role="status">
         {use === null
           ? (useError ?? 'Measuring experiment folders')
-          : `${plural(use.folders, 'experiment folder')} on disk, ${bytes(use.bytes)} in all. ${plural(use.archived, 'experiment')} archived.`}
+          : `${plural(use.folders, 'experiment folder')} on disk · ${plural(use.archived, 'experiment')} archived.`}
       </p>
       {use !== null && (
         <>
-          <p className="hint">
-            Saved comparison files: {bytes(use.comparisonBytes)}. Run attachments:{' '}
-            {bytes(use.attachmentBytes)}. These are separate from experiment folders; Git history,
-            database files and backups are not included.
-          </p>
-          <p className="hint">
-            Comparisons keep independent copies of the code they read, including code from deleted
-            experiments. Deleting a comparison removes its saved files and conversation. Run
-            attachments stay with their experiment for reproducible history.
-          </p>
-          {use.projects
-            .filter((project) => project.comparisonBytes > 0 || project.attachmentBytes > 0)
-            .map((project) => (
-              <div key={project.id} className="storage-project">
-                <h4>{project.name}</h4>
-                <p className="hint">
-                  Comparisons: {bytes(project.comparisonBytes)} · Run attachments:{' '}
-                  {bytes(project.attachmentBytes)}
-                </p>
-                {project.comparisons.map((comparison) => (
-                  <div className="storage-comparison" key={comparison.id}>
-                    <span>
-                      {comparison.title} · {bytes(comparison.bytes)}
-                      {comparison.hasDeletedSources ? ' · Includes deleted experiments' : ''}
-                    </span>
-                    <button
-                      disabled={cleanup.busy}
-                      onClick={() =>
-                        void cleanup.run(async () => {
-                          const ok = await confirm({
-                            title: `Delete comparison “${comparison.title}”?`,
-                            body: [
-                              'This permanently removes the comparison’s saved code files and conversation. The experiments themselves are unchanged.',
-                              ...(comparison.hasDeletedSources
-                                ? [
-                                    'Some original experiments were deleted. These comparison files may be their only remaining code copy. Make a backup before deleting if you need them.',
-                                  ]
-                                : []),
-                            ],
-                            confirmLabel: 'Delete comparison',
-                            danger: true,
-                          });
-                          if (!ok) return;
-                          await api.deleteComparison(comparison.id);
-                          setStorageRevision((value) => value + 1);
-                          onChanged();
-                        })
-                      }
-                    >
-                      Delete comparison
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ))}
-          <SaveFeedback {...cleanup} />
+          <dl className="storage-metrics">
+            <div>
+              <dt>Experiments</dt>
+              <dd>{bytes(use.bytes)}</dd>
+            </div>
+            <div>
+              <dt>Comparisons</dt>
+              <dd>{bytes(use.comparisonBytes)}</dd>
+            </div>
+            <div>
+              <dt>Attachments</dt>
+              <dd>{bytes(use.attachmentBytes)}</dd>
+            </div>
+          </dl>
+          <details className="help-details">
+            <summary>What uses space?</summary>
+            <p>
+              These totals exclude Git history, databases and backups. Comparisons keep their own
+              code copies, even after an experiment is deleted. Run attachments stay with their
+              experiment.
+            </p>
+          </details>
+          <details className="storage-comparisons help-details">
+            <summary>Manage comparisons</summary>
+            {use.projects.every((project) => project.comparisons.length === 0) && (
+              <p>No saved comparisons.</p>
+            )}
+            {use.projects
+              .filter((project) => project.comparisonBytes > 0 || project.attachmentBytes > 0)
+              .map((project) => (
+                <div key={project.id} className="storage-project">
+                  <h4>{project.name}</h4>
+                  <p className="hint">
+                    Comparisons: {bytes(project.comparisonBytes)} · Run attachments:{' '}
+                    {bytes(project.attachmentBytes)}
+                  </p>
+                  {project.comparisons.map((comparison) => (
+                    <div className="storage-comparison" key={comparison.id}>
+                      <span>
+                        {comparison.title} · {bytes(comparison.bytes)}
+                        {comparison.hasDeletedSources ? ' · Includes deleted experiments' : ''}
+                      </span>
+                      <IconButton
+                        icon="trash"
+                        label={`Delete comparison ${comparison.title}`}
+                        tone="danger"
+                        disabled={cleanup.busy}
+                        onClick={() =>
+                          void cleanup.run(async () => {
+                            const ok = await confirm({
+                              title: `Delete comparison “${comparison.title}”?`,
+                              body: [
+                                'Permanently delete its saved code and conversation? Original experiments are kept.',
+                                ...(comparison.hasDeletedSources
+                                  ? [
+                                      'Some original experiments were deleted. This may be the only remaining code copy. Back it up first.',
+                                    ]
+                                  : []),
+                              ],
+                              confirmLabel: 'Delete comparison',
+                              danger: true,
+                            });
+                            if (!ok) return;
+                            await api.deleteComparison(comparison.id);
+                            setStorageRevision((value) => value + 1);
+                            onChanged();
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            <SaveFeedback {...cleanup} />
+          </details>
         </>
       )}
-      <p className="hint">
-        Make a verified backup of conversations, Git history, experiment files and comparisons.
-        Finish or stop active jobs first. Bonsai pauses changes while copying. Claude sign-in and
-        API keys are excluded; project files, including ignored files, are included.
-      </p>
+      <h5>Backup</h5>
+      <p className="hint">Finish or stop active runs before backing up.</p>
+      <details className="help-details">
+        <summary>What’s included?</summary>
+        <p>
+          Conversations, Git history, comparisons and experiment files, including ignored files.
+          Claude sign-in and API keys are excluded. Changes pause during backup.
+        </p>
+      </details>
       <div className="save-row">
         <button
           disabled={backup.busy}
@@ -376,18 +400,29 @@ function Storage({
         <SaveFeedback {...backup} />
       </div>
       {backupPath !== null && (
-        <p className="hint" role="status">
-          Backup verified: <code>{backupPath}</code>. Close Bonsai before restoring it as your data
-          folder, then sign in again. Copy it to another drive for protection against disk failure.
-        </p>
+        <div className="backup-result" role="status">
+          <p className="hint">Backup verified. Keep a copy on another drive.</p>
+          <div className="row">
+            <code className="path-value">{backupPath}</code>
+            <CopyButton text={backupPath} label="Copy backup folder" />
+          </div>
+          <details className="help-details">
+            <summary>Restore a backup</summary>
+            <ol>
+              <li>Close Bonsai.</li>
+              <li>Use this backup as your data folder.</li>
+              <li>Start Bonsai and sign in again.</li>
+            </ol>
+          </details>
+        </div>
       )}
       {backupPath !== null && backupFallbacks > 0 && (
         <p className="hint" role="status">
-          {plural(backupFallbacks, 'original Claude conversation')} unavailable. The saved Bonsai
-          messages are backed up; continuing these conversations will explicitly rebuild their
-          context and may shorten older content.
+          {plural(backupFallbacks, 'original Claude conversation')} unavailable. Saved messages are
+          backed up. Resuming will rebuild context and may shorten older content.
         </p>
       )}
+      <h5>Auto-archive</h5>
       <label className="check">
         <input
           type="checkbox"
@@ -398,7 +433,7 @@ function Storage({
             save.reset();
           }}
         />
-        <span>Archive the folders of experiments that sit idle</span>
+        <span>Auto-archive idle experiments</span>
       </label>
       <label>
         Idle for
@@ -419,13 +454,19 @@ function Storage({
         </span>
       </label>
       <p className="hint">
-        Archiving removes an experiment&rsquo;s folder and keeps its code, conversation and runs.
-        The next run brings the folder back and runs setup again. A folder with uncommitted work, or
-        with ignored files other than dependencies and build output, is never archived on its own;
-        archive it from its ⋯ menu instead.
+        Removes idle folders; keeps saved code and conversations. The next run restores the folder
+        and reruns setup.
       </p>
+      <details className="help-details">
+        <summary>Archive rules</summary>
+        <p>
+          Folders with uncommitted work or ignored files other than dependencies and build output
+          are skipped. Manual archiving is in the experiment’s menu.
+        </p>
+      </details>
       <div className="save-row">
         <button
+          aria-label="Save storage settings"
           disabled={save.busy}
           onClick={() =>
             void save.run(async () => {
@@ -435,7 +476,7 @@ function Storage({
             })
           }
         >
-          Save storage settings
+          Save
         </button>
         <SaveFeedback {...save} />
       </div>
@@ -469,11 +510,10 @@ function Locations({
           }}
         />
       </label>
-      <p className="hint">
-        Storage for future managed repositories. Existing folders stay in place.
-      </p>
+      <p className="hint">New repositories only. Existing folders stay in place.</p>
       <div className="save-row">
         <button
+          aria-label="Save location"
           disabled={save.busy}
           onClick={() =>
             void save.run(async () => {
@@ -483,31 +523,32 @@ function Locations({
             })
           }
         >
-          Save location
+          Save
         </button>
-        <button
+        <IconButton
+          icon="folderOpen"
+          label="Open saved location"
           onClick={() =>
             void reveal.run(async () => {
               await api.revealStorage();
             })
           }
-        >
-          Open saved location
-        </button>
+        />
         <SaveFeedback {...save} />
       </div>
-      <label className="stacked">
-        App data folder<code>{settings.dataDir}</code>
-      </label>
-      <button
-        onClick={() =>
-          void reveal.run(async () => {
-            await api.reveal(settings.dataDir);
-          })
-        }
-      >
-        Open app data folder
-      </button>
+      <p className="hint">App data folder</p>
+      <div className="row path-row">
+        <code className="path-value">{settings.dataDir}</code>
+        <IconButton
+          icon="folderOpen"
+          label="Open app data folder"
+          onClick={() =>
+            void reveal.run(async () => {
+              await api.reveal(settings.dataDir);
+            })
+          }
+        />
+      </div>
       {reveal.error && (
         <p className="error" role="alert">
           {reveal.error}
@@ -573,6 +614,7 @@ function ConnectionSettings({
       )}
       <div className="save-row">
         <button
+          aria-label="Save connection"
           disabled={save.busy}
           onClick={() =>
             void save.run(async () => {
@@ -586,16 +628,13 @@ function ConnectionSettings({
             })
           }
         >
-          Save connection
+          Save
         </button>
         <SaveFeedback {...save} />
       </div>
       {mode === 'cli' && (
         <>
-          <p className="hint">
-            Sign-in may open a browser. If a terminal is needed, run{' '}
-            <code>claude auth login --claudeai</code>, then Recheck.
-          </p>
+          <p className="hint">Follow the sign-in prompt, then recheck your connection.</p>
           <button
             disabled={action.busy}
             onClick={() =>
@@ -611,7 +650,9 @@ function ConnectionSettings({
         </>
       )}
       <div className="row">
-        <button
+        <IconButton
+          icon="refresh"
+          label="Recheck"
           disabled={action.busy}
           aria-busy={action.busy}
           onClick={() =>
@@ -620,9 +661,7 @@ function ConnectionSettings({
               onChanged();
             })
           }
-        >
-          Recheck
-        </button>
+        />
         {settings.hasStoredApiKey && (
           <button
             disabled={save.busy}
@@ -680,6 +719,7 @@ function Appearance({
       </label>
       <div className="save-row">
         <button
+          aria-label="Save appearance"
           disabled={save.busy}
           onClick={() =>
             void save.run(async () => {
@@ -689,7 +729,7 @@ function Appearance({
             })
           }
         >
-          Save appearance
+          Save
         </button>
         <SaveFeedback {...save} />
       </div>

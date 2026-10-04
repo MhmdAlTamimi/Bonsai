@@ -88,8 +88,7 @@ export function AgentFields({
         </select>
       </label>
       <p className="hint">
-        Commands run with your host access. Worktrees are not a security sandbox. Bonsai makes the
-        commits; ask for instructions for external changes.
+        Commands can access your computer. Experiment folders are not sandboxes.
       </p>
     </div>
   );

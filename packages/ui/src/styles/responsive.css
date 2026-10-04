@@ -29,3 +29,9 @@
   .panel-body { flex: none; overflow: visible; }
   .panel-foot { flex-shrink: 0; max-height: none; overflow: visible; }
 }
+
+@media (max-width: 600px) {
+  .storage-metrics { grid-template-columns: 1fr; }
+  .storage-metrics > div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+  .storage-metrics dd { margin: 0; }
+}

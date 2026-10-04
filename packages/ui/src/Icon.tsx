@@ -44,6 +44,9 @@ const paths = {
   experiment:
     'M6 3v12M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a9 9 0 0 1-9 9',
   // Actions that say themselves: copying, done, and stopping.
+  search: 'M10.5 3a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15ZM16 16l5 5',
+  refresh: 'M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14M10 11v6M14 11v6',
   copy: 'M9 9h11v11H9ZM5 15H4V4h11v1',
   check: 'm5 12 5 5 9-10',
   stop: 'M7 7h10v10H7Z',

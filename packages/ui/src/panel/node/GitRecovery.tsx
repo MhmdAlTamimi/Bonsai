@@ -35,7 +35,7 @@ export function GitRecovery({
   };
   return (
     <section className="recover" aria-label="Synchronize Git and Bonsai">
-      <p className="recover-headline">Git and Bonsai need to be synchronized</p>
+      <p className="recover-headline">Sync Git and Bonsai</p>
       <p className="hint recover-detail">{recovery.message}</p>
       {['missing_repository', 'unreadable_repository'].includes(recovery.problem) && (
         <>
@@ -45,8 +45,8 @@ export function GitRecovery({
           {locating && (
             <div>
               <p className="hint">
-                Choose the moved repository. Bonsai verifies its saved code and repairs its own
-                experiment folders. Your source checkout is preserved.
+                Choose the repository’s new location. Bonsai checks its saved code and repairs
+                experiment folders.
               </p>
               <DirectoryPicker value={path} onChange={setPath} markRepos />
               <button disabled={!path || saving} onClick={() => void locate()}>
@@ -57,14 +57,17 @@ export function GitRecovery({
           {error && <p role="alert">{error}</p>}
         </>
       )}
-      <dl>
-        <dt>Bonsai recorded</dt>
-        <dd>{recovery.recordedCommit?.slice(0, 10) ?? 'Unavailable'}</dd>
-        <dt>Folder</dt>
-        <dd>{recovery.folderCommit?.slice(0, 10) ?? 'Unavailable'}</dd>
-        <dt>Git saved</dt>
-        <dd>{recovery.savedCommit?.slice(0, 10) ?? 'Unavailable'}</dd>
-      </dl>
+      <details className="help-details">
+        <summary>Version details</summary>
+        <dl>
+          <dt>Bonsai recorded</dt>
+          <dd>{recovery.recordedCommit?.slice(0, 10) ?? 'Unavailable'}</dd>
+          <dt>Folder</dt>
+          <dd>{recovery.folderCommit?.slice(0, 10) ?? 'Unavailable'}</dd>
+          <dt>Git saved</dt>
+          <dd>{recovery.savedCommit?.slice(0, 10) ?? 'Unavailable'}</dd>
+        </dl>
+      </details>
       {recovery.changedFiles.length > 0 && (
         <details>
           <summary>Changed files ({recovery.changedFiles.length})</summary>
@@ -92,7 +95,7 @@ export function GitRecovery({
         )}
         {recovery.canRestore && (
           <button disabled={busy} onClick={() => onSynchronize('restore')}>
-            Restore Bonsai recorded code
+            Restore Bonsai code
           </button>
         )}
       </div>

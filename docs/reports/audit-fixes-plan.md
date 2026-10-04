@@ -10,6 +10,7 @@ Keep the modular monolith. Do not call a real model API: use the stand-in runner
 
 - Recovery must explain Git/Bonsai differences, preserve work, and provide explicit safe synchronization. No silent reset of unknown work.
 - Manual archiving shows a clear text warning about ignored files. Further automatic-archiving changes are deferred.
+- Interface follow-up: concise labels, familiar icon actions with accessible names, and optional secondary help. Keep recovery choices and data-loss warnings visible.
 - Earlier experiment messages load automatically when scrolling upward near the top, with manual load/retry retained as a fallback (updated user preference).
 - Dollar budgets and daily/project spending caps are deferred for subscription use. Correctness of displayed API-equivalent usage is still in scope.
 - Phases 15–17 are now reviewed in their accompanying reports. Final Linux verification passed; Windows detached-process cleanup remains an open release gate.
@@ -161,6 +162,8 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [x] E27: A cancelled or invalid successful JSON response must reject, not become fake successful data that can crash a comparison on reload. Shared API parsing now propagates the failure; aborted comparison refreshes cannot replace current data.
 
+- [x] E28: An independent repository export failure replaced the Apply command with an error. Keep export errors within the export section so the command and patch download remain usable. Browser fault injection verifies both copy actions, the retained command/download and the enabled retry.
+
 ### audit-15-security
 
 - [x] P1: Unrelated localhost origins can issue bodyless API mutations.
@@ -227,3 +230,14 @@ Keep the modular monolith. There is no demonstrated need for independently deplo
 
 
 - Automatic-history follow-up (user preference): upward scrolling within 160 px of the top loads one older page at a time. Initial loading, restoration and prepend adjustments do not trigger a history-download loop. The manual Load/Retry button remains available; failed loads retain current messages and stop automatic retry. A delayed-response browser fixture scrolls again while loading and verifies the same message stays within 5 px of its new reading position, then injects a 503, checks there is no retry loop, manually retries, verifies all 500 saved messages, and appends a new live run. Loading old content no longer falsely raises “New output.” The full regression run surfaced E27 in the shared JSON parser; actual client tests now reject cancelled/malformed successful responses and retain status errors for non-JSON HTTP failures. The backup browser fixture now waits for execution cleanup, not only a finalized run status, before requesting the idle-only backup. Final production build, typecheck/lint/format, 443 server tests, 123 UI/shared tests and all 39 Chromium scenarios passed. No new dependencies or real agent calls were used for this follow-up.
+
+
+## Interface polish follow-up
+
+- [x] Shorten Settings tabs, scoped Save labels, setup/recovery copy and the manual archive warning. Keep destructive choices explicit.
+- [x] Use existing accessible icon controls for search, refresh, folder opening and comparison deletion; retain confirmation before deletion.
+- [x] Make Apply a two-step flow: run the command, then review and commit. Keep scope/conflict information visible; move troubleshooting and independent export into native disclosures.
+- [x] Show storage totals as compact metrics, with stacked rows on narrow screens; provide copy controls for backup paths.
+- [x] Preserve keyboard access and consistent map control height at enlarged text sizes.
+
+Verification: production build, typecheck, lint and formatting passed; all 443 server tests, 123 UI/shared tests and 39 Chromium scenarios passed. Browser coverage includes keyboard disclosure activation, confirmed comparison deletion, scoped saves/unsaved drafts, Apply clipboard contents, export failure isolation and successful independent export. Visual review checked Settings and Apply at desktop and 400 px widths, with no horizontal dialog overflow. Enlarged-text map checks caught and verified the search icon height correction. Used the temporary FakeRunner fixture; no dependencies or real agent calls were added.

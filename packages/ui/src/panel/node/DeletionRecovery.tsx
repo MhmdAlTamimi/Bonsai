@@ -36,16 +36,15 @@ export function DeletionRecovery({
         {deletion.error ?? 'Bonsai closed during deletion. The remaining cleanup can be retried.'}
       </p>
       <p className="hint">
-        New runs are blocked while deletion is pending. Cancelling stops the remaining cleanup;
-        already removed files do not return. Saved code can be recovered if its Git objects are
-        still available.
+        Runs are paused. Cancelling stops cleanup; files already removed stay deleted. Saved code is
+        recoverable while its Git history is available.
       </p>
       <div className="row">
         <button disabled={busy} onClick={() => void act(false)}>
           Finish deletion
         </button>
         <button disabled={busy} onClick={() => void act(true)}>
-          Cancel remaining deletion
+          Cancel deletion
         </button>
       </div>
     </section>

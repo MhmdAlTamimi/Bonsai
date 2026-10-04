@@ -291,7 +291,7 @@
 .canvas-tool:hover:not(:disabled) { background: var(--control-hover); color: var(--text); }
 .canvas-tool:disabled { color: var(--muted); opacity: 1; }
 .canvas-tool[aria-expanded="true"], .canvas-tool[aria-pressed='true'] { background: var(--accent-soft); color: var(--text); }
-.canvas-tool.icon-only { width: var(--h-pill); padding: 0; }
+.canvas-tool.icon-only { width: var(--h-pill); height: var(--h-pill); padding: 0; }
 /* The zoom cluster is one control with three parts: two square buttons with
    the level between them, on one raised surface. */
 .tool-group { display: inline-flex; gap: 0; padding: 3px; border-radius: 9px; background: color-mix(in srgb, var(--surface) 92%, transparent); }

@@ -56,8 +56,8 @@ export function useCardActions({
         const ok = await ask({
           title: `Archive ${node.displayName}?`,
           body: [
-            'Archiving removes the folder to save space. Its code, conversation and runs stay, and the next run brings the folder back.',
-            'Ignored files in this folder will be removed. Setup or copy-in may recreate them, but local edits to those files will be lost. Copy anything you need before archiving.',
+            'Removes the folder; keeps saved code and conversations. The next run restores the folder.',
+            'Ignored files are removed; local edits to those files will be lost. Back up anything you need.',
             ...(check.ignored.length > 0
               ? [`These files cannot be recreated: ${shown}${more}.`]
               : []),

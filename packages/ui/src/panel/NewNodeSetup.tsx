@@ -76,8 +76,8 @@ export function NewNodeSetup({
         </span>
       </label>
       <div className="save-row">
-        <button disabled={feedback.busy} onClick={save}>
-          Save experiment setup
+        <button aria-label="Save experiment setup" disabled={feedback.busy} onClick={save}>
+          Save
         </button>
         <SaveFeedback {...feedback} />
       </div>

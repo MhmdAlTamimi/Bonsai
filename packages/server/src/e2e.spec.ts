@@ -296,7 +296,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         "Array.from(document.querySelectorAll('.settings-storage button')).find(b => b.textContent === 'Make backup').click()",
       );
       await session.waitFor(
-        "document.querySelector('.settings-storage')?.textContent.includes('Backup verified:')",
+        "document.querySelector('.settings-storage')?.textContent.includes('Backup verified.')",
       );
       const path = (await session.eval(
         "document.querySelector('.settings-storage code').textContent",
@@ -1129,6 +1129,34 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       ),
       true,
     );
+    assert.equal(await session.eval("document.querySelector('.storage-comparisons').open"), false);
+    await session.eval(
+      "document.querySelector('.storage-comparisons summary').scrollIntoView({block:'center'})",
+    );
+    // Native disclosure stays reachable by keyboard; the destructive icon retains its name.
+    await session.eval("document.querySelector('.storage-comparisons summary').focus()");
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: 'Enter',
+      code: 'Enter',
+      windowsVirtualKeyCode: 13,
+      text: '\r',
+    });
+    await session.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: 'Enter',
+      code: 'Enter',
+      windowsVirtualKeyCode: 13,
+    });
+    await session.waitFor("document.querySelector('.storage-comparisons').open");
+    assert.match(
+      String(
+        await session.eval(
+          "document.querySelector('.storage-comparison button').getAttribute('aria-label')",
+        ),
+      ),
+      /^Delete comparison /,
+    );
     await session.eval(
       "document.querySelector('.storage-comparison button').scrollIntoView({ block: 'center' })",
     );
@@ -1136,7 +1164,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("!!document.querySelector('dialog.confirm')");
     assert.equal(
       await session.eval(
-        "document.querySelector('dialog.confirm').textContent.includes('saved code files and conversation')",
+        "document.querySelector('dialog.confirm').textContent.includes('saved code and conversation')",
       ),
       true,
     );
@@ -2180,7 +2208,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       await session.waitFor("document.querySelector('.connection-settings')?.open === true");
       await session.eval('window.__offlineAgent = false');
       await session.eval(
-        "Array.from(document.querySelectorAll('.connection-settings button')).find(b => b.textContent === 'Recheck').click()",
+        "Array.from(document.querySelectorAll('.connection-settings button')).find(b => b.getAttribute('aria-label') === 'Recheck').click()",
       );
       await session.waitFor("!document.body.textContent.includes('Agent unavailable')");
       await session.click('dialog .dialog-close');
@@ -3083,6 +3111,57 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       // Quoted only where the platform's terminal needs it.
       "/^git apply --3way [\"']?.+\\.patch[\"']?$/.test(document.querySelector('dialog[open] .apply-command')?.textContent ?? '')",
     );
+    const command = await session.eval("document.querySelector('.apply-command').textContent");
+    await session.eval(
+      'window.__applyCopied = null; navigator.clipboard.writeText = async text => { window.__applyCopied = text; }',
+    );
+    await session.click('[aria-label="Copy command"]');
+    assert.equal(await session.eval('window.__applyCopied'), command);
+    await session.click('[aria-label="Copy review command"]');
+    assert.equal(await session.eval('window.__applyCopied'), 'git diff --staged');
+    assert.equal(await session.eval("document.querySelector('.export-details').open"), false);
+    // Export failures must leave the primary Apply instructions and patch download usable.
+    await session.click('.export-details summary');
+    await session.eval(
+      "window.__applyFetch = window.fetch; window.fetch = (url, init) => String(url).endsWith('/export') ? Promise.reject(new TypeError('export offline fixture')) : window.__applyFetch(url, init)",
+    );
+    try {
+      await session.eval(
+        "document.querySelector('[aria-label=\"Export full repository\"]').scrollIntoView({block:'center'})",
+      );
+      await session.click('[aria-label="Export full repository"]');
+      await session.waitFor("!!document.querySelector('.export-details [role=alert]')");
+      assert.equal(
+        await session.eval("document.querySelector('.apply-command')?.textContent"),
+        command,
+      );
+      assert.equal(
+        await session.eval(
+          'document.querySelector(\'[aria-label="Export full repository"]\').disabled',
+        ),
+        false,
+      );
+    } finally {
+      await session.eval('window.fetch = window.__applyFetch');
+    }
+    // Commands and controls must fit a narrow dialog, including long local paths.
+    await session.send('Emulation.setDeviceMetricsOverride', {
+      width: 400,
+      height: 720,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    try {
+      await session.waitFor('window.innerWidth === 400');
+      assert.equal(
+        await session.eval(
+          "(() => { const d = document.querySelector('dialog[open]'); return d.scrollWidth <= d.clientWidth + 1; })()",
+        ),
+        true,
+      );
+    } finally {
+      await session.send('Emulation.clearDeviceMetricsOverride', {});
+    }
     // The same patch, downloaded as a file for a Git app.
     const href = String(
       await session.eval(
@@ -3650,11 +3729,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Apply')).click()",
     );
     await session.waitFor(
-      "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Export full repository')",
+      "Array.from(document.querySelectorAll('dialog button')).some(b => b.getAttribute('aria-label') === 'Export full repository')",
     );
+    await session.click('.export-details summary');
     await session.eval(
-      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Export full repository').click()",
+      "document.querySelector('[aria-label=\"Export full repository\"]').scrollIntoView({block: 'center'})",
     );
+    await session.click('[aria-label="Export full repository"]');
     await session.waitFor('!!document.querySelector(\'[aria-label="Copy export folder"]\')');
     await session.eval(
       "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent.trim() === 'Close').click()",
@@ -3667,7 +3748,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       '!!document.querySelector(\'[aria-label="Synchronize Git and Bonsai"]\')',
     );
     await session.eval(
-      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Restore Bonsai recorded code').click()",
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Restore Bonsai code').click()",
     );
     await session.waitFor(
       "document.querySelector('dialog')?.textContent.includes('ignored files, staged content')",
@@ -3718,13 +3799,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         409,
       );
       await session.eval(
-        "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Cancel remaining deletion').click()",
+        "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Cancel deletion').click()",
       );
       await session.waitFor(
         '!document.querySelector(\'[aria-label="Paused deletion"]\') && !!document.querySelector(\'[aria-label="Synchronize Git and Bonsai"]\')',
       );
       await session.eval(
-        "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Restore Bonsai recorded code').click()",
+        "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Restore Bonsai code').click()",
       );
       await session.waitFor(
         "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Preserve and restore')",
@@ -3811,7 +3892,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor('!!document.querySelector(".settings-button")');
     await session.click('.settings-button');
     await session.eval(
-      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Project settings').click()",
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.getAttribute('aria-label') === 'Project settings').click()",
     );
     await session.waitFor(
       "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Recover experiment' && !b.disabled)",
@@ -3916,7 +3997,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.waitFor("!!document.querySelector('.settings-button')");
     await session.click('.settings-button');
     await session.eval(
-      "Array.from(document.querySelectorAll('.settings-tabs button')).find(b => b.textContent === 'Project settings').click()",
+      "Array.from(document.querySelectorAll('.settings-tabs button')).find(b => b.getAttribute('aria-label') === 'Project settings').click()",
     );
     await session.type('[aria-label="setup command"]', 'echo unsaved-settings-fixture');
     assert.equal(
@@ -3935,7 +4016,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       'echo unsaved-settings-fixture',
     );
     await session.eval(
-      "Array.from(document.querySelectorAll('.settings-tabs button')).find(b => b.textContent === 'App settings').click()",
+      "Array.from(document.querySelectorAll('.settings-tabs button')).find(b => b.getAttribute('aria-label') === 'App settings').click()",
     );
     await session.eval(
       `const scale = document.querySelector('[aria-label="Text size"]'); scale.value = '${desired}'; scale.dispatchEvent(new Event('change', { bubbles: true }));`,

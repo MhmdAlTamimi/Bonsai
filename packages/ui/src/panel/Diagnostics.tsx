@@ -23,8 +23,8 @@ export function Diagnostics({ nodeId }: { nodeId: string | null }): JSX.Element 
     <section className="diagnostics">
       <h4>Diagnostics report</h4>
       <p className="hint">
-        Versions, local paths, counts, run metadata and filtered log events. Names and error text
-        are omitted; known credential patterns are redacted. Review before sharing.
+        Review the report before sharing. It includes local paths; names, error text and known
+        credentials are filtered.
       </p>
       <button disabled={busy} aria-busy={busy} onClick={() => void gather()}>
         Generate report

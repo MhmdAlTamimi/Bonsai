@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { LostExperimentView } from '@bonsai/shared';
+import { IconButton } from '../Icon.tsx';
 import { api } from '../api/client.ts';
 import { describeError } from '../api/describeError.ts';
 
@@ -43,9 +44,8 @@ export function LostExperiments({
     <section>
       <h4>Recover experiments from Git</h4>
       <p className="hint">
-        An older database can omit experiments that Git still holds. Recover their code here;
-        conversation history requires the newer database backup. Existing files and saved versions
-        are preserved first.
+        Recover code missing from this database. Existing files are preserved first. Conversation
+        history requires a newer database backup.
       </p>
       {error && <p role="alert">{error}</p>}
       {items === null ? (
@@ -70,15 +70,15 @@ export function LostExperiments({
           Recovery copy: <code>{preserved}</code>
         </p>
       )}
-      <button
+      <IconButton
+        icon="refresh"
+        label="Refresh saved experiments"
         disabled={busy}
         onClick={() => {
           setError(null);
           setRevision((value) => value + 1);
         }}
-      >
-        Refresh saved experiments
-      </button>
+      />
     </section>
   );
 }

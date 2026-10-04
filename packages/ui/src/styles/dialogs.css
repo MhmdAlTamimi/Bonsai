@@ -385,3 +385,22 @@ dialog.dialog::backdrop { background: rgb(0 0 0 / .6); backdrop-filter: blur(3px
 
 .storage-project { margin-block: 16px; }
 .storage-comparison { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 8px 0; }
+
+/* Secondary explanations stay available without competing with the next action. */
+.help-details { min-width: 0; color: var(--muted); font-size: var(--fs-sm); }
+.help-details > summary { width: fit-content; max-width: 100%; cursor: pointer; color: var(--muted-2); }
+.help-details > summary:hover { color: var(--text); }
+.help-details[open] > summary { margin-bottom: var(--s2); }
+.help-details p { margin: 0; line-height: 1.6; }
+.help-details ol { margin: 0; padding-left: 1.3em; line-height: 1.7; }
+.path-value, .apply-target code { min-width: 0; overflow-wrap: anywhere; }
+.path-row, .backup-result > .row { gap: var(--s2); align-items: center; }
+.backup-result { display: grid; gap: var(--s2); }
+.export-details .apply-section > button { align-self: flex-start; }
+.apply-steps li > .hint { margin-top: var(--s2); }
+.storage-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s2); margin: 0; }
+.storage-metrics > div { min-width: 0; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-sm); }
+.storage-metrics dt { font-size: var(--fs-xs); color: var(--muted); overflow-wrap: anywhere; }
+.storage-metrics dd { margin: var(--s2) 0 0; font-size: var(--fs-lg); color: var(--text); overflow-wrap: anywhere; }
+.settings-storage h5 { margin: var(--s3) 0 0; font-size: var(--fs-sm); font-weight: 600; }
+.storage-comparison > span { min-width: 0; overflow-wrap: anywhere; }

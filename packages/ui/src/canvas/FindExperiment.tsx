@@ -1,5 +1,6 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { NodeView } from '@bonsai/shared';
+import { IconButton } from '../Icon.tsx';
 import { Dialog, DialogHeader } from '../Dialog.tsx';
 import { STATUS_LABEL } from '../nodeStatus.tsx';
 
@@ -35,16 +36,16 @@ export function FindExperiment({
   };
   return (
     <>
-      <button
-        className="canvas-tool"
+      <IconButton
+        icon="search"
+        label="Find experiment"
+        className="canvas-tool icon-only"
         title="Find experiment (⌘K / Ctrl+K)"
         onClick={() => {
           setQuery('');
           setOpen(true);
         }}
-      >
-        Find experiment
-      </button>
+      />
       {open && (
         <Dialog title="Find experiment" onClose={() => setOpen(false)}>
           <DialogHeader title="Find experiment" onClose={() => setOpen(false)} />

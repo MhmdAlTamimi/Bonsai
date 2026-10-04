@@ -35,13 +35,15 @@ export function ApplyDialog({
   const [scopes, setScopes] = useState<ApplyPatchView['scopes']>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const exportCode = async (): Promise<void> => {
     setExporting(true);
+    setExportError(null);
     try {
       setExportPath((await api.exportNode(node.id)).path);
     } catch (error) {
-      setError(describeError(error));
+      setExportError(describeError(error));
     } finally {
       setExporting(false);
     }
@@ -87,7 +89,7 @@ export function ApplyDialog({
             title="Only this experiment's own step, for when its parents' changes are already in your folder"
             onClick={() => setScope('own')}
           >
-            Only this experiment <span className="scope-count">{scopes.own}</span>
+            This experiment <span className="scope-count">{scopes.own}</span>
           </button>
         </div>
       )}
@@ -103,26 +105,27 @@ export function ApplyDialog({
             {plural(patch.files, 'file')} · +{patch.added.toLocaleString()} −
             {patch.removed.toLocaleString()}
           </p>
+          {patch.folder !== null && (
+            <p className="hint apply-target">
+              Destination: <code>{patch.folder}</code>
+            </p>
+          )}
           <ol className="apply-steps">
             <li>
-              Copy this command.
+              <strong>Run in your terminal</strong>
+              {patch.folder === null && <p className="hint">Open the target repository first.</p>}
               <div className="row">
                 <code className="apply-command">{patch.command}</code>
                 <CopyButton text={patch.command} label="Copy command" />
               </div>
             </li>
             <li>
-              {patch.folder !== null ? (
-                <>
-                  Paste it into a terminal and press Enter. It changes the files in{' '}
-                  <code>{patch.folder}</code>.
-                </>
-              ) : (
-                'Paste it into a terminal, in the repository you want the changes in, and press Enter.'
-              )}
-            </li>
-            <li>
-              Look over the changes (<code>git diff --staged</code>), then commit them yourself.
+              <strong>Review, then commit</strong>
+              <div className="row">
+                <code className="apply-command">git diff --staged</code>
+                <CopyButton text="git diff --staged" label="Copy review command" />
+              </div>
+              <p className="hint">Resolve any conflicts before committing.</p>
             </li>
           </ol>
           {patch.branchMismatch !== null && (
@@ -139,41 +142,45 @@ export function ApplyDialog({
             </p>
           )}
           <p className="hint">
-            Git never overwrites your unsaved edits, and where you changed the same lines it marks
-            both versions for you to choose. Bonsai&rsquo;s notes and anything uncommitted in the
-            experiment are left out.
+            Includes committed code only. Bonsai notes and unsaved changes are excluded.
           </p>
-          <p className="hint">
-            A successful command may print nothing. Check its exit status and staged diff. If Git
-            reports conflicts, resolve the marked files before committing. If it reports an error,
-            inspect the message and leave your existing work intact.
-          </p>
-          <p className="hint apply-download">
-            Using a Git app instead?
+          <details className="help-details">
+            <summary>Command results</summary>
+            <p>
+              A successful command may print nothing. Check the staged diff above. If Git reports an
+              error, read it before retrying; keep your existing work intact.
+            </p>
+          </details>
+          <div className="apply-download">
             <a href={api.patchFileUrl(node.id, scope)} download>
               <Icon name="apply" /> Download patch
             </a>
-          </p>
+          </div>
         </section>
       )}
-      <section className="apply-section" aria-label="Independent repository export">
-        <p>
-          Export the full saved code and its Git history to a separate repository. It will keep
-          working after this experiment or Bonsai is removed.
-        </p>
-        <p className="hint">
-          Uncommitted and ignored files are excluded. Submodules must be accessible during export.
-        </p>
-        <button disabled={exporting || exportPath !== null} onClick={() => void exportCode()}>
-          {exporting ? 'Exporting…' : 'Export full repository'}
-        </button>
-        {exportPath !== null && (
-          <div className="row">
-            <code>{exportPath}</code>
-            <CopyButton text={exportPath} label="Copy export folder" />
-          </div>
-        )}
-      </section>
+      <details className="help-details export-details">
+        <summary>Export repository</summary>
+        <section className="apply-section" aria-label="Independent repository export">
+          <p className="hint">
+            A standalone copy of saved code and Git history. Unsaved and ignored files are excluded;
+            submodules must be accessible.
+          </p>
+          <button
+            aria-label="Export full repository"
+            disabled={exporting || exportPath !== null}
+            onClick={() => void exportCode()}
+          >
+            {exporting ? 'Exporting…' : 'Export'}
+          </button>
+          {exportError && <ErrorNote>{exportError}</ErrorNote>}
+          {exportPath !== null && (
+            <div className="row" role="status">
+              <code className="path-value">{exportPath}</code>
+              <CopyButton text={exportPath} label="Copy export folder" />
+            </div>
+          )}
+        </section>
+      </details>
       <div className="dialog-actions">
         <button className="primary" onClick={onClose}>
           Close
