@@ -361,6 +361,8 @@ function NodePanel({
           node.status !== 'running' &&
           node.status !== 'needs_you' && (
             <GitRecovery
+              projectId={node.projectId}
+              onChanged={changed}
               recovery={detail.gitRecovery}
               busy={actions.busy}
               onSynchronize={(action) =>

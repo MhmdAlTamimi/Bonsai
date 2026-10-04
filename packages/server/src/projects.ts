@@ -548,6 +548,13 @@ export async function deleteProjectTree(
   if (intent) assertDeletionIntent(store, intent);
   try {
     for (const node of nodes) await verifyDeletion(project, node, intent !== undefined);
+    if (!intent) {
+      const { lostExperiments } = await import('./storage/orphans.js');
+      if ((await lostExperiments(store, project.id)).length > 0)
+        throw new OperationConflict(
+          'Git contains experiments missing from this database. Recover them in Project settings before deleting the project; all saved code and folders are preserved.',
+        );
+    }
     if (!intent) store.deletions.prepare({ id, kind: 'project', project, nodes, rootNodeId: null });
     for (const node of nodes) {
       if (

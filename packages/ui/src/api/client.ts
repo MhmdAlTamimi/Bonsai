@@ -1,4 +1,5 @@
 import type {
+  LostExperimentView,
   ApplyPatchView,
   ChangeScope,
   ArchiveCheck,
@@ -152,6 +153,18 @@ export const api = {
     json<DeletionImpactView>(`/api/projects/${projectId}/deletion-impact`),
 
   listProjects: () => json<ProjectView[]>('/api/projects'),
+  lostExperiments: (projectId: string) =>
+    json<LostExperimentView[]>(`/api/projects/${projectId}/lost-experiments`),
+  importLostExperiment: (projectId: string, id: string, version: string) =>
+    json<{ nodeId: string; preservedPath: string }>(`/api/projects/${projectId}/lost-experiments`, {
+      method: 'POST',
+      body: JSON.stringify({ id, version }),
+    }),
+  locateRepository: (projectId: string, path: string) =>
+    json<{ ok: true }>(`/api/projects/${projectId}/locate`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
 
   previewProject: (location: string, name: string) =>
     json<{ path: string }>('/api/projects/preview', {

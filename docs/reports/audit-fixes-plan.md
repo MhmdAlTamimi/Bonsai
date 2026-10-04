@@ -42,7 +42,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [x] P1: Starting from a folder that is not in git commits everything in it, dependencies and secrets included
 - [x] P2: Your home folder, or the whole disk, can be chosen, with no warning
-- [ ] P3: A project whose folder is moved or renamed stops working, and says its code is gone
+- [x] P3: A project whose folder is moved or renamed stops working, and says its code is gone
 - [x] P4: Commit signing in your git config breaks every run
 - [x] P5: Names in Arabic, Japanese or with accents become "project", "project-2"
 - [x] P6: "Include my unsaved changes" re-reads the whole repository
@@ -63,9 +63,9 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-06-backups-export-moving
 
-- [ ] B1: Moving the data folder breaks every project, and says your code is gone
+- [x] B1: Moving the data folder breaks every project, and says your code is gone
 - [ ] B2: A backup taken while Bonsai runs gives back broken experiments, and Bonsai offers no safe one
-- [ ] B3: Putting back an older database leaves stuck experiments and leftovers nobody can see
+- [x] B3: Putting back an older database leaves stuck experiments and leftovers nobody can see
 - [ ] B4: An experiment's conversation lives in Claude Code's folder, where it is not backed up, not moved, and deleted after 30 days
 - [x] B5: A missing folder is reported as an empty git error
 
@@ -141,6 +141,8 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] E12: Independent recovery copies must survive deletion of their original project.
 - [x] E13: An unexpected folder at an unallocated experiment path must never be silently deleted.
 - [x] E14: The second force needed for submodule cleanup must respect Git worktree locks.
+- [x] E15: Removing one missing checkout must not globally prune unrelated missing worktrees.
+- [x] E16: Deleting a project restored from an older database must preserve experiments omitted from that database until explicitly recovered.
 
 ## Verification log
 
@@ -155,3 +157,6 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - Git recovery/export batch: full `npm test` passed (391 server tests, 120 UI/shared tests), production build and all 27 browser tests passed. Fault injection followed by database reopen covers saves before Git moves, after Git moves, and the legacy HEAD/ref split; unrelated commits are refused. Real Git tests preserve ignored files, staged-only content, every merge-conflict index stage, branch tips and history, reject stale choices, restore missing folders and prove exported repositories survive deletion of the source storage. HTTP regressions keep recovery and committed run diffs reachable without a checkout. Twenty seeded SIGKILL rounds produced no stuck experiments, mismatched refs or integrity errors. Real SDK `npm version` reproduction used the verified fake API: no source tag/commit appeared and the next run succeeded. Known implicit version commits are guarded; arbitrary shell commands remain cooperative, not a security sandbox. Older-database Git drift now has explicit import/restore; orphan discovery remains to finish B3.
 
 - Durable deletion batch: production build, typecheck/lint/format, all 397 server tests, 120 UI/shared tests and 28 browser tests passed. Real Git lock failures and a database trigger interrupt cleanup after filesystem removal; restart finishes only matching cleanup and refuses a changed ref. Browser recovery cancels remaining cleanup and explicitly restores the missing checkout. Ten SIGKILL rounds now wait for actual folder removal before killing: all ten deletions finish on restart, with zero half-deleted experiments. Recovery repositories survive project deletion; an unallocated unexpected checkout and a locked worktree are preserved. The Start-from-latest browser fixture now waits for preview readiness before clicking its disabled button.
+
+- Storage relocation/discovery batch: production build, typecheck/lint/format, all 404 server tests, 120 UI/shared tests and 29 browser tests passed. Tests move and copy managed storage, retain dirty/ignored/index content, restore archived checkouts, refuse an unrelated source repository and resume a durable path move after an injected database failure. The moved-data audit script now asserts successful continuation and uses the explicit Locate repository workflow for the moved external source. Browser coverage exercises that fallback and recovery of missing experiment metadata through Project settings. Git saves from an older database remain explicit import/restore choices; unrecorded experiments are discoverable and recoverable with independent copies. Copying data that shares an external repository while its original checkouts still exist is deliberately refused to avoid displacing the original instance. Stored managed location preferences move with data; external preferences stay explicit.
+  Follow-up: all 13 relocation/discovery/deletion regressions pass with a guard against project deletion while unrecorded Git experiments exist. This avoids deleting work that an older database cannot include in its deletion preview.

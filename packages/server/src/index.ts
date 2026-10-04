@@ -20,6 +20,7 @@ import { Connection } from './api/connectionGate.js';
 import { FileLogger } from './log.js';
 import { acquireInstanceLock, AlreadyRunningError } from './instanceLock.js';
 import { recoverRunSaves } from './git/saveRecovery.js';
+import { relocateManagedStorage } from './storage/relocate.js';
 
 const config = loadConfig();
 let releaseInstance: () => void;
@@ -37,6 +38,7 @@ const log = new FileLogger(config.dataDir);
 const db = openDatabase(config.dataDir);
 const settings = new Settings(config);
 const store = new Store(db, config.reposRoot, () => settings.reposRoot());
+await relocateManagedStorage(store, config.dataDir, log, settings);
 const bus = new EventBus();
 
 // Declared before the gate because the gate needs to know: a stand-in run has

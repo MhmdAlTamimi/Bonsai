@@ -96,6 +96,89 @@ export class Store {
 
   // -- projects ------------------------------------------------------------
 
+  metadata(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
+      { value: string } | undefined;
+    return row?.value ?? null;
+  }
+  setMetadata(key: string, value: string | null): void {
+    if (value === null) this.db.prepare('DELETE FROM meta WHERE key = ?').run(key);
+    else this.db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, value);
+  }
+
+  /** One relocation updates owned paths and durable recovery records together. */
+  remapProjectPaths(projectId: string, map: (path: string) => string): void {
+    const project = this.getProject(projectId)!;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db
+        .prepare('UPDATE project SET repo_path = ?, scratch_path = ?, source_path = ? WHERE id = ?')
+        .run(
+          map(project.repo_path),
+          project.scratch_path === null ? null : map(project.scratch_path),
+          project.source_path === null ? null : map(project.source_path),
+          projectId,
+        );
+      for (const node of this.listNodes(projectId))
+        this.db
+          .prepare('UPDATE node SET worktree_path = ? WHERE id = ?')
+          .run(map(node.worktree_path), node.id);
+      for (const save of this.saves.pending()) {
+        if (save.projectId !== projectId) continue;
+        save.repoPath = map(save.repoPath);
+        save.worktreePath = map(save.worktreePath);
+        save.before.commonDir = map(save.before.commonDir);
+        this.db
+          .prepare('UPDATE run_save SET payload_json = ? WHERE run_id = ?')
+          .run(JSON.stringify(save), save.runId);
+      }
+      for (const intent of this.deletions.pending()) {
+        if (intent.project.id !== projectId) continue;
+        intent.project.repo_path = map(intent.project.repo_path);
+        if (intent.project.scratch_path !== null)
+          intent.project.scratch_path = map(intent.project.scratch_path);
+        if (intent.project.source_path !== null)
+          intent.project.source_path = map(intent.project.source_path);
+        intent.nodes = intent.nodes.map((node) => ({
+          ...node,
+          worktree_path: map(node.worktree_path),
+        }));
+        this.db
+          .prepare('UPDATE deletion_operation SET payload_json = ? WHERE id = ?')
+          .run(JSON.stringify(intent), intent.id);
+      }
+      this.setMetadata(`relocation:${projectId}`, null);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  recordRecoveredExperiment(
+    input: Parameters<NodeStore['create']>[0],
+    commit: string,
+    branch: string | null,
+    allocated: boolean,
+  ): NodeRow {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const node = this.nodes.create(input);
+      this.nodes.recordCommit(
+        node.id,
+        branch ?? `refs/bonsai/${node.project_id}/${node.id}`,
+        commit,
+      );
+      this.nodes.markAllocated(node.id, allocated);
+      this.nodes.setStatus(node.id, allocated ? 'interrupted' : 'ready');
+      this.db.exec('COMMIT');
+      return this.nodes.get(node.id)!;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   saveProjectConfiguration(...args: Parameters<ProjectStore['saveConfiguration']>): void {
     this.projects.saveConfiguration(...args);
   }

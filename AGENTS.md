@@ -82,6 +82,11 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   resumes only matching owned state; failure stays visible and offers retry or cancellation
   while recorded commits remain recoverable. Never delete an unallocated folder or override
   a Git worktree lock. Recovery copies live outside the project's deletion directory.
+- Moving managed storage repairs only verified owned worktrees and journals the path move
+  before Git repair. Never guess a moved external repository: the explicit Locate repository
+  action verifies saved project refs and recorded commits. Do not displace a still-existing
+  checkout from another copy of Bonsai. Project settings can recover experiments omitted from
+  an older database; project deletion refuses unrecorded Git work until it is recovered.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain
   host access. The Git command hook is a cooperative guard, not arbitrary-code containment.
   Scoped external approval is future work, not an existing guarantee.

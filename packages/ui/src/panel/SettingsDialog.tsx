@@ -18,6 +18,7 @@ import { Diagnostics } from './Diagnostics.tsx';
 import { AgentFields, type AgentValues } from './AgentFields.tsx';
 import { useSave } from './useSave.ts';
 import { SaveFeedback } from './SaveFeedback.tsx';
+import { LostExperiments } from './LostExperiments.tsx';
 
 export function SettingsDialog({
   settings,
@@ -69,6 +70,11 @@ export function SettingsDialog({
               onChanged={onChanged}
             />
             <NewNodeSetup key={`setup-${project.id}`} project={project} onChanged={onChanged} />
+            <LostExperiments
+              key={`lost-${project.id}`}
+              projectId={project.id}
+              onChanged={onChanged}
+            />
           </>
         ) : (
           <p className="muted">Open a project to change its settings.</p>

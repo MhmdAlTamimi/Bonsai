@@ -106,7 +106,12 @@ function structural(handler: Handler, target: 'node' | 'project' | 'deletion'): 
 
 export function route(method: string, pattern: string, handler: Handler): void {
   if (
-    (method === 'POST' && pattern === '/api/projects/:id/nodes') ||
+    (method === 'POST' &&
+      [
+        '/api/projects/:id/nodes',
+        '/api/projects/:id/locate',
+        '/api/projects/:id/lost-experiments',
+      ].includes(pattern)) ||
     (method === 'DELETE' && ['/api/projects/:id', '/api/nodes/:id'].includes(pattern)) ||
     (method === 'POST' &&
       ['/api/nodes/:id/synchronize', '/api/nodes/:id/export', '/api/deletions/:id/cancel'].includes(

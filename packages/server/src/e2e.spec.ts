@@ -2,7 +2,7 @@ import { git } from './git/exec.js';
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -3286,6 +3286,94 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       fixtureDb.exec('DROP TRIGGER IF EXISTS paused_delete_fixture');
       fixtureDb.close();
     }
+  });
+  test('a moved source can be located explicitly and missing experiment metadata can be recovered in Settings', async () => {
+    const post = async (path: string, body: unknown) => {
+      const response = await fetch(BASE + path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      assert.ok(response.ok, await response.clone().text());
+      return response.json() as Promise<{
+        projectId: string;
+        masterNodeId: string;
+        node: { id: string };
+      }>;
+    };
+    const source = join(dataDir, 'moving-source');
+    await mkdir(source);
+    await git(['init', '-q', '--initial-branch=main'], source);
+    await writeFile(join(source, 'app.txt'), 'source');
+    await git(['add', '-A'], source);
+    await git(['commit', '-qm', 'source'], source);
+    const project = await post('/api/projects/adopt', { path: source, description: '' });
+    const child = await post(`/api/projects/${project.projectId}/nodes`, {
+      parentId: project.masterNodeId,
+      displayName: 'Browser lost child',
+      description: '',
+    });
+    await post(`/api/nodes/${child.node.id}/runs`, { prompt: 'recoverable experiment' });
+    await session.goto(`${BASE}/?project=${project.projectId}&node=${child.node.id}`);
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${child.node.id}')).json()).node.status === 'ready')()`,
+    );
+    const moved = join(dataDir, 'moved-source');
+    await rename(source, moved);
+    await session.goto(`${BASE}/?project=${project.projectId}&node=${child.node.id}`);
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.recover button')).some(b => b.textContent === 'Locate repository')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Locate repository').click()",
+    );
+    await session.waitFor("!!document.querySelector('.recover .picker input')");
+    await session.type('.recover .picker input', moved);
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover .picker button')).find(b => b.textContent === 'Go').click()",
+    );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.recover .picker button')).some(b => b.textContent === 'Select this folder' && !b.disabled)",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover .picker button')).find(b => b.textContent === 'Select this folder').click()",
+    );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('.recover button')).some(b => b.textContent === 'Use this repository' && !b.disabled)",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Use this repository').click()",
+    );
+    await session.waitFor(
+      "!document.querySelector('.recover') && !!document.querySelector('.composer textarea')",
+    );
+    const fixtureDb = new DatabaseSync(join(dataDir, 'bonsai.db'));
+    try {
+      fixtureDb.exec('PRAGMA foreign_keys = ON');
+      fixtureDb.prepare('DELETE FROM node WHERE id = ?').run(child.node.id);
+    } finally {
+      fixtureDb.close();
+    }
+    await session.goto(`${BASE}/?project=${project.projectId}&node=${project.masterNodeId}`);
+    await session.waitFor('!!document.querySelector(".settings-button")');
+    await session.click('.settings-button');
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Project settings').click()",
+    );
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Recover experiment' && !b.disabled)",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Recover experiment').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('dialog')?.textContent.includes('Recovery copy:') && document.querySelector('dialog')?.textContent.includes('No unrecorded experiments found.')",
+    );
+    const detail = (await (await fetch(`${BASE}/api/nodes/${child.node.id}`)).json()) as {
+      gitRecovery: unknown;
+    };
+    assert.equal(detail.gitRecovery, null);
+    await session.eval("document.querySelector('dialog[open] .dialog-close').click()");
   });
 });
 

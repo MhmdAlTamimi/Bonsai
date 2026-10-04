@@ -74,7 +74,8 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
       await lstat(worktreePath);
     } catch (missing) {
       if ((missing as NodeJS.ErrnoException).code === 'ENOENT') {
-        await git(['worktree', 'prune'], repoPath);
+        const registered = await git(['worktree', 'list', '--porcelain', '-z'], repoPath);
+        if (registered.split('\0').includes(`worktree ${worktreePath}`)) throw error;
         return;
       }
     }

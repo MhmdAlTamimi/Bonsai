@@ -11,6 +11,7 @@
  * starts Bonsai on the moved data folder, and reports each step.
  */
 import { execFileSync } from 'node:child_process';
+import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -81,15 +82,18 @@ try {
     await bonsai.api('GET', `/api/projects/${created.projectId}/tree`),
   );
   show('open experiment "a"', await bonsai.api('GET', `/api/nodes/${a}`));
+  assert.equal((await bonsai.api('GET', `/api/nodes/${a}`)).body.gitRecovery, null);
   show('review "a"', await bonsai.api('GET', `/api/nodes/${a}/review`));
   show('apply "a" (make its patch)', await bonsai.api('POST', `/api/nodes/${a}/patch`, {}));
   await bonsai.api('POST', `/api/nodes/${child}/runs`, { prompt: 'carry on' });
   const run = (await bonsai.settle(child)).body;
+  assert.equal(run.node.status, 'ready');
   console.log(
     `  run "a child" again: ${run?.node?.status ?? short(run)} ${(run?.runs?.at(-1)?.error ?? '').split('\n')[0].slice(0, 140)}`,
   );
   await bonsai.api('POST', `/api/nodes/${archived}/runs`, { prompt: 'bring it back' });
   const back = (await bonsai.settle(archived)).body;
+  assert.equal(back.node.status, 'ready');
   console.log(
     `  run the archived one: ${back?.node?.status ?? short(back)} ${(back?.runs?.at(-1)?.error ?? '').split('\n')[0].slice(0, 140)}`,
   );
@@ -106,6 +110,14 @@ try {
     await bonsai.api('GET', `/api/projects/${adopted.projectId}/tree`),
   );
   show('open its experiment', await bonsai.api('GET', `/api/nodes/${mine}`));
+  const located = await bonsai.api('POST', `/api/projects/${adopted.projectId}/locate`, {
+    path: join(newHome, 'code', 'my-app'),
+  });
+  show('explicitly locate moved source repository', located);
+  assert.equal(located.status, 200);
+  assert.equal((await bonsai.api('GET', `/api/nodes/${mine}`)).body.gitRecovery, null);
+  await bonsai.api('POST', `/api/nodes/${mine}/runs`, { prompt: 'continue after locating' });
+  assert.equal((await bonsai.settle(mine)).body.node.status, 'ready');
   show(
     'delete the project Bonsai made',
     await bonsai.api('DELETE', `/api/projects/${created.projectId}`),

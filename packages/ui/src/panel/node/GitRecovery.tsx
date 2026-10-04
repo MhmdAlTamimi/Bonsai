@@ -1,19 +1,62 @@
-import type { JSX } from 'react';
+import { type JSX, useState } from 'react';
 import type { GitRecoveryView, SynchronizeAction } from '@bonsai/shared';
+import { api } from '../../api/client.ts';
+import { describeError } from '../../api/describeError.ts';
+import { DirectoryPicker } from '../DirectoryPicker.tsx';
 
 export function GitRecovery({
+  projectId,
+  onChanged,
   recovery,
   busy,
   onSynchronize,
 }: {
+  projectId: string;
+  onChanged: () => void;
   recovery: GitRecoveryView;
   busy: boolean;
   onSynchronize: (action: SynchronizeAction) => void;
 }): JSX.Element {
+  const [locating, setLocating] = useState(false);
+  const [path, setPath] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const locate = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.locateRepository(projectId, path);
+      onChanged();
+    } catch (error) {
+      setError(describeError(error));
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <section className="recover" aria-label="Synchronize Git and Bonsai">
       <p className="recover-headline">Git and Bonsai need to be synchronized</p>
       <p className="hint recover-detail">{recovery.message}</p>
+      {['missing_repository', 'unreadable_repository'].includes(recovery.problem) && (
+        <>
+          <button disabled={busy || saving} onClick={() => setLocating((value) => !value)}>
+            Locate repository
+          </button>
+          {locating && (
+            <div>
+              <p className="hint">
+                Choose the moved repository. Bonsai verifies its saved code and repairs its own
+                experiment folders. Your source checkout is preserved.
+              </p>
+              <DirectoryPicker value={path} onChange={setPath} markRepos />
+              <button disabled={!path || saving} onClick={() => void locate()}>
+                Use this repository
+              </button>
+            </div>
+          )}
+          {error && <p role="alert">{error}</p>}
+        </>
+      )}
       <dl>
         <dt>Bonsai recorded</dt>
         <dd>{recovery.recordedCommit?.slice(0, 10) ?? 'Unavailable'}</dd>

@@ -148,6 +148,15 @@ export interface ApplyPatchView {
 }
 
 /** What experiment folders take up on disk, for Settings. */
+export interface LostExperimentView {
+  id: string;
+  ref: string;
+  commit: string;
+  folder: string | null;
+  subject: string;
+  version: string;
+}
+
 export interface StorageView {
   folders: number;
   bytes: number;

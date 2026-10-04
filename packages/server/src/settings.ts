@@ -7,7 +7,8 @@ import {
   renameSync,
   rmSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { isInside } from './paths.js';
 import {
   ARCHIVE_AFTER_DAYS,
   CONCURRENCY,
@@ -141,6 +142,13 @@ export class Settings {
   /** Where new projects are created. Existing ones keep the path they were made with. */
   reposRoot(): string {
     return this.current.reposRoot ?? this.config.reposRoot;
+  }
+
+  /** A stored preference inside the moved data folder moves with its owned files. */
+  relocateStorageRoot(oldDataDir: string, dataDir: string): void {
+    const root = this.current.reposRoot;
+    if (root !== null && isInside(oldDataDir, root))
+      this.update({ reposRoot: join(dataDir, relative(oldDataDir, root)) });
   }
 
   view(): SettingsView {

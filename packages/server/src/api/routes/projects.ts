@@ -10,6 +10,9 @@ import {
 import { rejectPath } from '../../git/seedWorktree.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { route, withLive, requireConnection } from '../routing.js';
+import { locateRepository } from '../../storage/relocate.js';
+import { lostExperiments, importLostExperiment } from '../../storage/orphans.js';
+import { join } from 'node:path';
 
 /** Projects: creating, opening, their tree, usage and deletion. */
 
@@ -76,6 +79,37 @@ route('GET', '/api/projects/:id/tree', (_req, res, params, { store, jobs }) => {
   };
   sendJson(res, 200, body);
 });
+
+route('POST', '/api/projects/:id/locate', async (req, res, params, { store, jobs, bus }) => {
+  const body = await readJson<{ path: string }>(req);
+  const id = params['id']!;
+  await jobs.withStoppedNodes(
+    store.listNodes(id).map((node) => node.id),
+    () => locateRepository(store, id, requireString(body.path, 'path')),
+  );
+  bus.publish(id, { type: 'tree.updated', projectId: id });
+  sendJson(res, 200, { ok: true });
+});
+
+route('GET', '/api/projects/:id/lost-experiments', async (_req, res, params, { store }) => {
+  sendJson(res, 200, await lostExperiments(store, params['id']!));
+});
+route(
+  'POST',
+  '/api/projects/:id/lost-experiments',
+  async (req, res, params, { store, settings, bus }) => {
+    const body = await readJson<{ id: string; version: string }>(req);
+    const recovered = await importLostExperiment(
+      store,
+      params['id']!,
+      requireString(body.id, 'id'),
+      requireString(body.version, 'version'),
+      join(settings.view().dataDir, 'recovery'),
+    );
+    bus.publish(params['id']!, { type: 'tree.updated', projectId: params['id']! });
+    sendJson(res, 201, recovered);
+  },
+);
 
 route('GET', '/api/projects/:id/usage', (_req, res, params, { store }) => {
   const project = store.getProject(params['id']!);
