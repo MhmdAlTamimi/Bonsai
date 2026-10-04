@@ -2,6 +2,8 @@
 
 Branch: `codex/audit-fixes`, based on `claude/audit` at `d7f9c87`.
 
+New reviews: [phase 15 — security](audit-15-security.md), [phase 16 — interface foundations](audit-16-interface-foundations.md), [phase 17 — ship readiness](audit-17-ship-readiness.md).
+
 Keep the modular monolith. Do not call a real model API: use the stand-in runner or the real SDK only with `ANTHROPIC_BASE_URL` pointing at `scripts/audit/fake-api.mjs`. No new dependencies without approval.
 
 ## Accepted product decisions
@@ -9,7 +11,7 @@ Keep the modular monolith. Do not call a real model API: use the stand-in runner
 - Recovery must explain Git/Bonsai differences, preserve work, and provide explicit safe synchronization. No silent reset of unknown work.
 - Manual archiving shows a clear text warning about ignored files. Further automatic-archiving changes are deferred.
 - Dollar budgets and daily/project spending caps are deferred for subscription use. Correctness of displayed API-equivalent usage is still in scope.
-- Phases 15–17 have not been audited; this branch does not claim to complete them.
+- Phases 15–17 are now reviewed in their accompanying reports. Final Linux verification passed; Windows detached-process cleanup remains an open release gate.
 
 ## Order of work
 
@@ -20,6 +22,7 @@ Keep the modular monolith. Do not call a real model API: use the stand-in runner
 5. Connection/session fallback, complete independent export, storage visibility.
 6. Multi-tab transport, attention/questions, scoped updates and bounded rendering.
 7. Remaining audited usability/platform fixes and final verification.
+8. Security, interface foundations and ship-readiness review (phases 15–17).
 
 ## Findings
 
@@ -29,7 +32,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 - [x] S1: Two copies of Bonsai on one data folder corrupt each other's runs
 - [x] S2: One unexpected error stops everything, and leaves no trace in the log
-- [ ] S3: An open tab keeps running old code after an upgrade
+- [x] S3: An open tab keeps running old code after an upgrade
 - [x] S4: The HTTP layer is tested only through the browser
 
 ### audit-02-database
@@ -85,21 +88,21 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-09-live-updates
 
-- [ ] L1: Six tabs freeze Bonsai in every tab
-- [ ] L2: Every change anywhere in the project downloads the open conversation again, in full
+- [x] L1: Six tabs freeze Bonsai in every tab
+- [x] L2: Every change anywhere in the project downloads the open conversation again, in full
 
 ### audit-10-the-map
 
-- [ ] M1: Nothing tells you an experiment is waiting for you
-- [ ] M2: The map opens too far out to read, and there is no way to find an experiment by name
-- [ ] M3: Every update re-lays out and redraws the whole map
-- [ ] M4: With a keyboard, the map is a long flat list
+- [x] M1: Nothing tells you an experiment is waiting for you
+- [x] M2: The map opens too far out to read, and there is no way to find an experiment by name
+- [x] M3: Every update re-lays out and redraws the whole map
+- [x] M4: With a keyboard, the map is a long flat list
 - [x] M5: For a project Bonsai created, the top bar spends its width on Bonsai's storage path
 
 ### audit-11-conversation-panel
 
 - [x] C1: An unsent message is lost when the page reloads
-- [ ] C2: A long conversation slows the whole page, whatever else is happening
+- [x] C2: A long conversation slows the whole page, whatever else is happening
 - [x] C3: When the agent asks you something, the answer buttons are below the fold
 - [x] C4: A queued request is not shown in its own panel
 - [x] C5: Result tables break their words apart at the panel's default width
@@ -112,7 +115,7 @@ A checkbox is checked only after implementation and relevant verification. Defer
 
 ### audit-13-sharing-between-experiments
 
-- [ ] X1: Every comparison keeps a full copy of each compared experiment's repository, and nothing counts or removes them
+- [x] X1: Comparison copies and run attachments are counted, with explicit comparison cleanup and a deleted-source warning. Independent copies remain deliberate; automatic eviction/lazy export is not introduced.
 - [x] X2: Spending on comparisons and on drafted references is not in Usage
 - [x] X3: A comparison's address does not open it
 - [x] X4: *Start from latest*, saved for later, loses the work it carries
@@ -153,6 +156,24 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - [x] E24: A crash between saving inherited context and adopting the SDK fork can use the shorter history fallback without telling the user.
 - [x] E25: A clean SDK transport EOF without a completed result can mark partial work as successful, including committing an unfinished experiment.
 
+- [x] E26: A history page beginning inside a running turn can replay already saved live frames; reconcile using durable message sequence numbers.
+
+### audit-15-security
+
+- [x] P1: Unrelated localhost origins can issue bodyless API mutations.
+- [x] P2: New private database/log files inherit permissive filesystem defaults.
+- [x] P3: Credential-shaped error text can survive in raw logs.
+
+### audit-16-interface-foundations
+
+- [x] U1: Failed browser draft persistence is silent and can lose unsent work on reload.
+- [x] U2: Memoized card actions retain stale callbacks as tree identity stabilizes.
+
+### audit-17-ship-readiness
+
+- [x] D1: Patch existing dependency advisories and verify the installed lockfile.
+- [ ] Release gate: Windows I4 needs a platform decision and native validation. No Windows or macOS runtime was available in this review environment.
+
 ## Verification log
 
 - Baseline review: build, 367 server tests, 120 UI/shared tests and 25 browser tests passed; documented independent validation is in `/workspace/bonsai-review/REVIEW.md`.
@@ -183,3 +204,20 @@ A checkbox is checked only after implementation and relevant verification. Defer
 - Conversation ownership follow-up: production build, typecheck/lint/format, all 431 server tests, 120 UI/shared tests and 33 browser tests passed; the real SDK fake-API recovery/backup reproduction also passed. A schema-26 upgrade backfills session ownership. Deletion removes root/subagent mirrors and inherited metadata in the same transaction, retains archived experiments and sessions shared with another owner, and rolls back all cleanup after an injected SQL failure. Startup removes only unowned interrupted native forks. The fixed inherited seed and parent cut point are saved together before copying; a crash at that boundary keeps the original lineage, excludes later parent turns and visibly explains saved-history recovery.
 
 - Usage/completion batch: production build, typecheck/lint/format, all 439 server tests, 120 UI/shared tests and 34 browser tests passed. The real bundled SDK reproduction uses the verified fake API: three runs now record $0.0075, $0.006 and $0.006, totaling the native session's $0.0195; resumed token counts exclude previous turns. Native forks count only their new work, comparison questions use the same frozen baseline, reference drafts report their tool-less call, and experiment/comparison deletion leaves totals unchanged. A single ledger saves each reported turn immediately, participates in finalization transactions, and retains summaries without retaining deleted conversations. Reopen/interruption and schema-27 upgrade tests distinguish unknown reports from zero; older cumulative figures, including pending save-journal totals, stay unverified and are excluded from corrected totals. Historical totals deleted before this ledger existed cannot be recovered. The final rollback fixture deliberately fails at the node-status write after the run/ledger updates; both ledger regressions passed again after rebuilding. Browser checks cover all three request types, deleted entries, unknown reports and exclusion of unverified estimates. SDK transport EOF without a completed result now fails; an actual job regression preserves partial files and refuses a successful commit without changing the connection gate. Budgets remain deferred.
+
+
+- Live interface/storage batch: production build, typecheck/lint/format, 443 server tests, 121 UI/shared tests and all 39 Chromium scenarios passed. Seven-tab/shared-worker and finite-polling fallback checks validate delivery and continued API access. A 20-run history received zero conversation downloads during ten unrelated runs, compared with repeated full downloads before scoped events; queue and usage events no longer invalidate every experiment. Initial history uses 200-message pages; a real 500-message browser fixture loads all pages, preserves the reading anchor and later requests only messages after sequence 500. A durable per-node cursor prevents replay when the first page cuts through a running turn. SQL and actual job-pipeline tests verify the cursor, not just fabricated UI frames. Tree identity, measured geometry and stable card actions reduce work; the isolated 200-node reproduction measured 71 ms/update versus this workspace's validated 120 ms baseline, with readable initial scale. Treat timings as machine-dependent, not a universal speed guarantee. Browser coverage verifies keyboard search/navigation, cross-project waiting-question attention, stale-build mutation rejection with explicit reload, and comparison storage cleanup while retaining the source experiment. Comparisons refresh for their own sources and active queue changes; unrelated experiment histories stay untouched. Initial experiment history is bounded, not full virtualization of all manually loaded content or comparison transcripts.
+
+- Phases 15–17: strict browser origin tests and a real HTTP request reject cross-port localhost mutations; development has explicit fixed Vite origins. Under umask 022, a real database/log probe now observes directory 0700, database 0600 and no credential canary in the log. The final eight focused API/privacy regressions passed after rebuilding, including legacy WAL/SHM permission repair. The actual browser composer warns after a storage exception, protects navigation, clears the warning after successful persistence and survives reload. Compatible patches of existing transitive dependencies reduced npm audit from 15 reported entries to zero; a clean lockfile install passed. No SDK version or dependency was added. Raw logs/diagnostics share credential redaction; free-form prompts/output must still be excluded by callers. POSIX modes are not Windows ACL validation.
+
+## Remaining priority / release decision
+
+1. **Before promising full Windows run cleanup:** resolve I4 on Windows and verify it natively, or explicitly choose Linux/macOS first. The user was asked; no platform choice has been assumed. The existing CI matrix is retained. Linux tests cannot substitute for Windows/macOS runtime evidence.
+2. **Before sharing:** review the completed recovery/archive text and do a real subscription sign-in smoke test on the intended release machine. This review deliberately used no real agent credentials or paid API calls. Keep a completed backup outside the original disk.
+3. **Deferred by the user:** spending caps and additional automatic ignored-file handling. Manual archive warning and accurate API-equivalent usage already work. These unchecked entries are deliberate deferrals, not hidden completion claims.
+
+Keep the modular monolith. There is no demonstrated need for independently deployed services; durable ownership, one scheduler, narrow API boundaries and targeted refreshes address the reproduced problems directly.
+
+- Final long-thread reproduction: 50 and 200 runs both produced 1,333 initial page elements; measured initial draws were 638/569 ms and unrelated-update main-thread work 12/13 ms. This isolates bounded initial rendering from total saved history. Dependency patch commit: `bf42909`; interface/privacy implementation commit: `aee0382`.
+
+- Final reproductions on the committed implementation: all seven tabs retained responsive requests and received updates after close/reload; the SharedWorker-disabled fallback also delivered updates. A 50-run, 123 KB conversation was downloaded zero times during ten runs on other experiments, with 11 coalesced tree refreshes. After the dependency patches, the real bundled SDK against the verified local fake API passed durable resume, fixed child fork, moved independent backup, comparison resume, missing-session compact refusal and explicit saved-history recovery. No real account or external model endpoint was used. Final typecheck, lint and formatting checks also passed.

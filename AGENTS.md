@@ -148,6 +148,19 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   Waiting questions own the panel's available space and scroll their content independently
   of their visible answer controls. Comparison URLs must survive initial project loading.
 
+- Live updates share one browser SharedWorker/EventSource per origin/build; unsupported browsers
+  use finite revision polling. Reconnection reconciles durable server state. Scope experiment
+  events by node; queue and usage changes must not invalidate unrelated histories. Comparison
+  freshness still depends on its source experiments. Preserve DTO/node identity and run layout
+  only when topology, pinned positions or measured sizes change.
+- Initial experiment history is bounded. Earlier pages preserve the reader's anchor, and live
+  persisted frames use the node-wide message sequence to avoid replay when a page starts inside
+  a run. A failed browser draft write must remain visible and warn before unloading; an in-memory
+  draft is not a saved draft. Stale frontend builds require an explicit reload before mutations.
+- Browser API requests require a matching Origin, including port; Vite origins are explicit
+  development-only exceptions. Keep new app-owned data private and redact credential-shaped
+  diagnostic fields centrally, without ever treating redaction as permission to log prompts.
+
 Later phases (standing references, running procedures across compared experiments, notes
 migration, scoped external actions, applying changes on the user's behalf and additional SDK
 capabilities) require their own
