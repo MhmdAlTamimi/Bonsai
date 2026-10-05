@@ -6,7 +6,7 @@
 .liquid-switch[data-animate='true'][data-direction='right']::before { transition: left 560ms cubic-bezier(.22, .8, .2, 1), right 320ms cubic-bezier(.16, 1, .3, 1); }
 .liquid-switch > button { position: relative; transition: color 180ms ease; }
 .liquid-switch > button[aria-pressed='true'] { color: var(--text); }
-.liquid-switch > button:hover:not(:disabled), .liquid-switch > button[aria-pressed='true']:hover:not(:disabled) { background: transparent; color: var(--text); }
+.liquid-switch > button:hover:not(:disabled), .liquid-switch > button[aria-pressed='true']:hover:not(:disabled) { background: transparent; border-color: transparent; color: var(--text); }
 .review-tools .liquid-switch button:active:not(:disabled) { transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .liquid-switch[data-animate='true']::before, .liquid-switch[data-animate='true'][data-direction]::before, .liquid-switch > button { transition: none; }
