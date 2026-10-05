@@ -168,12 +168,13 @@ export function NewChildDialog({
             <FieldHeading number={4} optional>
               What success should look like?
             </FieldHeading>
-            <input
+            <textarea
               value={successCriteria}
               disabled={busy}
               onChange={(e) => setSuccessCriteria(e.target.value)}
               placeholder="e.g. Search responds in under 100 ms"
               aria-label="success criteria"
+              rows={2}
             />
           </label>
         </div>
