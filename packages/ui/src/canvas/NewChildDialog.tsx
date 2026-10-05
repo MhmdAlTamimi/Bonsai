@@ -166,7 +166,7 @@ export function NewChildDialog({
           </label>
           <label className="stacked">
             <FieldHeading number={4} optional>
-              What success should look like?
+              What should the output look like?
             </FieldHeading>
             <textarea
               value={successCriteria}
