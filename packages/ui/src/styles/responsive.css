@@ -31,3 +31,16 @@
   .storage-metrics > div { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
   .storage-metrics dd { margin: 0; }
 }
+
+/* The child form keeps its actions available at narrow widths. */
+@media (max-width: 560px) {
+  .create-child-dialog > .dialog-head { padding: 18px 18px 14px; }
+  .create-child-dialog .creation-body { padding-inline: 18px; }
+  .create-child-dialog > .creation-actions { padding-inline: 18px; }
+  .create-child-dialog .creation-cancel { flex: 0 0 auto; }
+  .create-child-dialog .creation-actions button { min-width: 0; font-size: var(--fs-xs); }
+  .create-child-dialog .creation-secondary { flex: 1.4; }
+  .create-child-dialog .creation-secondary .icon { display: none; }
+  .creation-source-popover { left: 18px; right: 18px; }
+  .creation-source-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}

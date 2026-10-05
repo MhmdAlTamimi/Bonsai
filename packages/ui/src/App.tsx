@@ -395,10 +395,8 @@ export function App(): JSX.Element {
 
           {child.pending !== null && (
             <NewChildDialog
-              parentName={child.pending.parentName}
               parentId={child.pending.parentId}
               redo={child.pending.redo}
-              onSelectSource={selection.select}
               onCancel={child.cancel}
               onCreate={child.create}
             />

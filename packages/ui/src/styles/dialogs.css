@@ -359,7 +359,6 @@ dialog.settings-dialog { margin-block: 5dvh auto; scrollbar-gutter: stable; }
 
 .dialog .dialog-actions { flex-wrap: wrap; }
 .dialog-actions button { min-height: 36px; }
-.dialog[aria-label="Branch experiment"] .dialog-actions > .hint { flex-basis: 100%; }
 
 /* Buttons that are only an icon: a square target, not a line of text. */
 .picker-bar button { display: inline-flex; align-items: center; justify-content: center; }

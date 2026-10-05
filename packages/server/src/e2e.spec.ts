@@ -1,4 +1,5 @@
 import { git } from './git/exec.js';
+import type { NodeDetail } from '@bonsai/shared';
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -185,7 +186,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         label: 'the new-child dialog',
       });
       await session.type('[aria-label="experiment name"]', 'Named approach');
-      await session.waitFor("!!document.querySelector('.creation-sources button')");
+      await session.waitFor("!!document.querySelector('.start-fresh button')");
       await session.type('[aria-label="what should change"]', 'do a thing');
       // `.primary`, not the first button in the row -- that one is Cancel, and
       // clicking it closes the dialog while every later wait times out saying
@@ -519,11 +520,12 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.eval(
       "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Branch experiment')).click()",
     );
+    await session.click('[aria-label="Source details"]');
     await session.waitFor(
-      "document.querySelector('.creation-sources')?.textContent.includes('Named approach')",
+      "document.querySelector('.creation-source-popover:not([hidden])')?.textContent.includes('Named approach')",
     );
     const sources = (await session.eval(
-      "document.querySelector('.creation-sources').textContent",
+      "document.querySelector('.creation-source-popover').textContent",
     )) as string;
     assert.match(sources, /Discussion/);
     assert.match(sources, /Named approach/);
@@ -1017,6 +1019,225 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.screenshot(join(repoRoot, 'test-results', 'milestone-1-review.png'));
   });
+  test('child creation exposes four fields, accessible source details and deliberate keyboard submission', async () => {
+    const project = (await (
+      await fetch(`${BASE}/api/projects`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Creation form', permissionMode: 'acceptEdits' }),
+      })
+    ).json()) as { projectId: string; masterNodeId: string };
+    await fetch(`${BASE}/api/nodes/${project.masterNodeId}/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: '? context for child' }),
+    });
+    await session.goto(`${BASE}/?project=${project.projectId}&node=${project.masterNodeId}`);
+    await session.waitFor(
+      `(async () => (await (await fetch('${BASE}/api/nodes/${project.masterNodeId}')).json()).node.status === 'ready')()`,
+    );
+    await session.waitFor("!!document.querySelector('.add-child-handle')");
+    const pressEnter = async (modifiers = 0): Promise<void> => {
+      const modifier =
+        modifiers === 2
+          ? { key: 'Control', code: 'ControlLeft', windowsVirtualKeyCode: 17 }
+          : { key: 'Meta', code: 'MetaLeft', windowsVirtualKeyCode: 91 };
+      if (modifiers)
+        await session.send('Input.dispatchKeyEvent', { type: 'keyDown', ...modifier, modifiers });
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r',
+        modifiers,
+      });
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        modifiers,
+      });
+      if (modifiers)
+        await session.send('Input.dispatchKeyEvent', { type: 'keyUp', ...modifier, modifiers: 0 });
+    };
+    for (const modifiers of [2, 4]) {
+      await session.click('.add-child-handle');
+      await session.waitFor("!!document.querySelector('.create-child-dialog .next-run summary')");
+      assert.deepEqual(
+        await session.eval(
+          "Array.from(document.querySelectorAll('.creation-fields input, .creation-fields textarea')).map(e => e.getAttribute('aria-label'))",
+        ),
+        ['experiment name', 'what should change', 'verification hint', 'success criteria'],
+      );
+      assert.equal(
+        await session.eval("document.querySelector('.creation-source-popover').hidden"),
+        true,
+      );
+      const info = await session.centreOf('[aria-label="Source details"]');
+      assert.ok(info);
+      await session.mouse('mouseMoved', info.x, info.y);
+      await session.waitFor("!document.querySelector('.creation-source-popover').hidden");
+      assert.match(
+        String(
+          await session.eval("document.querySelector('.creation-source-popover').textContent"),
+        ),
+        /Code from.*master.*Conversation from.*master/s,
+      );
+      await session.mouse('mouseMoved', 2, 2);
+      await session.waitFor("document.querySelector('.creation-source-popover').hidden");
+      await session.eval('document.querySelector(\'[aria-label="Source details"]\').focus()');
+      await session.waitFor("!document.querySelector('.creation-source-popover').hidden");
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Escape',
+        code: 'Escape',
+      });
+      assert.equal(
+        await session.eval(
+          "document.querySelector('.creation-source-popover').hidden && !!document.querySelector('.create-child-dialog[open]')",
+        ),
+        true,
+      );
+      await session.type('[aria-label="experiment name"]', `Shortcut ${modifiers}`);
+      await session.type('[aria-label="what should change"]', 'First line');
+      await session.eval('document.querySelector(\'[aria-label="what should change"]\').focus()');
+      await pressEnter();
+      assert.equal(
+        await session.eval('document.querySelector(\'[aria-label="what should change"]\').value'),
+        'First line\n',
+      );
+      assert.equal(
+        await session.eval("!!document.querySelector('.create-child-dialog[open]')"),
+        true,
+        'plain Enter does not create',
+      );
+      await session.send('Input.insertText', { text: 'Second line' });
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        modifiers: 2,
+        autoRepeat: true,
+        text: '\r',
+      });
+      await session.send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+      });
+      assert.equal(
+        await session.eval("document.querySelector('.creation-actions .primary').disabled"),
+        false,
+        'repeated shortcut does not begin submission',
+      );
+      assert.equal(
+        await session.eval('document.querySelector(\'[aria-label="what should change"]\').value'),
+        'First line\nSecond line',
+        'repeated shortcut does not insert a newline',
+      );
+      await session.eval(
+        "document.querySelector('[aria-label=\"what should change\"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,isComposing:true,bubbles:true,cancelable:true}))",
+      );
+      assert.equal(
+        await session.eval("!!document.querySelector('.create-child-dialog[open]')"),
+        true,
+        'IME composition does not create',
+      );
+      await session.type('[aria-label="verification hint"]', 'Run search tests');
+      await session.type('[aria-label="success criteria"]', 'Search under 100 ms');
+      if (modifiers === 2) {
+        await session.screenshot(join(repoRoot, 'test-results', 'creation-form-desktop.png'));
+        await session.send('Emulation.setDeviceMetricsOverride', {
+          width: 400,
+          height: 700,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        try {
+          await session.eval("document.documentElement.style.setProperty('--text-scale','1.15')");
+          const footer =
+            "(() => {const r=document.querySelector('.creation-actions').getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right}})()";
+          const before = await session.eval(footer);
+          assert.equal(
+            await session.eval(
+              "new Set(Array.from(document.querySelectorAll('.creation-actions > button')).map(b => b.getBoundingClientRect().height)).size",
+            ),
+            1,
+            'narrow action labels fit on one line at enlarged text size',
+          );
+          await session.eval("document.querySelector('.creation-body').scrollTop = 10000");
+          assert.deepEqual(
+            await session.eval(footer),
+            before,
+            'actions stay fixed when the form scrolls',
+          );
+          await session.click('.next-run summary');
+          assert.deepEqual(
+            await session.eval(footer),
+            before,
+            'actions stay fixed when run details expand',
+          );
+          assert.equal(
+            await session.eval(
+              "document.querySelector('.next-run summary').textContent.includes('Allow tools and commands')",
+            ),
+            true,
+            'permissions are in the collapsed summary too',
+          );
+          assert.equal(
+            await session.eval('document.documentElement.scrollWidth <= innerWidth'),
+            true,
+          );
+          assert.equal(
+            await session.eval(
+              "(() => {const d=document.querySelector('.create-child-dialog').getBoundingClientRect(),f=document.querySelector('.creation-actions').getBoundingClientRect();return d.top>=0 && f.bottom<=innerHeight && f.right<=innerWidth})()",
+            ),
+            true,
+          );
+          await session.click('[aria-label="Source details"]');
+          assert.equal(
+            await session.eval("document.querySelector('.creation-source-popover').hidden"),
+            false,
+            'tap opens source facts',
+          );
+          await session.click('[aria-label="Source details"]');
+          assert.equal(
+            await session.eval("document.querySelector('.creation-source-popover').hidden"),
+            true,
+            'tap closes source facts',
+          );
+          await session.screenshot(join(repoRoot, 'test-results', 'creation-form-narrow.png'));
+        } finally {
+          await session.send('Emulation.clearDeviceMetricsOverride', {});
+          await session.eval("document.documentElement.style.removeProperty('--text-scale')");
+        }
+      }
+      await session.eval('document.querySelector(\'[aria-label="what should change"]\').focus()');
+      await pressEnter(modifiers);
+      await session.waitFor(
+        `!document.querySelector('dialog[open]') && document.querySelector('.panel h2')?.textContent === 'Shortcut ${modifiers}'`,
+      );
+      await session.waitFor(
+        `(async () => (await (await fetch('${BASE}/api/projects/${project.projectId}/tree')).json()).nodes.find(n=>n.displayName==='Shortcut ${modifiers}')?.status === 'ready')()`,
+      );
+      const tree = (await (
+        await fetch(`${BASE}/api/projects/${project.projectId}/tree`)
+      ).json()) as { nodes: Array<{ id: string; displayName: string }> };
+      const child = tree.nodes.find((n) => n.displayName === `Shortcut ${modifiers}`)!;
+      const detail = (await (await fetch(`${BASE}/api/nodes/${child.id}`)).json()) as NodeDetail;
+      assert.equal(detail.node.summaryLine, 'First line\nSecond line');
+      assert.equal(detail.verificationHint, 'Run search tests');
+      assert.equal(detail.successCriteria, 'Search under 100 ms');
+      assert.equal(detail.runs.length, 1, 'shortcut starts exactly one run');
+      assert.equal(detail.runs[0]!.resolvedContext!.verificationHint, 'Run search tests');
+      assert.equal(detail.runs[0]!.resolvedContext!.successCriteria, 'Search under 100 ms');
+    }
+  });
+
   test('initial canvas centers the chosen experiment after measurement, including a hidden narrow canvas', async () => {
     const post = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
       const response = await fetch(`${BASE}${path}`, {
@@ -3402,11 +3623,11 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     await session.type('.composer textarea', 'Retain this draft across views');
     // The map's + is a button: a click opens the branch dialog without a drag.
     await session.click('.add-child-handle');
-    await session.waitFor('!!document.querySelector(\'dialog[aria-label="Branch experiment"]\')');
+    await session.waitFor('!!document.querySelector(\'dialog[aria-label="Create child"]\')');
     await session.eval(
       "Array.from(document.querySelectorAll('dialog button')).find(b=>b.textContent==='Cancel').click()",
     );
-    await session.waitFor('!document.querySelector(\'dialog[aria-label="Branch experiment"]\')');
+    await session.waitFor('!document.querySelector(\'dialog[aria-label="Create child"]\')');
     // And the keyboard: Enter on the focused + does the same.
     await session.eval("document.querySelector('.add-child-handle').focus()");
     for (const type of ['keyDown', 'keyUp'])
@@ -3425,7 +3646,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       "document.querySelector('[aria-label=\"what should change\"]').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true,cancelable:true}))",
     );
     assert.equal(
-      await session.eval('!!document.querySelector(\'dialog[aria-label="Branch experiment"]\')'),
+      await session.eval('!!document.querySelector(\'dialog[aria-label="Create child"]\')'),
       true,
       'IME composition does not submit',
     );
