@@ -153,7 +153,7 @@ export function NewChildDialog({
           )}
           <label className="stacked">
             <FieldHeading number={3} optional>
-              How to check
+              What to test for?
             </FieldHeading>
             <textarea
               value={verificationHint}
@@ -166,7 +166,7 @@ export function NewChildDialog({
           </label>
           <label className="stacked">
             <FieldHeading number={4} optional>
-              Success looks like
+              What success should look like?
             </FieldHeading>
             <input
               value={successCriteria}
