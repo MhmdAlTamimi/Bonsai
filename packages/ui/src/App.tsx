@@ -79,7 +79,7 @@ export function App(): JSX.Element {
   useRestoredSelection(tree, selection, arrivedAt);
   const selected: NodeView | null = tree?.nodes.find((n) => n.id === selection.primary) ?? null;
   /**
-   * Map and Experiment, and which of them a window this wide can show.
+   * Map and Conversation, and which of them a window this wide can show.
    *
    * Both stay mounted whichever is on screen: switching must not cost the
    * canvas viewport, a reading position or a half-typed draft, and keeping them
@@ -229,7 +229,7 @@ export function App(): JSX.Element {
            * Two controls, not one dressed as two.
            *
            * NARROW: the views are alternatives, so this is a segmented switch
-           * with exactly one of them current. Experiment is unavailable, and
+           * with exactly one of them current. Conversation is unavailable, and
            * says why, when nothing is selected -- a full-width panel reading
            * "select an experiment" is worse than the map it replaced.
            *
@@ -259,7 +259,7 @@ export function App(): JSX.Element {
                   title={selected === null ? 'Choose an experiment on the map first.' : undefined}
                   onClick={view.showExperiment}
                 >
-                  Experiment
+                  Conversation
                 </button>
               </>
             )}
