@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from './open.js';
 import { Store } from './store.js';
-import { createChildNode, createProject } from '../projects.js';
+import { createChildNode } from '../projects.js';
 
 /**
  * How many queries building a tree costs.
@@ -136,7 +137,8 @@ describe('building a tree', () => {
     // A generous ceiling: the point is that it does not grow, but a number
     // this low also says nobody has quietly added a second per-tree query
     // that could have been folded into an existing one.
-    assert.ok(b.queries <= 8, `${b.queries} queries for one tree is more than expected`);
+    // Shared-checkout ownership adds one project-scoped lookup, never one per node.
+    assert.ok(b.queries <= 9, `${b.queries} queries for one tree is more than expected`);
   });
 
   test('still reports the right costs after being made one query', async () => {

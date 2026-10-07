@@ -18,10 +18,13 @@ import { addDetachedWorktree, removeWorktree } from './worktree.js';
 
 /** Readable even when a folder disappeared; never changes refs or work. */
 export async function gitRecovery(store: Store, node: NodeRow): Promise<GitRecoveryView | null> {
+  const workspace = store.workspaces.get(node.project_id);
+  if (workspace?.switch_json) return null;
+  const live = !workspace || workspace.active_node_id === node.id;
   const project = store.getProject(node.project_id)!;
   if (isUsersOwnCheckout(project, node)) return null;
   const recorded = tipOf(node);
-  const folderExists = existsSync(node.worktree_path);
+  const folderExists = live && existsSync(node.worktree_path);
   let problem: GitRecoveryView['problem'] = 'drift';
   let message =
     'Git and Bonsai have different saved code. Choose which version this experiment should use. Current files, ignored files and all known commits will be preserved in an independent recovery folder first.';
@@ -37,7 +40,7 @@ export async function gitRecovery(store: Store, node: NodeRow): Promise<GitRecov
     saved = await readRef(project.repo_path, nodeRef(project.id, node.id));
     recordedExists = recorded !== null && (await commitExists(project.repo_path, recorded));
     safeRepo = true;
-    if (node.worktree_allocated !== 0 && !folderExists) {
+    if (live && node.worktree_allocated !== 0 && !folderExists) {
       problem = 'missing_folder';
       message =
         'The experiment folder is missing. Its Git history is still available. Restore its recorded folder, or import its latest saved Git commit. Uncommitted files need your own backup.';
@@ -179,7 +182,12 @@ export async function synchronizeExperiment(
 
   // A user-created branch is never reset. The owned checkout becomes detached,
   // and every former branch tip is kept in the recovery repository.
-  if (folderHead === null) {
+  const inactiveShared =
+    store.workspaces.get(project.id) &&
+    store.workspaces.get(project.id)!.active_node_id !== node.id;
+  if (inactiveShared) {
+    // Saved-ref synchronization does not allocate an inactive node's folder.
+  } else if (folderHead === null) {
     await removeWorktree(project.repo_path, node.worktree_path);
     await addDetachedWorktree(project.repo_path, node.worktree_path, selected);
   } else {
@@ -216,7 +224,7 @@ export async function synchronizeExperiment(
       status: 'ready',
       commit: { branch: nodeRef(project.id, node.id), head: selected },
       abandonSaves: pendingSaves.map((save) => save.runId),
-      restored: true,
+      restored: !inactiveShared,
     },
   );
   for (const save of pendingSaves)

@@ -100,6 +100,29 @@ export interface NodeDiffView {
 }
 
 export const api = {
+  recoverWorkspace: (id: string, action: 'retry' | 'restore') =>
+    json<{ preservedPath: string | null }>(`/api/projects/${id}/workspace-recovery`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+  workspaceMigration: (id: string) =>
+    json<{
+      version: string;
+      folders: number;
+      preservedFiles: number;
+      blocked: string[];
+      pending: boolean;
+    }>(`/api/projects/${id}/workspace-migration`),
+  migrateWorkspace: (id: string, version: string) =>
+    json<ProjectView>(`/api/projects/${id}/workspace-migration`, {
+      method: 'POST',
+      body: JSON.stringify({ version }),
+    }),
+  holdWorkspace: (id: string, nodeId: string, held: boolean) =>
+    json<{ ok: true }>(`/api/projects/${id}/workspace-hold`, {
+      method: 'POST',
+      body: JSON.stringify({ nodeId, held }),
+    }),
   attention: () => json<AttentionView[]>('/api/attention'),
   version: () => json<{ buildId: string | null }>('/api/version'),
   usage: (projectId: string) => json<ProjectUsageView>(`/api/projects/${projectId}/usage`),

@@ -348,13 +348,17 @@ export const NodeCard = memo(function NodeCard({
                 <button
                   role="menuitem"
                   disabled={data.status === 'running' || data.status === 'needs_you'}
-                  title="Remove the folder to save space. The code, conversation and runs stay, and the next run brings it back."
+                  title={
+                    data.sharedWorkspace
+                      ? 'Free the project’s working environment. Saved experiments and local files stay.'
+                      : 'Remove the folder to save space. Saved code and conversations stay.'
+                  }
                   onClick={() => {
                     setMenu(false);
                     actions.archive(data);
                   }}
                 >
-                  Archive folder
+                  {data.sharedWorkspace ? 'Free working space' : 'Archive folder'}
                 </button>
               )}
               {data.parentId !== null && <div className="menu-sep" role="separator" />}

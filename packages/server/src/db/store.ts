@@ -20,6 +20,7 @@ import { SaveStore } from './saveStore.js';
 import { DeletionStore } from './deletionStore.js';
 import { SdkSessionStore } from './sdkSessionStore.js';
 import { UsageStore } from './usageStore.js';
+import { WorkspaceStore } from './workspaceStore.js';
 import { NodeStore } from './nodeStore.js';
 import { ProjectStore } from './projectStore.js';
 import { ReferenceStore } from './referenceStore.js';
@@ -27,6 +28,7 @@ import { RunStore } from './runStore.js';
 import { Views } from './views.js';
 import type { NodeRow, ProjectRow, RunEnd, RunRequest, RunTotals } from './rows.js';
 import type { ReferenceRow } from './referenceStore.js';
+import { OperationConflict } from '../domain/errors.js';
 
 export type { NodeRow, ProjectRow, RunEnd, RunTotals };
 export { isAdoptedRoot, isUsersOwnCheckout, toLineage } from './rows.js';
@@ -70,6 +72,7 @@ export class Store {
   readonly deletions: DeletionStore;
   readonly sdkSessions: SdkSessionStore;
   readonly usage: UsageStore;
+  readonly workspaces: WorkspaceStore;
   readonly checks: CheckStore;
   readonly references: ReferenceStore;
   readonly comparisons: ComparisonStore;
@@ -81,6 +84,7 @@ export class Store {
     futureReposRoot?: () => string,
   ) {
     this.projects = new ProjectStore(db, reposRoot, futureReposRoot);
+    this.workspaces = new WorkspaceStore(db);
     this.nodes = new NodeStore(db, (projectId) => this.projects.scratchDir(projectId));
     this.runs = new RunStore(db);
     this.messages = new MessageStore(db);
@@ -98,6 +102,7 @@ export class Store {
       this.messages,
       this.comparisons,
       this.deletions,
+      this.workspaces,
     );
   }
 
@@ -120,6 +125,11 @@ export class Store {
 
   /** One relocation updates owned paths and durable recovery records together. */
   remapProjectPaths(projectId: string, map: (path: string) => string): void {
+    if (
+      this.metadata(`workspace_recovery:${projectId}`) ||
+      this.metadata(`workspace_migration:${projectId}`)
+    )
+      throw new Error('Finish workspace recovery or conversion before relocating storage.');
     const project = this.getProject(projectId)!;
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -135,6 +145,14 @@ export class Store {
         this.db
           .prepare('UPDATE node SET worktree_path = ? WHERE id = ?')
           .run(map(node.worktree_path), node.id);
+      const workspace = this.workspaces.get(projectId);
+      if (workspace) {
+        if (workspace.switch_json)
+          throw new Error('Finish workspace recovery before relocating storage.');
+        this.db
+          .prepare('UPDATE workspace SET path = ? WHERE project_id = ?')
+          .run(map(workspace.path), projectId);
+      }
       for (const save of this.saves.pending()) {
         if (save.projectId !== projectId) continue;
         save.repoPath = map(save.repoPath);
@@ -191,8 +209,31 @@ export class Store {
     }
   }
 
-  saveProjectConfiguration(...args: Parameters<ProjectStore['saveConfiguration']>): void {
-    this.projects.saveConfiguration(...args);
+  saveProjectConfiguration(
+    id: string,
+    patch: Parameters<ProjectStore['saveConfiguration']>[1] & { rebuildPaths?: readonly string[] },
+  ): void {
+    this.transaction(() => {
+      if (
+        (patch.setupCommand !== undefined ||
+          patch.copyFiles !== undefined ||
+          patch.rebuildPaths !== undefined) &&
+        (this.metadata(`workspace_migration:${id}`) ||
+          this.metadata(`workspace_recovery:${id}`) ||
+          this.workspaces.get(id)?.switch_json)
+      )
+        throw new OperationConflict(
+          'Finish workspace conversion or recovery before changing setup.',
+        );
+      this.projects.updateSettings(id, patch);
+      this.projects.updateSetup(id, patch);
+      if (patch.rebuildPaths !== undefined) {
+        if (this.workspaces.get(id)) this.workspaces.configure(id, patch.rebuildPaths);
+        this.setMetadata(`workspace_rebuild:${id}`, JSON.stringify(patch.rebuildPaths));
+      }
+      if (patch.setupCommand !== undefined || patch.copyFiles !== undefined)
+        this.db.prepare('UPDATE node SET setup_ran_at = NULL WHERE project_id = ?').run(id);
+    });
   }
   createProject(input: Parameters<ProjectStore['create']>[0]): ProjectRow {
     return this.projects.create(input);

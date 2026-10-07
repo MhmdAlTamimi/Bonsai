@@ -59,7 +59,11 @@ export async function exportExperiment(
 }
 
 /** Preserve ignored files too. Git administrative files must never alias the source checkout. */
-export async function copyWorkingFiles(source: string, target: string): Promise<void> {
+export async function copyWorkingFiles(
+  source: string,
+  target: string,
+  options: { raw?: boolean } = {},
+): Promise<void> {
   await mkdir(target, { recursive: true });
   for (const entry of await readdir(source)) {
     if (entry === '.git') continue;
@@ -68,7 +72,9 @@ export async function copyWorkingFiles(source: string, target: string): Promise<
       force: true,
       dereference: false,
       preserveTimestamps: true,
-      filter: (path) => basename(path) !== '.git',
+      // Raw forensic copies retain nested Git metadata literally. Repository
+      // exports retain their own independent submodule administration instead.
+      filter: (path) => options.raw === true || basename(path) !== '.git',
     });
   }
 }

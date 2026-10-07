@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from './testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -14,7 +15,7 @@ import { commitMessageFor, commitRunOutput, currentBranch } from './git/commit.j
 import { git, gitLine } from './git/exec.js';
 import { assertGitState, expectedGitState } from './git/ownership.js';
 import { silentLogger } from './log.js';
-import { allocateNodeWorktree, createProject, deleteNodeTree } from './projects.js';
+import { allocateNodeWorktree, deleteNodeTree } from './projects.js';
 import { createAllocatedChild } from './testing/allocatedChild.js';
 import { branchOf, nodeRef, readRef } from './git/refs.js';
 

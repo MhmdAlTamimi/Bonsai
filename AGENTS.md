@@ -57,22 +57,44 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   `git archive`, not a registered worktree. References attached to a comparison question are
   write-once copies in `compare/<id>/_questions/<questionId>/` (a leading `_` cannot collide
   with an experiment folder), recorded on the question like a run's resolved context.
-- Name-only children have no worktree. First execution allocates a detached checkout at
-  the pinned base; modifying runs commit there and move the node's ref. Bonsai creates no
-  branches: a checkout still on a `node/<uuid>` branch from an older version commits there.
+- New projects have one project-owned workspace (`workspace` table), not one live checkout
+  per experiment. Name-only children hold saved refs/conversation metadata. Running or
+  opening their folder activates their recorded tip detached in the shared folder.
+  `jobs/projectWorkspace.ts` owns switching, its durable journal and OS-backed SQLite lock.
+  The execution pool reserves this project resource through setup, questions, retries,
+  saving and process cleanup; a queued job consumes no execution slot. Other projects,
+  committed comparisons and tool-less drafts can proceed independently.
+  Only the active node has a live `worktree_path`; inactive shared nodes have placeholders
+  and read their exact saved commits. Never use an inactive path or shared HEAD for a
+  snapshot, review, notes, recovery or deletion. Validate workspace owner/generation
+  when saving or returning live data. A user's external adopted checkout is never switched.
+  Browsing does not activate code. Open folder activates and holds it; Keep active must
+  be released before a different node can take the folder. External previews must stop first.
+  Dirty/staged/untracked work, pending saves/deletions, drift and locks block switching.
+  Preserve all unclassified ignored data in `local-files/<nodeId>`; delete only declared
+  literal regeneratable paths. Validate paths and symlinks; verify cross-device copies
+  before removing originals. Clean submodules before deinitializing/switching them.
+  Replay only matching journal stages; unexpected state needs explicit preserved recovery.
+  Setup stamps are cleared on switches/configuration edits; arbitrary setup reruns, with
+  no unverified cross-node environment reuse. Never add dependency sharing by folder name.
+  Legacy projects retain per-node worktrees until explicitly converted. Conversion preflight
+  pins every tip, rejects modified/locked folders and records an immutable cleanup policy
+  before mutations. Resume conversion explicitly; configuration changes cannot rewrite it.
+  Compatibility fixtures use `testing/legacyProject.ts`; new shared-mode tests must use
+  the production default. Keep meaningful coverage of both migrated and unmigrated data.
 - Every node has a hidden ref, `refs/bonsai/<projectId>/<nodeId>`, at its tip
   (`head_commit ?? base_commit`): created with the node, moved by each commit with the old
   value as a guard, checked with the Git state, removed with the node (`git/refs.ts`). It is
   what keeps code git would otherwise prune. A ref pointing elsewhere is drift: report it,
   never move it to match the database. Startup, allocation and runs pin nodes that have none.
-- An archived experiment (`node.archived_at`) has no worktree either, and keeps its branch,
-  ref, rows and session. The next allocation checks it out again at the SAME path (the SDK
-  finds the session by cwd), on its branch if it has one and detached at its tip otherwise,
-  and setup runs again (`setup_ran_at` is cleared on archive).
-  Never archive a running node, one with uncommitted work or drifted Git state, or the user's
-  own folder; ignored files that setup or a build cannot recreate need the user's
-  confirmation. Review and notes read an archived node's commits from the repository. See
-  `archive.ts`.
+- In shared mode Free working space releases the sole clean checkout while preserving
+  node-scoped local files, saved code, rows and SDK sessions. Held/busy/drifted workspaces
+  cannot be freed. Inactive nodes are stored experiments, not archived UI cards.
+  Unconverted projects retain legacy archiving: the checkout returns at its old path on
+  next allocation, on its branch if present and detached otherwise. Sessions are loaded
+  by owned UUID from SQLite, independently of cwd; never rewrite historical SDK transcripts.
+  Never archive running, dirty, drifted or user-owned folders. Legacy manual archive warns
+  about ignored data; shared cleanup preserves everything not explicitly regeneratable.
   The app commits; the agent must not create branches/worktrees or rewrite Git state.
 - Children do not freeze parents (approved Phase 3). Existing children never move to newer
   parent code automatically. An adopted project's master is read-only (`isAdoptedRoot`): a
@@ -101,7 +123,8 @@ Ask before adding dependencies. Keep changes and commits focused and reviewable.
   Nested initialized submodules need their Git pointers repaired too. Verified backups run
   inside the execution pool's idle gate and produce an independent data folder, including
   external Git objects, staged/working/ignored files and comparison/recovery copies. Snapshot
-  WAL through SQLite; verify Git/SQLite and refuse completion if source bytes changed. Never
+  WAL through SQLite; verify Git/SQLite and refuse completion if source bytes changed.
+  Finish pending workspace preparation/conversion/recovery before backups or relocation. Never
   copy authentication settings or arbitrary Git credential/remote/hook configuration. Backup
   submodule caches use relative owned paths and survive archiving their original checkout.
 - Worktrees are separate checkouts, **not security sandboxes**. Writable commands retain

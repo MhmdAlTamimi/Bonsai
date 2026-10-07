@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import assert from 'node:assert/strict';
 import { test, beforeEach, afterEach } from 'node:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createProject } from '../projects.js';
+
 import { createAllocatedChild } from '../testing/allocatedChild.js';
 import { silentLogger } from '../log.js';
 import { git, gitLine } from './exec.js';

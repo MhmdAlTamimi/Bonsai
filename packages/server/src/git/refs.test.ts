@@ -1,3 +1,7 @@
+import {
+  createLegacyProject as createProject,
+  adoptLegacyProject as adoptProject,
+} from '../testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -11,10 +15,8 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { silentLogger } from '../log.js';
 import {
-  adoptProject,
   allocateNodeWorktree,
   createChildNode,
-  createProject,
   deleteNodeTree,
   deleteProjectTree,
   pinExistingNodes,

@@ -151,6 +151,21 @@
   gap: 10px;
   padding: var(--s4);
 }
+
+.workspace-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  color: var(--muted-3);
+  font-size: var(--t-micro);
+}
+.workspace-status label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  white-space: nowrap;
+}
 /*
  * A pill, floating over the thread it belongs to.
  *

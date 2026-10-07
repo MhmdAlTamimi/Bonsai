@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -6,7 +7,7 @@ import { join } from 'node:path';
 
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createProject } from '../projects.js';
+
 import { EXPERIMENT_FILES, writeExperimentSnapshot } from './experimentSnapshot.js';
 
 test('a run still in progress is left out of a snapshot, so the copy reads as behind once it ends', async () => {

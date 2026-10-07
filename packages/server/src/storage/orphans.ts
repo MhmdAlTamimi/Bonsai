@@ -3,13 +3,16 @@ import { randomUUID, createHash } from 'node:crypto';
 import { basename, join, dirname } from 'node:path';
 import type { LostExperimentView } from '@bonsai/shared';
 import type { Store } from '../db/store.js';
-import { git, gitLine } from '../git/exec.js';
+import { git, gitLine, ignoredPaths } from '../git/exec.js';
 import { nodeRef, pinRef, projectRefs } from '../git/refs.js';
 import { readGitState } from '../git/ownership.js';
 import { copyWorkingFiles, exportExperiment, protectExportTips } from '../git/export.js';
 import { indexTrees, workingTreeSnapshot } from '../git/snapshot.js';
 import { samePath } from '../paths.js';
 import { OperationConflict } from '../domain/errors.js';
+import { fingerprint } from './fingerprint.js';
+import { preserveLocalFiles } from '../jobs/projectWorkspace.js';
+import { assertWorktreeUnlocked, removeWorktree } from '../git/worktree.js';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 export async function lostExperiments(
@@ -55,6 +58,19 @@ export async function lostExperiments(
       folder: existsSync(folder) ? folder : null,
     });
   }
+  const workspace = store.workspaces.get(projectId);
+  if (workspace?.active_node_id === null && existsSync(workspace.path)) {
+    const actual = await readGitState(workspace.path);
+    const common = await gitLine(
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      project.repo_path,
+    );
+    if (samePath(actual.commonDir, common)) {
+      const matching = [...found.values()].filter((item) => item.commit === actual.head);
+      // Only an explicit import of a unique orphan can claim this checkout.
+      if (matching.length === 1) matching[0]!.folder = workspace.path;
+    }
+  }
   return Promise.all(
     [...found].map(async ([id, item]) => ({
       id,
@@ -74,6 +90,15 @@ export async function importLostExperiment(
   preservationRoot: string,
 ): Promise<{ nodeId: string; preservedPath: string }> {
   const project = store.getProject(projectId)!;
+  const shared = store.workspaces.get(projectId);
+  if (
+    shared?.switch_json ||
+    store.metadata(`workspace_recovery:${projectId}`) ||
+    store.metadata(`workspace_migration:${projectId}`)
+  )
+    throw new OperationConflict(
+      'Finish workspace conversion or recovery before importing experiments.',
+    );
   if (store.deletions.pending().some((intent) => intent.project.id === projectId))
     throw new OperationConflict('Finish or cancel deletion first.');
   const item = (await lostExperiments(store, projectId)).find((item) => item.id === id);
@@ -83,6 +108,8 @@ export async function importLostExperiment(
   const nodeId = uuid.test(id) ? id : randomUUID();
   if (store.getNode(nodeId)) throw new OperationConflict('This experiment is already recorded.');
   const actual = item.folder === null ? null : await readGitState(item.folder);
+  if (item.folder !== null) await assertWorktreeUnlocked(item.folder);
+  const digest = item.folder === null ? null : await fingerprint(item.folder, 'raw');
   const workingTree = item.folder === null ? null : await workingTreeSnapshot(item.folder);
   const staged = item.folder === null ? {} : await indexTrees(item.folder);
   const stagedTips: Record<string, string> = {};
@@ -110,20 +137,41 @@ export async function importLostExperiment(
     folder: actual?.head ?? null,
     ...stagedTips,
   });
-  if (item.folder !== null) await copyWorkingFiles(item.folder, preservedPath);
+  if (item.folder !== null) {
+    await copyWorkingFiles(item.folder, preservedPath);
+    const raw = `${preservedPath}-working-files`;
+    await copyWorkingFiles(item.folder, raw, { raw: true });
+    if ((await fingerprint(raw, 'raw')) !== digest)
+      throw new OperationConflict(
+        `Preservation could not be verified. Original files kept; copy at ${preservedPath}.`,
+      );
+  }
   const current = (await lostExperiments(store, projectId)).find((found) => found.id === id);
   if (
     current?.version !== version ||
     (actual !== null &&
       (JSON.stringify(await readGitState(item.folder!)) !== JSON.stringify(actual) ||
         (await workingTreeSnapshot(item.folder!)) !== workingTree ||
-        JSON.stringify(await indexTrees(item.folder!)) !== JSON.stringify(staged)))
+        JSON.stringify(await indexTrees(item.folder!)) !== JSON.stringify(staged) ||
+        (await fingerprint(item.folder!, 'raw')) !== digest))
   )
     throw new OperationConflict(
       `The experiment changed while being preserved. Copy kept at ${preservedPath}; refresh and retry.`,
     );
   if ((await pinRef(project.repo_path, nodeRef(projectId, nodeId), item.commit)) !== item.commit)
     throw new OperationConflict('The recovered ref changed. Files were preserved.');
+  if (shared && item.folder !== null) {
+    // The independent export above retains unfinished/staged work. Node-owned
+    // ignored files stay restorable without adding a second live checkout.
+    const ignored = (await ignoredPaths(item.folder)).map((path) => path.replace(/\/$/, ''));
+    await preserveLocalFiles(
+      store,
+      { id: nodeId, project_id: projectId, worktree_path: item.folder },
+      ignored,
+    );
+    await removeWorktree(project.repo_path, item.folder);
+    store.setMetadata(`workspace_recovery_copy:${projectId}`, preservedPath);
+  }
   const node = store.recordRecoveredExperiment(
     {
       id: nodeId,
@@ -132,11 +180,11 @@ export async function importLostExperiment(
       displayName: `Recovered ${item.subject || item.commit.slice(0, 7)}`,
       description:
         'Recovered code from Git. The older database did not contain its conversation or original parent.',
-      ...(item.folder === null ? {} : { worktreePath: item.folder }),
+      ...(item.folder === null || shared ? {} : { worktreePath: item.folder }),
     },
     item.commit,
-    actual?.branch ?? null,
-    item.folder !== null,
+    shared ? null : (actual?.branch ?? null),
+    !shared && item.folder !== null,
   );
   store.setMetadata(`recovered:${item.ref}`, node.id);
   return { nodeId: node.id, preservedPath };

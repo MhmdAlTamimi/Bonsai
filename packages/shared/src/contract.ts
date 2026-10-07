@@ -158,12 +158,21 @@ export interface LostExperimentView {
 }
 
 export interface StorageView {
+  localFileBytes?: number;
+  systemBytes?: {
+    git: number;
+    database: number;
+    backups: number;
+    recovery: number;
+    exports: number;
+  };
   folders: number;
   bytes: number;
   archived: number;
   comparisonBytes: number;
   attachmentBytes: number;
   projects: Array<{
+    localFileBytes?: number;
     id: string;
     name: string;
     folders: number;
@@ -268,6 +277,15 @@ export interface DiagnosticsView {
 }
 
 export interface ProjectView {
+  workspaceConversionPending?: boolean;
+  workspace?: {
+    activeNodeId: string | null;
+    held: boolean;
+    switching: boolean;
+    recovering?: boolean;
+    recoveryCopy?: string | null;
+    rebuildPaths: string[];
+  };
   id: string;
   name: string;
   description: string;
@@ -317,6 +335,7 @@ export interface ProjectView {
 }
 
 export interface UpdateProjectRequest {
+  rebuildPaths?: string[];
   permissionMode?: PermissionMode;
   model?: string | null;
   effort?: string | null;
@@ -331,6 +350,7 @@ export interface UpdateProjectRequest {
  * setting would be wrong for every project but the one it was typed for.
  */
 export interface ProjectSetupView {
+  rebuildPaths?: string[];
   /** Copied into each new node's worktree. Empty is normal and fine. */
   copyFiles: string[];
   /** Run once in a new node's folder before its first agent run. */
@@ -358,6 +378,7 @@ export interface ProjectSetupView {
 export type FrozenReason = 'child_committed' | 'your_folder' | 'snapshot';
 
 export interface NodeView {
+  sharedWorkspace?: boolean;
   queueReason?: string | null;
   deletion?: {
     id: string;
@@ -466,7 +487,7 @@ export interface ExperimentBehind {
   parentName: string;
 }
 
-export type NodeFolder = 'present' | 'not_created' | 'archived';
+export type NodeFolder = 'present' | 'not_created' | 'archived' | 'stored';
 
 /**
  * The live state of one run (D43).

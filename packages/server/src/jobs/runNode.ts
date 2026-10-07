@@ -23,6 +23,7 @@ import { resolveRunSettings } from './runSettings.js';
 import { RunTranscript } from './runTranscript.js';
 import { prepareRun } from './workspace.js';
 import { ExecutionPool } from './executionPool.js';
+import { assertWorkspaceOwner, withProjectWorkspace } from './projectWorkspace.js';
 import {
   savedConversation,
   CONVERSATION_RECOVERY_NOTICE,
@@ -166,7 +167,13 @@ export class RunJobs {
           );
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
-      return await remove();
+      const projectId = ids
+        .map((id) => this.store.getNode(id)?.project_id)
+        .find((id) => id !== undefined);
+      return await this.pool.withResource(
+        projectId && this.store.workspaces.get(projectId) ? projectId : undefined,
+        () => (projectId ? withProjectWorkspace(this.store, projectId, remove) : remove()),
+      );
     } finally {
       for (const id of ids) this.retiring.delete(id);
     }
@@ -188,7 +195,11 @@ export class RunJobs {
       );
     this.archiving.add(nodeId);
     try {
-      return await this.pool.mutation(work);
+      const projectId = this.store.getNode(nodeId)!.project_id;
+      return await this.pool.withResource(
+        this.store.workspaces.get(projectId) ? projectId : undefined,
+        () => withProjectWorkspace(this.store, projectId, work),
+      );
     } finally {
       this.archiving.delete(nodeId);
     }
@@ -219,7 +230,9 @@ export class RunJobs {
   }
 
   queueReason(nodeId: string): string | null {
-    return this.queuePosition(nodeId) === null ? null : this.pool.reason();
+    return this.queuePosition(nodeId) === null
+      ? null
+      : this.pool.reason(this.activeRunId(nodeId) ?? undefined);
   }
 
   queuedCount(): number {
@@ -441,6 +454,14 @@ export class RunJobs {
     const command = options.command === true;
     const node = this.store.getNode(nodeId);
     if (node === undefined) throw new Error('no such node');
+    if (this.store.metadata(`workspace_migration:${node.project_id}`))
+      throw new OperationConflict(
+        'Finish workspace conversion in Project settings before running experiments.',
+      );
+    if (this.store.metadata(`workspace_recovery:${node.project_id}`))
+      throw new OperationConflict(
+        'Finish workspace recovery in Project settings before running experiments.',
+      );
     if (this.isRetiring(nodeId)) throw new OperationConflict('This experiment is being deleted.');
     if (this.store.deletions.forNode(nodeId))
       throw new OperationConflict('Finish or cancel this experiment’s pending deletion first.');
@@ -498,6 +519,15 @@ export class RunJobs {
         kind: 'run',
         label: node.display_name,
         controller,
+        ...(this.store.workspaces.get(node.project_id)
+          ? {
+              resource: node.project_id,
+              resourceAvailable: () => {
+                const workspace = this.store.workspaces.get(node.project_id);
+                return !workspace?.held || workspace.active_node_id === nodeId;
+              },
+            }
+          : {}),
         state: () =>
           this.store.getNode(nodeId)?.status === 'needs_you'
             ? 'question'
@@ -552,10 +582,26 @@ export class RunJobs {
       runId: job.runId,
     });
 
-    return this.execute(job, live).finally(() => {
-      if (live.publishTimer !== null) clearTimeout(live.publishTimer);
-      this.running.delete(job.nodeId);
-    });
+    return withProjectWorkspace(this.store, job.projectId, () => this.execute(job, live))
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.finishRun(
+          job.runId,
+          job.nodeId,
+          { status: 'failed', reason: 'failed', error: message },
+          { cost: 0, inputTokens: 0, outputTokens: 0 },
+        );
+        this.bus.publish(job.projectId, {
+          type: 'run.error',
+          nodeId: job.nodeId,
+          runId: job.runId,
+          error: message,
+        });
+      })
+      .finally(() => {
+        if (live.publishTimer !== null) clearTimeout(live.publishTimer);
+        this.running.delete(job.nodeId);
+      });
   }
 
   /**
@@ -752,6 +798,7 @@ export class RunJobs {
       }
 
       if (expectedState) await assertGitState(node.worktree_path, expectedState);
+      assertWorkspaceOwner(this.store, node);
 
       // Before anything is committed, so nothing is still writing into it.
       const stoppedBackground =
@@ -775,6 +822,8 @@ export class RunJobs {
       const stoppedBackground =
         live.stoppedTracked +
         (await endLeftovers(this.deps, ids, this.closing).catch((cleanup: unknown) => {
+          if (this.store.workspaces.get(node.project_id))
+            this.store.workspaces.hold(node.project_id, true);
           this.store.appendMessage({
             nodeId,
             runId,
@@ -854,6 +903,7 @@ export class RunJobs {
     },
   ): Promise<void> {
     const { runId, readOnly, transcript } = run;
+    assertWorkspaceOwner(this.store, node);
     const nodeId = node.id;
     const outcome = readOnly
       ? {
@@ -881,6 +931,7 @@ export class RunJobs {
               projectId: project.id,
               repoPath: project.repo_path,
               worktreePath: node.worktree_path,
+              workspaceGeneration: this.store.workspaces.get(project.id)?.generation,
               before: run.expectedState!,
               after: prepared.commit!,
               totals: transcript.totals({

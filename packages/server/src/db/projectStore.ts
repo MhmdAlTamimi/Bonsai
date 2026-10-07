@@ -105,6 +105,23 @@ export class ProjectStore {
     return this.db.prepare(`SELECT * FROM project WHERE id = ?`).get(id) as unknown as
       ProjectRow | undefined;
   }
+  conversionPending(id: string): boolean {
+    return (
+      this.db.prepare('SELECT 1 FROM meta WHERE key = ?').get(`workspace_migration:${id}`) !==
+      undefined
+    );
+  }
+  metadata(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
+      { value: string } | undefined;
+    return row?.value ?? null;
+  }
+  rebuildPaths(id: string): string[] {
+    const row = this.db
+      .prepare('SELECT value FROM meta WHERE key = ?')
+      .get(`workspace_rebuild:${id}`) as { value: string } | undefined;
+    return JSON.parse(row?.value ?? '[]') as string[];
+  }
 
   /**
    * The directory Bonsai keeps a project's own files in: the bare repo for a

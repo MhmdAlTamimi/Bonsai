@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from './testing/legacyProject.js';
 import assert from 'node:assert/strict';
 import { test, beforeEach, afterEach } from 'node:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -7,7 +8,6 @@ import { join } from 'node:path';
 import { openDatabase } from './db/open.js';
 import { Store } from './db/store.js';
 import {
-  createProject,
   createChildNode,
   cancelPendingDeletion,
   deleteNodeTree,

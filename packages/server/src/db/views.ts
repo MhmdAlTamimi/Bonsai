@@ -19,6 +19,7 @@ import { isInside, samePath } from '../paths.js';
 import { revisionOf, type ReferenceRow } from './referenceStore.js';
 import type { RunStore } from './runStore.js';
 import type { DeletionStore } from './deletionStore.js';
+import type { WorkspaceStore } from './workspaceStore.js';
 import {
   isAdoptedRoot,
   isUsersOwnCheckout,
@@ -45,17 +46,18 @@ export class Views {
     private readonly messages: MessageStore,
     private readonly comparisons: ComparisonStore,
     private readonly deletions: DeletionStore,
+    private readonly workspaces: WorkspaceStore,
   ) {}
 
   /**
    * Building a tree issues a constant number of queries, whatever its size.
    *
-   * Seven: the project, the nodes, the costs, the diff stats, the run counts,
-   * the latest run status and the commits experiments made. It used to be that
-   * plus one per node for cost alone.
+   * Project/workspace ownership, nodes, costs, diff stats, run counts, latest
+   * status, experiment commits and deletion intents. No per-node cost queries.
    */
   tree(projectId: string): NodeView[] {
     const project = this.projects.get(projectId);
+    const workspace = this.workspaces.get(projectId);
     const stats = this.runs.statsByNode(projectId);
     const costs = this.runs.costsByNode(projectId);
     const rows = this.nodes.list(projectId);
@@ -91,6 +93,7 @@ export class Views {
       );
       const question = row.status === 'needs_you' ? this.messages.pendingQuestion(row.id) : null;
       return {
+        sharedWorkspace: workspace !== undefined,
         id: row.id,
         deletion: deleting.get(row.id) ?? null,
         initialExperimentIds: parseStringArray(row.initial_experiment_ids) ?? [],
@@ -127,11 +130,13 @@ export class Views {
         queuePosition: null,
         activity: null,
         folder:
-          row.worktree_allocated !== 0
-            ? 'present'
-            : row.archived_at === null
-              ? 'not_created'
-              : 'archived',
+          workspace && workspace.active_node_id !== row.id
+            ? 'stored'
+            : row.worktree_allocated !== 0
+              ? 'present'
+              : row.archived_at === null
+                ? 'not_created'
+                : 'archived',
         behind: behindOf(row),
         // Started from a commit an experiment made: its code already holds
         // changes, even before it has made any of its own.
@@ -142,7 +147,21 @@ export class Views {
   }
 
   project(row: ProjectRow): ProjectView {
+    const workspace = this.workspaces.get(row.id);
     return {
+      ...(workspace
+        ? {
+            workspace: {
+              activeNodeId: workspace.active_node_id,
+              held: workspace.held !== 0,
+              switching: workspace.switch_json !== null,
+              recovering: this.projects.metadata(`workspace_recovery:${row.id}`) !== null,
+              recoveryCopy: this.projects.metadata(`workspace_recovery_copy:${row.id}`),
+              rebuildPaths: JSON.parse(workspace.rebuild_paths) as string[],
+            },
+          }
+        : {}),
+      workspaceConversionPending: this.projects.conversionPending(row.id),
       id: row.id,
       name: row.name,
       description: row.description,
@@ -157,6 +176,9 @@ export class Views {
       // project sits on theirs, and a created one has only node branches (D33).
       branchLabel: row.source_kind === 'adopted' ? row.protected_branch : null,
       setup: {
+        rebuildPaths: workspace
+          ? (JSON.parse(workspace.rebuild_paths) as string[])
+          : this.projects.rebuildPaths(row.id),
         copyFiles: parseStringArray(row.copy_files) ?? [],
         setupCommand: row.setup_command,
       },
@@ -181,6 +203,16 @@ export class Views {
   folderOwner(path: string): { project: ProjectRow; node: NodeRow | null } | null {
     const target = resolve(path);
     const projects = this.projects.list();
+    for (const project of projects) {
+      const workspace = this.workspaces.get(project.id);
+      if (workspace && samePath(workspace.path, target))
+        return {
+          project,
+          node: workspace.active_node_id
+            ? (this.nodes.get(workspace.active_node_id) ?? null)
+            : null,
+        };
+    }
 
     // One query for every worktree in the database rather than one list per
     // project: this runs on every folder inspection, including while typing.

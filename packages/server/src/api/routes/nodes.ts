@@ -21,7 +21,7 @@ import {
 import { archiveCheck, archiveFolder } from '../../archive.js';
 import { writeApplyPatch } from '../applyPatch.js';
 import { behindBy } from '../behind.js';
-import { nodeDiff, parentSnapshot } from '../../git/diff.js';
+import { nodeDiff, parentSnapshot, runDiff } from '../../git/diff.js';
 import { experimentNotes, reviewOf, reviewPatchOf } from '../review.js';
 import { readWorktreeState } from '../../git/recovery.js';
 import { gitRecovery, synchronizeExperiment } from '../../git/reconcile.js';
@@ -126,6 +126,7 @@ route('GET', '/api/nodes/:id/child-preview', (_req, res, params, { store, jobs, 
 route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
+  const workspace = store.workspaces.get(row.project_id);
   const view = withLive(jobs, store.treeView(row.project_id)).find((n) => n.id === row.id)!;
   const recovery = jobs.isRunning(row.id) ? null : await gitRecovery(store, row);
   const { contextMd, cwd, head } = await experimentNotes(
@@ -155,7 +156,11 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
   const runs = store.listRuns(row.id);
   const ownFolder = isUsersOwnCheckout(project, row);
   const partialWork =
-    ownFolder || row.worktree_allocated === 0 || recovery?.folderCommit === null
+    ownFolder ||
+    row.worktree_allocated === 0 ||
+    (workspace && workspace.active_node_id !== row.id) ||
+    workspace?.switch_json ||
+    recovery?.folderCommit === null
       ? null
       : await readWorktreeState(row.worktree_path);
   const body: NodeDetail = {
@@ -179,6 +184,16 @@ route('GET', '/api/nodes/:id', async (_req, res, params, { store, jobs, settings
     contextMd,
     behind: recovery === null ? await behindBy(store, row, project!.repo_path) : null,
   };
+  const after = store.workspaces.get(row.project_id);
+  if (
+    workspace &&
+    after &&
+    (workspace.generation !== after.generation || workspace.switch_json !== after.switch_json)
+  )
+    throw new HttpError(
+      409,
+      'The workspace changed while loading this experiment. Refresh its saved state.',
+    );
   sendJson(res, 200, body);
 });
 
@@ -324,23 +339,29 @@ route('POST', '/api/deletions/:id/cancel', async (_req, res, params, { store, jo
 route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
   const row = store.getNode(params['id']!);
   if (row === undefined) throw new HttpError(404, 'no such node');
-  if (row.worktree_allocated === 0) {
+  const workspace = store.workspaces.get(row.project_id);
+  const committed = row.worktree_allocated === 0 || Boolean(workspace?.switch_json);
+  if (row.worktree_allocated === 0 && !workspace) {
     sendJson(res, 200, { files: [], patch: '', dirty: [] });
     return;
   }
   const first = store.listRuns(row.id).find((run) => run.commitSha !== null);
+  const repo = committed ? store.getProject(row.project_id)!.repo_path : row.worktree_path;
   const base =
     row.base_commit ??
-    (first?.commitSha != null
-      ? await parentSnapshot(row.worktree_path, first.commitSha)
-      : row.head_commit);
+    (first?.commitSha != null ? await parentSnapshot(repo, first.commitSha) : row.head_commit);
   if (base === null) throw new HttpError(400, 'No starting code snapshot is available.');
-  const diff = await nodeDiff(
-    row.worktree_path,
-    base,
-    row.parent_id === null ? first !== undefined : row.head_commit !== null,
-    row.head_commit ?? base,
-  );
+  const diff = committed
+    ? await runDiff(repo, base, row.head_commit ?? base)
+    : await nodeDiff(
+        row.worktree_path,
+        base,
+        row.parent_id === null ? first !== undefined : row.head_commit !== null,
+        row.head_commit ?? base,
+      );
+  const now = store.workspaces.get(row.project_id);
+  if (!committed && workspace && (now?.generation !== workspace.generation || now?.switch_json))
+    throw new HttpError(409, 'The workspace changed while loading this diff. Refresh and retry.');
   const source = store.lineageOf(row).codeFrom;
   sendJson(res, 200, {
     ...diff,
@@ -355,19 +376,26 @@ route('GET', '/api/nodes/:id/diff', async (_req, res, params, { store }) => {
 route('POST', '/api/nodes/:id/reveal', async (_req, res, params, { store, bus, jobs }) => {
   const node = store.getNode(params['id']!);
   if (!node) throw new HttpError(404, 'No such experiment.');
-  if (node.worktree_allocated === 0 && node.archived_at === null)
+  if (
+    !store.workspaces.get(node.project_id) &&
+    node.worktree_allocated === 0 &&
+    node.archived_at === null
+  )
     throw new HttpError(409, 'The experiment folder is created when its first run starts.');
-  if (node.archived_at !== null) {
-    // Archived: bring the folder back first -- it is what was asked to be seen.
-    // Setup waits for the next run, which is what needs what it installs.
-    await jobs.whileIdle(node.id, () => allocateNodeWorktree(store, node));
-    bus.publish(node.project_id, {
-      type: 'tree.updated',
-      projectId: node.project_id,
-      nodeId: node.id,
-    });
-  }
-  await revealInFileManager(node.worktree_path);
+  await jobs.whileIdle(node.id, async () => {
+    if (node.archived_at !== null || store.workspaces.get(node.project_id)) {
+      // Archived: bring the folder back first -- it is what was asked to be seen.
+      // Setup waits for the next run, which is what needs what it installs.
+      await allocateNodeWorktree(store, node);
+      if (store.workspaces.get(node.project_id)) store.workspaces.hold(node.project_id, true);
+      bus.publish(node.project_id, {
+        type: 'tree.updated',
+        projectId: node.project_id,
+        nodeId: node.id,
+      });
+    }
+    await revealInFileManager(store.getNode(node.id)!.worktree_path);
+  });
   sendJson(res, 200, { ok: true });
 });
 

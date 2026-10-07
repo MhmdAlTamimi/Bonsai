@@ -258,6 +258,7 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec('UPDATE run SET cost = cost; UPDATE comparison_turn SET cost_usd = cost_usd;');
     },
   },
+  { version: 29, name: 'project-owned shared checkouts', up: () => undefined },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

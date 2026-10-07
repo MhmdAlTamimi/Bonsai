@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import { existsSync } from 'node:fs';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,7 +11,7 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { EventBus } from '../api/events.js';
 import { RunJobs } from './runNode.js';
-import { createChildNode, createProject } from '../projects.js';
+import { createChildNode } from '../projects.js';
 import type { AgentRunner, ConversationCopier, RunEvent, RunSpec } from '../agent/AgentRunner.js';
 import { copyParentConversation } from './conversation.js';
 import { silentLogger } from '../log.js';

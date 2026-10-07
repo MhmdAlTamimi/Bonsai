@@ -1,3 +1,4 @@
+import { adoptLegacyProject as adoptProject } from '../testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -9,7 +10,7 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { EventBus } from '../api/events.js';
 import { RunJobs } from './runNode.js';
-import { adoptProject, createChildNode } from '../projects.js';
+import { createChildNode } from '../projects.js';
 import { git } from '../git/exec.js';
 import type { AgentRunner, RunEvent, RunSpec } from '../agent/AgentRunner.js';
 import { experimentNotes } from '../api/review.js';

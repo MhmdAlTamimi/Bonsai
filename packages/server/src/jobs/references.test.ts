@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -9,7 +10,7 @@ import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
 import { EventBus } from '../api/events.js';
 import { RunJobs } from './runNode.js';
-import { createProject } from '../projects.js';
+
 import { readRunReference, fileNames } from './runContext.js';
 import { attachedReferences, referredExperiments } from '../api/references.js';
 import { createChildNode } from '../projects.js';

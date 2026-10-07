@@ -16,6 +16,17 @@ export async function recoverRunSaves(store: Store, log: Logger): Promise<number
     try {
       const node = store.getNode(save.nodeId);
       const project = store.getProject(save.projectId);
+      const workspace = store.workspaces.get(save.projectId);
+      if (
+        workspace &&
+        (workspace.active_node_id !== save.nodeId ||
+          workspace.switch_json ||
+          (save.workspaceGeneration !== undefined &&
+            workspace.generation !== save.workspaceGeneration))
+      )
+        throw new OperationConflict(
+          'The workspace no longer belongs to this recorded save. Work preserved.',
+        );
       if (
         !node ||
         !project ||

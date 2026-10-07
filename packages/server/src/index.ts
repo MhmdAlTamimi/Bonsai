@@ -22,6 +22,7 @@ import { acquireInstanceLock, AlreadyRunningError } from './instanceLock.js';
 import { recoverRunSaves } from './git/saveRecovery.js';
 import { relocateManagedStorage } from './storage/relocate.js';
 import { ExecutionPool } from './jobs/executionPool.js';
+import { recoverWorkspaceSwitches } from './jobs/projectWorkspace.js';
 
 const config = loadConfig();
 let releaseInstance: () => void;
@@ -117,6 +118,9 @@ if (orphaned > 0) {
   process.stdout.write(`[bonsai] marked ${orphaned} interrupted run(s) from a previous session\n`);
 }
 await recoverRunSaves(store, log);
+await recoverWorkspaceSwitches(store).catch((error) =>
+  log.warn('workspace.recovery_blocked', { error: String(error) }),
+);
 await recoverDeletions(store, log);
 
 // Experiments made before hidden refs existed get theirs now, so git keeps

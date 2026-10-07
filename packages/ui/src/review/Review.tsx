@@ -255,9 +255,11 @@ export function Review({
             icon="folderOpen"
             className="toolbar-icon"
             label={
-              node?.folder === 'archived'
-                ? 'Open experiment folder (brings it back from the archive)'
-                : 'Open experiment folder'
+              node?.sharedWorkspace
+                ? 'Open folder (keeps active)'
+                : node?.folder === 'archived'
+                  ? 'Open experiment folder (brings it back from the archive)'
+                  : 'Open experiment folder'
             }
             disabled={!node}
             onClick={() => {

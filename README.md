@@ -1,7 +1,7 @@
 # Bonsai
 
 Bonsai is a local app for visualizing coding experiments, talking to Claude Code agents,
-and reviewing their edits. A node holds a conversation and an experiment checkout.
+and reviewing their edits. A node holds a conversation and saved code.
 Children inherit a pinned code snapshot and, unless started fresh, a copy of their parent's
 conversation, both taken at creation. Code and conversation can come from different
 ancestors when the parent changed no files.
@@ -16,10 +16,12 @@ ancestors when the parent changed no files.
   those. Your folder is only read, and never switched to the version you pick.
 - Selecting a repository subdirectory sets the agent's working directory. Git still
   operates on the whole repository. Bonsai does not initialize a nested repository.
-- A child's checkout is allocated when it first runs, detached at its pinned base. A modifying
-  run makes an app-owned commit there, kept by the experiment's hidden ref (see Repository
-  safety); Bonsai creates no branches. Further modifying runs append commits; no-change
-  conversations are valid.
+- New projects use one managed checkout per project. Running an experiment switches that
+  folder to its pinned saved code. A modifying run makes an app-owned commit kept by the
+  experiment's hidden ref; Bonsai creates no visible branches. Conversations stay separate.
+  Same-project runs queue; other projects can run concurrently. Reading saved conversations,
+  Review, Apply and Compare does not switch the checkout. Existing projects keep their older
+  per-experiment folders until explicitly converted in Project settings.
 - Children do not freeze their parent, and existing children never move to newer parent code.
   An adopted project's master is read-only.
 - Runs stream conversation, tool output, questions and background activity. Stop cancels
@@ -56,15 +58,18 @@ ancestors when the parent changed no files.
   Comparisons on the top bar.
   Deleting an experiment names the comparisons that include it first; they keep the copy they
   read, can still be asked about it, and can no longer update it.
-- Archive an experiment's folder with Archive folder in its card's ⋯ menu, or let Bonsai do it
-  after the experiment sits idle (Settings > Storage, 14 days by default, or off). Archiving
-  removes the checkout and keeps the code, conversation, runs and Claude session; the card is
-  dimmed. The next run, or Open folder, checks it out again at the same path and setup runs
-  again. A running experiment, one with uncommitted work, one whose Git state changed outside
-  Bonsai, and your own folder are never archived. Ignored files other than dependencies and
-  build output (a local `.env`, a scratch database) are listed and confirmed first, and the
-  idle sweep leaves those folders alone.
-  Settings > Storage also shows what experiment folders take up.
+- **Free working space** in the active experiment's menu releases the project's checkout
+  while keeping saved code and conversations. Unknown ignored files move into private
+  per-experiment storage and return when that experiment runs again. Only folders explicitly
+  declared regeneratable in Project settings are removed. Busy, held, dirty or drifted
+  checkouts are protected. Automatic idle cleanup uses the same rules.
+  Unconverted projects retain Archive folder and their existing archive rules.
+  Settings > Storage separates working folders, preserved local files, Git history,
+  conversations/database, comparison copies, backups, recovery copies and exports.
+- **Keep active** prevents another experiment taking the checkout while an external editor
+  or preview uses it. Opening an experiment's folder activates and holds it automatically;
+  uncheck Keep active before running another experiment. A preview must be stopped before
+  releasing its hold. Bonsai cannot detect every external program.
 - Review shows what the experiment itself changed, committed and unfinished, compared with
   the code it started from. Below master's direct children, **Whole line** adds what its
   parents changed since the line left master, which is what Apply takes. Review always opens
@@ -119,9 +124,40 @@ no commits is initialized/committed during adoption, which changes that folder.
 
 Per-project copy-in files must be untracked in source and destination, ignored by the
 **destination**, and free of symlink components inside the selected roots. Failed inspection
-refuses the copy. A setup command runs before the first writable agent run. It is recorded
-once even if the command fails; cancellation leaves it eligible to run again. Setup errors
-appear in the conversation. A separate retry/versioned setup lifecycle is still planned.
+refuses the copy. A setup command runs before the first writable agent run and again after
+switching experiments or changing setup configuration. It does not rerun for every message
+on the same active experiment. Setup errors appear in the conversation; cancellation leaves
+setup eligible to run again. Read-only runs skip setup.
+
+### Switching and reducing disk use
+
+New projects use the shared checkout automatically. For an existing project:
+
+1. Finish or stop its jobs. Save/import unfinished work, or deliberately discard it.
+2. In **Settings > Project**, configure a setup command and **Regeneratable folders**,
+   one repository-relative path per line: for example `node_modules`, `.venv` or `.next`.
+   Declare only folders you can rebuild; ignored files are not automatically disposable.
+3. Select **Review conversion**, inspect any blockers, then **Convert workspace**.
+
+Conversion checks saved refs, folder ownership, dirty files, locks and submodules before
+removing old checkouts. It preserves unclassified ignored files separately by experiment.
+An interrupted conversion offers Resume conversion. Interrupted workspace preparation
+offers Retry preparation or Preserve files and restore in Project settings; the latter
+verifies independent copies of current working/staged code and local files before restoring
+saved code. No silent stash, reset or import is performed.
+
+Switching removes declared regeneratable artifacts and reruns configured setup when a
+writable run starts. This trades installation time for disk savings and reliable separation.
+Package-manager download caches may speed installation; Bonsai does not manage those caches.
+Without declared regeneratable folders, dependencies such as `.venv` remain preserved per
+experiment, so they can still occupy significant space. Retained outputs, Git history,
+backups and recovery copies also remain. Storage figures are file usage estimates;
+hardlinks/reflinks and external caches can make actual physical usage differ.
+
+Make a backup before converting an important project. This build upgrades the storage
+format to schema 29; older builds reject it. To try an older build afterwards, use a
+separate pre-upgrade backup rather than opening upgraded data. Conversion has no automatic
+rollback: saved code can be exported independently. See the [implementation checklist](docs/shared-checkout.md).
 
 Deleting an adopted project removes its app-owned worktrees, its `refs/bonsai/<project>/` refs
 and any `node/<uuid>` branches older experiments left, while preserving the original checkout
@@ -270,10 +306,10 @@ and cleanup failures are recorded rather than described as successful stops.
 | `packages/server/src/domain` | Lineage, permissions/flags and conflicts |
 | `packages/server/src/git` | Git execution, snapshots, ownership, commits and review |
 | `packages/server/src/agent` | Claude SDK adapter and fake runner |
-| `packages/server/src/jobs` | Run scheduling (`runNode.ts`), preparing a run (`workspace.ts`, `setup.ts`), its transcript, questions, background work and comparisons |
-| `packages/server/src/archive.ts` | Archiving idle experiment folders and measuring disk use |
+| `packages/server/src/jobs` | Run scheduling (`runNode.ts`), shared workspace coordination (`projectWorkspace.ts`), preparation, transcripts, questions, background work and comparisons |
+| `packages/server/src/archive.ts` | Releasing idle shared workspaces, legacy archiving and measuring disk use |
 | `packages/ui` | React canvas, conversations, review and settings |
 | `packages/ui/src/styles` | Stylesheets by area, in cascade order via `index.css` |
 
 Standing (pinned) references, running a procedure across compared experiments, multiple
-code parents, applying changes on your behalf and broader SDK exposure belong to later phases. Stabilization does not introduce those features or migrate existing data.
+code parents, applying changes on your behalf and broader SDK exposure belong to later phases. Those features are not introduced here. Shared-checkout conversion of existing projects is explicit.

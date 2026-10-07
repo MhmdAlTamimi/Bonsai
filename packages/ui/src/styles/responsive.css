@@ -22,6 +22,7 @@
 /* Short, zoomed windows use one reading scroll instead of a compressed transcript. */
 @media (max-height: 500px) {
   .panel { overflow-y: auto; }
+  .panel-scroll { flex: none; }
   .panel-body { flex: none; overflow: visible; }
   .panel-foot { flex-shrink: 0; max-height: none; overflow: visible; }
 }

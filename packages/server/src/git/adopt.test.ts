@@ -1,3 +1,7 @@
+import {
+  createLegacyProject as createProject,
+  adoptLegacyProject as adoptProject,
+} from '../testing/legacyProject.js';
 import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,9 +17,7 @@ import { workDirIn } from '../db/rows.js';
 import { archiveCheck } from '../archive.js';
 import { reviewOf } from '../api/review.js';
 import {
-  adoptProject,
   allocateNodeWorktree,
-  createProject,
   deleteNodeTree,
   deleteProjectTree,
   projectDeletionImpact,

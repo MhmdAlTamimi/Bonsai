@@ -19,7 +19,16 @@ import { HttpError } from './http.js';
  * the folder is archived. Null when it has never had a folder.
  */
 export function reviewSource(store: Store, row: NodeRow): ReviewSource | null {
+  const workspace = store.workspaces.get(row.project_id);
+  if (workspace && (workspace.switch_json || workspace.active_node_id !== row.id)) {
+    const project = store.getProject(row.project_id);
+    return project ? { cwd: project.repo_path, committedOnly: true } : null;
+  }
   if (row.worktree_allocated !== 0) return { cwd: row.worktree_path, committedOnly: false };
+  if (store.workspaces.get(row.project_id)) {
+    const project = store.getProject(row.project_id);
+    return project ? { cwd: project.repo_path, committedOnly: true } : null;
+  }
   if (row.archived_at === null) return null;
   const project = store.getProject(row.project_id);
   return project === undefined ? null : { cwd: project.repo_path, committedOnly: true };
@@ -67,6 +76,13 @@ export async function lineBase(store: Store, row: NodeRow): Promise<string | nul
  * or -- once it is archived -- the repository at the experiment's last commit.
  */
 export async function experimentNotes(
+  store: Store,
+  row: NodeRow,
+): Promise<{ contextMd: string | null; cwd: string; head: string }> {
+  return stableRead(store, row, (fresh) => experimentNotesAt(store, fresh));
+}
+
+async function experimentNotesAt(
   store: Store,
   row: NodeRow,
 ): Promise<{ contextMd: string | null; cwd: string; head: string }> {
@@ -148,6 +164,10 @@ export async function reviewOf(
   row: NodeRow,
   scope: ChangeScope = 'own',
 ): Promise<ReviewView> {
+  return stableRead(store, row, (fresh) => reviewAt(store, fresh, scope));
+}
+
+async function reviewAt(store: Store, row: NodeRow, scope: ChangeScope): Promise<ReviewView> {
   const files = await filesOf(store, row, scope);
   const differ = await scopesDiffer(store, row);
   const other = differ ? await filesOf(store, row, scope === 'own' ? 'line' : 'own') : files;
@@ -193,6 +213,16 @@ export async function reviewPatchOf(
   fullFile = false,
   scope: ChangeScope = 'own',
 ): Promise<ReviewFilePatchView> {
+  return stableRead(store, row, (fresh) => reviewPatchAt(store, fresh, path, fullFile, scope));
+}
+
+async function reviewPatchAt(
+  store: Store,
+  row: NodeRow,
+  path: string,
+  fullFile: boolean,
+  scope: ChangeScope,
+): Promise<ReviewFilePatchView> {
   const initialSource = sourceFor(store, row, scope);
   if (initialSource === null)
     throw new HttpError(404, 'This experiment has not created a checkout yet.');
@@ -209,4 +239,38 @@ export async function reviewPatchOf(
         : await reviewFileContent(source, range, file)),
     };
   return { file, ...(await reviewFilePatch(source, range, file)) };
+}
+
+/** Discard live results if the checkout changed owners while Git/file reads were awaited. */
+async function stableRead<T>(
+  store: Store,
+  row: NodeRow,
+  read: (fresh: NodeRow) => Promise<T>,
+): Promise<T> {
+  const before = store.workspaces.get(row.project_id);
+  let result: T | undefined;
+  let failure: unknown;
+  try {
+    result = await read(row);
+  } catch (error) {
+    failure = error;
+  }
+  const after = store.workspaces.get(row.project_id);
+  if (
+    before &&
+    after &&
+    (before.generation !== after.generation || before.switch_json !== after.switch_json)
+  ) {
+    const fresh = store.getNode(row.id);
+    if (!fresh) throw new HttpError(404, 'The experiment was deleted.');
+    // A retry reads only its exact saved commit, even if it becomes active again.
+    return read({
+      ...fresh,
+      worktree_allocated: 0,
+      archived_at: fresh.archived_at ?? fresh.created_at,
+    });
+  }
+  if (failure !== undefined)
+    throw failure instanceof Error ? failure : new Error('Could not read this experiment.');
+  return result!;
 }

@@ -1,3 +1,7 @@
+import {
+  createLegacyProject as createProject,
+  adoptLegacyProject as adoptProject,
+} from '../testing/legacyProject.js';
 import assert from 'node:assert/strict';
 import { beforeEach, afterEach, test } from 'node:test';
 import { mkdtemp, mkdir, rename, cp, rm, writeFile, readFile } from 'node:fs/promises';
@@ -5,7 +9,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openDatabase } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createProject, adoptProject, allocateNodeWorktree, deleteNodeTree } from '../projects.js';
+import { allocateNodeWorktree, deleteNodeTree } from '../projects.js';
 import { createAllocatedChild } from '../testing/allocatedChild.js';
 import { silentLogger } from '../log.js';
 import { git, gitLine } from '../git/exec.js';

@@ -61,6 +61,7 @@ export async function prepareRun(
 
   if (controller.signal.aborted) throw new Error('Cancelled before allocation.');
   const seeded = await allocateNodeWorktree(store, node);
+  Object.assign(node, store.getNode(node.id)!);
   for (const outcome of seeded)
     if (!outcome.copied)
       note(`Could not copy ${outcome.path}: ${outcome.reason ?? 'unknown reason'}`);

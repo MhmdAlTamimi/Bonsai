@@ -163,8 +163,8 @@ route('GET', '/api/diagnostics', (req, res, _p, { store, settings, connection, j
 });
 
 /** What experiment folders take up on disk. Walks them, so it is asked for, not pushed. */
-route('GET', '/api/storage', async (_req, res, _p, { store }) => {
-  sendJson(res, 200, await storageUse(store));
+route('GET', '/api/storage', async (_req, res, _p, { store, settings }) => {
+  sendJson(res, 200, await storageUse(store, settings.view().dataDir));
 });
 
 route('POST', '/api/backup', async (_req, res, _p, { store, settings, jobs, conversations }) => {

@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from './open.js';
 import { Store } from './store.js';
-import { createChildNode, createProject } from '../projects.js';
+import { createChildNode } from '../projects.js';
 import { OperationConflict } from '../domain/errors.js';
 import { revisionOf } from './referenceStore.js';
 

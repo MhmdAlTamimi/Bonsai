@@ -436,6 +436,33 @@ function NodePanel({
             Folder archived · the next message brings it back and runs setup again
           </p>
         )}
+        {project?.workspace && (
+          <div className="workspace-status">
+            <span>
+              {project.workspace.switching
+                ? 'Preparing workspace'
+                : project.workspace.activeNodeId === node.id
+                  ? 'Active workspace'
+                  : 'Saved experiment'}
+            </span>
+            {project.workspace.activeNodeId === node.id && !project.workspace.switching && (
+              <label>
+                <input
+                  type="checkbox"
+                  checked={project.workspace.held}
+                  aria-label="Keep this experiment active"
+                  onChange={(event) => {
+                    void api
+                      .holdWorkspace(project.id, node.id, event.target.checked)
+                      .then(onChanged)
+                      .catch((error) => setError(describeError(error)));
+                  }}
+                />
+                Keep active
+              </label>
+            )}
+          </div>
+        )}
         {node.pendingQuestion === null && !node.deletion && !detail?.gitRecovery && (
           <Composer
             node={node}

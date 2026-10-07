@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from './testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -11,7 +12,7 @@ import { Store } from './db/store.js';
 import { EventBus } from './api/events.js';
 import { RunJobs } from './jobs/runNode.js';
 import { FakeRunner } from './agent/FakeRunner.js';
-import { createChildNode, createProject } from './projects.js';
+import { createChildNode } from './projects.js';
 import { copyParentConversation } from './jobs/conversation.js';
 import { silentLogger } from './log.js';
 import { gitLine } from './git/exec.js';

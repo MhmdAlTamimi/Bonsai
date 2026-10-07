@@ -10,6 +10,7 @@ export interface RunSave {
   projectId: string;
   repoPath: string;
   worktreePath: string;
+  workspaceGeneration?: number;
   before: GitState;
   after: string;
   totals: RunTotals;

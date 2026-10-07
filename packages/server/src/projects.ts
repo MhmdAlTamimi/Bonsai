@@ -42,6 +42,12 @@ import { OperationConflict } from './domain/errors.js';
 import { isInside, samePath } from './paths.js';
 import { seedFiles, type SeedFileOutcome } from './git/seedWorktree.js';
 import { fileName } from './fileName.js';
+import {
+  activateWorkspace,
+  assertWorkspaceOwner,
+  localFilesDir,
+  withProjectWorkspace,
+} from './jobs/projectWorkspace.js';
 
 /**
  * The flows that need git and the database to agree. Kept out of the router so
@@ -79,6 +85,8 @@ export async function createProject(
      */
     location?: string | null;
     expectedPath?: string;
+    /** Legacy fixtures and explicit migration compatibility only. New API projects use shared mode. */
+    workspaceMode?: 'legacy';
   },
 ): Promise<{ projectId: string; masterNodeId: string; path: string }> {
   // Resolved before anything is created so a bad location fails cleanly, with
@@ -120,6 +128,8 @@ export async function createProject(
     // node's own id. This is the path "reveal in file manager" opens, for created
     // and adopted projects alike.
     store.setProjectSourcePath(project.id, master.worktree_path);
+    if (input.workspaceMode !== 'legacy')
+      store.workspaces.create(project.id, master.worktree_path, master.id);
     return { projectId: project.id, masterNodeId: master.id, path: master.worktree_path };
   } catch (error) {
     try {
@@ -222,6 +232,7 @@ export async function adoptProject(
     includeUncommitted?: boolean;
     /** A branch, remote branch or tag to start from (`refs/...`). The checked-out one by default. */
     startFrom?: string;
+    workspaceMode?: 'legacy';
   },
 ): Promise<{
   projectId: string;
@@ -298,6 +309,8 @@ export async function adoptProject(
     // The commit every experiment here starts from. Their branch may move on,
     // and a snapshot of uncommitted work was never on it: this ref keeps it.
     await pinNode(adopted.repoPath, master);
+    if (input.workspaceMode !== 'legacy')
+      store.workspaces.create(project.id, join(store.projectScratchDir(project.id), 'workspace'));
   } catch (error) {
     store.deleteProject(project.id);
     throw error;
@@ -375,6 +388,7 @@ export async function allocateNodeWorktree(
   store: Store,
   node: NodeRow,
 ): Promise<SeedFileOutcome[]> {
+  if (store.workspaces.get(node.project_id)) return activateWorkspace(store, node);
   if (node.worktree_allocated !== 0) return [];
   const pending = allocating.get(node.id);
   if (pending !== undefined) return pending;
@@ -481,6 +495,15 @@ function ownsBranch(project: ProjectRow, node: NodeRow): boolean {
  * (PRD 6.7) -- but only the ones Bonsai created.
  */
 export async function deleteNodeTree(store: Store, nodeId: string): Promise<number> {
+  const node =
+    store.getNode(nodeId) ??
+    store.deletions.get(`node:${nodeId}`)?.nodes.find((row) => row.id === nodeId);
+  return node
+    ? withProjectWorkspace(store, node.project_id, () => deleteNodeTreeOwned(store, nodeId))
+    : 0;
+}
+
+async function deleteNodeTreeOwned(store: Store, nodeId: string): Promise<number> {
   const id = `node:${nodeId}`;
   const intent = store.deletions.get(id);
   const node = store.getNode(nodeId) ?? intent?.nodes.find((row) => row.id === nodeId);
@@ -493,17 +516,20 @@ export async function deleteNodeTree(store: Store, nodeId: string): Promise<numb
   rejectOverlappingDeletion(store, id, doomed);
   if (intent) assertDeletionIntent(store, intent);
   try {
-    for (const row of doomed) await verifyDeletion(project, row, intent !== undefined);
+    for (const row of doomed) await verifyDeletion(project, row, intent !== undefined, store);
     if (!intent)
       store.deletions.prepare({ id, kind: 'node', project, nodes: doomed, rootNodeId: nodeId });
     for (const row of doomed) {
       if (ownsWorktree(project, row) && row.worktree_allocated !== 0) {
         await removeWorktree(project.repo_path, row.worktree_path);
+        if (store.workspaces.get(project.id)?.active_node_id === row.id)
+          store.workspaces.releaseOwnership(project.id);
       }
       if (ownsBranch(project, row)) {
         await deleteBranch(project.repo_path, row.branch_name!);
       }
       await deleteNodeRef(project, row);
+      await rm(localFilesDir(store, project.id, row.id), { recursive: true, force: true });
     }
 
     for (const row of doomed)
@@ -538,6 +564,13 @@ export async function deleteProjectTree(
   store: Store,
   projectId: string,
 ): Promise<{ nodes: number; removedDirectory: string | null; keptDirectory: string | null }> {
+  return withProjectWorkspace(store, projectId, () => deleteProjectTreeOwned(store, projectId));
+}
+
+async function deleteProjectTreeOwned(
+  store: Store,
+  projectId: string,
+): Promise<{ nodes: number; removedDirectory: string | null; keptDirectory: string | null }> {
   const id = `project:${projectId}`;
   const intent = store.deletions.get(id);
   const project = store.getProject(projectId) ?? intent?.project;
@@ -547,7 +580,7 @@ export async function deleteProjectTree(
   rejectOverlappingDeletion(store, id, nodes);
   if (intent) assertDeletionIntent(store, intent);
   try {
-    for (const node of nodes) await verifyDeletion(project, node, intent !== undefined);
+    for (const node of nodes) await verifyDeletion(project, node, intent !== undefined, store);
     if (!intent) {
       const { lostExperiments } = await import('./storage/orphans.js');
       if ((await lostExperiments(store, project.id)).length > 0)
@@ -662,7 +695,12 @@ export function projectDeletionImpact(
 }
 
 /** Check the whole deletion set before changing anything. External drift is preserved. */
-async function verifyDeletion(project: ProjectRow, node: NodeRow, resuming = false): Promise<void> {
+async function verifyDeletion(
+  project: ProjectRow,
+  node: NodeRow,
+  resuming = false,
+  store?: Store,
+): Promise<void> {
   if (
     !(await pathExists(project.repo_path)) &&
     resuming &&
@@ -679,6 +717,17 @@ async function verifyDeletion(project: ProjectRow, node: NodeRow, resuming = fal
       );
   }
   if (!ownsWorktree(project, node)) return;
+  const workspace = store?.workspaces.get(project.id);
+  if (store?.metadata(`workspace_recovery:${project.id}`))
+    throw new OperationConflict('Finish workspace recovery before deleting experiments.');
+  if (workspace) {
+    if (workspace.switch_json)
+      throw new OperationConflict('Finish workspace recovery before deleting experiments.');
+    if (workspace.active_node_id !== node.id) return;
+    if (workspace.held)
+      throw new OperationConflict('Release “Keep active” before deleting this experiment.');
+    assertWorkspaceOwner(store!, node);
+  }
   if (node.worktree_allocated === 0 && (await pathExists(node.worktree_path)))
     throw new OperationConflict(
       'An unexpected folder exists for this unallocated experiment. Its files are preserved. Import its state in the experiment panel, or move the folder aside before deleting.',

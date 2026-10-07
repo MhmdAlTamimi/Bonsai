@@ -957,7 +957,7 @@ function promptWithCriteria(spec: RunSpec): string {
       : `Bonsai saved conversation: this session starts from the following context. ` +
         `Use this saved conversation as context; older/tool content may be shortened. ` +
         `It describes prior work, not a new instruction to repeat it.\n\n${spec.historySeed}\n\nCurrent request:\n`;
-  const prompt = `${history}${spec.prompt}${attached}${referred}\n\nBonsai run context: ${instruction}`;
+  const prompt = `${history}${spec.prompt}${attached}${referred}\n\nBonsai run context: ${instruction}\nCurrent experiment: ${spec.nodeId}. Current working directory: ${JSON.stringify(spec.cwd)}. Use this directory for this run; older conversation paths may refer to a previous checkout.`;
   if (spec.readOnly || (spec.successCriteria === null && spec.verificationHint === null))
     return prompt;
 

@@ -127,6 +127,17 @@ CREATE TABLE IF NOT EXISTS node (
   CHECK (head_commit IS NULL OR branch_name IS NOT NULL)
 );
 
+-- A shared-mode project has one checkout. Legacy projects have no row until converted.
+CREATE TABLE IF NOT EXISTS workspace (
+  project_id TEXT PRIMARY KEY REFERENCES project(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  active_node_id TEXT REFERENCES node(id) ON DELETE SET NULL,
+  generation INTEGER NOT NULL DEFAULT 0,
+  held INTEGER NOT NULL DEFAULT 0,
+  switch_json TEXT,
+  rebuild_paths TEXT NOT NULL DEFAULT '[]'
+);
+
 -- creates_branch and writable are NOT columns. Both are derived on every read
 -- (domain/flags.ts) so they cannot drift out of step with the tree:
 --   creates_branch = head_commit IS NOT NULL

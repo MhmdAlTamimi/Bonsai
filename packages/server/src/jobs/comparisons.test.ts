@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, rm } from 'node:fs/promises';
@@ -14,7 +15,7 @@ import { comparedExperiments } from '../api/references.js';
 import { RunJobs } from './runNode.js';
 import { ComparisonJobs, readComparisonReference } from './comparisons.js';
 import { approachOf, comparisonFolder } from './comparisonSnapshot.js';
-import { createChildNode, createProject } from '../projects.js';
+import { createChildNode } from '../projects.js';
 import type {
   AgentRunner,
   Comparer,

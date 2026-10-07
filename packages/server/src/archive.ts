@@ -5,31 +5,16 @@ import type { ArchiveCheck, StorageView } from '@bonsai/shared';
 import type { EventBus } from './api/events.js';
 import type { NodeRow, ProjectRow, Store } from './db/store.js';
 import { OperationConflict } from './domain/errors.js';
-import { ignoredPaths, status } from './git/exec.js';
+import { gitLine, ignoredPaths, status } from './git/exec.js';
 import { expectedGitState, readGitState } from './git/ownership.js';
 import { nodeRef, pinNode, readRef } from './git/refs.js';
 import { removeWorktree } from './git/worktree.js';
 import type { Logger } from './log.js';
 import { ownsWorktree } from './projects.js';
+import { releaseWorkspace } from './jobs/projectWorkspace.js';
+import { canonicalPath, samePath } from './paths.js';
 
-/**
- * Archiving an experiment: removing its folder to save space, and nothing
- * else.
- *
- * The folder is the only part of an experiment that is expensive to keep --
- * a full checkout, usually with its dependencies installed -- and the only
- * part that can be made again. The branch holds every commit, the database
- * holds the conversation and the runs, and Claude keeps its session; the
- * node's ref keeps its code even when no branch does (git/refs.ts). The next
- * run (or Open folder) checks the branch out again at the same path, which
- * matters because the session is found by that path, and runs setup again.
- *
- * So what archiving must never do is lose something that cannot be made
- * again: work no run has committed, a folder that is the user's own, a run in
- * progress. And what it asks about first is ignored files that are not
- * dependencies or build output -- a local .env, a scratch database -- because
- * those go with the folder.
- */
+/** Shared cleanup preserves unknown files; legacy archiving retains its warning policy. */
 
 /** Ignored folders that setup or a build makes again: dependencies, caches, output. */
 const REBUILT_DIRS = new Set([
@@ -100,6 +85,14 @@ export async function archiveCheck(
   const blocked = (reason: string): ArchiveCheck => ({ blocked: reason, ignored: [] });
   const project = store.getProject(node.project_id);
   if (project === undefined) return blocked('No such project.');
+  const workspace = store.workspaces.get(project.id);
+  if (store.metadata(`workspace_recovery:${project.id}`))
+    return blocked('Finish workspace recovery before freeing working space.');
+  if (workspace && workspace.active_node_id !== node.id)
+    return blocked('This experiment is stored without a working folder.');
+  if (workspace?.held) return blocked('Release “Keep active” before freeing working space.');
+  if (workspace?.switch_json)
+    return blocked('Finish workspace recovery before freeing working space.');
   if (node.archived_at !== null) return blocked('Its folder is already archived.');
   if (node.worktree_allocated === 0) return blocked('It has no folder yet.');
   if (!ownsWorktree(project, node))
@@ -120,6 +113,7 @@ export async function archiveCheck(
       'Its Git state changed outside Bonsai, by a commit or a branch switch. Inspect it with your Git tools first.',
     );
   const copyFiles = store.projectView(project).setup.copyFiles;
+  if (workspace) return { blocked: null, ignored: [] }; // Unknown local files are preserved, not deleted.
   const ignored = (await ignoredPaths(node.worktree_path)).filter(
     (path) => !isRebuilt(path, copyFiles),
   );
@@ -140,6 +134,7 @@ export async function archiveFolder(
 ): Promise<void> {
   const check = await archiveCheck(store, node, false);
   if (check.blocked !== null) throw new OperationConflict(check.blocked);
+  if (store.workspaces.get(node.project_id)) return releaseWorkspace(store, node);
   if (check.ignored.length > 0 && !removeIgnored)
     throw new OperationConflict(
       `Archiving would delete ignored files that the next run cannot bring back: ${check.ignored.join(', ')}`,
@@ -165,7 +160,7 @@ async function drifted(project: ProjectRow, node: NodeRow): Promise<boolean> {
 }
 
 /** Bytes a folder takes on disk. Symlinks are counted as links, never followed. */
-async function folderBytes(root: string): Promise<number> {
+export async function folderBytes(root: string): Promise<number> {
   let total = 0;
   const pending = [root];
   while (pending.length > 0) {
@@ -205,8 +200,10 @@ async function folderBytes(root: string): Promise<number> {
  * What the experiment folders Bonsai made take up, by project. Your own
  * folder is not counted: archiving can never free it.
  */
-export async function storageUse(store: Store): Promise<StorageView> {
+export async function storageUse(store: Store, dataDir?: string): Promise<StorageView> {
   const projects: StorageView['projects'] = [];
+  const repositories = new Set<string>();
+  let gitBytes = 0;
   for (const project of store.listProjects()) {
     let folders = 0;
     let bytes = 0;
@@ -218,6 +215,18 @@ export async function storageUse(store: Store): Promise<StorageView> {
       bytes += await folderBytes(node.worktree_path);
     }
     const scratch = store.projectScratchDir(project.id);
+    const common = await gitLine(
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      project.repo_path,
+    ).catch(() => null);
+    const identity = common ? await canonicalPath(common) : null;
+    if (identity && ![...repositories].some((prior) => samePath(prior, identity))) {
+      repositories.add(identity);
+      gitBytes += await folderBytes(identity);
+    }
+    const localFileBytes =
+      (await folderBytes(join(scratch, 'local-files'))) +
+      (await folderBytes(join(scratch, 'copy-in')));
     const comparisonBytes = await folderBytes(join(scratch, 'compare'));
     const attachmentBytes = await folderBytes(join(scratch, 'run-context'));
     const comparisons: StorageView['projects'][number]['comparisons'] = [];
@@ -234,6 +243,7 @@ export async function storageUse(store: Store): Promise<StorageView> {
     projects.push({
       id: project.id,
       name: project.name,
+      localFileBytes,
       folders,
       bytes,
       archived,
@@ -243,6 +253,22 @@ export async function storageUse(store: Store): Promise<StorageView> {
     });
   }
   return {
+    localFileBytes: projects.reduce((n, p) => n + (p.localFileBytes ?? 0), 0),
+    ...(dataDir
+      ? {
+          systemBytes: {
+            git: gitBytes,
+            database: await folderBytesForFiles([
+              join(dataDir, 'bonsai.db'),
+              join(dataDir, 'bonsai.db-wal'),
+              join(dataDir, 'bonsai.db-shm'),
+            ]),
+            backups: await folderBytes(join(dataDir, 'backups')),
+            recovery: await folderBytes(join(dataDir, 'recovery')),
+            exports: await folderBytes(join(dataDir, 'exports')),
+          },
+        }
+      : {}),
     folders: projects.reduce((n, p) => n + p.folders, 0),
     bytes: projects.reduce((n, p) => n + p.bytes, 0),
     archived: projects.reduce((n, p) => n + p.archived, 0),
@@ -250,6 +276,15 @@ export async function storageUse(store: Store): Promise<StorageView> {
     attachmentBytes: projects.reduce((n, p) => n + p.attachmentBytes, 0),
     projects,
   };
+}
+
+async function folderBytesForFiles(paths: string[]): Promise<number> {
+  let total = 0;
+  for (const path of paths) {
+    const info = await lstat(path).catch(() => null);
+    if (info) total += info.blocks > 0 ? info.blocks * 512 : info.size;
+  }
+  return total;
 }
 
 const HOUR = 60 * 60 * 1000;

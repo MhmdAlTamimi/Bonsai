@@ -14,6 +14,7 @@ import { runDiff, parentSnapshot } from '../../git/diff.js';
 import { discardWorktreeChanges } from '../../git/recovery.js';
 import { HttpError, readJson, requireString, sendJson } from '../http.js';
 import { route, requireConnection } from '../routing.js';
+import { assertWorkspaceOwner } from '../../jobs/projectWorkspace.js';
 
 /** Runs: starting, stopping, answering questions, and recovering from ones that did not finish. */
 
@@ -185,11 +186,14 @@ route('POST', '/api/nodes/:id/recover', async (req, res, params, ctx) => {
           'This node is your own folder. Bonsai will not discard changes there — use git yourself if you want them gone.',
         );
       }
-      const repoPath = store.getProject(row.project_id)!.repo_path;
-      await pinNode(repoPath, row);
-      await assertGitState(row.worktree_path, await expectedGitState(repoPath, row));
-      await discardWorktreeChanges(row.worktree_path);
-      store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
+      await jobs.whileIdle(row.id, async () => {
+        assertWorkspaceOwner(store, row);
+        const repoPath = store.getProject(row.project_id)!.repo_path;
+        await pinNode(repoPath, row);
+        await assertGitState(row.worktree_path, await expectedGitState(repoPath, row));
+        await discardWorktreeChanges(row.worktree_path);
+        store.setNodeStatus(row.id, row.head_commit === null ? 'new' : 'ready');
+      });
       bus.publish(row.project_id, {
         type: 'tree.updated',
         projectId: row.project_id,

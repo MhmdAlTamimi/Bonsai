@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import assert from 'node:assert/strict';
 import { beforeEach, afterEach, test } from 'node:test';
 import { createServer, type Server } from 'node:http';
@@ -15,7 +16,7 @@ import { OperationConflict } from '../domain/errors.js';
 import { EventBus } from '../api/events.js';
 import { Connection } from '../api/connectionGate.js';
 import { handleApi } from '../api/router.js';
-import { createProject, createChildNode } from '../projects.js';
+import { createChildNode } from '../projects.js';
 import { silentLogger } from '../log.js';
 import { RunJobs } from './runNode.js';
 import { ComparisonJobs } from './comparisons.js';

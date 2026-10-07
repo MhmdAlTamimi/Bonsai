@@ -1,15 +1,7 @@
+import { fingerprint } from './fingerprint.js';
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync } from 'node:fs';
-import {
-  cp,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  readlink,
-  writeFile,
-  lstat,
-} from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import type { Store } from '../db/store.js';
 import { openDatabase } from '../db/open.js';
@@ -36,31 +28,6 @@ const mapper =
       .find((candidate) => isInside(candidate.from, path));
     return root ? join(root.to, relative(root.from, path)) : path;
   };
-
-/** Check the actual bytes too: changes to ignored files matter just as much as Git refs. */
-async function fingerprint(root: string, gitMetadata = false): Promise<string> {
-  const hash = createHash('sha256');
-  const walk = async (path: string): Promise<void> => {
-    const info = await lstat(path);
-    hash.update(relative(root, path) + '\0' + info.mode + '\0');
-    if (info.isSymbolicLink()) hash.update(await readlink(path));
-    else if (info.isDirectory()) {
-      for (const entry of (await readdir(path)).sort()) {
-        if (!gitMetadata && entry === '.git') continue;
-        if (gitMetadata && entry.endsWith('.lock'))
-          throw new OperationConflict(
-            'Git is writing this project. Let it finish, then retry the backup.',
-          );
-        await walk(join(path, entry));
-      }
-    } else if (info.isFile()) {
-      for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
-    } else throw new OperationConflict(`A special filesystem entry cannot be backed up: ${path}`);
-    hash.update('\0');
-  };
-  await walk(root);
-  return hash.digest('hex');
-}
 
 const CONFIG_KEYS = [
   'core.repositoryformatversion',
@@ -171,6 +138,15 @@ export async function makeBackup(
   if (store.deletions.pending().length > 0 || store.saves.pending().length > 0)
     throw new OperationConflict('Finish the pending recovery or deletion before making a backup.');
   for (const project of store.listProjects()) {
+    if (store.metadata(`workspace_recovery:${project.id}`))
+      throw new OperationConflict('Finish workspace recovery before making a backup.');
+    if (
+      store.workspaces.get(project.id)?.switch_json ||
+      store.metadata(`workspace_migration:${project.id}`)
+    )
+      throw new OperationConflict(
+        'Finish workspace preparation or conversion before making a backup.',
+      );
     if (store.metadata(`relocation:${project.id}`) !== null)
       throw new OperationConflict('Finish relocating the project before making a backup.');
     if ((await lostExperiments(store, project.id)).length > 0)
@@ -225,7 +201,7 @@ export async function makeBackup(
         if (existsSync(folder))
           checks.push({
             path: folder,
-            digest: await fingerprint(folder, gitMetadata),
+            digest: await fingerprint(folder, gitMetadata ? 'git' : 'working'),
             git: gitMetadata,
           });
       }
@@ -432,7 +408,7 @@ export async function makeBackup(
       mode: 0o600,
     });
     for (const check of checks)
-      if ((await fingerprint(check.path, check.git)) !== check.digest)
+      if ((await fingerprint(check.path, check.git ? 'git' : 'working')) !== check.digest)
         throw new OperationConflict(
           'Project files or Git state changed outside Bonsai during backup. The copy is incomplete; retry when those writes finish.',
         );

@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import { createAllocatedChild as createChildNode } from '../testing/allocatedChild.js';
 import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +9,7 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openInMemory } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createChildNode as createNode, createProject } from '../projects.js';
+import { createChildNode as createNode } from '../projects.js';
 import { commitMessageFor, commitRunOutput } from '../git/commit.js';
 import { git } from '../git/exec.js';
 import { reviewOf, reviewPatchOf } from './review.js';

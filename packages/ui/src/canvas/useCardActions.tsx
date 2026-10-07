@@ -54,15 +54,24 @@ export function useCardActions({
         const shown = check.ignored.slice(0, 8).join(', ');
         const more = check.ignored.length > 8 ? ` and ${check.ignored.length - 8} more` : '';
         const ok = await ask({
-          title: `Archive ${node.displayName}?`,
-          body: [
-            'Removes the folder; keeps saved code and conversations. The next run restores the folder.',
-            'Ignored files are removed; local edits to those files will be lost. Back up anything you need.',
-            ...(check.ignored.length > 0
-              ? [`These files cannot be recreated: ${shown}${more}.`]
-              : []),
-          ],
-          confirmLabel: check.ignored.length > 0 ? 'Archive and delete them' : 'Archive folder',
+          title: node.sharedWorkspace ? 'Free working space?' : `Archive ${node.displayName}?`,
+          body: node.sharedWorkspace
+            ? [
+                'Releases this project’s working folder. Saved code, conversations and unclassified local files stay.',
+                'Folders listed as regeneratable in Project settings are removed. The next run prepares the environment again.',
+              ]
+            : [
+                'Removes the folder; keeps saved code and conversations. The next run restores the folder.',
+                'Ignored files are removed; local edits to those files will be lost. Back up anything you need.',
+                ...(check.ignored.length > 0
+                  ? [`These files cannot be recreated: ${shown}${more}.`]
+                  : []),
+              ],
+          confirmLabel: node.sharedWorkspace
+            ? 'Free space'
+            : check.ignored.length > 0
+              ? 'Archive and delete them'
+              : 'Archive folder',
           danger: check.ignored.length > 0,
           returnFocus: cardMenuButton(node.displayName),
         });

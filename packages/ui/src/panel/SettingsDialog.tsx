@@ -303,13 +303,13 @@ function Storage({
       <p className="hint" role="status">
         {use === null
           ? (useError ?? 'Measuring experiment folders')
-          : `${plural(use.folders, 'experiment folder')} on disk · ${plural(use.archived, 'experiment')} archived.`}
+          : `${plural(use.folders, 'working folder')} on disk.`}
       </p>
       {use !== null && (
         <>
           <dl className="storage-metrics">
             <div>
-              <dt>Experiments</dt>
+              <dt>Working folders</dt>
               <dd>{bytes(use.bytes)}</dd>
             </div>
             <div>
@@ -321,12 +321,43 @@ function Storage({
               <dd>{bytes(use.attachmentBytes)}</dd>
             </div>
           </dl>
+          <dl className="storage-metrics">
+            <div>
+              <dt>Preserved local files</dt>
+              <dd>{bytes(use.localFileBytes ?? 0)}</dd>
+            </div>
+            {use.systemBytes && (
+              <>
+                <div>
+                  <dt>Shared Git history</dt>
+                  <dd>{bytes(use.systemBytes.git)}</dd>
+                </div>
+                <div>
+                  <dt>Conversations and database</dt>
+                  <dd>{bytes(use.systemBytes.database)}</dd>
+                </div>
+                <div>
+                  <dt>Backups</dt>
+                  <dd>{bytes(use.systemBytes.backups)}</dd>
+                </div>
+                <div>
+                  <dt>Recovery copies</dt>
+                  <dd>{bytes(use.systemBytes.recovery)}</dd>
+                </div>
+                <div>
+                  <dt>Exports</dt>
+                  <dd>{bytes(use.systemBytes.exports)}</dd>
+                </div>
+              </>
+            )}
+          </dl>
           <details className="help-details">
             <summary>What uses space?</summary>
             <p>
-              These totals exclude Git history, databases and backups. Comparisons keep their own
-              code copies, even after an experiment is deleted. Run attachments stay with their
-              experiment.
+              Shared projects keep one working folder. Unclassified local files stay with their
+              experiment; declare regeneratable folders in Project settings to release their space.
+              Git history includes existing repository history. Package caches outside Bonsai are
+              excluded; filesystem sharing can affect the space actually reclaimed.
             </p>
           </details>
           <details className="storage-comparisons help-details">
@@ -443,7 +474,7 @@ function Storage({
             save.reset();
           }}
         />
-        <span>Auto-archive idle experiments</span>
+        <span>Release idle working folders</span>
       </label>
       <label>
         Idle for
@@ -470,8 +501,9 @@ function Storage({
       <details className="help-details">
         <summary>Archive rules</summary>
         <p>
-          Folders with uncommitted work or ignored files other than dependencies and build output
-          are skipped. Manual archiving is in the experiment’s menu.
+          Busy, held or modified folders are skipped. Shared workspaces preserve local files and
+          remove only declared regeneratable folders. Older projects keep their archive rules until
+          converted. Manual cleanup is in the active experiment’s menu.
         </p>
       </details>
       <div className="save-row">

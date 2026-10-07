@@ -1,3 +1,4 @@
+import { createLegacyProject as createProject } from '../testing/legacyProject.js';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../db/open.js';
 import { Store } from '../db/store.js';
-import { createProject, createChildNode } from '../projects.js';
+import { createChildNode } from '../projects.js';
 import { EventBus } from '../api/events.js';
 import { FakeRunner } from '../agent/FakeRunner.js';
 import type { RunEvent, RunSpec } from '../agent/AgentRunner.js';

@@ -7,6 +7,8 @@ export interface PoolJob {
   label: string;
   controller: AbortController;
   state?: () => 'working' | 'question' | 'background';
+  resource?: string;
+  resourceAvailable?: () => boolean;
 }
 interface Entry extends PoolJob {
   execute: () => Promise<void>;
@@ -21,6 +23,7 @@ export class ExecutionPool {
   private readonly retiring = new Set<string>();
   private paused = false;
   private mutations = 0;
+  private readonly resources = new Set<string>();
   constructor(
     private readonly limit: () => number,
     private readonly changed: (projects: ReadonlySet<string>) => void = () => undefined,
@@ -80,7 +83,17 @@ export class ExecutionPool {
     const index = this.queue.findIndex((entry) => entry.id === id);
     return index < 0 ? null : index + 1;
   }
-  reason(): string {
+  reason(id?: string): string {
+    const waiting = this.queue.find((job) => job.id === id);
+    if (waiting?.resource) {
+      const owner = [...this.active.values()].find((job) => job.resource === waiting.resource);
+      if (owner)
+        return `Waiting for ${owner.label} to release this project’s workspace${owner.state?.() === 'question' ? ' — answer its question or stop it' : ''}.`;
+      if (waiting.resourceAvailable?.() === false)
+        return 'Release “Keep active” to switch this project’s workspace.';
+      if (this.resources.has(waiting.resource))
+        return 'Waiting for this project’s workspace operation to finish.';
+    }
     const live = [...this.active.values()];
     const questions = live.filter((job) => job.state?.() === 'question').length;
     const background = live.filter((job) => job.state?.() === 'background').length;
@@ -95,6 +108,12 @@ export class ExecutionPool {
   }
   jobs(): PoolJob[] {
     return [...this.active.values(), ...this.queue];
+  }
+  resourceOwner(resource: string): PoolJob | undefined {
+    return [...this.active.values()].find((job) => job.resource === resource);
+  }
+  resourceBusy(resource: string): boolean {
+    return this.resources.has(resource) || this.resourceOwner(resource) !== undefined;
   }
   async drain(timeoutMs = 3000): Promise<void> {
     for (const job of this.jobs()) job.controller.abort();
@@ -111,7 +130,14 @@ export class ExecutionPool {
   }
   private pump(): void {
     while (!this.paused && this.active.size < Math.max(1, this.limit())) {
-      const index = this.queue.findIndex((entry) => !this.retiring.has(entry.projectId));
+      const index = this.queue.findIndex(
+        (entry) =>
+          !this.retiring.has(entry.projectId) &&
+          (!entry.resource ||
+            (!this.resources.has(entry.resource) &&
+              ![...this.active.values()].some((active) => active.resource === entry.resource))) &&
+          entry.resourceAvailable?.() !== false,
+      );
       if (index < 0) return;
       const [entry] = this.queue.splice(index, 1);
       if (!entry) return;
@@ -158,6 +184,25 @@ export class ExecutionPool {
       return await work();
     } finally {
       this.mutations -= 1;
+    }
+  }
+  /** Idle filesystem operations share the same exclusion boundary as scheduled runs. */
+  async withResource<T>(resource: string | undefined, work: () => Promise<T>): Promise<T> {
+    if (!resource) return this.mutation(work);
+    if (
+      this.resources.has(resource) ||
+      [...this.active.values()].some((job) => job.resource === resource)
+    )
+      throw new OperationConflict(
+        'This project’s workspace is busy. Retry after its current operation finishes.',
+      );
+    this.resources.add(resource);
+    try {
+      return await this.mutation(work);
+    } finally {
+      this.resources.delete(resource);
+      this.pump();
+      this.notify();
     }
   }
   async exclusivelyWhenIdle<T>(work: () => Promise<T>): Promise<T> {

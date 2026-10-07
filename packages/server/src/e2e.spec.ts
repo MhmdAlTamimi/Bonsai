@@ -1778,7 +1778,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     );
     await session.eval("window.dispatchEvent(new Event('online'));");
     await session.waitFor(
-      "document.querySelector('.thread')?.textContent.includes('Message written during transport gap')",
+      "document.querySelector('.conversation-content')?.textContent.includes('Message written during transport gap')",
     );
     assert.equal(await session.eval("document.querySelectorAll('.turn').length"), 2);
     assert.ok(
@@ -1877,7 +1877,7 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     });
     await session.goto(`${BASE}/?project=${created.projectId}&node=${queued.node.id}`);
     await session.waitFor(
-      "document.querySelector('.panel')?.textContent.includes('needs your answer')",
+      "document.querySelector('.panel')?.textContent.includes('answer its question or stop it')",
       { label: 'the reason this request is queued' },
     );
     await session.goto(`${BASE}/?project=${created.projectId}&node=${created.masterNodeId}`);
@@ -2678,7 +2678,19 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     const before = await detail(child);
     assert.equal(before.runs.length, 0);
     assert.equal(before.lineage.conversationFrom?.id, created.masterNodeId);
-    assert.equal((await fetch(`${nodeUrl(child)}/reveal`, { method: 'POST' })).status, 409);
+    const opened = await fetch(`${nodeUrl(child)}/reveal`, { method: 'POST' });
+    if (opened.status !== 200) {
+      // Headless CI may lack a desktop file manager. Activation still completes.
+      assert.equal(opened.status, 500);
+      assert.match(await opened.text(), /open it yourself/);
+    }
+    await session.waitFor(
+      'document.querySelector(\'[aria-label="Keep this experiment active"]\')?.checked',
+    );
+    await session.click('[aria-label="Keep this experiment active"]');
+    await session.waitFor(
+      'document.querySelector(\'[aria-label="Keep this experiment active"]\')?.checked === false',
+    );
 
     await run(child, 'child commits a result');
     await run(created.masterNodeId, 'parent keeps working');
@@ -3354,7 +3366,73 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     assert.match(String(await session.eval(pressed)), /^This experiment/);
   });
 
-  test('an archived folder is dimmed on the map and comes back with the next message', async () => {
+  test('Project settings converts a legacy project explicitly and keeps saved conversations usable', async () => {
+    const post = async (path: string, body: unknown): Promise<Response> =>
+      fetch(BASE + path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const created = (await (
+      await post('/api/projects', { name: 'Legacy conversion browser', description: '' })
+    ).json()) as { projectId: string; masterNodeId: string };
+    // A pre-upgrade project has per-node paths and no project workspace row.
+    const fixtureDb = new DatabaseSync(join(dataDir, 'bonsai.db'));
+    fixtureDb.prepare('DELETE FROM workspace WHERE project_id = ?').run(created.projectId);
+    fixtureDb.close();
+    const child = (await (
+      await post(`/api/projects/${created.projectId}/nodes`, {
+        parentId: created.masterNodeId,
+        displayName: 'Legacy child',
+        description: '',
+      })
+    ).json()) as { node: { id: string } };
+    assert.equal(
+      (await post(`/api/nodes/${child.node.id}/runs`, { prompt: 'legacy saved work' })).status,
+      202,
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/nodes/${child.node.id}')).json()).node.status === 'ready')()`,
+    );
+    await session.goto(`${BASE}/?project=${created.projectId}&node=${child.node.id}`);
+    await session.click('.settings-button');
+    await session.click('[aria-label="Project settings"]');
+    await session.waitFor(
+      "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Review conversion')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Review conversion').click()",
+    );
+    await session.waitFor(
+      "document.querySelector('.workspace-conversion')?.textContent.includes('2 working folders')",
+    );
+    await session.eval(
+      "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Convert workspace').click()",
+    );
+    await session.waitFor(
+      `(async () => (await (await fetch('/api/projects/${created.projectId}/tree')).json()).project.workspace?.activeNodeId === '${created.masterNodeId}')()`,
+    );
+    await session.click('dialog .dialog-close');
+    await session.waitFor(
+      "document.querySelector('.workspace-status')?.textContent.includes('Saved experiment')",
+    );
+    assert.equal(
+      await session.eval(
+        "document.querySelector('.conversation-content')?.textContent.includes('legacy saved work')",
+      ),
+      true,
+    );
+    assert.equal(
+      (await post(`/api/nodes/${child.node.id}/runs`, { prompt: '? resume converted experiment' }))
+        .status,
+      202,
+    );
+    await session.waitFor(
+      "document.querySelector('.workspace-status')?.textContent.includes('Active workspace') && document.querySelector('.conversation-content')?.textContent.includes('resume converted experiment')",
+    );
+  });
+
+  test('shared working space is released and restored without losing saved experiments', async () => {
     const post = async (path: string, body: unknown): Promise<Response> =>
       fetch(`${BASE}${path}`, {
         method: 'POST',
@@ -3468,20 +3546,20 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
 
     await session.click('[aria-label="Actions for Archive me"]');
     await session.eval(
-      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Archive folder')).click()",
+      "Array.from(document.querySelectorAll('.card-menu [role=menuitem]')).find(b => b.textContent.includes('Free working space')).click()",
     );
     await session.waitFor("!!document.querySelector('dialog[open]')");
     assert.match(
       String(await session.eval("document.querySelector('dialog[open]').textContent")),
-      /local edits to those files will be lost/,
+      /unclassified local files stay/,
     );
     await session.eval(
-      "Array.from(document.querySelectorAll('dialog[open] button')).find(b => b.textContent === 'Archive folder').click()",
+      "Array.from(document.querySelectorAll('dialog[open] button')).find(b => b.textContent === 'Free space').click()",
     );
-    // Dimmed with its own mark, never dashed; the panel says what the next message does.
-    await session.waitFor("!!document.querySelector('.card.archived .archived-glyph')");
-    await session.waitFor("!!document.querySelector('.panel .archived-note')");
-    assert.equal(await folder(), 'archived');
+    await session.waitFor(
+      "document.querySelector('.workspace-status')?.textContent.includes('Saved experiment')",
+    );
+    assert.equal(await folder(), 'stored');
     // Its changes are still there to review, read from the repository.
     const review = (await (await fetch(`${nodeUrl}/review`)).json()) as { files: unknown[] };
     assert.ok(review.files.length > 0);
@@ -3982,13 +4060,6 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         description: '',
       })
     ).json()) as { node: { id: string } };
-    const fixtureDb = new DatabaseSync(join(dataDir, 'bonsai.db'), { readOnly: true });
-    const folder = (
-      fixtureDb
-        .prepare('SELECT worktree_path FROM node WHERE id = ?')
-        .get(child.node.id) as unknown as { worktree_path: string }
-    ).worktree_path;
-    fixtureDb.close();
     await post(`/api/nodes/${child.node.id}/runs`, { prompt: 'create files' });
     const deadline = Date.now() + 15000;
     while (Date.now() < deadline) {
@@ -3998,6 +4069,13 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
       if (detail.node.status === 'ready') break;
       await new Promise((resolve) => setTimeout(resolve, 30));
     }
+    const fixtureDb = new DatabaseSync(join(dataDir, 'bonsai.db'), { readOnly: true });
+    const folder = (
+      fixtureDb
+        .prepare('SELECT worktree_path FROM node WHERE id = ?')
+        .get(child.node.id) as unknown as { worktree_path: string }
+    ).worktree_path;
+    fixtureDb.close();
     await writeFile(join(folder, 'external.txt'), 'external code');
     await git(['add', '-A'], folder);
     await git(['commit', '-m', 'external commit'], folder);
@@ -4091,19 +4169,14 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
         "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Cancel deletion').click()",
       );
       await session.waitFor(
-        '!document.querySelector(\'[aria-label="Paused deletion"]\') && !!document.querySelector(\'[aria-label="Synchronize Git and Bonsai"]\')',
+        "!document.querySelector('[aria-label=\"Paused deletion\"]') && !!document.querySelector('.composer textarea')",
       );
-      await session.eval(
-        "Array.from(document.querySelectorAll('.recover button')).find(b => b.textContent === 'Restore Bonsai code').click()",
-      );
-      await session.waitFor(
-        "Array.from(document.querySelectorAll('dialog button')).some(b => b.textContent === 'Preserve and restore')",
-      );
-      await session.eval(
-        "Array.from(document.querySelectorAll('dialog button')).find(b => b.textContent === 'Preserve and restore').click()",
+      assert.equal(
+        (await post(`/api/nodes/${child.node.id}/runs`, { prompt: '? still recoverable' })).status,
+        202,
       );
       await session.waitFor(
-        "!document.querySelector('.recover') && !!document.querySelector('.composer textarea')",
+        `(async () => (await (await fetch('/api/nodes/${child.node.id}')).json()).node.status === 'ready')()`,
       );
     } finally {
       fixtureDb.exec('DROP TRIGGER IF EXISTS paused_delete_fixture');

@@ -13,6 +13,13 @@ import { route, withLive, requireConnection } from '../routing.js';
 import { locateRepository } from '../../storage/relocate.js';
 import { lostExperiments, importLostExperiment } from '../../storage/orphans.js';
 import { join } from 'node:path';
+import { retryWorkspaceSwitch } from '../../jobs/projectWorkspace.js';
+import { restoreWorkspace } from '../../storage/workspaceRecovery.js';
+import { validateRebuildPaths, withProjectWorkspace } from '../../jobs/projectWorkspace.js';
+import {
+  migrateProjectWorkspace,
+  workspaceMigrationView,
+} from '../../storage/workspaceMigration.js';
 
 /** Projects: creating, opening, their tree, usage and deletion. */
 
@@ -99,14 +106,18 @@ route('GET', '/api/projects/:id/lost-experiments', async (_req, res, params, { s
 route(
   'POST',
   '/api/projects/:id/lost-experiments',
-  async (req, res, params, { store, settings, bus }) => {
+  async (req, res, params, { store, settings, bus, jobs }) => {
     const body = await readJson<{ id: string; version: string }>(req);
-    const recovered = await importLostExperiment(
-      store,
-      params['id']!,
-      requireString(body.id, 'id'),
-      requireString(body.version, 'version'),
-      join(settings.view().dataDir, 'recovery'),
+    const recovered = await jobs.pool.withResource(params['id'], () =>
+      withProjectWorkspace(store, params['id']!, () =>
+        importLostExperiment(
+          store,
+          params['id']!,
+          requireString(body.id, 'id'),
+          requireString(body.version, 'version'),
+          join(settings.view().dataDir, 'recovery'),
+        ),
+      ),
     );
     bus.publish(params['id']!, { type: 'tree.updated', projectId: params['id']! });
     sendJson(res, 201, recovered);
@@ -119,10 +130,45 @@ route('GET', '/api/projects/:id/usage', (_req, res, params, { store }) => {
   sendJson(res, 200, store.usage.view(project.id));
 });
 
-route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => {
+route(
+  'POST',
+  '/api/projects/:id/workspace-recovery',
+  async (req, res, params, { store, jobs, bus, settings }) => {
+    const id = params['id']!;
+    const body = await readJson<{ action: string }>(req);
+    if (body.action !== 'retry' && body.action !== 'restore')
+      throw new HttpError(400, 'Choose retry or restore.');
+    let preservedPath: string | null = null;
+    await jobs.pool.withResource(id, () =>
+      withProjectWorkspace(store, id, async () => {
+        if (body.action === 'restore' || store.metadata(`workspace_recovery:${id}`))
+          preservedPath = await restoreWorkspace(
+            store,
+            id,
+            join(settings.view().dataDir, 'recovery'),
+          );
+        else await retryWorkspaceSwitch(store, id);
+      }),
+    );
+    jobs.pool.refresh();
+    bus.publish(id, { type: 'tree.updated', projectId: id });
+    sendJson(res, 200, { preservedPath });
+  },
+);
+
+route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus, jobs }) => {
   const project = store.getProject(params['id']!);
   if (project === undefined) throw new HttpError(404, 'no such project');
   const body = await readJson<UpdateProjectRequest>(req);
+  if (
+    (body.setupCommand !== undefined ||
+      body.copyFiles !== undefined ||
+      body.rebuildPaths !== undefined) &&
+    (store.metadata(`workspace_migration:${project.id}`) ||
+      store.metadata(`workspace_recovery:${project.id}`) ||
+      store.workspaces.get(project.id)?.switch_json)
+  )
+    throw new HttpError(409, 'Finish workspace conversion or recovery before changing setup.');
   if (body.model !== undefined && body.model !== null && typeof body.model !== 'string')
     throw new HttpError(400, 'Model must be a name or App default.');
   if (
@@ -167,15 +213,75 @@ route('PATCH', '/api/projects/:id', async (req, res, params, { store, bus }) => 
       throw new HttpError(400, bad.map((b) => `${b.path}: ${b.reason}`).join('; '));
     }
   }
-  store.saveProjectConfiguration(project.id, {
+  if (
+    body.rebuildPaths !== undefined &&
+    (!Array.isArray(body.rebuildPaths) ||
+      !body.rebuildPaths.every((path) => typeof path === 'string'))
+  )
+    throw new HttpError(400, 'Regeneratable folders must be a list of paths.');
+  const configuration = {
     ...body,
+    ...(body.rebuildPaths !== undefined
+      ? { rebuildPaths: validateRebuildPaths(body.rebuildPaths) }
+      : {}),
     ...(body.copyFiles !== undefined
       ? { copyFiles: body.copyFiles.map((p) => p.trim()).filter(Boolean) }
       : {}),
-  });
+  };
+  await jobs.pool.withResource(store.workspaces.get(project.id) ? project.id : undefined, () =>
+    withProjectWorkspace(store, project.id, () =>
+      Promise.resolve(store.saveProjectConfiguration(project.id, configuration)),
+    ),
+  );
   bus.publish(project.id, { type: 'tree.updated', projectId: project.id });
   sendJson(res, 200, store.projectView(store.getProject(project.id)!));
 });
+
+route('GET', '/api/projects/:id/workspace-migration', async (_req, res, params, { store }) => {
+  sendJson(res, 200, await workspaceMigrationView(store, params['id']!));
+});
+
+route(
+  'POST',
+  '/api/projects/:id/workspace-migration',
+  async (req, res, params, { store, jobs, bus }) => {
+    const id = params['id']!;
+    if (jobs.pool.jobs().some((job) => job.projectId === id))
+      throw new HttpError(409, 'Finish or stop project jobs before converting its workspace.');
+    const body = await readJson<{ version: string }>(req);
+    await jobs.pool.withStoppedProject(id, () =>
+      jobs.pool.withResource(id, () =>
+        migrateProjectWorkspace(store, id, requireString(body.version, 'version')),
+      ),
+    );
+    bus.publish(id, { type: 'tree.updated', projectId: id });
+    sendJson(res, 200, store.projectView(store.getProject(id)!));
+  },
+);
+
+route(
+  'POST',
+  '/api/projects/:id/workspace-hold',
+  async (req, res, params, { store, jobs, bus }) => {
+    const id = params['id']!;
+    const workspace = store.workspaces.get(id);
+    if (!workspace) throw new HttpError(400, 'This project does not use a shared workspace.');
+    const body = await readJson<{ held: boolean; nodeId: string }>(req);
+    if (typeof body.held !== 'boolean' || body.nodeId !== workspace.active_node_id)
+      throw new HttpError(409, 'The active experiment changed. Refresh before changing its hold.');
+    if (workspace.switch_json) throw new HttpError(409, 'Finish workspace recovery first.');
+    const owner = jobs.pool.resourceOwner(id);
+    if (jobs.pool.resourceBusy(id) && owner?.id !== jobs.activeRunId(body.nodeId))
+      throw new HttpError(
+        409,
+        'The workspace is preparing another experiment. Retry when it finishes.',
+      );
+    store.workspaces.hold(id, body.held);
+    jobs.pool.refresh();
+    bus.publish(id, { type: 'tree.updated', projectId: id });
+    sendJson(res, 200, { ok: true });
+  },
+);
 
 /** What deleting this project would destroy -- and, when adopted, what it won't. */
 route('GET', '/api/projects/:id/deletion-impact', (_req, res, params, { store }) => {
