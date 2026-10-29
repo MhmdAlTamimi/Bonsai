@@ -272,7 +272,10 @@ export async function makeBackup(
           });
           await copyWorkingFiles(node.worktree_path, target);
         }
-        await replaceCopiedPointer(join(map(node.worktree_path), '.git'), `gitdir: ${map(admin)}\n`);
+        await replaceCopiedPointer(
+          join(map(node.worktree_path), '.git'),
+          `gitdir: ${map(admin)}\n`,
+        );
         await replaceCopiedPointer(
           join(map(admin), 'gitdir'),
           join(map(node.worktree_path), '.git') + '\n',
