@@ -56,6 +56,8 @@ function commandArgs(args: readonly string[]): string[] {
     'diff.mnemonicPrefix=false',
     '-c',
     'color.ui=false',
+    '-c',
+    'core.longpaths=true',
   ];
   let command = 0;
   while (args[command] === '-c') command += 2;
