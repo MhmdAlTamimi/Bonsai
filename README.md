@@ -7,6 +7,7 @@ applying it to your project.
 ## Install
 
 Requires **Node.js 22.18+**, npm, and Git.
+Windows browser validation has [open failures](docs/development.md#validation-status).
 
 ```bash
 git clone https://github.com/MhmdAlTamimi/Bonsai.git

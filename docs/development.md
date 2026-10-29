@@ -39,6 +39,33 @@ The Windows CI fixture environment disables global CRLF conversion for determini
 LF fixtures. Repository-local CRLF handling is tested separately; production Git invocations
 retain the user's filters and line-ending configuration.
 
+## Validation status
+
+Consolidation candidate: [`5527ab9`](https://github.com/MhmdAlTamimi/Bonsai/commit/5527ab9e2880818a53a6eff22c4091dad2070d7c).
+[CI evidence](https://github.com/MhmdAlTamimi/Bonsai/actions/runs/40884112890), 29 October 2026:
+
+| Check | Result |
+| --- | --- |
+| Linux server tests | 474 passed. |
+| Linux UI/shared tests | 123 passed. |
+| Linux browser tests | 42 passed. |
+| Windows server tests | 467 passed, 7 platform-specific skips. |
+| Windows UI/shared tests | 123 passed. |
+| Windows type/lint/format/build | Passed. |
+| Windows browser tests | 36 passed, 4 failed, 2 platform-specific skips. |
+
+The Windows browser failures below remain open and were deferred during consolidation.
+Do not treat this candidate as fully validated on Windows or disable these CI checks.
+
+1. **Source disclosure:** the renamed ancestor was not observed in the child-creation source popover.
+2. **Review readiness:** the experiment did not reach the expected ready state within the browser test's deadline.
+3. **Cancellation messaging:** the expected stop reason was replaced by a generic unfinished-run message.
+4. **Creation dialog:** the run-options summary was not clickable in the narrow-layout scenario.
+
+Investigate these against the Windows screenshots and logs; the results do not yet
+establish whether each failure is application behavior, browser automation, or timing.
+Retain the assertions while fixing the causes.
+
 ## Configuration
 
 | Variable | Purpose |
