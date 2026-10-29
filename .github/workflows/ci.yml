@@ -73,6 +73,9 @@ jobs:
           node-version: '22.x'
           cache: npm
 
+      # Fixtures write LF deliberately; do not inherit the runner's CRLF policy.
+      # Explicit repository-local CRLF behavior is covered by the Git policy tests.
+      - run: git config --global core.autocrlf false
       - run: npm ci
       - run: npm test
       - run: npm run build:ui

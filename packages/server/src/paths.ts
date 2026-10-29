@@ -32,13 +32,23 @@ export function samePath(a: string, b: string, p: PlatformPath = path): boolean 
  * is `C:\\Users\\RUNNER~1\\…` to Windows and `C:/Users/runneradmin/…` to
  * git. Compared as written, a folder picked by one name and found by the
  * other was outside its own repository, and the subfolder the agent should
- * work in was dropped. A path that does not exist is resolved as written.
+ * work in was dropped. Missing paths resolve through their nearest existing
+ * ancestor, so moved/deleted folders still compare using the same spelling.
  */
 export async function canonicalPath(p: string): Promise<string> {
   const full = path.resolve(p);
-  try {
-    return await realpath(full);
-  } catch {
-    return full;
+  let ancestor = full;
+  const suffix: string[] = [];
+  for (;;) {
+    try {
+      return path.join(await realpath(ancestor), ...suffix);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return full;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) return full;
+      suffix.unshift(path.basename(ancestor));
+      ancestor = parent;
+    }
   }
 }

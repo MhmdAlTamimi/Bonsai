@@ -1,7 +1,7 @@
 import { fingerprint } from './fingerprint.js';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join, relative, resolve } from 'node:path';
 import type { Store } from '../db/store.js';
 import { openDatabase } from '../db/open.js';
@@ -10,7 +10,7 @@ import type { Settings } from '../settings.js';
 import { OperationConflict } from '../domain/errors.js';
 import { git, gitLine } from '../git/exec.js';
 import { copyWorkingFiles } from '../git/export.js';
-import { isInside, samePath } from '../paths.js';
+import { canonicalPath, isInside, samePath } from '../paths.js';
 import { lostExperiments } from './orphans.js';
 import { MODULE_CACHE_FILE, type ModuleCache } from '../git/submodules.js';
 import { commitExists } from '../git/repo.js';
@@ -80,6 +80,14 @@ async function safeConfigs(
 const metadataFilter = (path: string) =>
   !['config', 'config.worktree', 'hooks'].includes(basename(path));
 
+/** Only for copied pointers in an incomplete backup; originals are never replaced. */
+async function replaceCopiedPointer(file: string, content: string): Promise<void> {
+  // Git marks .git files hidden on Windows. Truncating a copied hidden file
+  // fails with EPERM; recreate the private copy without inheriting that flag.
+  await rm(file, { force: true });
+  await writeFile(file, content, { mode: 0o600 });
+}
+
 /** Repair nested submodules' pointers without copying or consulting the user's credentials. */
 async function repairMarkers(
   originalRoot: string,
@@ -102,7 +110,7 @@ async function repairMarkers(
         throw new OperationConflict(
           `A submodule uses Git data outside the backed-up repository: ${root}`,
         );
-      await writeFile(path, `gitdir: ${mapped}\n`);
+      await replaceCopiedPointer(path, `gitdir: ${mapped}\n`);
       await git(['fsck', '--full', '--no-dangling'], root);
       const cache = join(
         repo,
@@ -208,7 +216,11 @@ export async function makeBackup(
       await mkdir(scratch, { recursive: true });
       if (existsSync(sourceScratch)) {
         for (const entry of await readdir(sourceScratch)) {
-          if (samePath(join(sourceScratch, entry), common) || entry === '.git') continue;
+          if (
+            entry === '.git' ||
+            samePath(await canonicalPath(join(sourceScratch, entry)), await canonicalPath(common))
+          )
+            continue;
           await cp(join(sourceScratch, entry), join(scratch, entry), {
             recursive: true,
             dereference: false,
@@ -260,8 +272,11 @@ export async function makeBackup(
           });
           await copyWorkingFiles(node.worktree_path, target);
         }
-        await writeFile(join(map(node.worktree_path), '.git'), `gitdir: ${map(admin)}\n`);
-        await writeFile(join(map(admin), 'gitdir'), join(map(node.worktree_path), '.git') + '\n');
+        await replaceCopiedPointer(join(map(node.worktree_path), '.git'), `gitdir: ${map(admin)}\n`);
+        await replaceCopiedPointer(
+          join(map(admin), 'gitdir'),
+          join(map(node.worktree_path), '.git') + '\n',
+        );
       }
       if (
         source !== null &&
@@ -279,8 +294,8 @@ export async function makeBackup(
             dereference: false,
             filter: metadataFilter,
           });
-          await writeFile(join(map(source), '.git'), `gitdir: ${map(admin)}\n`);
-          await writeFile(join(map(admin), 'gitdir'), join(map(source), '.git') + '\n');
+          await replaceCopiedPointer(join(map(source), '.git'), `gitdir: ${map(admin)}\n`);
+          await replaceCopiedPointer(join(map(admin), 'gitdir'), join(map(source), '.git') + '\n');
         }
       }
       await safeConfigs(common, repo, map);

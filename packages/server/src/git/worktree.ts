@@ -1,6 +1,7 @@
 import { lstat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { OperationConflict } from '../domain/errors.js';
+import { canonicalPath, samePath } from '../paths.js';
 import { git, gitLine, GitError } from './exec.js';
 import { initialiseSubmodules } from './submodules.js';
 
@@ -64,7 +65,14 @@ export async function removeWorktree(repoPath: string, worktreePath: string): Pr
     } catch (missing) {
       if ((missing as NodeJS.ErrnoException).code === 'ENOENT') {
         const registered = await git(['worktree', 'list', '--porcelain', '-z'], repoPath);
-        if (registered.split('\0').includes(`worktree ${worktreePath}`)) throw error;
+        const target = await canonicalPath(worktreePath);
+        for (const field of registered.split('\0')) {
+          if (
+            field.startsWith('worktree ') &&
+            samePath(await canonicalPath(field.slice(9)), target)
+          )
+            throw error;
+        }
         return;
       }
     }

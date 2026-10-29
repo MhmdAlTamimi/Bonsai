@@ -8,7 +8,7 @@ import { nodeRef, pinRef, projectRefs } from '../git/refs.js';
 import { readGitState } from '../git/ownership.js';
 import { copyWorkingFiles, exportExperiment, protectExportTips } from '../git/export.js';
 import { indexTrees, workingTreeSnapshot } from '../git/snapshot.js';
-import { samePath } from '../paths.js';
+import { canonicalPath, samePath } from '../paths.js';
 import { OperationConflict } from '../domain/errors.js';
 import { fingerprint } from './fingerprint.js';
 import { preserveLocalFiles } from '../jobs/projectWorkspace.js';
@@ -35,6 +35,7 @@ export async function lostExperiments(
     found.set(suffix, { ref, commit, folder: null });
   }
   const scratch = store.projectScratchDir(projectId);
+  const worktrees = await canonicalPath(join(scratch, 'worktrees'));
   const records = (await git(['worktree', 'list', '--porcelain', '-z'], project.repo_path)).split(
     '\0\0',
   );
@@ -45,7 +46,7 @@ export async function lostExperiments(
     if (
       !folder ||
       !commit ||
-      !samePath(dirname(folder), join(scratch, 'worktrees')) ||
+      !samePath(await canonicalPath(dirname(folder)), worktrees) ||
       !uuid.test(basename(folder)) ||
       known.has(basename(folder))
     )
@@ -55,7 +56,7 @@ export async function lostExperiments(
     found.set(id, {
       ref: nodeRef(projectId, id),
       commit: prior?.commit ?? commit,
-      folder: existsSync(folder) ? folder : null,
+      folder: existsSync(folder) ? join(scratch, 'worktrees', id) : null,
     });
   }
   const workspace = store.workspaces.get(projectId);

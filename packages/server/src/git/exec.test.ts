@@ -4,6 +4,7 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { git, gitInput, gitLine, gitPatch } from './exec.js';
+import { addDetachedWorktree } from './worktree.js';
 
 describe('Bonsai Git invocation policy', () => {
   let root: string;
@@ -53,6 +54,21 @@ describe('Bonsai Git invocation policy', () => {
     assert.match((await gitPatch(['diff'], root)).patch, /--- a\/app.txt\n\+\+\+ b\/app.txt/);
     const tree = (await gitInput(['mktree'], root, '')).trim();
     assert.equal(await gitLine(['cat-file', '-t', tree], root), 'tree');
+  });
+
+  test('repository CRLF rules remain effective without rewriting source files or config', async () => {
+    await git(['config', 'core.autocrlf', 'true'], root);
+    await git(['config', 'core.safecrlf', 'false'], root);
+    const source = join(root, 'app.txt');
+    await writeFile(source, 'first\nsecond\n');
+    await git(['add', 'app.txt'], root);
+    await git(['commit', '-m', 'LF content'], root);
+    const before = await readFile(source);
+    const checkout = join(root, 'checkout');
+    await addDetachedWorktree(root, checkout, 'HEAD');
+    assert.equal(await readFile(join(checkout, 'app.txt'), 'utf8'), 'first\r\nsecond\r\n');
+    assert.deepEqual(await readFile(source), before);
+    assert.equal(await gitLine(['config', '--get', 'core.autocrlf'], root), 'true');
   });
 
   test('reports a missing cwd with its path rather than empty stderr', async () => {

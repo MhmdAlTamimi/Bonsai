@@ -17,6 +17,7 @@ import { gitRecovery } from '../git/reconcile.js';
 import { removeWorktree } from '../git/worktree.js';
 import { relocateManagedStorage, locateRepository } from './relocate.js';
 import { Settings } from '../settings.js';
+import { canonicalPath, samePath } from '../paths.js';
 
 let root: string;
 let data: string;
@@ -91,11 +92,13 @@ for (const copy of [false, true])
     await git(['fsck', '--no-dangling'], store.getProject(project.projectId)!.repo_path);
     if (copy) {
       assert.equal(
-        await gitLine(
-          ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-          old.worktree_path,
+        await canonicalPath(
+          await gitLine(
+            ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+            old.worktree_path,
+          ),
         ),
-        join(data, 'repos', project.projectId, 'repo.git'),
+        await canonicalPath(join(data, 'repos', project.projectId, 'repo.git')),
       );
       assert.equal(await readFile(join(old.worktree_path, 'dirty.txt'), 'utf8'), 'unsaved');
     }
@@ -188,11 +191,12 @@ test('deleting a missing checkout does not prune an unrelated missing worktree',
   const repo = store.getProject(project.projectId)!.repo_path;
   // Missing, unregistered target exercises the remove fallback without global pruning.
   await removeWorktree(repo, join(root, 'already-gone'));
-  assert.ok(
-    (await git(['worktree', 'list', '--porcelain', '-z'], repo))
-      .split('\0')
-      .includes(`worktree ${other}`),
-  );
+  const expectedPath = await canonicalPath(other);
+  const registered = (await git(['worktree', 'list', '--porcelain', '-z'], repo))
+    .split('\0')
+    .filter((field) => field.startsWith('worktree '));
+  const paths = await Promise.all(registered.map((field) => canonicalPath(field.slice(9))));
+  assert.ok(paths.some((path) => samePath(path, expectedPath)));
 });
 
 test('stored managed location moves with data; an external preference stays explicit', () => {

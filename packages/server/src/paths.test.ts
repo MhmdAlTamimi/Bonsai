@@ -1,8 +1,10 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { posix, win32 } from 'node:path';
+import { posix, win32, join } from 'node:path';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
-import { isInside, samePath } from './paths.js';
+import { canonicalPath, isInside, samePath } from './paths.js';
 
 /**
  * Folder comparisons, under both platforms' rules whatever runs the tests: a
@@ -37,4 +39,20 @@ describe('comparing folders', () => {
     assert.equal(samePath(repo, 'D:\\Users\\me\\repo', win32), false);
     assert.equal(isInside('D:\\', 'D:\\projects', win32), true);
   });
+});
+
+test('missing descendants retain their existing ancestor’s canonical identity', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bonsai-path-alias-'));
+  try {
+    const target = join(root, 'target');
+    const alias = join(root, 'alias');
+    await mkdir(target);
+    await symlink(target, alias, 'junction');
+    assert.equal(
+      await canonicalPath(join(alias, 'missing', 'child')),
+      join(await realpath(target), 'missing', 'child'),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

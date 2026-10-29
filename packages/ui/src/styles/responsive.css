@@ -40,7 +40,7 @@
   .create-child-dialog > .creation-actions { padding-inline: 18px; }
   .create-child-dialog .creation-cancel { flex: 0 0 auto; }
   .create-child-dialog .creation-actions button { min-width: 0; font-size: var(--fs-xs); }
-  .create-child-dialog .creation-secondary { flex: 1.4; }
+  .create-child-dialog .creation-actions > button:not(.creation-cancel) { flex: 1 0 auto; white-space: nowrap; }
   .create-child-dialog .creation-secondary .icon { display: none; }
   .creation-source-popover { left: 18px; right: 18px; }
   .creation-source-fact { grid-template-columns: minmax(0, 1fr); gap: 2px; }

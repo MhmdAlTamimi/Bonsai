@@ -48,9 +48,11 @@ async function applyMove(store: Store, move: Move): Promise<void> {
         `The selected repository is missing recorded code for ${node.display_name}. Its files were not changed.`,
       );
   }
-  const oldCommon = samePath(project.repo_path, repo)
+  const canonicalRepo = await canonicalPath(repo);
+  const oldRepo = await canonicalPath(project.repo_path);
+  const oldCommon = samePath(oldRepo, canonicalRepo)
     ? common
-    : join(project.repo_path, relative(repo, common));
+    : join(oldRepo, relative(canonicalRepo, common));
   const repair: string[] = [];
   for (const node of nodes) {
     const path = map(node.worktree_path);
@@ -69,7 +71,7 @@ async function applyMove(store: Store, move: Move): Promise<void> {
       throw new OperationConflict(
         `The folder at ${path} is not a recorded Bonsai worktree. It was preserved.`,
       );
-    const admin = resolve(path, marker.slice(prefix.length).trim());
+    const admin = await canonicalPath(resolve(path, marker.slice(prefix.length).trim()));
     // Only an administration entry in this project's old or new repository is ours.
     if (![oldCommon, common].some((root) => isInside(join(root, 'worktrees'), admin)))
       throw new OperationConflict(
@@ -91,7 +93,7 @@ async function applyMove(store: Store, move: Move): Promise<void> {
     if (existsSync(path) && !repair.includes(path)) {
       const marker = await readFile(join(path, '.git'), 'utf8').catch(() => '');
       if (marker.startsWith('gitdir: ')) {
-        const admin = resolve(path, marker.slice(8).trim());
+        const admin = await canonicalPath(resolve(path, marker.slice(8).trim()));
         if (![oldCommon, common].some((root) => isInside(join(root, 'worktrees'), admin)))
           throw new OperationConflict(
             'The backup source belongs to another repository. Its files were preserved.',
