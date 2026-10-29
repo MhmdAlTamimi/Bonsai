@@ -104,9 +104,9 @@ async function repairMarkers(
       const text = await readFile(path, 'utf8');
       if (!text.startsWith('gitdir: '))
         throw new OperationConflict('Invalid Git pointer in backup.');
-      const original = resolve(originalRoot, text.slice(8).trim());
+      const original = await canonicalPath(resolve(originalRoot, text.slice(8).trim()));
       const mapped = map(original);
-      if (!isInside(repo, mapped) || !existsSync(mapped))
+      if (!isInside(await canonicalPath(repo), await canonicalPath(mapped)) || !existsSync(mapped))
         throw new OperationConflict(
           `A submodule uses Git data outside the backed-up repository: ${root}`,
         );
@@ -189,6 +189,7 @@ export async function makeBackup(
         );
       const projectRoots: Root[] = [
         { from: sourceScratch, to: scratch },
+        { from: await canonicalPath(sourceScratch), to: scratch },
         { from: common, to: repo },
       ];
       const source = project.source_path;
@@ -196,8 +197,13 @@ export async function makeBackup(
         throw new OperationConflict(
           'The project encloses the backup folder. Move Bonsai storage outside that project before backing it up.',
         );
-      if (source !== null && !isInside(sourceScratch, source) && existsSync(source))
-        projectRoots.push({ from: source, to: join(scratch, 'source') });
+      if (source !== null && !isInside(sourceScratch, source) && existsSync(source)) {
+        const target = join(scratch, 'source');
+        projectRoots.push(
+          { from: source, to: target },
+          { from: await canonicalPath(source), to: target },
+        );
+      }
       const map = mapper(projectRoots);
       for (const [folder, gitMetadata] of [
         [common, true],
@@ -264,7 +270,10 @@ export async function makeBackup(
         });
         if (!isInside(sourceScratch, node.worktree_path)) {
           const target = join(scratch, 'nodes', node.id);
-          projectRoots.push({ from: node.worktree_path, to: target });
+          projectRoots.push(
+            { from: node.worktree_path, to: target },
+            { from: await canonicalPath(node.worktree_path), to: target },
+          );
           checks.push({
             path: node.worktree_path,
             digest: await fingerprint(node.worktree_path),

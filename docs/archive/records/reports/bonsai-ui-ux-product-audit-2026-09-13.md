@@ -585,25 +585,25 @@ Use this map with the finding IDs. The report's conclusions are tied to the revi
 
 | Area | Source |
 | --- | --- |
-| App composition and gating | [App.tsx](../../packages/ui/src/App.tsx) |
-| Panel and action placement | [Panel.tsx](../../packages/ui/src/panel/Panel.tsx) |
-| Drafts, messages and scrolling | [useChat.ts](../../packages/ui/src/panel/chat/useChat.ts), [Composer.tsx](../../packages/ui/src/panel/chat/Composer.tsx) |
-| Run rendering and diff loading | [Transcript.tsx](../../packages/ui/src/panel/chat/Transcript.tsx) |
-| Change renderer and parser | [Diff.tsx](../../packages/ui/src/panel/chat/Diff.tsx), [diffModel.ts](../../packages/ui/src/panel/chat/diffModel.ts) |
-| Agent activity and prose | [ToolCalls.tsx](../../packages/ui/src/panel/chat/ToolCalls.tsx), [Markdown.tsx](../../packages/ui/src/panel/chat/Markdown.tsx), [markdown.ts](../../packages/ui/src/panel/chat/markdown.ts) |
-| New project flow | [NewProject.tsx](../../packages/ui/src/panel/NewProject.tsx), [StartScreen.tsx](../../packages/ui/src/panel/StartScreen.tsx), [DirectoryPicker.tsx](../../packages/ui/src/panel/DirectoryPicker.tsx) |
-| New experiment flow | [NewChildDialog.tsx](../../packages/ui/src/canvas/NewChildDialog.tsx), [useChildCreation.ts](../../packages/ui/src/state/useChildCreation.ts), [StartRun.tsx](../../packages/ui/src/panel/node/StartRun.tsx) |
-| Checks, lineage and details | [Checks.tsx](../../packages/ui/src/panel/node/Checks.tsx), [Lineage.tsx](../../packages/ui/src/panel/node/Lineage.tsx), [Details.tsx](../../packages/ui/src/panel/node/Details.tsx) |
-| Recovery, permission and node actions | [Recover.tsx](../../packages/ui/src/panel/node/Recover.tsx), [AskBox.tsx](../../packages/ui/src/panel/node/AskBox.tsx), [useNodeActions.ts](../../packages/ui/src/panel/node/useNodeActions.ts) |
-| Canvas, geometry and selection | [Canvas.tsx](../../packages/ui/src/canvas/Canvas.tsx), [NodeCard.tsx](../../packages/ui/src/canvas/NodeCard.tsx), [layout.ts](../../packages/ui/src/canvas/layout.ts), [useLaidOutNodes.ts](../../packages/ui/src/canvas/useLaidOutNodes.ts) |
-| Project navigation and state | [MenuBar.tsx](../../packages/ui/src/canvas/MenuBar.tsx), [useProjectTree.ts](../../packages/ui/src/state/useProjectTree.ts), [useAddressBar.ts](../../packages/ui/src/state/useAddressBar.ts) |
-| Settings and connection | [SettingsDialog.tsx](../../packages/ui/src/panel/SettingsDialog.tsx), [ConnectionScreen.tsx](../../packages/ui/src/panel/ConnectionScreen.tsx), [NewNodeSetup.tsx](../../packages/ui/src/panel/NewNodeSetup.tsx) |
-| Copying and diagnostics | [Checkout.tsx](../../packages/ui/src/panel/node/Checkout.tsx), [Diagnostics.tsx](../../packages/ui/src/panel/Diagnostics.tsx) |
-| Errors and event stream | [ErrorBoundary.tsx](../../packages/ui/src/ErrorBoundary.tsx), [describeError.ts](../../packages/ui/src/api/describeError.ts), [client.ts](../../packages/ui/src/api/client.ts), [useRunStream.ts](../../packages/ui/src/state/useRunStream.ts) |
-| Dialog and resizing primitives | [ConfirmDialog.tsx](../../packages/ui/src/ConfirmDialog.tsx), [PanelResizer.tsx](../../packages/ui/src/PanelResizer.tsx) |
-| Visual system and identity | [styles.css](../../packages/ui/src/styles.css), [Logo.tsx](../../packages/ui/src/Logo.tsx), [index.html](../../packages/ui/index.html), [nodeStatus.tsx](../../packages/ui/src/nodeStatus.tsx), [nodeCode.ts](../../packages/ui/src/nodeCode.ts) |
-| Backend facts behind UI | [router.ts](../../packages/server/src/api/router.ts), [store.ts](../../packages/server/src/db/store.ts), [flags.ts](../../packages/server/src/domain/flags.ts), [context.ts](../../packages/server/src/git/context.ts), [contract.ts](../../packages/shared/src/contract.ts) |
-| Product constraints | [PRD](../v0-prd.md), [decision log and backlog](../v0-decisions-and-backlog.md), [project rules](../../AGENTS.md) |
+| App composition and gating | [App.tsx](../../../../packages/ui/src/App.tsx) |
+| Panel and action placement | [Panel.tsx](../../../../packages/ui/src/panel/Panel.tsx) |
+| Drafts, messages and scrolling | [useChat.ts](../../../../packages/ui/src/panel/chat/useChat.ts), [Composer.tsx](../../../../packages/ui/src/panel/chat/Composer.tsx) |
+| Run rendering and diff loading | [Transcript.tsx](../../../../packages/ui/src/panel/chat/Transcript.tsx) |
+| Change renderer and parser | [Diff.tsx](https://github.com/MhmdAlTamimi/Bonsai/blob/d68d3739bd82b95e3d659edd0e2b5e5346216655/packages/ui/src/panel/chat/Diff.tsx), [diffModel.ts](https://github.com/MhmdAlTamimi/Bonsai/blob/d68d3739bd82b95e3d659edd0e2b5e5346216655/packages/ui/src/panel/chat/diffModel.ts) |
+| Agent activity and prose | [ToolCalls.tsx](https://github.com/MhmdAlTamimi/Bonsai/blob/d68d3739bd82b95e3d659edd0e2b5e5346216655/packages/ui/src/panel/chat/ToolCalls.tsx), [Markdown.tsx](../../../../packages/ui/src/panel/chat/Markdown.tsx), [markdown.ts](../../../../packages/ui/src/panel/chat/markdown.ts) |
+| New project flow | [NewProject.tsx](../../../../packages/ui/src/panel/NewProject.tsx), [StartScreen.tsx](../../../../packages/ui/src/panel/StartScreen.tsx), [DirectoryPicker.tsx](../../../../packages/ui/src/panel/DirectoryPicker.tsx) |
+| New experiment flow | [NewChildDialog.tsx](../../../../packages/ui/src/canvas/NewChildDialog.tsx), [useChildCreation.ts](../../../../packages/ui/src/state/useChildCreation.ts), [StartRun.tsx](https://github.com/MhmdAlTamimi/Bonsai/blob/d68d3739bd82b95e3d659edd0e2b5e5346216655/packages/ui/src/panel/node/StartRun.tsx) |
+| Checks, lineage and details | [Checks.tsx](../../../../packages/ui/src/panel/node/Checks.tsx), [Lineage.tsx](../../../../packages/ui/src/panel/node/Lineage.tsx), [Details.tsx](../../../../packages/ui/src/panel/node/Details.tsx) |
+| Recovery, permission and node actions | [Recover.tsx](https://github.com/MhmdAlTamimi/Bonsai/blob/d68d3739bd82b95e3d659edd0e2b5e5346216655/packages/ui/src/panel/node/Recover.tsx), [AskBox.tsx](../../../../packages/ui/src/panel/node/AskBox.tsx), [useNodeActions.ts](../../../../packages/ui/src/panel/node/useNodeActions.ts) |
+| Canvas, geometry and selection | [Canvas.tsx](../../../../packages/ui/src/canvas/Canvas.tsx), [NodeCard.tsx](../../../../packages/ui/src/canvas/NodeCard.tsx), [layout.ts](../../../../packages/ui/src/canvas/layout.ts), [useLaidOutNodes.ts](../../../../packages/ui/src/canvas/useLaidOutNodes.ts) |
+| Project navigation and state | [MenuBar.tsx](../../../../packages/ui/src/canvas/MenuBar.tsx), [useProjectTree.ts](../../../../packages/ui/src/state/useProjectTree.ts), [useAddressBar.ts](../../../../packages/ui/src/state/useAddressBar.ts) |
+| Settings and connection | [SettingsDialog.tsx](../../../../packages/ui/src/panel/SettingsDialog.tsx), [ConnectionScreen.tsx](../../../../packages/ui/src/panel/ConnectionScreen.tsx), [NewNodeSetup.tsx](../../../../packages/ui/src/panel/NewNodeSetup.tsx) |
+| Copying and diagnostics | [Checkout.tsx](https://github.com/MhmdAlTamimi/Bonsai/blob/d68d3739bd82b95e3d659edd0e2b5e5346216655/packages/ui/src/panel/node/Checkout.tsx), [Diagnostics.tsx](../../../../packages/ui/src/panel/Diagnostics.tsx) |
+| Errors and event stream | [ErrorBoundary.tsx](../../../../packages/ui/src/ErrorBoundary.tsx), [describeError.ts](../../../../packages/ui/src/api/describeError.ts), [client.ts](../../../../packages/ui/src/api/client.ts), [useRunStream.ts](../../../../packages/ui/src/state/useRunStream.ts) |
+| Dialog and resizing primitives | [ConfirmDialog.tsx](../../../../packages/ui/src/ConfirmDialog.tsx), [PanelResizer.tsx](../../../../packages/ui/src/PanelResizer.tsx) |
+| Visual system and identity | [styles.css](https://github.com/MhmdAlTamimi/Bonsai/blob/d68d3739bd82b95e3d659edd0e2b5e5346216655/packages/ui/src/styles.css), [Logo.tsx](../../../../packages/ui/src/Logo.tsx), [index.html](../../../../packages/ui/index.html), [nodeStatus.tsx](../../../../packages/ui/src/nodeStatus.tsx), [nodeCode.ts](../../../../packages/ui/src/nodeCode.ts) |
+| Backend facts behind UI | [router.ts](../../../../packages/server/src/api/router.ts), [store.ts](../../../../packages/server/src/db/store.ts), [flags.ts](../../../../packages/server/src/domain/flags.ts), [context.ts](../../../../packages/server/src/git/context.ts), [contract.ts](../../../../packages/shared/src/contract.ts) |
+| Product constraints | [PRD](../v0-prd.md), [decision log and backlog](../v0-decisions-and-backlog.md), [project rules](../../../../AGENTS.md) |
 
 ### Additional component notes
 

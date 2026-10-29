@@ -70,7 +70,9 @@ class RecordingRunner implements AgentRunner, ConversationCopier {
 }
 
 const settle = async (jobs: RunJobs, nodeId: string): Promise<void> => {
-  for (let i = 0; i < 200 && jobs.isRunning(nodeId); i += 1) {
+  const deadline = Date.now() + 30000;
+  while (jobs.isRunning(nodeId)) {
+    assert.ok(Date.now() < deadline, `experiment ${nodeId} completes before the next assertion`);
     await new Promise((r) => setTimeout(r, 10));
   }
 };

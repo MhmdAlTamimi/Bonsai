@@ -2,7 +2,7 @@
 
 Bonsai is a local React/Node application for experiments, Claude Agent SDK conversations,
 and reviewing file changes. Read the implementation and tests as the source of truth.
-`docs/v0-prd.md`, its decision log, and milestone reports are historical design records;
+`docs/archive/records/v0-prd.md`, its decision log, and milestone reports are historical design records;
 they are not a scope gate for current work. Follow the user's approved scope.
 
 ## Development
@@ -19,7 +19,7 @@ also require `npm run test:e2e` with Chrome/Chromium; set `BONSAI_CHROME` to its
 executable if discovery fails. Tests use temporary repositories and the fake runner,
 without credentials. Do not use a real user's project as a fixture.
 `npm run dev` rebuilds the server once; restart it after backend changes. Run
-`npm run dev:ui` separately for Vite. See README for startup and configuration.
+`npm run dev:ui` separately for Vite. See docs/development.md for startup and configuration.
 Ask before adding dependencies. Keep changes and commits focused and reviewable.
 
 ## Current boundaries

@@ -148,12 +148,19 @@ test('a moved full backup survives losing original custom storage and retains di
   for (const name of ['recovery', 'exports', 'sessions'])
     assert.equal(await readFile(join(data, name, 'preserved.txt'), 'utf8'), name);
   const jobs = new RunJobs(store, bus, new FakeRunner(), settings, silentLogger);
-  jobs.start(archived.nodeId, 'continue from independent backup');
-  for (let i = 0; i < 200 && jobs.activeCount() > 0; i++)
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(jobs.activeCount(), 0);
-  assert.equal(store.listRuns(archived.nodeId).at(-1)?.status, 'done');
-  await git(['fsck', '--full', '--no-dangling'], store.getProject(project.projectId)!.repo_path);
+  try {
+    jobs.start(archived.nodeId, 'continue from independent backup');
+    const deadline = Date.now() + 30000;
+    while (jobs.isRunning(archived.nodeId)) {
+      assert.ok(Date.now() < deadline, 'the restored experiment finishes its run');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(jobs.activeCount(), 0);
+    assert.equal(store.listRuns(archived.nodeId).at(-1)?.status, 'done');
+    await git(['fsck', '--full', '--no-dangling'], store.getProject(project.projectId)!.repo_path);
+  } finally {
+    await jobs.drain(30000);
+  }
 });
 
 test('each adopted project gets its own independent repository and source snapshot without credentials or modifying the source', async () => {

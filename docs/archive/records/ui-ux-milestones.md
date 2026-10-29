@@ -57,7 +57,7 @@ specific policy conflicts with the owner before a later milestone needs to alter
 - **M6 — Reading size:** raise the default reading size and add an app-wide text-size preference in Settings,
   persisted by the backend. Check enlarged text, narrow windows, and the panel layout together.
 - **M4 — Branding (brought forward at owner request):** replace the existing mark with the supplied SVG and derive the favicon from the same artwork.
-  The source is preserved in [design/bonsai-mark.svg](design/bonsai-mark.svg). It contains transparent vector
+  The source is preserved in [design/bonsai-mark.svg](../../design/bonsai-mark.svg). It contains transparent vector
   paths and renders correctly; use a theme-aware treatment so the black artwork remains visible on dark surfaces.
 
 ## Milestone 2 review

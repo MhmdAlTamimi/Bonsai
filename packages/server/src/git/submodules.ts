@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { git, gitLine } from './exec.js';
 import { commitExists } from './repo.js';
-import { isInside } from '../paths.js';
+import { canonicalPath, isInside } from '../paths.js';
 import { OperationConflict } from '../domain/errors.js';
 
 export const MODULE_CACHE_FILE = 'bonsai-submodules.json';
@@ -102,13 +102,13 @@ export async function relocateSubmodules(
     const text = await readFile(marker, 'utf8');
     if (!text.startsWith('gitdir: '))
       throw new OperationConflict('A submodule is not a recorded linked checkout.');
-    const original = resolve(folder, text.slice(8).trim());
+    const original = await canonicalPath(resolve(folder, text.slice(8).trim()));
     if (![oldCommon, common].some((root) => isInside(root, original)))
       throw new OperationConflict(
         'The submodule uses a different repository. Its files were preserved.',
       );
     const admin = map(original);
-    if (!isInside(common, admin) || !existsSync(admin))
+    if (!isInside(common, await canonicalPath(admin)) || !existsSync(admin))
       throw new OperationConflict('The submodule Git data is missing. Restore a complete backup.');
     await writeFile(marker, `gitdir: ${admin}\n`);
     await git(['config', '--file', join(admin, 'config'), 'core.worktree', folder], common);

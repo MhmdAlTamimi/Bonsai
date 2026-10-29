@@ -1,197 +1,12 @@
 # Bonsai
 
-Bonsai is a local app for visualizing coding experiments, talking to Claude Code agents,
-and reviewing their edits. A node holds a conversation and saved code.
-Children inherit a pinned code snapshot and, unless started fresh, a copy of their parent's
-conversation, both taken at creation. Code and conversation can come from different
-ancestors when the parent changed no files.
+Bonsai is a local app for exploring coding ideas with Claude. Create experiments on a visual
+tree, continue each conversation independently, and compare the resulting code before
+applying it to your project.
 
-## Current behavior
+## Install
 
-- Create a new project or adopt an existing repository. New projects use a Bonsai-owned
-  bare repository plus a checkout. Adopting uses the repository in place: master becomes a
-  read-only checkout, in Bonsai's folder, of the version you pick (the branch your folder is
-  on by default, or another branch, remote branch or tag), and every experiment starts from
-  it. It does not follow later changes in your folder; start a new project to work from
-  those. Your folder is only read, and never switched to the version you pick.
-- Selecting a repository subdirectory sets the agent's working directory. Git still
-  operates on the whole repository. Bonsai does not initialize a nested repository.
-- New projects use one managed checkout per project. Running an experiment switches that
-  folder to its pinned saved code. A modifying run makes an app-owned commit kept by the
-  experiment's hidden ref; Bonsai creates no visible branches. Conversations stay separate.
-  Same-project runs queue; other projects can run concurrently. Reading saved conversations,
-  Review, Apply and Compare does not switch the checkout. Existing projects keep their older
-  per-experiment folders until explicitly converted in Project settings.
-- Children do not freeze their parent, and existing children never move to newer parent code.
-  An adopted project's master is read-only.
-- Runs stream conversation, tool output, questions and background activity. Stop cancels
-  a run and preserves partial work; Resume, Keep and Discard are recovery actions.
-  Finish now ends background waiting and saves remaining changes under the existing
-  completion semantics. It is not proof that interrupted tests or jobs succeeded.
-  Temporary connection retries show their reason and delay, with bounded retries. Rejected
-  credentials and billing/access problems end the run and preserve partial work. A rate limit
-  on one request does not permanently block every experiment.
-- Subscription sign-in uses Claude Code bundled with Bonsai's Agent SDK; a separate global
-  installation is unnecessary. The auth mode in Settings takes precedence over inherited
-  API keys or subscription tokens.
-- Compact a conversation with `/compact [focus]` in the composer or Compact conversation in a
-  card's ⋯ menu. The conversation shows "Compacting conversation" while it runs and a divider
-  afterwards, for automatic compaction too. Children branched later copy the compacted version.
-- References are project-wide text written once — a test procedure, a result worth keeping —
-  and given to any experiment by typing `@name` in a message (or the composer's @ button).
-  Write one from References on the top bar, or with Save as reference on a message or in a
-  card's ⋯ menu, which can fill it from that experiment's conversation
-  and `CONTEXT.md` with one tool-less model call. Nothing is saved until you save it. A run
-  receives its references as read-only files and keeps the copy it read; the transcript marks
-  a reference edited or deleted since and opens that exact copy.
-- `@` also offers other experiments. Mentioning one gives the run a snapshot of its committed
-  work to look up when needed: its conversation, its committed changes as a diff, and its
-  `CONTEXT.md` notes. Nothing is pasted into the prompt; each read shows in the transcript, and
-  the message's chip says when that experiment has changed since.
-- Compare two to four experiments: pick them with Compare in the canvas controls, or
-  ⌘/Ctrl/Shift-click cards. The Compare screen shows each experiment's goal, recorded testing,
-  approach and changes as of a snapshot, and a conversation with an agent that has read each
-  one's conversation, changes, notes and files. It only reads: it cannot run anything or change
-  any experiment. Questions can carry references with `@` (references only, not other
-  experiments), copied per question like a run's. When an experiment moves on, Update refreshes
-  its snapshot. Answers can be saved as references, and comparisons are kept per project under
-  Comparisons on the top bar.
-  Deleting an experiment names the comparisons that include it first; they keep the copy they
-  read, can still be asked about it, and can no longer update it.
-- **Free working space** in the active experiment's menu releases the project's checkout
-  while keeping saved code and conversations. Unknown ignored files move into private
-  per-experiment storage and return when that experiment runs again. Only folders explicitly
-  declared regeneratable in Project settings are removed. Busy, held, dirty or drifted
-  checkouts are protected. Automatic idle cleanup uses the same rules.
-  Unconverted projects retain Archive folder and their existing archive rules.
-  Settings > Storage separates working folders, preserved local files, Git history,
-  conversations/database, comparison copies, backups, recovery copies and exports.
-- **Keep active** prevents another experiment taking the checkout while an external editor
-  or preview uses it. Opening an experiment's folder activates and holds it automatically;
-  uncheck Keep active before running another experiment. A preview must be stopped before
-  releasing its hold. Bonsai cannot detect every external program.
-- Review shows what the experiment itself changed, committed and unfinished, compared with
-  the code it started from. Below master's direct children, **Whole line** adds what its
-  parents changed since the line left master, which is what Apply takes. Review always opens
-  on the experiment's own changes; one that has none yet says so and offers the whole line.
-  Per-run diffs remain commit-specific.
-  Oversized patches explicitly report truncation.
-- Optional success criteria and check instructions go to the agent. Notes currently live
-  in `CONTEXT.md` at the worktree root. Notes-only edits retain the existing special
-  commit/revert behavior; moving notes into Bonsai records is separate planned work.
-
-Historical plans are in [docs/v0-prd.md](docs/v0-prd.md) and
-[docs/v0-decisions-and-backlog.md](docs/v0-decisions-and-backlog.md). They do not define
-current scope or supersede implementation. Contributor instructions are in [AGENTS.md](AGENTS.md).
-
-## Repository safety and permissions
-
-Bonsai owns experiment worktrees, refs and commits. The agent is instructed to ask
-for a new node instead of creating branches itself, and to provide instructions for
-changes outside the experiment. Unexpected Git HEAD, branch, ref or common-repository changes
-stop app mutations and leave work available for inspection. Bonsai does not silently
-reconcile an externally modified branch or ref with its database.
-
-Every experiment has a hidden ref, `refs/bonsai/<project>/<experiment>`, at its latest commit
-(or the one it starts from). Git removes commits nothing refers to; this ref keeps an
-experiment's code while it has no folder, including a snapshot of uncommitted work taken when a
-folder was adopted. These refs are not branches: `git branch`, branch pickers and
-`git push --all` do not show or send them, while `git log --all` and mirror clones include them.
-
-**Worktrees are not security sandboxes.** Writable SDK tools and setup commands execute
-with the host user's access. The Git command hook catches common commands; it does not
-contain arbitrary shell programs or stop every way to alter Git. Use trusted projects
-and commands. Scoped approval for external actions is planned, not implemented.
-
-| Writable-run setting | Current adapter behavior |
-| --- | --- |
-| Ask before changes (`default`) | Requests that reach the permission callback are shown in Bonsai. SDK pre-approved operations need not ask. |
-| Allow tools and commands (`acceptEdits`) | SDK accepts edits and Bonsai approves remaining tool requests, including shell commands. |
-| Plan (SDK mode) (`plan`) | Passes SDK plan mode, but Bonsai approves ordinary requests that reach its callback. This is not an app-enforced read-only mode; setup may run. |
-| Bypass permission checks (`bypassPermissions`) | Passes SDK bypass mode with its explicit dangerous-permissions opt-in. |
-
-Read-only runs override those modes with a tool allow-list and deny other tools, including
-Bash and agent delegation. They skip setup. These are SDK tool restrictions, not host
-filesystem containment. Unit adapter tests pin the configuration; verifying a different
-SDK version's actual behavior requires the opt-in live probes under `scripts/`.
-
-A folder on no branch (a detached checkout) starts from the commit it is on. Unsaved changes
-can be included only when starting from what the folder has checked out; that snapshots
-tracked and eligible untracked files without changing your index, checkout or branches, and
-ignored files are excluded. Projects adopted before master
-had a checkout of its own keep using your folder as master, read-only. A folder with no repository or
-no commits is initialized/committed during adoption, which changes that folder.
-
-Per-project copy-in files must be untracked in source and destination, ignored by the
-**destination**, and free of symlink components inside the selected roots. Failed inspection
-refuses the copy. A setup command runs before the first writable agent run and again after
-switching experiments or changing setup configuration. It does not rerun for every message
-on the same active experiment. Setup errors appear in the conversation; cancellation leaves
-setup eligible to run again. Read-only runs skip setup.
-
-### Switching and reducing disk use
-
-New projects use the shared checkout automatically. For an existing project:
-
-1. Finish or stop its jobs. Save/import unfinished work, or deliberately discard it.
-2. In **Settings > Project**, configure a setup command and **Regeneratable folders**,
-   one repository-relative path per line: for example `node_modules`, `.venv` or `.next`.
-   Declare only folders you can rebuild; ignored files are not automatically disposable.
-3. Select **Review conversion**, inspect any blockers, then **Convert workspace**.
-
-Conversion checks saved refs, folder ownership, dirty files, locks and submodules before
-removing old checkouts. It preserves unclassified ignored files separately by experiment.
-An interrupted conversion offers Resume conversion. Interrupted workspace preparation
-offers Retry preparation or Preserve files and restore in Project settings; the latter
-verifies independent copies of current working/staged code and local files before restoring
-saved code. No silent stash, reset or import is performed.
-
-Switching removes declared regeneratable artifacts and reruns configured setup when a
-writable run starts. This trades installation time for disk savings and reliable separation.
-Package-manager download caches may speed installation; Bonsai does not manage those caches.
-Without declared regeneratable folders, dependencies such as `.venv` remain preserved per
-experiment, so they can still occupy significant space. Retained outputs, Git history,
-backups and recovery copies also remain. Storage figures are file usage estimates;
-hardlinks/reflinks and external caches can make actual physical usage differ.
-
-Make a backup before converting an important project. This build upgrades the storage
-format to schema 29; older builds reject it. To try an older build afterwards, use a
-separate pre-upgrade backup rather than opening upgraded data. Conversion has no automatic
-rollback: saved code can be exported independently. See the [implementation checklist](docs/shared-checkout.md).
-
-Deleting an adopted project removes its app-owned worktrees, its `refs/bonsai/<project>/` refs
-and any `node/<uuid>` branches older experiments left, while preserving the original checkout
-and branch. Deleting a created project removes its owned repository and checkout. Deletion
-refuses unexpected Git state; inspect and resolve drift before retrying. Deletion removes the
-experiment; archiving (above) only removes its folder.
-
-To take an experiment's changes to your own repository, use Apply to your repo in Review or
-in the card's ⋯ menu. Bonsai writes the committed changes of the experiment's whole line (its
-parents' and its own, since the line left master; without `CONTEXT.md` and without
-uncommitted work) to a patch in its data folder, and shows the command. For a project made
-from a folder it names that folder, so it works from any terminal:
-
-```bash
-git -C "/path/to/your/folder" apply --3way "<data dir>/patches/try-redis-c99c2d3.patch"
-```
-
-For a project Bonsai created, run `git apply --3way "<patch>"` in the repository you want the
-changes in. "Only this experiment" applies just its own step, for when its parents' changes
-are already in your folder. Download patch saves the same file, for a Git app's Apply patch.
-The dialog says when your folder is on a different branch than the project started from.
-
-The changes land uncommitted (staged, as `--3way` does); review and commit them yourself.
-Git refuses to change a file with uncommitted edits of your own, and leaves conflict markers
-where your code changed the same lines. Bonsai does not touch your repository, commit, merge,
-publish or sync. Patches older than a week are removed from the data folder.
-
-## Install and run
-
-Requirements: **Node 22.18+**, npm, Git on PATH, and a supported Claude Agent SDK runtime.
-CI uses current Node 22.x on Linux and on Windows, where every test runs except the two
-that need detached-process discovery; stabilization is also checked with Node 24.
-Linux/macOS are the supported process-cleanup targets. Detached-process discovery is not
-implemented on Windows, and full process-tree cleanup must not be assumed there.
+Requires **Node.js 22.18+**, npm, and Git.
 
 ```bash
 git clone https://github.com/MhmdAlTamimi/Bonsai.git
@@ -200,116 +15,40 @@ npm ci
 npm start
 ```
 
-`npm start` builds server and UI, serves on `127.0.0.1:8787`, and opens a browser.
-The local API has origin/host checks, but no user authentication. Do not expose it through
-a public proxy or treat loopback binding as a sandbox against local commands.
+Bonsai builds the app and opens [localhost:8787](http://localhost:8787).
+Connect your Claude subscription or API key in Settings.
 
-Connect through the app using a Claude subscription or an API key. Subscription sign-in
-uses Claude's local authentication; API keys are stored in the local settings file with
-restricted permissions and are not returned to the browser. Connection checks make a real
-request. Real runs may incur usage charges; review the usage view and your provider's billing.
-Usage records per-request API-equivalent estimates for experiments, comparisons and reference
-drafts. Subscription estimates represent token value, not additional subscription charges.
-Reported turns survive restarts, and deleting an experiment or comparison retains its usage
-summary. Missing reports stay unrecorded; older estimates that may count earlier turns again
-stay marked unverified and are excluded from corrected totals. Spending caps are deferred.
-Saved projects and conversations remain reviewable without an active connection; actions
-that require the agent are gated. Fake-agent mode is explicit and intended for development.
+## Get started
 
-For development, use separate terminals:
+1. Create a project or choose an existing folder.
+2. Create a child experiment from the version you want to explore.
+3. Describe the change. Optionally add checks and the desired output.
+4. Review the changes, compare experiments, and use **Apply to your repo** to export a patch.
 
-```bash
-npm run dev       # builds server once, then runs it; restart after backend edits
-npm run dev:ui    # Vite UI, http://localhost:5173
-```
+Each project uses one working folder. Running an experiment loads its saved code there;
+reading conversations and reviewing changes does not switch it. Experiments in the same
+project run one at a time. Different projects can run concurrently.
 
-`npm run build:ui` rebuilds the UI served directly by the backend. Vite changes are not
-reflected in that built UI until rebuilt.
+**Open folder** activates an experiment and enables **Keep active**, which protects it while
+you use an editor or preview. Stop the preview and release Keep active before running a
+different experiment.
 
-## Verification
+## Storage and upgrades
 
-```bash
-npm test          # server build, typecheck, lint, format, server and UI/shared tests
-npm run build:ui  # production bundle
-npm run test:e2e  # builds both halves and runs real-browser scenarios
-```
+Use **Settings → Storage → Make backup** before upgrading an existing installation.
+Older projects keep their separate experiment folders until you convert them in
+**Settings → Project → Review conversion**.
 
-Browser tests require Chrome/Chromium. Set `BONSAI_CHROME=/absolute/path/to/chromium` if
-it is not discovered automatically. They use a temporary data directory and fake agent;
-no credentials or model calls are needed. Tests exercise real temporary Git repositories,
-SDK adapter contracts, jobs, recovery, API and browser workflows. They do not prove live
-SDK permission enforcement. The lockfile pins the reviewed dependency versions.
+Declare rebuildable folders such as `node_modules` or `.venv` in Project settings and provide
+a setup command. Other ignored files are preserved, so they can still take disk space.
+**Free working space** removes the current working folder while keeping saved experiments.
 
-## Configuration and data
+Agents and setup commands run with your account's filesystem access. Worktrees do not
+provide a security sandbox. Keep the local server private.
 
-App and project settings cover models, effort, permissions, setup and locations. The model list
-comes from Claude Code during the connection check (with the effort levels each model takes),
-joined with a built-in list, so a model the installed Claude Code knows appears without a new
-Bonsai. Updating `@anthropic-ai/claude-agent-sdk` brings a newer Claude Code and its models.
-Existing projects retain their recorded repository/worktree paths when defaults change.
+## Guides
 
-| Variable | Default / purpose |
-| --- | --- |
-| `BONSAI_PORT` | `8787`, backend port |
-| `BONSAI_DATA_DIR` | OS app-data directory for `bonsai.db` and `settings.json` |
-| `BONSAI_REPOS_ROOT` | `<data dir>/repos`, default repository/worktree storage |
-| `BONSAI_MODEL` | Optional default model |
-| `BONSAI_FAKE_AGENT=1` | Explicit fake runner for development/testing |
-| `BONSAI_CHROME` | Browser executable for the browser test harness |
-
-The server prints its data location on startup. Use Settings to change preferences.
-Settings → Storage → **Make backup** creates a verified, independent data folder under
-`<data dir>/backups/`. Finish or stop active jobs first; mutations pause while copying.
-The backup includes the database, Git objects/history, working and staged files, ignored
-files, comparison snapshots and preserved recovery/export folders. External source folders
-are copied privately; the originals are untouched. Authentication credentials and Git
-remote/credential configuration are excluded. Copy the completed folder to another disk.
-
-Claude conversation transcripts and subagent history are mirrored into Bonsai's database
-through the SDK's session store, so verified backups and storage moves preserve resumable
-sessions. Older sessions are imported when available, including before a verified backup.
-Backup reports original sessions that are unavailable and preserves their saved Bonsai messages.
-If Claude's original session is
-missing, Bonsai explicitly starts a new conversation from its saved messages and inherited
-context; older messages and tool output may be shortened. A child keeps the parent's context
-as of its last completed run, including after compaction, without inheriting unfinished turns.
-Send a normal message to recover a missing session before using Compact.
-
-To restore, close Bonsai, preserve the current data folder, then copy the **whole completed
-backup folder** into the chosen data location (or set `BONSAI_DATA_DIR` to it). Start Bonsai
-and sign in again. Owned checkout paths are repaired on startup. A backup whose
-`backup.json` has `complete: false` is incomplete; retry the backup. Do not use a live
-filesystem copy of the database and repositories as a consistent backup. If Git or an
-outside editor changes files during the verified copy, Bonsai refuses to mark it complete.
-Repositories borrowing objects through Git alternates require an independent repository
-first; unavailable local submodule code must be initialized before backup.
-
-To reset only app preferences, stop Bonsai and back up/rename `settings.json` in that
-location; this also removes the saved API key/default locations from the active settings.
-It does not reset project settings stored in SQLite. Preserve the database, repositories
-and recorded checkout locations. Deleting the whole data directory can destroy created
-projects and experiment work; it is not a settings reset.
-
-After a crash, unfinished runs become interrupted. Process cleanup is best-effort:
-unmarked processes, abrupt host termination and unsupported platforms can leave work
-running. Inspect external processes before resuming if necessary. Setup uses bounded
-process-group cancellation on POSIX; observed marked processes are checked at run teardown,
-and cleanup failures are recorded rather than described as successful stops.
-
-## Layout
-
-| Path | Responsibility |
-| --- | --- |
-| `packages/shared` | Shared API/data contracts |
-| `packages/server/src/api` | HTTP routing (`routing.ts`), endpoints by area (`routes/`) and SSE |
-| `packages/server/src/db` | SQLite storage and compatibility migrations |
-| `packages/server/src/domain` | Lineage, permissions/flags and conflicts |
-| `packages/server/src/git` | Git execution, snapshots, ownership, commits and review |
-| `packages/server/src/agent` | Claude SDK adapter and fake runner |
-| `packages/server/src/jobs` | Run scheduling (`runNode.ts`), shared workspace coordination (`projectWorkspace.ts`), preparation, transcripts, questions, background work and comparisons |
-| `packages/server/src/archive.ts` | Releasing idle shared workspaces, legacy archiving and measuring disk use |
-| `packages/ui` | React canvas, conversations, review and settings |
-| `packages/ui/src/styles` | Stylesheets by area, in cascade order via `index.css` |
-
-Standing (pinned) references, running a procedure across compared experiments, multiple
-code parents, applying changes on your behalf and broader SDK exposure belong to later phases. Those features are not introduced here. Shared-checkout conversion of existing projects is explicit.
+- [Installation and updates](docs/installation.md)
+- [Using Bonsai](docs/usage.md)
+- [Storage, backups, and recovery](docs/storage.md)
+- [Development](docs/development.md)

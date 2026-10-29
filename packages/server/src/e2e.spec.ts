@@ -4062,13 +4062,24 @@ describe('the interface, end to end', { skip: reasonToSkip() ?? false }, () => {
     ).json()) as { node: { id: string } };
     await post(`/api/nodes/${child.node.id}/runs`, { prompt: 'create files' });
     const deadline = Date.now() + 15000;
+    let ready = false;
     while (Date.now() < deadline) {
-      const detail = (await (await fetch(`${BASE}/api/nodes/${child.node.id}`)).json()) as {
-        node: { status: string };
-      };
-      if (detail.node.status === 'ready') break;
+      const response = await fetch(`${BASE}/api/nodes/${child.node.id}`);
+      if (response.status === 409) {
+        // A generation change invalidates an in-flight live read by design.
+        const conflict = (await response.json()) as { error: string };
+        assert.match(conflict.error, /workspace changed while loading this experiment/);
+      } else {
+        assert.ok(response.ok, await response.clone().text());
+        const detail = (await response.json()) as { node: { status: string } };
+        if (detail.node.status === 'ready') {
+          ready = true;
+          break;
+        }
+      }
       await new Promise((resolve) => setTimeout(resolve, 30));
     }
+    assert.ok(ready, 'the run completes before external Git mutations begin');
     const fixtureDb = new DatabaseSync(join(dataDir, 'bonsai.db'), { readOnly: true });
     const folder = (
       fixtureDb

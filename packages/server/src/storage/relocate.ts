@@ -30,7 +30,10 @@ const mapper =
 async function applyMove(store: Store, move: Move): Promise<void> {
   const project = store.getProject(move.projectId);
   if (!project) throw new OperationConflict('The project no longer exists.');
-  const map = mapper(move);
+  const aliases = await Promise.all(
+    move.roots.map(async (root) => ({ ...root, from: await canonicalPath(root.from) })),
+  );
+  const map = mapper({ ...move, roots: [...move.roots, ...aliases] });
   const repo = map(project.repo_path);
   const nodes = store.listNodes(project.id);
   const common = await canonicalPath(
