@@ -1,0 +1,84 @@
+name: Approved branch retirement
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/retire-reviewed-branches.yml]
+
+permissions: {}
+
+concurrency:
+  group: retire-reviewed-branches
+  cancel-in-progress: false
+
+jobs:
+  retire:
+    if: >-
+      github.repository == 'MhmdAlTamimi/Bonsai' &&
+      startsWith(github.event.head_commit.message, 'Run approved one-time branch retirement')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Archive and retire the exact approved refs
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_sha=28005fb437d0a7c6174402de64c3ed44ef811f1f
+          archive_ref=refs/tags/archive/pre-shared-checkout
+          main_tip=$(git ls-remote --heads origin refs/heads/main | cut -f1)
+          test "$main_tip" = "$GITHUB_SHA"
+          leases=()
+          deletions=()
+          while read -r branch expected; do
+            test "$branch" != main
+            git check-ref-format "refs/heads/$branch"
+            tip=$(git ls-remote --heads origin "refs/heads/$branch" | cut -f1)
+            if test -z "$tip"; then
+              echo "Already absent: $branch"
+              continue
+            fi
+            if test "$tip" != "$expected"; then
+              echo "Refusing cleanup: $branch moved since approval."
+              exit 1
+            fi
+            git merge-base --is-ancestor "$tip" "$GITHUB_SHA"
+            leases+=("--force-with-lease=refs/heads/$branch:$tip")
+            deletions+=(":refs/heads/$branch")
+          done <<'BRANCHES'
+          claude/apply-command 1678053a3146c76206ddad640b6579129c915489
+          claude/apply-fixes eb91a1e5d3bb882987a2536fd21bca65cc1eeabd
+          claude/audit d7f9c87018bdf555ca1b12251f601a2e185e4953
+          claude/bonsai-review-planning-d5j38w 0b82d452d47ae0c25154f57201323da5a98f7110
+          claude/consistency-pass fff872538cd312823951a7908465bf4683a85726
+          claude/experiment-app-uiux-audit-vtgh9d 3ba6630c4d5645ca7704f8dc73f9bc3e7bc37e38
+          claude/experiment-references-and-compare 6b543c71d35047e2900edb26c0d960b97ac842d4
+          claude/hidden-refs e7d4a984b191dfda5872c5fee52d5499c48afbbd
+          claude/maintainability-and-archive 3bedbd93cf83ceccc8b0baedf7cb354268e431cf
+          claude/platform-fixes 62d2e2e05e873bad718c8c49022c73e59ceceec6
+          claude/side-panel-rework d68d3739bd82b95e3d659edd0e2b5e5346216655
+          codex/audit-fixes 28005fb437d0a7c6174402de64c3ed44ef811f1f
+          codex/phase-4-references 8cb5d054422412dff964a699b0adcded5312dbf5
+          codex/phases-1-3 8cb5d054422412dff964a699b0adcded5312dbf5
+          codex/stabilize-a-d 7d25e8c6cbfa2499640f8472b1599feced9359bd
+          codex/shared-checkout 5527ab9e2880818a53a6eff22c4091dad2070d7c
+          archive/pre-shared-checkout 28005fb437d0a7c6174402de64c3ed44ef811f1f
+          BRANCHES
+          saved=$(git ls-remote --refs origin "$archive_ref" | cut -f1)
+          if test -n "$saved" && test "$saved" != "$archive_sha"; then
+            echo "Refusing to replace an existing archive tag."
+            exit 1
+          fi
+          if test -z "$saved"; then
+            git push origin "$archive_sha:$archive_ref"
+          fi
+          test "$(git ls-remote --refs origin "$archive_ref" | cut -f1)" = "$archive_sha"
+          if test "${#deletions[@]}" -gt 0; then
+            git push --atomic "${leases[@]}" origin "${deletions[@]}"
+          fi
+          printf 'Archived old main at %s. Retired %s approved branch names.\n' \
+            "$archive_sha" "${#deletions[@]}" >> "$GITHUB_STEP_SUMMARY"
